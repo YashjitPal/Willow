@@ -14,6 +14,7 @@ import { SparkTaskDeleteDialog, SparkTaskRenameDialog } from './SparkTaskDialogs
 import { useSparkNow } from './useSparkNow';
 import { useSparkTaskWindow } from './use-spark-task-window';
 import { useAuth } from '@willow/auth/AuthContext';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { sparkAccentVars } from './spark-accent';
 import './SparkHome.css';
@@ -89,9 +90,12 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   onDeleteTask,
 }) => {
   const { userProfile } = useAuth();
-  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
+  const { isLight } = useThemeMode();
+  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'blue';
   const theme = getWorkspaceTheme(effectiveWorkspaceColor);
-  const glowAccent = theme.glowAccent;
+  const glowAccent = isLight
+    ? (theme.id === 'blue' || !workspaceColor ? 'rgb(157, 210, 255)' : theme.glowAccentLight)
+    : theme.glowAccent;
   const pageHeadingId = useId();
   const recentHeadingId = useId();
   const suggestedHeadingId = useId();
@@ -120,7 +124,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
       aria-labelledby={pageHeadingId}
       /* The suggested rows sit outside `.spark-composer-anchor`, so the glow
          variable declared there never reached their indicators. */
-      style={sparkAccentVars(effectiveWorkspaceColor)}
+      style={sparkAccentVars(effectiveWorkspaceColor, isLight)}
     >
       <div className="spark-top-controls" aria-label="Spark release information">
         {/* `button.whats-new-badge` sits left of the Beta label in Gemini's `remy-badges`

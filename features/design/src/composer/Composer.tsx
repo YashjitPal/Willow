@@ -8,6 +8,7 @@ import { GithubImportDialog } from '@willow/ui/github/GithubImportDialog';
 import './Composer.css';
 import { ComposerAttachment, createComposerAttachment } from '@willow/core/attachments';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { useThemeMode } from '@willow/core/theme-mode';
 import {
   Plus,
   FileText,
@@ -81,14 +82,16 @@ export const CHAT_BUTTON_COLORS = {
   teal: { bg: '#00625c', hover: '#00514c' },
 } as const;
 
-export const getChatSubmitBg = (color?: string) => {
+export const getChatSubmitBg = (color?: string, isLight?: boolean) => {
   const theme = getWorkspaceTheme(color);
-  return `bg-[${theme.sendButton.bg}] hover:bg-[${theme.sendButton.hover}]`;
+  return isLight
+    ? `bg-[${theme.sendButton.lightBg}] hover:bg-[${theme.sendButton.lightHover}]`
+    : `bg-[${theme.sendButton.bg}] hover:bg-[${theme.sendButton.hover}]`;
 };
 
-export const getChatTranscribingBg = (color?: string) => {
+export const getChatTranscribingBg = (color?: string, isLight?: boolean) => {
   const theme = getWorkspaceTheme(color);
-  return `bg-[${theme.sendButton.bg}]`;
+  return isLight ? `bg-[${theme.sendButton.lightBg}]` : `bg-[${theme.sendButton.bg}]`;
 };
 
 export interface ComposerHandle {
@@ -155,6 +158,9 @@ export const InputBar: React.FC<{
 }) => {
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
+  const workspaceTheme = useMemo(() => getWorkspaceTheme(effectiveWorkspaceColor), [effectiveWorkspaceColor]);
+  const { isLight } = useThemeMode();
+  const [isSubmitHovered, setIsSubmitHovered] = useState(false);
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
@@ -716,17 +722,29 @@ export const InputBar: React.FC<{
               }
               aria-label={isGenerating ? 'Stop response' : isResponseRevealing ? 'Finishing response' : isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
               style={
-                chatVariant && !responseControlActive && !liveActive && !isTranscribingDictation
-                  ? { backgroundColor: getWorkspaceTheme(effectiveWorkspaceColor).sendButton.bg }
+                chatVariant && !responseControlActive && !liveActive
+                  ? {
+                      backgroundColor: isLight
+                        ? isSubmitHovered
+                          ? workspaceTheme.sendButton.lightHover
+                          : workspaceTheme.sendButton.lightBg
+                        : isSubmitHovered
+                          ? workspaceTheme.sendButton.hover
+                          : workspaceTheme.sendButton.bg,
+                    }
                   : undefined
               }
+              onMouseEnter={() => setIsSubmitHovered(true)}
+              onMouseLeave={() => setIsSubmitHovered(false)}
+              onMouseOver={() => setIsSubmitHovered(true)}
+              onMouseOut={() => setIsSubmitHovered(false)}
               className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                 chatVariant
                   ? responseControlActive || liveActive
-                    ? 'bg-[#171717] hover:bg-[#282828]'
+                    ? isLight ? 'bg-[#f2f0f0] hover:bg-[#e5e5e5]' : 'bg-[#171717] hover:bg-[#282828]'
                     : isTranscribingDictation
-                    ? getChatTranscribingBg(effectiveWorkspaceColor)
-                    : getChatSubmitBg(effectiveWorkspaceColor)
+                    ? getChatTranscribingBg(effectiveWorkspaceColor, isLight)
+                    : getChatSubmitBg(effectiveWorkspaceColor, isLight)
                   : responseControlActive || liveActive
                     ? 'bg-[#171717] hover:bg-[#282828]'
                     : isTranscribingDictation
@@ -740,18 +758,18 @@ export const InputBar: React.FC<{
                   name="stop"
                   size={STOP_BUTTON_ICON.size}
                   variationSettings={STOP_BUTTON_ICON.variationSettings}
-                  className="text-[#e6e6e6]"
+                  className={isLight ? 'text-[#000000]' : 'text-[#e6e6e6]'}
                 />
               ) : isTranscribingDictation ? (
-                <MaterialSymbol name="progress_activity" size={20} weight={400} className={chatVariant ? 'text-white' : 'text-black'} />
+                <MaterialSymbol name="progress_activity" size={20} weight={400} className={chatVariant ? (isLight ? 'text-black' : 'text-white') : 'text-black'} />
               ) : hasContent ? (
                 chatVariant
-                  ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className="text-white" />
+                  ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className={isLight ? 'text-black' : 'text-white'} />
                   : <ArrowUp size={22} className="text-black stroke-[2]" />
               ) : chatVariant && liveActive ? (
-                <MaterialSymbol name="stop" size={18} weight={600} fill className="text-white" />
+                <MaterialSymbol name="stop" size={18} weight={600} fill className={isLight ? 'text-black' : 'text-white'} />
               ) : chatVariant ? (
-                <svg width="24" height="24" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="text-white">
+                <svg width="24" height="24" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className={isLight ? 'text-black' : 'text-white'}>
                   <path d="M10 3.1a.9.9 0 0 1 .9.9v16a.9.9 0 0 1-1.8 0V4a.9.9 0 0 1 .9-.9M15 5.6a.9.9 0 0 1 .9.9v10a.9.9 0 0 1-1.8 0v-10a.9.9 0 0 1 .9-.9M5 8.6a.9.9 0 0 1 .9.9v5a.9.9 0 0 1-1.8 0v-5a.9.9 0 0 1 .9-.9M20 9.1a.9.9 0 0 1 .9.9v4a.9.9 0 0 1-1.8 0v-4a.9.9 0 0 1 .9-.9"/>
                 </svg>
               ) : liveActive ? (

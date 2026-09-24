@@ -577,3 +577,170 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ==========================================================================
+   Google Gemini Spark Light Theme - Skill Editor
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor {
+  background: var(--studio-surface, #faf9f9);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__back {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__back:hover {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__create:disabled {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__create:not(:disabled) {
+  background: var(--spark-accent-btn-bg, #0b57d0);
+  color: var(--spark-accent-btn-text, #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__create:not(:disabled):hover {
+  background: var(--spark-accent-btn-hover, #104bb0);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__panel {
+  background: #ffffff;
+  border: 1px solid #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__field > span,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__instructions-heading label {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__field input,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__field textarea {
+  border: 1px solid #f2f0f0;
+  color: #1f1f1f;
+  background: transparent;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__field--title input {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__field input::placeholder,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__field textarea::placeholder {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__field input:focus,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__field textarea:focus {
+  border-color: #0b57d0;
+  box-shadow: inset 0 0 0 1px #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__instructions-heading button {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__disclaimer {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__disclaimer button {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__dialog-backdrop {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__discard-dialog {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog h2,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__discard-copy h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog p,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__discard-copy p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog button {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog button:hover {
+  background: rgba(11, 87, 208, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog button.is-danger {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog button.is-danger:hover {
+  background: #e5e5e5;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__discard-actions button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__discard-actions button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__discard-actions button.is-discard {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__discard-actions button.is-discard:hover {
+  background: #e5e5e5;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__back:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__create:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__instructions-heading button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__disclaimer button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__discard-dialog button:focus-visible {
+  outline-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__gemini-note {
+  background: #e8f0fe;
+  color: #041e49;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__gemini-note strong {
+  color: #041e49;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__gemini-note span {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-editor__gemini-note .luminous-symbols {
+  color: #0b57d0;
+}

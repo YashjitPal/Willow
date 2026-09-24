@@ -639,3 +639,223 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ==========================================================================
+   Spark Schedule Editor — Light Theme (Google Gemini 1:1)
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor {
+  background: var(--studio-surface, #faf9f9);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__back {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__back:hover {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__back:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__create:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__toggle:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__weekdays button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__instructions-heading button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__disclaimer button:focus-visible {
+  outline: 2px solid var(--spark-accent-btn-bg, #0b57d0);
+  outline-offset: 2px;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__create {
+  background: var(--spark-accent-btn-bg, #0b57d0);
+  color: var(--spark-accent-btn-text, #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__create:hover:not(:disabled) {
+  background: var(--spark-accent-btn-hover, #0842a0);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__create:disabled {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__panel {
+  border: 1px solid #f2f0f0;
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__when legend,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__instructions-heading > label {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__field input {
+  border: 1px solid #f2f0f0;
+  color: #1f1f1f;
+  background: transparent;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__field input::placeholder,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__panel textarea::placeholder {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__field input:hover,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__panel textarea:hover {
+  border-color: #8e918f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__field input:focus,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__panel textarea:focus {
+  border-color: #0b57d0;
+  box-shadow: inset 0 0 0 1px #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__enabled-row {
+  border-top: 1px solid #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__enabled-copy strong {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__enabled-copy span {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__toggle {
+  background: #e0e2e0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__toggle > span {
+  background: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__toggle.is-checked {
+  background: var(--spark-toggle-track, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__toggle.is-checked > span {
+  background: var(--spark-toggle-thumb, #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__inline-word {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__select select {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__select select:hover {
+  background: #e8e7e7;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__select select:focus-visible {
+  border-color: #0b57d0;
+  box-shadow: inset 0 0 0 1px #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__select select option {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__select > .inline-flex {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__weekdays button {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__weekdays button:hover:not(.is-selected) {
+  background: #e5e5e5;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__weekdays button.is-selected {
+  background: #c2e7ff;
+  color: #001d35;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__ask-note {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__ask-link {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__panel textarea {
+  border: 1px solid #f2f0f0;
+  color: #1f1f1f;
+  background: transparent;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__disclaimer {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__disclaimer button {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__dialog-backdrop {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete-dialog,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete-dialog h2,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete-dialog p,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete-dialog button,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete-dialog button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button:hover {
+  background: rgba(11, 87, 208, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button.is-primary {
+  background: #0b57d0;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button.is-primary:hover {
+  background: #0842a0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete-dialog button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button:focus-visible {
+  outline: 2px solid #0b57d0;
+}
+

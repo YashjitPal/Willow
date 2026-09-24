@@ -483,3 +483,66 @@
     animation: none;
   }
 }
+
+/* ==========================================================================
+   Google Gemini Spark Light Theme - Spark Home Tab
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-home {
+  background: var(--studio-surface, #faf9f9);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-release-button {
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-release-button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-whats-new {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-beta-label {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-heading-block h1 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-section-heading h2,
+:is(.light-theme, [data-theme="light"]) .spark-suggested-heading {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks-button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-suggested-row:hover {
+  background: #ffffff;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-suggested-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-suggested-description {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-release-button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks-button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-suggested-row:focus-visible {
+  outline-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-composer-anchor::before {
+  display: none;
+}

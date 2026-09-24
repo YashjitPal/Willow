@@ -13,6 +13,7 @@ import { useStore } from '@nanostores/react';
 import { $chatPanelOpen, $voiceModeActive } from '@willow/chat/chat-panel-store';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { useThemeMode } from '@willow/core/theme-mode';
 
 /*
  * Signed out is NOT a different layout. Everything Willow does runs locally, so
@@ -102,15 +103,16 @@ export const StudioLayout: React.FC<{
   const theme = getWorkspaceTheme(userProfile?.workspaceColor);
   const selectionBg = theme.creamy.rgba;
 
+  const { isLight } = useThemeMode();
   const isChatExperience = studioExperience === 'chat';
   const chatPanelOpen = useStore($chatPanelOpen);
   const voiceModeActive = useStore($voiceModeActive);
   const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
-  const studioSurface = '#0f0f0f';
+  const studioSurface = isLight ? '#faf9f9' : '#0f0f0f';
   
   return (
     <div
-      className={`studio-layout studio-layout--${studioExperience} flex h-screen w-screen overflow-hidden bg-[var(--studio-surface)] text-white relative`}
+      className={`studio-layout studio-layout--${studioExperience} ${isLight ? 'light-theme text-[#1f1f1f]' : 'text-white'} flex h-screen w-screen overflow-hidden bg-[var(--studio-surface)] relative`}
       style={{
         '--studio-surface': studioSurface,
         '--studio-selection-bg': selectionBg,
@@ -263,7 +265,7 @@ export const StudioLayout: React.FC<{
               fontSize: '14px',
               fontWeight: 500,
               lineHeight: '40px',
-              color: '#c4c7c5',
+              color: isLight ? '#444746' : '#c4c7c5',
             }}
           >
             <span style={{ paddingLeft: '8px' }}>Temporary Chat</span>
@@ -279,7 +281,7 @@ export const StudioLayout: React.FC<{
           Gated to a real chat id: every row acts on a named chat, and
           `hasActiveChat` can be true for an unsaved one.
         */}
-        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isChatOngoing && !!activeChatId && !chatPanelOpen && !voiceModeActive && (
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && !chatPanelOpen && !voiceModeActive && isChatOngoing && !!activeChatId && (
           <ConversationActionsMenu chatId={activeChatId} />
         )}
         {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
@@ -301,10 +303,14 @@ export const StudioLayout: React.FC<{
                * to `close`, so a pill on top of that would be saying it twice;
                * hover is the only background this button ever shows.
                */
-              className="w-[36px] h-[36px] p-2 rounded-full flex items-center justify-center transition-colors bg-transparent text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.08]"
+              className={`w-[36px] h-[36px] p-2 rounded-full flex items-center justify-center transition-colors bg-transparent ${
+                isLight ? 'text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.08]'
+              }`}
             >
               <span
-                className="lumi-symbols text-[24px] leading-none select-none text-[#e3e3e3]"
+                className={`lumi-symbols text-[24px] leading-none select-none ${
+                  isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'
+                }`}
                 style={{ fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif" }}
               >
                 {/*
@@ -317,6 +323,13 @@ export const StudioLayout: React.FC<{
               </span>
             </button>
           </div>
+        )}
+        {/* Ambient subtle center glow for Gemini light theme zero-state */}
+        {currentView === 'home' && isChatExperience && isLight && background === 'solid' && !isChatOngoing && (
+          <div
+            className="absolute inset-0 z-0 overflow-hidden pointer-events-none"
+            style={{ background: 'radial-gradient(circle at 50% 42%, #ffffff 0%, #edf2fa 45%, #faf9f9 75%)' }}
+          />
         )}
         {/* Background rendered in content area for lines only (solid is just plain color) */}
         {currentView === 'home' && isChatExperience && background === 'lines' && (

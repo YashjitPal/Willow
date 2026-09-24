@@ -278,3 +278,24 @@
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ==========================================================================
+   Google Gemini Spark Light Theme - Workspace Root & Overlays
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-studio-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.24);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-loading {
+  background: #faf9f9;
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-composer .willow-gemini-composer {
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.16);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-glow {
+  display: none;
+}

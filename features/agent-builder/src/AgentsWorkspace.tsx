@@ -11,6 +11,7 @@ import { AgentIcon } from '@willow/ui/AgentIcon';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import {
   getAgentBuilderClient,
@@ -239,7 +240,9 @@ const AgentsHome: React.FC<{
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = userProfile?.workspaceColor || 'green';
   const theme = getWorkspaceTheme(effectiveWorkspaceColor);
-  const glowAccent = theme.glowAccent;
+  const { isLight } = useThemeMode();
+  const [isSubmitHovered, setIsSubmitHovered] = useState(false);
+  const glowAccent = isLight ? theme.glowAccentLight : theme.glowAccent;
 
   const hasContent = Boolean(prompt.trim());
   const previousHasContent = usePrevious(hasContent);
@@ -348,8 +351,20 @@ const AgentsHome: React.FC<{
                     aria-label="Send agent prompt"
                     title="Submit"
                     disabled={loading}
-                    style={{ backgroundColor: theme.sendButton.bg }}
-                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none cursor-pointer text-white ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''}`}
+                    style={{
+                      backgroundColor: isLight
+                        ? isSubmitHovered
+                          ? theme.sendButton.lightHover
+                          : theme.sendButton.lightBg
+                        : isSubmitHovered
+                          ? theme.sendButton.hover
+                          : theme.sendButton.bg,
+                    }}
+                    onMouseEnter={() => setIsSubmitHovered(true)}
+                    onMouseLeave={() => setIsSubmitHovered(false)}
+                    onMouseOver={() => setIsSubmitHovered(true)}
+                    onMouseOut={() => setIsSubmitHovered(false)}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none cursor-pointer ${isLight ? 'text-black' : 'text-white'} ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''}`}
                   >
                     <MaterialSymbol
                       family="luminous"
@@ -358,7 +373,7 @@ const AgentsHome: React.FC<{
                       weight={300}
                       roundness={100}
                       opticalSize={24}
-                      className="text-white"
+                      className={isLight ? 'text-black' : 'text-white'}
                     />
                   </button>
                 )}

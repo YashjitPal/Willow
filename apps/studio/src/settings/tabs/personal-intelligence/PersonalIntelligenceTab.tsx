@@ -17,7 +17,7 @@ export const PersonalIntelligenceTab: React.FC = () => {
   const { enabled: isMemoryEnabled } = useStore(profileStore);
 
   return (
-    <div className="w-full h-full overflow-y-auto bg-[#0f0f0f] personal-intelligence-container">
+    <div className="w-full h-full overflow-y-auto bg-[var(--studio-surface,#0f0f0f)] personal-intelligence-container">
       {/* HTML structures match Willow precisely using standard tags with the exact classes */}
       <div className="page-content">
         <div>

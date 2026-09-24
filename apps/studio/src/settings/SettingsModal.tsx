@@ -33,8 +33,8 @@ const SettingsSidebarItem: React.FC<{
   <button 
     className={`w-full flex items-center gap-3 px-3 py-[9px] text-[13px] font-medium rounded-lg transition-colors
       ${active 
-        ? 'bg-[#1f1f1f] text-white' 
-        : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white'
+        ? 'bg-[#1f1f1f] text-white settings-sidebar-item-active' 
+        : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white settings-sidebar-item-inactive'
       }`}
     onClick={onClick}
   >
@@ -328,19 +328,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     setIsDeleting(true);
     setDeleteError(null);
     
-    console.log('[Delete] Starting account deletion for:', user.email, 'UID:', user.uid);
-    
     try {
-      console.log('[Delete] Calling user.delete()...');
       await user.delete();
-      console.log('[Delete] SUCCESS - User account deleted!');
-      
       setIsDeleting(false);
       onClose();
       window.location.href = '/login';
-      
     } catch (err: any) {
-      console.error('[Delete] Error:', err.code, err.message);
       setIsDeleting(false);
       setDeleteError(`Delete failed: ${err.code || err.message}`);
     }
@@ -379,18 +372,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         onClick={onClose}
       />
       
-      <div className={`relative w-[calc(100vw_-_12vh)] h-[88vh] bg-[#1c1c1c] rounded-[10px] shadow-2xl border border-white/10 flex overflow-hidden z-10 ${isClosing ? 'settings-fade-out' : 'settings-fade-in'}`}>
+      <div className={`settings-modal-dialog relative w-[calc(100vw_-_12vh)] h-[88vh] bg-[#1c1c1c] rounded-[10px] shadow-2xl border border-white/10 flex overflow-hidden z-10 ${isClosing ? 'settings-fade-out' : 'settings-fade-in'}`}>
         
         {/* Close Button */}
         <button 
             onClick={onClose}
-            className="absolute top-4 right-4 text-zinc-400 hover:text-white z-50 p-1"
+            className="settings-modal-close absolute top-4 right-4 text-zinc-400 hover:text-white z-50 p-1"
         >
             <X size={20} />
         </button>
 
         {/* Sidebar */}
-        <div className="w-[250px] bg-[#1c1c1c] border-r border-white/5 flex flex-col py-2 px-3 shrink-0">
+        <div className="settings-modal-sidebar w-[250px] bg-[#1c1c1c] border-r border-white/5 flex flex-col py-2 px-3 shrink-0">
              
              <SettingsSectionTitle title="Appearance" />
              <SettingsSidebarItem 
@@ -409,7 +402,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
              <SettingsSidebarItem icon={User} label="Your account" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
               <div 
                 onClick={() => setActiveTab('labs')}
-                className={`px-3 py-1.5 cursor-pointer flex items-center gap-3 text-[14px] font-medium rounded-lg transition-colors ${activeTab === 'labs' ? 'bg-[#1f1f1f] text-white' : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white'}`}
+                className={`px-3 py-1.5 cursor-pointer flex items-center gap-3 text-[14px] font-medium rounded-lg transition-colors ${activeTab === 'labs' ? 'bg-[#1f1f1f] text-white settings-sidebar-item-active' : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white settings-sidebar-item-inactive'}`}
               >
                 <div className="w-5 h-5 flex items-center justify-center">
                     <FlaskConical size={18} />
@@ -424,7 +417,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
         </div>
 
         {/* Content */}
-        <div className="flex-1 bg-[#1c1c1c] w-full overflow-hidden relative">
+        <div className="settings-modal-content flex-1 bg-[#1c1c1c] w-full overflow-hidden relative">
             {(activeTab === 'appearance' || activeTab === 'workspace') && (
                 <AppearanceTab />
             )}

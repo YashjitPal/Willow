@@ -665,3 +665,176 @@
   color: #bdc1c6;
   padding: 24px 0;
 }
+
+/* Light Theme overrides matching Google My Activity 1:1 */
+:is(.light-theme, [data-theme="light"]) .activity-page,
+.light-theme .activity-page,
+[data-theme="light"] .activity-page {
+  background-color: var(--studio-surface, #ffffff);
+  color: #202124;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-title {
+  color: #202124;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-card {
+  background-color: rgb(248, 250, 253);
+  border: 1px solid #dadce0;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-card-heading h2 {
+  color: #202124;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-card-body,
+:is(.light-theme, [data-theme="light"]) .activity-card-note {
+  color: #3c4043;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-card-note a {
+  color: #1a73e8;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-chip {
+  background-color: #c2e7ff;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-chip::before {
+  background-color: #001d35;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-chip-label {
+  color: #001d35;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-chip-icon {
+  fill: #001d35;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-since {
+  color: #5f6368;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-setting-icon {
+  fill: #5f6368;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-setting-text {
+  color: #3c4043;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-chevron {
+  background-color: #ffffff;
+  fill: #5f6368;
+  border: 1px solid #dadce0;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-setting-row:hover .activity-chevron {
+  background-color: #f1f3f4;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-checkbox-box {
+  border-color: #5f6368;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-checkbox-box.is-checked {
+  background-color: #0b57d0;
+  border-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-checkbox-tick {
+  stroke: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-privacy {
+  background-color: #f8fafd;
+  border: 1px solid #dadce0;
+  color: #3c4043;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-privacy-link {
+  color: #1a73e8;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-delete-button {
+  border-color: #dadce0;
+  color: #1a73e8;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-delete-button::before {
+  background-color: #1a73e8;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-group-header {
+  background: #f1f3f4;
+  border: 1px solid #dadce0;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-group-header h2 {
+  color: #202124;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-row {
+  border-top-color: #dadce0;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-row-product,
+:is(.light-theme, [data-theme="light"]) .activity-row-product-name {
+  color: #5f6368;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-row-product-icon path {
+  fill: #1a73e8;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-privacy-icon path {
+  fill: #1a73e8;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-row-title {
+  color: #202124;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-row-meta {
+  color: #5f6368;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-row-details {
+  color: #1a73e8;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-icon-button {
+  color: #5f6368;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-icon-button::before {
+  background-color: #202124;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-menu {
+  background-color: #ffffff;
+  border: 1px solid #dadce0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-menu-item {
+  color: #202124;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-menu-item:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-menu-item-hint {
+  color: #5f6368;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-menu-separator {
+  background-color: #dadce0;
+}
+
+:is(.light-theme, [data-theme="light"]) .activity-empty {
+  color: #5f6368;
+}
+

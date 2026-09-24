@@ -581,7 +581,7 @@
 .spark-all-tasks__dialog-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -903,4 +903,193 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ==========================================================================
+   Google Gemini Spark Light Theme - All Tasks Tab
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks {
+  background: var(--studio-surface, #faf9f9);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks::before {
+  background: radial-gradient(
+    ellipse 2140% 120% at center 14%,
+    var(--spark-task-detail-accent, #c2e7ff) 0,
+    var(--studio-surface, #faf9f9) 50%
+  );
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks .spark-task-detail__filter-button {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__filter-menu {
+  background: #ffffff;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__filter-menu button {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__filter-menu button:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__filter-menu button[aria-checked="true"] {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__list {
+  scrollbar-color: rgba(0, 0, 0, 0.3) transparent;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-row {
+  background: rgba(250, 249, 249, 0.5);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-row:hover,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-row:focus-within {
+  background: #ffffff;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-row.is-menu-open,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-row.is-menu-open:hover,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-row.is-menu-open:focus-within {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-description {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-meta,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__pinned-icon {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-time {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__needs-input-badge {
+  background: #c2e7ff;
+  color: #001d35;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__failed-badge {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks .spark-status-pill {
+  background: #d3e3fd;
+  color: #041e49;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks .spark-status-pill--failed {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu-button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu-button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu-button[aria-expanded="true"] {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu button {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu button:focus-visible {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__rename-dialog,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__delete-dialog {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__rename-dialog h2,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__delete-dialog h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__delete-dialog > p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__rename-dialog input {
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__rename-dialog input:focus {
+  border-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__dialog-actions button {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__dialog-actions button:hover:not(:disabled) {
+  background: #e5e5e5;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__dialog-actions button:disabled {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__empty {
+  border-color: rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__empty h2,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__empty p {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__empty button {
+  border-color: #0b57d0;
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__empty button:hover {
+  background: rgba(11, 87, 208, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__filter-button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__filter-menu button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__task-open:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu-button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__dialog-actions button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__empty button:focus-visible {
+  outline-color: #0b57d0;
 }

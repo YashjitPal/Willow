@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useThemeMode } from '@willow/core/theme-mode';
 
 export const SidebarItem: React.FC<{ 
   icon?: React.ElementType; 
@@ -25,7 +26,9 @@ export const SidebarItem: React.FC<{
    * would be worse than printing none.
    */
   shortcut?: string;
-}> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible, flushRight, shortcut, iconClassName = '' }) => (
+}> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible, flushRight, shortcut, iconClassName = '' }) => {
+  const { isLight } = useThemeMode();
+  return (
   <div className={flushRight ? 'pl-1.5 pr-0' : 'px-1.5'}>
     <div
       role="button"
@@ -50,7 +53,9 @@ export const SidebarItem: React.FC<{
       }}
       className={`relative flex h-8 items-center transition-colors duration-150 group/item cursor-pointer outline-none
         ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : `mx-auto w-full gap-1.5 ${!Icon && !symbol ? 'pl-[8px] pr-1.5' : 'px-1.5'} overflow-hidden`}
-        ${active ? 'bg-[#171717]' : ''} text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]
+        ${active ? (isLight ? 'bg-[#f2f0f0]' : 'bg-[#171717]') : ''} ${
+          isLight ? 'text-[#000000] hover:bg-black/[0.05]' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'
+        }
         rounded-full`}
     >
       {symbol ? (
@@ -70,17 +75,11 @@ export const SidebarItem: React.FC<{
         </div>
       ) : null}
       {!isCollapsed && (
-        /*
-         * DELIBERATE DEVIATION FROM GEMINI, requested explicitly.
-         *
-         * Gemini's `.gem-nav-list-item.is-active` sets `background-color` and nothing
-         * else — its label stays `--lumi-sys-color--on-surface` (#e6e6e6) at weight 400
-         * in every state. I matched that and removed the weight bump; the user asked
-         * for it back by name ("the selected tab on the left sidebar turns a little
-         * bold, I want the exact thing back"). Restored verbatim: `font-medium
-         * text-white` on active. Do not "fix" this against the Gemini measurement.
-         */
-        <span className={`whitespace-nowrap text-[13px] leading-[17px] transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
+        <span className={`whitespace-nowrap text-[13px] leading-[17px] transition-opacity duration-200 ease-linear ${
+          active
+            ? (isLight ? 'font-medium text-[#000000]' : 'font-medium text-white')
+            : (isLight ? 'font-normal text-[#000000]' : 'font-normal text-[#e6e6e6]')
+        } opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
           {customLabel || label}
         </span>
       )}
@@ -124,7 +123,8 @@ export const SidebarItem: React.FC<{
 
     </div>
   </div>
-);
+  );
+};
 
 export const SidebarSkeleton: React.FC<{ isCollapsed: boolean }> = ({ isCollapsed }) => {
   return (
@@ -148,6 +148,7 @@ export const SectionHeader: React.FC<{
   onToggle: () => void;
   controlsId: string;
 }> = ({ title, isCollapsed, isExpanded, onToggle, controlsId }) => {
+  const { isLight } = useThemeMode();
   if (isCollapsed) {
     return <div aria-hidden="true" className="h-3 shrink-0" />;
   }
@@ -159,7 +160,9 @@ export const SectionHeader: React.FC<{
       aria-expanded={isExpanded}
       aria-controls={controlsId}
       onClick={onToggle}
-      className="group/section mt-3 flex h-8 w-[calc(100%-12px)] items-center overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal text-white/55 outline-none"
+      className={`group/section mt-3 flex h-8 w-[calc(100%-12px)] items-center overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal ${
+        isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'
+      } outline-none`}
     >
       {/*
        * NOT flex-1. Gemini's `.expandable-section-title` is `white-space: nowrap;

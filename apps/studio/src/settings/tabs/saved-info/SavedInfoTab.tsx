@@ -13,6 +13,7 @@
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '@nanostores/react';
+import { useThemeMode } from '@willow/core/theme-mode';
 import {
   savedInfoStore,
   setSavedInfoEnabled,
@@ -34,6 +35,7 @@ declare global {
 }
 
 export const SavedInfoTab: React.FC = () => {
+  const { isLight } = useThemeMode();
   const { enabled: isEnabled, instructions } = useStore(savedInfoStore);
 
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
@@ -123,7 +125,7 @@ export const SavedInfoTab: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full overflow-y-auto bg-[#0f0f0f] saved-info-container gemini-chat-scrollbar">
+    <div className="w-full h-full overflow-y-auto bg-[var(--studio-surface,#0f0f0f)] saved-info-container gemini-chat-scrollbar">
       <div className="page-content">
         {/* Header Section */}
         <div className="header desktop">
@@ -266,10 +268,16 @@ export const SavedInfoTab: React.FC = () => {
                         {activeMenuId === inst.id && (
                           <div
                             ref={menuRef}
-                            className="mat-mdc-menu-panel cdk-overlay-pane absolute right-4 top-12 z-50 bg-[#2a2b2c] border border-white/10 rounded-lg shadow-xl py-1 w-32"
+                            className={`mat-mdc-menu-panel cdk-overlay-pane absolute right-4 top-12 z-50 rounded-lg py-1 w-32 ${
+                              isLight
+                                ? 'bg-white border border-black/10 shadow-[0_4px_16px_rgba(0,0,0,0.12)] text-[#1f1f1f]'
+                                : 'bg-[#2a2b2c] border border-white/10 shadow-xl text-[#e3e3e3]'
+                            }`}
                           >
                             <button
-                              className="w-full text-left px-4 py-2 text-sm text-[#e3e3e3] hover:bg-white/5 flex items-center gap-2"
+                              className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors ${
+                                isLight ? 'text-[#1f1f1f] hover:bg-black/5' : 'text-[#e3e3e3] hover:bg-white/5'
+                              }`}
                               onClick={() => handleOpenEditModal(inst.id, inst.text)}
                             >
                               <span className="mat-icon notranslate google-symbols mat-ligature-font mat-icon-no-color text-lg">
@@ -278,7 +286,9 @@ export const SavedInfoTab: React.FC = () => {
                               Edit
                             </button>
                             <button
-                              className="w-full text-left px-4 py-2 text-sm text-[#ff8a80] hover:bg-white/5 flex items-center gap-2"
+                              className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors ${
+                                isLight ? 'text-[#b3261e] hover:bg-black/5' : 'text-[#ff8a80] hover:bg-white/5'
+                              }`}
                               onClick={() => handleDelete(inst.id)}
                             >
                               <span className="mat-icon notranslate google-symbols mat-ligature-font mat-icon-no-color text-lg">

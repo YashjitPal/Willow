@@ -290,3 +290,67 @@
   height: 16px;
   fill: #003060;
 }
+
+/* Light Theme overrides matching Gemini 1:1 */
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container,
+.light-theme .personal-intelligence-container,
+[data-theme="light"] .personal-intelligence-container {
+  background-color: var(--studio-surface, #faf9f9);
+  --gem-sys-color--surface-container: #f0f4f9;
+  --gem-sys-color--on-surface-variant: #444746;
+  --gem-sys-color--primary: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .gds-display-s,
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .gds-title-l {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .page-description {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .gds-body-l,
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .gds-label-m,
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .description {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .mat-icon {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .section {
+  background-color: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .section:has(.section-link-overlay):hover {
+  background-color: #e5ebf3;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .links a {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .mdc-switch__track {
+  background-color: #e3e3e3;
+  border: 2px solid #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .mdc-switch__handle {
+  background-color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .mdc-switch--checked .mdc-switch__track {
+  background-color: var(--studio-toggle-track, #0b57d0);
+  border-color: var(--studio-toggle-track, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .mdc-switch--checked .mdc-switch__handle {
+  background-color: var(--studio-toggle-thumb, #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .personal-intelligence-container .mdc-switch--checked .mdc-switch__icon {
+  fill: var(--studio-toggle-icon, #0b57d0);
+}
+

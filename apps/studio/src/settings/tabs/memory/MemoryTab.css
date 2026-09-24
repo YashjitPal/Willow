@@ -648,3 +648,156 @@
   cursor: default;
   pointer-events: none;
 }
+
+/* Light Theme overrides matching Gemini 1:1 */
+:is(.light-theme, [data-theme="light"]) .mem-container,
+.light-theme .mem-container,
+[data-theme="light"] .mem-container {
+  --mem-surface: var(--studio-surface, #faf9f9);
+  --mem-surface-container: #f0f4f9;
+  --mem-surface-hover: #e5ebf3;
+  --mem-on-surface: #1f1f1f;
+  --mem-on-surface-variant: #444746;
+  --mem-outline: #747775;
+  --mem-primary: #0b57d0;
+  --mem-primary-container: #ffffff;
+  --mem-danger: #b3261e;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-button-filled {
+  background-color: #0b57d0;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-button-filled:hover {
+  background-color: #0842a0;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-button-filled .mat-icon {
+  color: #ffffff !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-button-outlined {
+  border-color: #747775;
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-button-outlined:hover {
+  background-color: rgba(11, 87, 208, 0.08);
+  border-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-button-outlined .mat-icon {
+  color: #0b57d0 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-button-outlined:disabled {
+  border-color: #c4c7c5;
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-button-outlined:disabled .mat-icon {
+  color: #747775 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-switch-track {
+  background-color: #e3e3e3;
+  border: 2px solid #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-switch-handle {
+  background-color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-switch-on .mem-switch-track {
+  background-color: var(--studio-toggle-track, #0b57d0);
+  border-color: var(--studio-toggle-track, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-switch-on .mem-switch-handle {
+  background-color: var(--studio-toggle-thumb, #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-row-actions:hover {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-row-menu {
+  background-color: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-menu-item {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-menu-item:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-menu-item-danger {
+  color: #b3261e;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog {
+  background-color: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-field {
+  background-color: #ffffff;
+  border: 1px solid #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-field:focus-within {
+  border: 2px solid #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-input {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-input::placeholder {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-select,
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-date {
+  background-color: #ffffff;
+  border-color: #747775;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-select:focus,
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-date:focus {
+  border-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-cancel {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-cancel:hover {
+  background-color: rgba(11, 87, 208, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-submit {
+  background-color: #0b57d0;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-submit:hover {
+  background-color: #0842a0;
+}
+
+:is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-submit:disabled {
+  background-color: rgba(31, 31, 31, 0.12) !important;
+  color: rgba(31, 31, 31, 0.38) !important;
+}
+

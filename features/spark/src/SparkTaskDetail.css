@@ -591,6 +591,20 @@
   white-space: nowrap;
 }
 
+.spark-task-detail__failed-badge {
+  display: inline-flex;
+  height: 24px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: #3c0202;
+  color: #ff4c45;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
 .spark-task-detail__row-menu-button {
   display: inline-flex;
   width: 32px;
@@ -1278,6 +1292,10 @@
 
 .spark-task-detail__status-pill .luminous-symbols {
   color: #c4c7c5;
+}
+
+.spark-task-detail__status-symbol.is-failed {
+  color: #ff4c45;
 }
 
 .spark-task-detail__status-pill:hover {
@@ -2064,7 +2082,7 @@
   .spark-task-detail__processing-node,
 .spark-task-detail__processing-details-inner.is-collapsed-overflow
   .spark-task-detail__subagent-header-content {
-  background: #1f1f1f;
+  background: var(--spark-raised-surface, #1f1f1f);
 }
 
 .spark-task-detail__processing-details-cap {
@@ -3256,9 +3274,9 @@
 
 /* Same measured dialog surface as `SparkTaskDialogs.css` — see the note there. */
 .spark-task-detail__dialog-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3545,4 +3563,485 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ==========================================================================
+   Google Gemini Spark Light Theme - Task Detail
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail {
+  --spark-base-surface: var(--studio-surface, #faf9f9);
+  --spark-raised-surface: #ffffff;
+  --spark-panel-surface: #ffffff;
+  --spark-processing-connector-color: rgba(0, 0, 0, 0.15);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail::before {
+  display: none;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__filter-button {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__filter-button:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__filter-menu {
+  background: #ffffff;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__filter-menu button {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__filter-menu button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__filter-menu button:focus-visible {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__recent-list {
+  scrollbar-color: transparent transparent;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__recent-list:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-row {
+  background: rgba(250, 249, 249, 0.5);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-row:hover {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-row.is-selected {
+  background: #ffffff;
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-description,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-time,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__pinned-icon {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__row-menu-button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__row-menu-button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__row-menu-button[aria-expanded="true"] {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__library-divider button {
+  background: #f2f0f0;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__panel,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__side-panel {
+  border: 0.8px solid #f2f0f0;
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__needs-input-badge {
+  background: #c2e7ff;
+  color: #001d35;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__failed-badge {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-status-pill {
+  background: #d3e3fd;
+  color: #041e49;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-status-pill--failed {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__status-pill {
+  background: #f2f0f0;
+  color: #000000;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__status-pill .luminous-symbols {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__status-symbol.is-failed {
+  color: #c5221f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__status-pill:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__status-pill.is-open {
+  background: #e5e5e5;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-popover {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__progress-panel-header {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-panel-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-panel-chevron,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-panel-summary {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-marker {
+  border-color: #c4c7c5;
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-plan-step {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-plan-step > span.is-current {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-panel-file,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-panel-capability {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-panel-file:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-panel-capability:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__user-bubble {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__user-actions button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__user-actions button:hover:not(:disabled),
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__user-actions button:focus-visible {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__context-chip {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__context-chip > button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__context-chip > button:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__icon-button,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__header-icon,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__response-actions button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__icon-button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__header-icon:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__response-actions button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__stop-button {
+  border-color: #747775;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__stop-button:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__generated-file-card {
+  background: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__generated-file-card:hover {
+  background: #e5eaf2;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__generated-file-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__generated-file-subtitle {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__generated-file-close {
+  background: #0b57d0;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__generated-file-close:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__generated-file-close:focus-visible {
+  background: #0842a0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-card {
+  border: 1px solid #e0e2e0;
+  background: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-card h3 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-body {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-body a {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-plan {
+  background: #ffffff;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-actions button,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__rename-actions button {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-actions button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__rename-actions button:hover {
+  background: #e5e5e5;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__header-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__beta-pill {
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__header-naming-ghost {
+  background-image: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.06) 0%,
+    rgba(0, 0, 0, 0) 50%,
+    rgba(0, 0, 0, 0.06) 100%
+  );
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__processing-trigger {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__processing-trigger:hover {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__processing-chevron {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__processing-thought-item {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__processing-tool {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__processing-step > span:last-child,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__processing-tool > span:last-child {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__processing-show-more {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__processing-show-more:hover {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__agent-working {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__processing-clock,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__processing-tool-icon,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__create-file-icon {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__create-file-icon > :last-child {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__processing-details-cap.is-overflowing:not(.is-expanded)::after,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__processing-thought.is-overflowing .spark-task-detail__processing-thought-cap:not(.is-expanded)::after,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__subagent-thought.is-overflowing .spark-task-detail__subagent-thought-cap:not(.is-expanded)::after {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__subagent-header,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__subagent-child-header {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__subagent-header:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__subagent-child-header:hover {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__subagent-title {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__subagent-details {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__subagent-show-more {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__subagent-show-more:hover {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__subagent-line:not(:last-child)::after,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__subagent-line:last-child::before {
+  background-image: radial-gradient(
+    circle,
+    rgba(0, 0, 0, 0.35) 0 1px,
+    transparent 1px
+  );
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__thinking-panel {
+  border-color: rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  box-shadow: -20px 0 48px rgba(0, 0, 0, 0.12);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__thinking-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__thinking-header > button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__thinking-header > button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__thinking-timeline::before {
+  border-left-color: rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__thinking-node {
+  border-color: rgba(0, 0, 0, 0.2);
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__thinking-step {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"])
+  .spark-task-detail__processing-details-inner.is-collapsed-overflow
+  .spark-task-detail__processing-node,
+:is(.light-theme, [data-theme="light"])
+  .spark-task-detail__processing-details-inner.is-collapsed-overflow
+  .spark-task-detail__subagent-header-content {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__disclaimer {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__new-composer .willow-gemini-composer,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__followup-composer .willow-gemini-composer {
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.16);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__new-composer .willow-gemini-composer:focus-within {
+  animation: none;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.2);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-menu,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__list-task-menu,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__response-menu {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-menu button,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__list-task-menu button,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__response-menu button {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-menu button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__task-menu button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__list-task-menu button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__list-task-menu button:focus-visible,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__response-menu button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__response-menu button:focus-visible {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__menu-divider {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__rename-dialog,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail__delete-dialog {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+  color: #1f1f1f;
 }

@@ -51,12 +51,18 @@ const flat = (source) => source.replace(/\s+/g, ' ');
 const glowModule = path.join(repoRoot, 'features', 'media', 'src', 'home-glow.ts');
 const {
   DEFAULT_GLOW_ACCENT,
+  DEFAULT_GLOW_ACCENT_LIGHT,
   GEMINI_GLOW_ACCENT_HEX,
+  GEMINI_GLOW_ACCENT_LIGHT_HEX,
   GLOW_ACCENT_TRANSFORM,
+  GLOW_ACCENT_LIGHT_TRANSFORM,
   HOME_GLOW_ACCENT,
+  HOME_GLOW_ACCENT_LIGHT,
   WORKSPACE_COLOR_HEX,
   deriveGlowAccent,
+  deriveGlowAccentLight,
   homeGlowAccent,
+  homeGlowAccentLight,
 } = await importTs(glowModule);
 
 const asRgb = (hex) => {
@@ -101,6 +107,30 @@ it('covers every workspace swatch exactly once', () => {
   );
 });
 
+it('carries Gemini\'s measured light accent for blue', () => {
+  assert.equal(GEMINI_GLOW_ACCENT_LIGHT_HEX, '#9dd2ff',
+    'the light accent drifted from Gemini\'s measured --bard-color-lm-glow-chat');
+  assert.equal(HOME_GLOW_ACCENT_LIGHT.blue, 'rgb(157, 210, 255)',
+    'the blue light glow is no longer Gemini\'s #9dd2ff');
+  assert.equal(HOME_GLOW_ACCENT_LIGHT.blue, asRgb(GEMINI_GLOW_ACCENT_LIGHT_HEX),
+    'the baked blue light accent and the measured hex disagree');
+});
+
+it('anchors the light transform on the Gemini pair it was measured from', () => {
+  assert.equal(deriveGlowAccentLight(WORKSPACE_COLOR_HEX.blue), asRgb(GEMINI_GLOW_ACCENT_LIGHT_HEX),
+    'the light transform no longer reproduces #9dd2ff from #3b82f6');
+});
+
+it('keeps every derived light accent equal to the derivation', () => {
+  for (const name of Object.keys(HOME_GLOW_ACCENT_LIGHT)) {
+    assert.equal(
+      HOME_GLOW_ACCENT_LIGHT[name],
+      deriveGlowAccentLight(WORKSPACE_COLOR_HEX[name]),
+      `the baked ${name} light accent drifted from deriveGlowAccentLight(${WORKSPACE_COLOR_HEX[name]})`,
+    );
+  }
+});
+
 // ── Green is the default and must not move ──────────────────────────────────
 
 it('holds green at the colour that ships today', () => {
@@ -108,15 +138,23 @@ it('holds green at the colour that ships today', () => {
     'the default glow green changed — switching back to green no longer restores it');
   assert.equal(HOME_GLOW_ACCENT.green, DEFAULT_GLOW_ACCENT,
     'green is no longer the default accent');
+  assert.equal(DEFAULT_GLOW_ACCENT_LIGHT, 'rgb(158, 174, 153)',
+    'the default light glow green changed');
+  assert.equal(HOME_GLOW_ACCENT_LIGHT.green, DEFAULT_GLOW_ACCENT_LIGHT,
+    'green is no longer the default light accent');
 });
 
 it('falls back to green for a missing or unknown workspace colour', () => {
   for (const value of [undefined, null, '', 'magenta', 'GREEN']) {
     assert.equal(homeGlowAccent(value), DEFAULT_GLOW_ACCENT,
       `homeGlowAccent(${JSON.stringify(value)}) must fall back to the default green`);
+    assert.equal(homeGlowAccentLight(value), DEFAULT_GLOW_ACCENT_LIGHT,
+      `homeGlowAccentLight(${JSON.stringify(value)}) must fall back to default light green`);
   }
   assert.equal(homeGlowAccent('blue'), 'rgb(20, 32, 79)');
+  assert.equal(homeGlowAccentLight('blue'), 'rgb(157, 210, 255)');
   assert.equal(homeGlowAccent('green'), 'rgb(6, 78, 59)');
+  assert.equal(homeGlowAccentLight('green'), 'rgb(158, 174, 153)');
 });
 
 // ── The CSS and the host ────────────────────────────────────────────────────
@@ -128,6 +166,12 @@ it('drives the accent stop through a custom property, with green as the fallback
     css,
     /\.willow-gemini-home-glow::before \{[^}]*background: radial-gradient\( ellipse 100% 100% at center 8%, rgb\(15, 15, 15\) 0, var\(--willow-home-glow-accent, rgb\(6, 78, 59\)\) 50% \);/,
     'the glow no longer reads its accent from --willow-home-glow-accent with the green fallback',
+  );
+
+  assert.match(
+    css,
+    /:is\(\.light-theme, \[data-theme="light"\]\) \.willow-gemini-home-glow::before \{[^}]*background: radial-gradient\( ellipse 100% 100% at center 8%, var\(--studio-surface, #faf9f9\) 0, var\(--willow-home-glow-accent, rgb\(158, 174, 153\)\) 50% \);[^}]*filter: blur\(125px\);/,
+    'light theme glow does not match measured Gemini rule with #faf9f9 and blur(125px)',
   );
 
   // The fallback is what paints before the profile loads. Without it the stop is

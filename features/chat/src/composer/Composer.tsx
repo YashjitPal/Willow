@@ -6,6 +6,7 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
 import { GithubImportDialog } from '@willow/ui/github/GithubImportDialog';
 import './Composer.css';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { ComposerAttachment, createComposerAttachment } from '@willow/core/attachments';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import {
@@ -115,14 +116,16 @@ export const CHAT_BUTTON_COLORS = {
   teal: { bg: '#00625c', hover: '#00514c' },
 } as const;
 
-export const getChatSubmitBg = (color?: string) => {
+export const getChatSubmitBg = (color?: string, isLight?: boolean) => {
   const theme = getWorkspaceTheme(color);
-  return `bg-[${theme.sendButton.bg}] hover:bg-[${theme.sendButton.hover}]`;
+  return isLight
+    ? `bg-[${theme.sendButton.lightBg}] hover:bg-[${theme.sendButton.lightHover}]`
+    : `bg-[${theme.sendButton.bg}] hover:bg-[${theme.sendButton.hover}]`;
 };
 
-export const getChatTranscribingBg = (color?: string) => {
+export const getChatTranscribingBg = (color?: string, isLight?: boolean) => {
   const theme = getWorkspaceTheme(color);
-  return `bg-[${theme.sendButton.bg}]`;
+  return isLight ? `bg-[${theme.sendButton.lightBg}]` : `bg-[${theme.sendButton.bg}]`;
 };
 
 /** The host-facing handle behind `composerRef`. */
@@ -194,6 +197,8 @@ export const InputBar: React.FC<{
   const { userProfile } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
   const workspaceTheme = useMemo(() => getWorkspaceTheme(effectiveWorkspaceColor), [effectiveWorkspaceColor]);
+  const { isLight } = useThemeMode();
+  const [isSubmitHovered, setIsSubmitHovered] = useState(false);
   const [isThemesOpen, setIsThemesOpen] = useState(false);
   const [isModesOpen, setIsModesOpen] = useState(false);
   const [isModelsOpen, setIsModelsOpen] = useState(false);
@@ -662,7 +667,7 @@ export const InputBar: React.FC<{
         type="button"
         aria-label={`Deselect ${tool.chipLabel}`}
         onClick={onRemove}
-        className="group flex h-6 shrink-0 cursor-default select-none items-center justify-center rounded-full bg-[rgba(255,255,255,0.12)] pl-1 pr-2 hover:pr-1 focus-visible:pr-1"
+        className={`group flex h-6 shrink-0 cursor-default select-none items-center justify-center rounded-full ${isLight ? 'bg-black/[0.08]' : 'bg-[rgba(255,255,255,0.12)]'} pl-1 pr-2 hover:pr-1 focus-visible:pr-1`}
       >
         <span className="flex items-center gap-1">
           {chatVariant && glyph && !useSparkIcon
@@ -672,11 +677,11 @@ export const InputBar: React.FC<{
                 size={16}
                 weight={330}
                 variationSettings={sparkMode ? '"wght" 330' : CHIP_GLYPH_AXES}
-                className="text-[#e6e6e6]"
+                className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}
               />
-            : <Icon size={16} className="text-[#e6e6e6]" strokeWidth={2.2} />}
+            : <Icon size={16} className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'} strokeWidth={2.2} />}
           <span
-            className="whitespace-nowrap text-[13px] font-normal leading-[17px] text-[#e6e6e6]"
+            className={`whitespace-nowrap text-[13px] font-normal leading-[17px] ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
             style={CHIP_LABEL_STYLE}
           >
             {tool.chipLabel}
@@ -689,9 +694,9 @@ export const InputBar: React.FC<{
                   size={16}
                   weight={330}
                   variationSettings={CHIP_GLYPH_AXES}
-                  className="text-[#e6e6e6]"
+                  className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}
                 />
-              : <X size={12} className="text-[#e6e6e6]" strokeWidth={2.2} />}
+              : <X size={12} className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'} strokeWidth={2.2} />}
           </span>
         </span>
       </button>
@@ -829,7 +834,7 @@ export const InputBar: React.FC<{
         {githubImportDialog}
         <div
           ref={chatComposerBoxRef}
-          className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${dropHeightClass} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : hasDropHeight ? 'justify-end pb-0' : 'justify-center'}` : `${dropHeightClass} ${hasDropHeight ? 'justify-end pb-0' : 'justify-center'} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} transition-all duration-200`} ${chatVariant ? 'bg-[#1e1f21] rounded-[32px] pl-[14px] pr-[15px] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] rounded-[28px] pl-4 pr-3'}`}
+          className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${dropHeightClass} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : hasDropHeight ? 'justify-end pb-0' : 'justify-center'}` : `${dropHeightClass} ${hasDropHeight ? 'justify-end pb-0' : 'justify-center'} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} transition-all duration-200`} ${chatVariant ? (isLight ? 'bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]') + ' rounded-[32px] pl-[14px] pr-[15px]' : (isLight ? 'bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21]') + ' rounded-[28px] pl-4 pr-3'}`}
         >
           
           {/*
@@ -904,7 +909,7 @@ export const InputBar: React.FC<{
               <button
                 type="button"
                 onClick={toggleComposerMaximized}
-                className={`absolute right-[-7px] top-[8px] z-[70] flex h-10 w-10 items-center justify-center rounded-full p-2 text-[#c4c7c5] transition-[opacity,transform,background-color] duration-[300ms] delay-[100ms] ease-[cubic-bezier(0.2,0,0,1)] hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${showComposerMaximizeToggle ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-[0.8] opacity-0'}`}
+                className={`absolute right-[-7px] top-[8px] z-[70] flex h-10 w-10 items-center justify-center rounded-full p-2 ${isLight ? 'text-[#444746] hover:text-[#1f1f1f] hover:bg-black/[0.08] focus-visible:ring-black/25' : 'text-[#c4c7c5] hover:bg-white/[0.08] focus-visible:ring-white/25'} transition-[opacity,transform,background-color] duration-[300ms] delay-[100ms] ease-[cubic-bezier(0.2,0,0,1)] focus-visible:outline-none focus-visible:ring-2 ${showComposerMaximizeToggle ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-[0.8] opacity-0'}`}
                 aria-label="Expand input to Fullscreen"
                 aria-pressed={isComposerMaximized}
                 aria-hidden={!showComposerMaximizeToggle}
@@ -967,7 +972,7 @@ export const InputBar: React.FC<{
                * so the prompt box scrolls with nothing visible in the gutter. Hiding the
                * bar reproduces what is on screen; the default black strip did not.
                */
-              className={`willow-dictation-textarea w-full bg-transparent text-white outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
+              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? (isLight ? "text-[17px] leading-6 placeholder-[#747775] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : "text-[17px] leading-6 placeholder-[#bdc1c6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]") : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictationActive && (
@@ -1016,7 +1021,7 @@ export const InputBar: React.FC<{
                   disabled={disabled}
                   aria-label="Upload & tools"
                   aria-expanded={isPlusMenuOpen}
-                  className={`${chatVariant ? 'w-8 h-8 rounded-full text-[#e6e6e6] hover:bg-[#333537]' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
+                  className={`${chatVariant ? `w-8 h-8 rounded-full ${isLight ? 'text-[#000000] hover:bg-black/[0.08]' : 'text-[#e6e6e6] hover:bg-[#333537]'}` : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
                 >
                   {chatVariant
                     ? (
@@ -1085,13 +1090,13 @@ export const InputBar: React.FC<{
                     onClick={() => setIsModelsOpen(!isModelsOpen)}
                     aria-label={`Open model picker, currently ${pillModelAndEffortLabel}`}
                     aria-expanded={isModelsOpen}
-                    className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
+                    className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap ${isLight ? 'text-[#444746] hover:text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134]'} transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsOpen ? (isLight ? 'bg-black/[0.06] text-[#1f1f1f]' : 'bg-[#303134] text-[#e3e3e3]') : ''}`}
                     style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
                   >
                     <span className="-mr-1 flex min-w-0 items-center">
-                      <span className="text-[#e6e6e6]">{pillModelLabel}</span>
+                      <span className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}>{pillModelLabel}</span>
                       {displayedPillEffortLabel && (
-                        <span className="ml-1 text-white/55">{displayedPillEffortLabel}</span>
+                        <span className={`ml-1 ${isLight ? 'text-black/55' : 'text-white/55'}`}>{displayedPillEffortLabel}</span>
                       )}
                     </span>
                     <MaterialSymbol
@@ -1140,15 +1145,15 @@ export const InputBar: React.FC<{
                   isMicMuteToggle && liveMicMuted
                     ? 'bg-[#ff002a] hover:bg-[#fa423e] active:bg-[#ba2623] text-white hover:text-[#cdcdcd]'
                     : isDictationActive && chatVariant
-                    ? 'bg-[#282a2d] hover:bg-[#383a3d] text-[#e3e3e3] shadow-sm'
+                    ? isLight ? 'bg-[#f0f4f9] hover:bg-[#e9eef6] text-[#1f1f1f] shadow-sm' : 'bg-[#282a2d] hover:bg-[#383a3d] text-[#e3e3e3] shadow-sm'
                     : isDictationActive
                     ? 'text-blue-500 hover:text-blue-400 bg-blue-500/10 animate-pulse'
-                    : chatVariant ? 'text-[#e6e6e6] hover:bg-white/[0.08]' : 'text-[#a0a0a0] hover:text-white'
+                    : chatVariant ? (isLight ? 'text-[#000000] hover:bg-black/[0.08]' : 'text-[#e6e6e6] hover:bg-white/[0.08]') : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'
                 }`}
               >
                 {isMicRippling && !isMicMuteToggle && <span className="gemini-mic-ripple-effect" />}
                 {isDictationActive && chatVariant && !isMicMuteToggle ? (
-                  <span className="w-2.5 h-2.5 rounded-[1.5px] bg-[#e3e3e3]" aria-hidden="true" />
+                  <span className={`w-2.5 h-2.5 rounded-[1.5px] ${isLight ? 'bg-[#1f1f1f]' : 'bg-[#e3e3e3]'}`} aria-hidden="true" />
                 ) : chatVariant ? (
                   <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} />
                 ) : (
@@ -1205,17 +1210,29 @@ export const InputBar: React.FC<{
                 }
                 aria-label={isGenerating ? 'Stop response' : isResponseRevealing ? 'Finishing response' : isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
                 style={
-                  chatVariant && !responseControlActive && !liveActive && !isTranscribingDictation
-                    ? { backgroundColor: workspaceTheme.sendButton.bg }
+                  chatVariant && !responseControlActive && !liveActive
+                    ? {
+                        backgroundColor: isLight
+                          ? isSubmitHovered
+                            ? workspaceTheme.sendButton.lightHover
+                            : workspaceTheme.sendButton.lightBg
+                          : isSubmitHovered
+                            ? workspaceTheme.sendButton.hover
+                            : workspaceTheme.sendButton.bg,
+                      }
                     : undefined
                 }
+                onMouseEnter={() => setIsSubmitHovered(true)}
+                onMouseLeave={() => setIsSubmitHovered(false)}
+                onMouseOver={() => setIsSubmitHovered(true)}
+                onMouseOut={() => setIsSubmitHovered(false)}
                 className={`${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full flex items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
                     ? responseControlActive || liveActive
-                      ? 'bg-[#171717] hover:bg-[#282828]'
+                      ? isLight ? 'bg-[#f2f0f0] hover:bg-[#e5e5e5]' : 'bg-[#171717] hover:bg-[#282828]'
                       : isTranscribingDictation
-                      ? getChatTranscribingBg(effectiveWorkspaceColor)
-                      : getChatSubmitBg(effectiveWorkspaceColor)
+                      ? getChatTranscribingBg(effectiveWorkspaceColor, isLight)
+                      : getChatSubmitBg(effectiveWorkspaceColor, isLight)
                     : responseControlActive || liveActive
                       ? 'bg-[#171717] hover:bg-[#282828]'
                       : isTranscribingDictation
@@ -1229,18 +1246,18 @@ export const InputBar: React.FC<{
                     name="stop"
                     size={STOP_BUTTON_ICON.size}
                     variationSettings={STOP_BUTTON_ICON.variationSettings}
-                    className="text-[#e6e6e6]"
+                    className={isLight ? 'text-[#000000]' : 'text-[#e6e6e6]'}
                   />
                 ) : isTranscribingDictation ? (
-                  <MaterialSymbol name="progress_activity" size={20} weight={400} className={chatVariant ? 'text-white' : 'text-black'} />
+                  <MaterialSymbol name="progress_activity" size={20} weight={400} className={chatVariant ? (isLight ? 'text-black' : 'text-white') : 'text-black'} />
                 ) : hasContent ? (
                   chatVariant
-                    ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className="text-white" />
+                    ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className={isLight ? 'text-black' : 'text-white'} />
                     : <ArrowUp size={22} className="text-black stroke-[2]" />
                 ) : chatVariant && liveActive ? (
-                  <MaterialSymbol name="stop" size={18} weight={600} fill className="text-white" />
+                  <MaterialSymbol name="stop" size={18} weight={600} fill className={isLight ? 'text-black' : 'text-white'} />
                 ) : chatVariant ? (
-                  <svg width="24" height="24" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="text-white">
+                  <svg width="24" height="24" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className={isLight ? 'text-black' : 'text-white'}>
                     <path d="M10 3.1a.9.9 0 0 1 .9.9v16a.9.9 0 0 1-1.8 0V4a.9.9 0 0 1 .9-.9M15 5.6a.9.9 0 0 1 .9.9v10a.9.9 0 0 1-1.8 0v-10a.9.9 0 0 1 .9-.9M5 8.6a.9.9 0 0 1 .9.9v5a.9.9 0 0 1-1.8 0v-5a.9.9 0 0 1 .9-.9M20 9.1a.9.9 0 0 1 .9.9v4a.9.9 0 0 1-1.8 0v-4a.9.9 0 0 1 .9-.9"/>
                   </svg>
                 ) : liveActive ? (
@@ -1326,7 +1343,7 @@ export const InputBar: React.FC<{
         )}
         {chatVariant && showDisclaimer && (
           <p
-            className="pointer-events-none absolute left-0 right-0 top-full mt-4 text-center text-[13px] font-normal leading-[17px] text-[#c4c7c5] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+            className={`pointer-events-none absolute left-0 right-0 top-full mt-4 text-center text-[13px] font-normal leading-[17px] ${isLight ? 'text-[#444746]' : 'text-[#c4c7c5]'} font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
             style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
           >
             Willow is AI and can make mistakes.

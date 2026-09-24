@@ -116,6 +116,12 @@ export const GLOW_ACCENT_TRANSFORM = {
   hueShiftDeg: 9.038231999938716,
 } as const;
 
+export const GLOW_ACCENT_LIGHT_TRANSFORM = {
+  lightnessRatio: 1.3528572927561568,
+  chromaRatio: 0.44604621061150834,
+  hueShiftDeg: -15.17083252049514,
+} as const;
+
 export const GLOW_TO_BUTTON_TRANSFORM = {
   lightnessRatio: 1.5055348233608743,
   chromaRatio: 1.6820248383608614,
@@ -194,9 +200,12 @@ export interface WorkspaceComputedTheme {
   label: string;
   swatchHex: string;
   glowAccent: string;
+  glowAccentLight: string;
   sendButton: {
     bg: string;
     hover: string;
+    lightBg: string;
+    lightHover: string;
   };
   chipBg: string;
   loadbar: {
@@ -238,7 +247,7 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     return themeCache.get(def.id)!;
   }
 
-  // 1. Glow accent
+  // 1. Glow accent (dark theme) & Light glow accent
   let glowAccent = 'rgb(6, 78, 59)';
   let glowRgb: Triple = [6 / 255, 78 / 255, 59 / 255];
   if (def.id !== 'green') {
@@ -250,6 +259,23 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     ]);
     const [r, g, b] = glowRgb.map((c) => Math.round(c * 255));
     glowAccent = `rgb(${r}, ${g}, ${b})`;
+  }
+
+  let glowAccentLight: string;
+  let glowAccentLightHex: string;
+  if (def.id === 'blue') {
+    glowAccentLight = 'rgb(157, 210, 255)'; // #9dd2ff, Gemini upstream light accent
+    glowAccentLightHex = '#9dd2ff';
+  } else {
+    const [L, C, h] = rgbToOklch(hexToRgb(def.hex));
+    const glowLightRgb = oklchToRgb([
+      Math.min(0.92, L * GLOW_ACCENT_LIGHT_TRANSFORM.lightnessRatio),
+      C * GLOW_ACCENT_LIGHT_TRANSFORM.chromaRatio,
+      (h + GLOW_ACCENT_LIGHT_TRANSFORM.hueShiftDeg + 360) % 360,
+    ]);
+    const [lr, lg, lb] = glowLightRgb.map((c) => Math.round(c * 255));
+    glowAccentLight = `rgb(${lr}, ${lg}, ${lb})`;
+    glowAccentLightHex = rgbToHex(glowLightRgb);
   }
 
   // 2. Send button
@@ -287,6 +313,11 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     sendBg = rgbToHex(oklchToRgb([L_btn, C_btn, h_btn]));
     sendHover = rgbToHex(oklchToRgb([L_btn * 0.82, C_btn, h_btn]));
   }
+
+  // Send button light variants
+  const sendLightBg = glowAccentLightHex;
+  const [L_sl, C_sl, h_sl] = rgbToOklch(hexToRgb(sendLightBg));
+  const sendLightHover = rgbToHex(oklchToRgb([L_sl * 0.95, C_sl, h_sl]));
 
   // 3. Selected chip background (default blue #192967 rgb(25, 41, 103), green uses sendButton.bg #127352)
   let chipBg = '#127352';
@@ -458,9 +489,12 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     label: def.label,
     swatchHex: def.hex,
     glowAccent,
+    glowAccentLight,
     sendButton: {
       bg: sendBg,
       hover: sendHover,
+      lightBg: sendLightBg,
+      lightHover: sendLightHover,
     },
     accentButton: {
       bg: accentBtnBg,

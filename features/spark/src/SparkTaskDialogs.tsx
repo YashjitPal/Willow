@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import './SparkTaskDialogs.css';
 
 /**
@@ -127,7 +128,9 @@ const SparkDialogBackdrop: React.FC<{ onDismiss: () => void; children: React.Rea
     return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [onDismiss]);
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
       className="spark-task-dialog-backdrop"
       role="presentation"
@@ -136,6 +139,7 @@ const SparkDialogBackdrop: React.FC<{ onDismiss: () => void; children: React.Rea
       }}
     >
       {children}
-    </div>
+    </div>,
+    document.body,
   );
 };

@@ -6,6 +6,7 @@ import './notebooks.css';
 import { NotebooksSplashScreen } from './NotebooksSplashScreen';
 import { formatSourceCount } from './notebook-types';
 import type { Notebook } from './notebook-types';
+import { useThemeMode } from '@willow/core/theme-mode';
 import {
   hydrateNotebooks,
   notebooksHydratedStore,
@@ -49,6 +50,7 @@ const NotebookCard: React.FC<{
 }> = ({ notebook, index, onOpen }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { deleteNotebookWithFolder } = useNotebookDisk();
+  const { isLight } = useThemeMode();
 
   return (
     <div
@@ -61,7 +63,7 @@ const NotebookCard: React.FC<{
           onOpen();
         }
       }}
-      className="nb-card nb-card-enter outline-none focus-visible:ring-2 focus-visible:ring-[#a8c7fa]"
+      className={`nb-card nb-card-enter outline-none focus-visible:ring-2 ${isLight ? 'focus-visible:ring-[#0b57d0]' : 'focus-visible:ring-[#a8c7fa]'}`}
       style={{ ['--nb-i' as string]: index }}
     >
       <div className="flex items-start justify-between">
@@ -83,7 +85,7 @@ const NotebookCard: React.FC<{
               event.stopPropagation();
               toggleNotebookPinned(notebook.id);
             }}
-            className="relative flex h-6 w-6 items-center justify-center rounded-full text-[#e6e6e6] before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08]"
+            className={`relative flex h-6 w-6 items-center justify-center rounded-full ${isLight ? 'text-[#444746]' : 'text-[#e6e6e6]'} before:absolute before:inset-0 before:rounded-full ${isLight ? 'before:bg-black/10' : 'before:bg-[rgb(196,199,197)]'} before:opacity-0 before:content-[''] hover:before:opacity-100`}
           >
             <MaterialSymbol
               name="push_pin"
@@ -104,7 +106,7 @@ const NotebookCard: React.FC<{
               event.stopPropagation();
               setIsMenuOpen((open) => !open);
             }}
-            className="relative flex h-6 w-6 items-center justify-center rounded-full text-[#e6e6e6] before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08]"
+            className={`relative flex h-6 w-6 items-center justify-center rounded-full ${isLight ? 'text-[#444746]' : 'text-[#e6e6e6]'} before:absolute before:inset-0 before:rounded-full ${isLight ? 'before:bg-black/10' : 'before:bg-[rgb(196,199,197)]'} before:opacity-0 before:content-[''] hover:before:opacity-100`}
           >
             <MaterialSymbol
               name="more_vert"
@@ -121,7 +123,11 @@ const NotebookCard: React.FC<{
             <div
               role="menu"
               onClick={(event) => event.stopPropagation()}
-              className="absolute right-6 top-14 z-20 min-w-[180px] overflow-hidden rounded-2xl bg-[#282a2c] py-2 shadow-[0_2px_6px_2px_rgba(0,0,0,0.15)]"
+              className={`absolute right-6 top-14 z-20 min-w-[180px] overflow-hidden rounded-2xl py-2 ${
+                isLight
+                  ? 'bg-white text-[#1f1f1f] border border-black/10 shadow-[0_4px_20px_rgba(0,0,0,0.12)]'
+                  : 'bg-[#282a2c] text-[#e3e3e3] shadow-[0_2px_6px_2px_rgba(0,0,0,0.15)]'
+              }`}
             >
               <button
                 type="button"
@@ -130,7 +136,9 @@ const NotebookCard: React.FC<{
                   toggleNotebookPinned(notebook.id);
                   setIsMenuOpen(false);
                 }}
-                className="flex w-full items-center gap-3 px-4 py-2 text-left text-[14px] leading-5 text-[#e3e3e3] hover:bg-white/[0.08]"
+                className={`flex w-full items-center gap-3 px-4 py-2 text-left text-[14px] leading-5 ${
+                  isLight ? 'text-[#1f1f1f] hover:bg-black/5' : 'text-[#e3e3e3] hover:bg-white/[0.08]'
+                }`}
               >
                 <MaterialSymbol name="push_pin" family="luminous" size={18} roundness={100} opticalSize={18} />
                 {notebook.pinned ? 'Unpin' : 'Pin'}
@@ -146,7 +154,9 @@ const NotebookCard: React.FC<{
                   void deleteNotebookWithFolder(notebook.id);
                   setIsMenuOpen(false);
                 }}
-                className="flex w-full items-center gap-3 px-4 py-2 text-left text-[14px] leading-5 text-[#e3e3e3] hover:bg-white/[0.08]"
+                className={`flex w-full items-center gap-3 px-4 py-2 text-left text-[14px] leading-5 ${
+                  isLight ? 'text-[#1f1f1f] hover:bg-black/5' : 'text-[#e3e3e3] hover:bg-white/[0.08]'
+                }`}
               >
                 <MaterialSymbol name="delete" family="luminous" size={18} roundness={100} opticalSize={18} />
                 Delete
@@ -167,6 +177,7 @@ const NotebookCard: React.FC<{
 export const AllNotebooksPage: React.FC<AllNotebooksPageProps> = ({ onOpenNotebook, onCreateNotebook }) => {
   const notebooks = useStore(notebooksStore);
   const isHydrated = useStore(notebooksHydratedStore);
+  const { isLight } = useThemeMode();
 
   useEffect(() => {
     hydrateNotebooks();
@@ -196,11 +207,15 @@ export const AllNotebooksPage: React.FC<AllNotebooksPageProps> = ({ onOpenNotebo
     <div className="nb-spring nb-surface h-full w-full overflow-y-auto p-6">
       <div className="flex h-[60px] items-center justify-between">
         {/* gds-headline-m */}
-        <h1 className="text-[24px] font-[400] leading-7 text-[#e3e3e3]">Notebooks</h1>
+        <h1 className={`text-[24px] font-[400] leading-7 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}>Notebooks</h1>
         <button
           type="button"
           onClick={onCreateNotebook}
-          className="flex h-9 items-center gap-2 rounded-full bg-[#a8c7fa] px-4 text-[13px] font-[540] leading-[17px] text-[#062e6f] transition-opacity duration-200 hover:opacity-90"
+          className={`flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-[540] leading-[17px] transition-all duration-200 ${
+            isLight
+              ? 'bg-[#0b57d0] text-white hover:bg-[#0842a0]'
+              : 'bg-[#a8c7fa] text-[#062e6f] hover:opacity-90'
+          }`}
         >
           <MaterialSymbol name="add_2" family="luminous" size={16} weight={330} roundness={100} opticalSize={16} />
           New notebook

@@ -8,7 +8,8 @@ import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { transactionalRenameProject } from '@willow/projects/rename';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
-import { homeGlowAccent } from './home-glow';
+import { useThemeMode } from '@willow/core/theme-mode';
+import { homeGlowAccent, homeGlowAccentLight } from './home-glow';
 
 /**
  * The gap between the greeting's baseline box and the composer's top edge, in
@@ -67,81 +68,85 @@ export type Mode = 'ship' | 'design' | 'proto' | 'chat';
 export const ChatZeroStateGreeting: React.FC<{
   headingText: string;
   isIncognito?: boolean;
-}> = ({ headingText, isIncognito = false }) => (
-  /*
-    Gemini plays ONE animation here — `_lm-fade-in-up`, 300ms of
-    translateY(40px)->0 plus opacity 0->1 on cubic-bezier(0.2,0,0,1)
-    — and varies only its delay: the temporary-chat card leads at 0s
-    while the normal greeting trails at 250ms. Both were read off
-    `getAnimations()` on the live app, so the numbers are measured
-    rather than matched by eye.
+}> = ({ headingText, isIncognito = false }) => {
+  const { isLight } = useThemeMode();
 
-    `key` is what makes it replay. Angular destroys and recreates
-    this subtree on every toggle (the captured nodes carry
-    `ng-star-inserted`), which is why the fade runs each time rather
-    than only on first paint; remounting on the mode reproduces that.
-    The glow deliberately does NOT participate — it keeps one class
-    across the toggle so `grow` never restarts, matching the capture
-    where `lm-background-grow` fired only on load and New chat.
-  */
-  <div
-    key={isIncognito ? 'incognito' : 'normal'}
-    className="willow-lm-fade-in-up flex flex-col items-center w-full select-none"
-    style={{ animationDelay: isIncognito ? '0s' : '250ms' }}
-  >
-    {isIncognito && (
-      /*
-       * Gemini's temporary-chat zero state leads with the incognito glyph above
-       * the heading — the same `gemini_chat_temp` symbol the header toggle uses
-       * (`StudioLayout.tsx`), so this is the app's existing asset rather than a
-       * new one. It sits inside the fade-in-up block so it rides the same 300ms
-       * entrance as the heading rather than popping in separately.
-       */
-      <span
-        aria-hidden="true"
-        className="lumi-symbols select-none text-[#e3e3e3] leading-none"
-        style={{
-          fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
-          fontSize: '32px',
-          marginBottom: '16px',
-        }}
-      >
-        gemini_chat_temp
-      </span>
-    )}
+  return (
+    /*
+      Gemini plays ONE animation here — `_lm-fade-in-up`, 300ms of
+      translateY(40px)->0 plus opacity 0->1 on cubic-bezier(0.2,0,0,1)
+      — and varies only its delay: the temporary-chat card leads at 0s
+      while the normal greeting trails at 250ms. Both were read off
+      `getAnimations()` on the live app, so the numbers are measured
+      rather than matched by eye.
 
-    <h1
-      className="text-[#e3e3e3] text-center select-none"
-      style={{
-        fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-        fontSize: '36px',
-        fontWeight: 320,
-        lineHeight: '44px',
-      }}
+      `key` is what makes it replay. Angular destroys and recreates
+      this subtree on every toggle (the captured nodes carry
+      `ng-star-inserted`), which is why the fade runs each time rather
+      than only on first paint; remounting on the mode reproduces that.
+      The glow deliberately does NOT participate — it keeps one class
+      across the toggle so `grow` never restarts, matching the capture
+      where `lm-background-grow` fired only on load and New chat.
+    */
+    <div
+      key={isIncognito ? 'incognito' : 'normal'}
+      className="willow-lm-fade-in-up flex flex-col items-center w-full select-none"
+      style={{ animationDelay: isIncognito ? '0s' : '250ms' }}
     >
-      {headingText}
-    </h1>
+      {isIncognito && (
+        /*
+         * Gemini's temporary-chat zero state leads with the incognito glyph above
+         * the heading — the same `gemini_chat_temp` symbol the header toggle uses
+         * (`StudioLayout.tsx`), so this is the app's existing asset rather than a
+         * new one. It sits inside the fade-in-up block so it rides the same 300ms
+         * entrance as the heading rather than popping in separately.
+         */
+        <span
+          aria-hidden="true"
+          className={`lumi-symbols select-none leading-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
+          style={{
+            fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
+            fontSize: '32px',
+            marginBottom: '16px',
+          }}
+        >
+          gemini_chat_temp
+        </span>
+      )}
 
-    {isIncognito && (
-      <p
-        className="text-[#c4c7c5] text-center select-none"
+      <h1
+        className={`text-center select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
         style={{
-          // Gemini's `.gds-body-m.description` inside the temporary
-          // card: 15/20 at 400, #c4c7c5, capped at 620px. The gap is
-          // its parent's `--gem-sys-spacing--m`.
           fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-          fontSize: '15px',
-          fontWeight: 400,
-          lineHeight: '20px',
-          maxWidth: '620px',
-          marginTop: '12px',
+          fontSize: '36px',
+          fontWeight: 320,
+          lineHeight: '44px',
         }}
       >
-        Incognito chats don't appear in recent chats and aren't used to improve Google AI. They are stored for 72 hours for safety.
-      </p>
-    )}
-  </div>
-);
+        {headingText}
+      </h1>
+
+      {isIncognito && (
+        <p
+          className={`text-center select-none ${isLight ? 'text-[#444746]' : 'text-[#c4c7c5]'}`}
+          style={{
+            // Gemini's `.gds-body-m.description` inside the temporary
+            // card: 15/20 at 400, #c4c7c5, capped at 620px. The gap is
+            // its parent's `--gem-sys-spacing--m`.
+            fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+            fontSize: '15px',
+            fontWeight: 400,
+            lineHeight: '20px',
+            maxWidth: '620px',
+            marginTop: '12px',
+          }}
+        >
+          Incognito chats don't appear in recent chats and aren't used to improve Google AI. They are stored for 72 hours for safety.
+        </p>
+      )}
+    </div>
+  );
+};
 
 /**
  * The heading text for the chat zero state, so `ChatView` renders exactly the
@@ -280,6 +285,7 @@ export const HeroSection: React.FC<{
   pinnedComposer?: boolean;
 }> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, studioMode, isIncognito = false, isSidebarCollapsed = false, pinnedComposer = false }) => {
   const { userProfile } = useAuth();
+  const { isLight } = useThemeMode();
   const { deleteLocalFSProject, renameLocalFSProject, isLocalFolderConnected } = useLocalFS();
   const [mode, setMode] = useState<Mode>(initialMode);
 
@@ -644,7 +650,10 @@ export const HeroSection: React.FC<{
    * variant is a modifier. A colour change is then a repaint of the existing
    * gradient, with no collapse-and-regrow.
    */
-  const glowAccent = homeGlowAccent(userProfile?.workspaceColor);
+  const glowAccentDark = homeGlowAccent(userProfile?.workspaceColor);
+  const glowAccent = isLight
+    ? homeGlowAccentLight(userProfile?.workspaceColor)
+    : glowAccentDark;
 
   /*
    * The glow waits for the greeting, and arrives with it.

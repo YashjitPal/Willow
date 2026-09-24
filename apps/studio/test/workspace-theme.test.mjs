@@ -29,8 +29,11 @@ describe('workspace-theme central engine', () => {
       assert.equal(theme.id, def.id);
       assert.equal(theme.swatchHex, def.hex);
       assert.match(theme.glowAccent, /^rgb\(\d+,\s*\d+,\s*\d+\)$/);
+      assert.match(theme.glowAccentLight, /^rgb\(\d+,\s*\d+,\s*\d+\)$/);
       assert.match(theme.sendButton.bg, /^#[0-9a-f]{6}$/i);
       assert.match(theme.sendButton.hover, /^#[0-9a-f]{6}$/i);
+      assert.match(theme.sendButton.lightBg, /^#[0-9a-f]{6}$/i);
+      assert.match(theme.sendButton.lightHover, /^#[0-9a-f]{6}$/i);
       assert.match(theme.chipBg, /^#[0-9a-f]{6}$/i);
       assert.match(theme.loadbar.hex, /^#[0-9a-f]{6}$/i);
       assert.match(theme.loadbar.shadow, /^rgba\(\d+,\s*\d+,\s*\d+,\s*0\.85\)$/);
@@ -57,8 +60,11 @@ describe('workspace-theme central engine', () => {
   it('preserves the exact green baseline default', () => {
     const greenTheme = getWorkspaceTheme('green');
     assert.equal(greenTheme.glowAccent, 'rgb(6, 78, 59)');
+    assert.equal(greenTheme.glowAccentLight, 'rgb(158, 174, 153)');
     assert.equal(greenTheme.sendButton.bg, '#127352');
     assert.equal(greenTheme.sendButton.hover, '#0d5c41');
+    assert.equal(greenTheme.sendButton.lightBg, '#9eae99');
+    assert.equal(greenTheme.sendButton.lightHover, '#93a38e');
     assert.equal(greenTheme.accentButton.bg, '#127352');
     assert.equal(greenTheme.accentButton.hover, '#0d5c41');
     assert.equal(greenTheme.chipBg, '#127352');
@@ -79,8 +85,11 @@ describe('workspace-theme central engine', () => {
   it('preserves measured blue baseline', () => {
     const blueTheme = getWorkspaceTheme('blue');
     assert.equal(blueTheme.glowAccent, 'rgb(20, 32, 79)');
+    assert.equal(blueTheme.glowAccentLight, 'rgb(157, 210, 255)');
     assert.equal(blueTheme.sendButton.bg, '#1b3f95');
     assert.equal(blueTheme.sendButton.hover, '#153277');
+    assert.equal(blueTheme.sendButton.lightBg, '#9dd2ff');
+    assert.equal(blueTheme.sendButton.lightHover, '#90c4f1');
     assert.equal(blueTheme.accentButton.bg, 'rgb(31, 59, 155)');
     assert.equal(blueTheme.accentButton.hover, 'rgb(42, 75, 190)');
     assert.equal(blueTheme.chipBg, '#192967');
@@ -108,7 +117,10 @@ describe('workspace-theme central engine', () => {
     assert.equal(customTheme.id, 'amber');
     assert.equal(customTheme.swatchHex, '#f59e0b');
     assert.ok(customTheme.glowAccent.startsWith('rgb('));
+    assert.ok(customTheme.glowAccentLight.startsWith('rgb('));
     assert.ok(customTheme.sendButton.bg.startsWith('#'));
+    assert.ok(customTheme.sendButton.lightBg.startsWith('#'));
+    assert.ok(customTheme.sendButton.lightHover.startsWith('#'));
     assert.ok(customTheme.accentButton.bg.startsWith('#'));
     assert.ok(customTheme.accentButton.hover.startsWith('#'));
     assert.ok(customTheme.chipBg.startsWith('#'));

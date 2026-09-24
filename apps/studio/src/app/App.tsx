@@ -75,6 +75,7 @@ const FeatureFirstPaintGate: React.FC<{
 const WorkbenchView = React.lazy(() => import('@willow/code/WorkbenchView'));
 const MediaView = React.lazy(() => import('@willow/media/MediaView'));
 const DesignView = React.lazy(() => import('@willow/design/DesignView'));
+const WaifuView = React.lazy(() => import('../waifu/WaifuView'));
 const SparkWorkspace = React.lazy(() => import('@willow/spark/SparkWorkspace'));
 const GemsView = React.lazy(() => import('@willow/gems/GemsView'));
 const AllNotebooksPage = React.lazy(() =>
@@ -164,6 +165,7 @@ const PersonalIntelligenceTab = React.lazy(() =>
 );
 const ActivityTab = React.lazy(() => import('../settings/tabs/activity/ActivityTab').then((m) => ({ default: m.ActivityTab })));
 const SavedInfoTab = React.lazy(() => import('../settings/tabs/saved-info/SavedInfoTab').then((m) => ({ default: m.SavedInfoTab })));
+const MemoryTab = React.lazy(() => import('../settings/tabs/memory/MemoryTab').then((m) => ({ default: m.MemoryTab })));
 const ImportMemoryView = React.lazy(() => import('../import-memory/ImportMemoryView'));
 const ConnectedAppsTab = React.lazy(() =>
   import('../settings/tabs/connected-apps/ConnectedAppsTab').then((m) => ({ default: m.ConnectedAppsTab }))
@@ -317,6 +319,7 @@ const App: React.FC = () => {
   const isDesignEnabled = experiments['design-surface'];
   const isAgentsEnabled = experiments['agents-surface'];
   const isProjectsPanelEnabled = experiments['projects-panel'];
+  const isWaifuEnabled = experiments['waifu-tab'];
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
@@ -326,12 +329,14 @@ const App: React.FC = () => {
     if (location.pathname === '/personalization-settings') return 'personal-intelligence';
     if (location.pathname === '/activity') return 'activity';
     if (location.pathname === '/saved-info') return 'saved-info';
-    if (location.pathname === '/memory' || location.pathname === '/import') return 'memory';
+    if (location.pathname === '/memory') return 'memory';
+    if (location.pathname === '/import') return 'import-memory';
     if (location.pathname === '/connected-apps') return 'connected-apps';
     if (location.pathname === '/customize') return 'customize';
     if (location.pathname === '/models-settings') return 'models-api';
     if (location.pathname === '/labs') return 'labs';
     if (location.pathname === '/design' && isExperimentEnabled('design-surface')) return 'design';
+    if (location.pathname === '/waifu' && isExperimentEnabled('waifu-tab')) return 'waifu';
     if (location.pathname.startsWith('/gems')) return 'gems';
     if (location.pathname === '/usage') return 'usage';
     if (location.pathname === '/gemini-spark' || location.pathname === '/spark-settings') return 'gemini-spark';
@@ -527,6 +532,7 @@ const App: React.FC = () => {
       // install to one the user may hold no key for. A real id appears only once
       // the user picks one in Settings, and that pin is then permanent.
       personalIntelligence: AUTO_MODEL,
+      waifuModel: 'gemini-3.8-live',
     },
     providerProfiles: createDefaultProviderProfiles({
       gemini: 'https://generativelanguage.googleapis.com',
@@ -757,6 +763,7 @@ const App: React.FC = () => {
   const handleViewChange = React.useCallback(async (view: ViewType): Promise<boolean> => {
     if (view === currentView) return true;
     if (view === 'design' && !isDesignEnabled) return false;
+    if (view === 'waifu' && !isWaifuEnabled) return false;
     if (view === 'agents' && !isAgentsEnabled) return false;
     if (view === 'projects' && !isProjectsPanelEnabled) return false;
     const sequence = ++viewChangeSequenceRef.current;
@@ -787,6 +794,7 @@ const App: React.FC = () => {
     else if (view === 'models-api') navigate('/models-settings');
     else if (view === 'labs') navigate('/labs');
     else if (view === 'design') navigate('/design');
+    else if (view === 'waifu') navigate('/waifu');
     else if (view === 'gems') navigate('/gems');
     else if (view === 'notebooks') navigate('/notebooks/view');
     else if (view === 'notebook-create') navigate('/notebooks/create');
@@ -809,6 +817,7 @@ const App: React.FC = () => {
       location.pathname === '/models-settings' ||
       location.pathname === '/labs' ||
       location.pathname === '/design' ||
+      location.pathname === '/waifu' ||
       location.pathname === '/gems' ||
       location.pathname === '/usage' ||
       location.pathname === '/gemini-spark' ||
@@ -819,7 +828,7 @@ const App: React.FC = () => {
     }
     commitView(view);
     return true;
-  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, isDesignEnabled, isProjectsPanelEnabled, navigate, searchParams, startTopLoading, location.pathname]);
+  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, isDesignEnabled, isProjectsPanelEnabled, isWaifuEnabled, navigate, searchParams, startTopLoading, location.pathname]);
 
   /*
    * Reopening a Code chat, from anywhere.
@@ -853,10 +862,12 @@ const App: React.FC = () => {
   React.useEffect(() => {
     if (location.pathname === '/design' && !isDesignEnabled) {
       navigate('/', { replace: true });
+    } else if (location.pathname === '/waifu' && !isWaifuEnabled) {
+      navigate('/', { replace: true });
     } else if (searchParams.get('view') === 'agents' && !isAgentsEnabled) {
       navigate('/', { replace: true });
     }
-  }, [isAgentsEnabled, isDesignEnabled, location.pathname, navigate, searchParams]);
+  }, [isAgentsEnabled, isDesignEnabled, isWaifuEnabled, location.pathname, navigate, searchParams]);
 
   /*
    * Projects is the one gated surface with no URL — it is only ever entered from
@@ -925,12 +936,14 @@ const App: React.FC = () => {
         (intent === 'personal-intelligence' && location.pathname === '/personalization-settings') ||
         (intent === 'activity' && location.pathname === '/activity') ||
         (intent === 'saved-info' && location.pathname === '/saved-info') ||
-        (intent === 'memory' && (location.pathname === '/memory' || location.pathname === '/import')) ||
+        (intent === 'memory' && location.pathname === '/memory') ||
+        (intent === 'import-memory' && location.pathname === '/import') ||
         (intent === 'connected-apps' && location.pathname === '/connected-apps') ||
         (intent === 'customize' && location.pathname === '/customize') ||
         (intent === 'models-api' && location.pathname === '/models-settings') ||
         (intent === 'labs' && location.pathname === '/labs') ||
         (intent === 'design' && location.pathname === '/design') ||
+        (intent === 'waifu' && location.pathname === '/waifu') ||
         (intent === 'gems' && location.pathname.startsWith('/gems')) ||
         (intent === 'usage' && location.pathname === '/usage') ||
         (intent === 'gemini-spark' && (location.pathname === '/gemini-spark' || location.pathname === '/spark-settings')) ||
@@ -957,9 +970,13 @@ const App: React.FC = () => {
       if (currentView !== 'saved-info') {
         commitView('saved-info');
       }
-    } else if (location.pathname === '/memory' || location.pathname === '/import') {
+    } else if (location.pathname === '/memory') {
       if (currentView !== 'memory') {
         commitView('memory');
+      }
+    } else if (location.pathname === '/import') {
+      if (currentView !== 'import-memory') {
+        commitView('import-memory');
       }
     } else if (location.pathname === '/connected-apps') {
       if (currentView !== 'connected-apps') {
@@ -980,6 +997,10 @@ const App: React.FC = () => {
     } else if (location.pathname === '/design' && isDesignEnabled) {
       if (currentView !== 'design') {
         commitView('design');
+      }
+    } else if (location.pathname === '/waifu' && isWaifuEnabled) {
+      if (currentView !== 'waifu') {
+        commitView('waifu');
       }
     } else if (location.pathname.startsWith('/gems')) {
       if (currentView !== 'gems') {
@@ -1004,11 +1025,13 @@ const App: React.FC = () => {
       currentView === 'activity' ||
       currentView === 'saved-info' ||
       currentView === 'memory' ||
+      currentView === 'import-memory' ||
       currentView === 'connected-apps' ||
       currentView === 'customize' ||
       currentView === 'models-api' ||
       currentView === 'labs' ||
       currentView === 'design' ||
+      currentView === 'waifu' ||
       currentView === 'gems' ||
       currentView === 'usage' ||
       currentView === 'gemini-spark' ||
@@ -1018,7 +1041,7 @@ const App: React.FC = () => {
     ) {
       commitView('home');
     }
-  }, [location.pathname, currentView, commitView, isDesignEnabled]);
+  }, [location.pathname, currentView, commitView, isDesignEnabled, isWaifuEnabled]);
 
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('studio-experience'));
@@ -1568,6 +1591,14 @@ const App: React.FC = () => {
               <div className="h-full w-full" />
             </StudioLoadingFallback>
           }>
+            <MemoryTab />
+          </Suspense>
+        ) : currentView === 'import-memory' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
             <ImportMemoryView />
           </Suspense>
         ) : currentView === 'connected-apps' ? (
@@ -1585,6 +1616,14 @@ const App: React.FC = () => {
             </StudioLoadingFallback>
           }>
             <CustomizeView />
+          </Suspense>
+        ) : currentView === 'waifu' ? (
+          <Suspense fallback={
+            <StudioLoadingFallback reason="waifu-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+              <div className="h-full w-full" />
+            </StudioLoadingFallback>
+          }>
+            <WaifuView modelConfig={modelConfig} setModelConfig={setModelConfig} />
           </Suspense>
         ) : currentView === 'usage' ? (
           <Suspense fallback={
@@ -1711,6 +1750,7 @@ const App: React.FC = () => {
            <Route path="/models-settings" element={mainAppShell} />
            <Route path="/labs" element={mainAppShell} />
            <Route path="/design" element={mainAppShell} />
+           <Route path="/waifu" element={mainAppShell} />
            <Route path="/gems" element={mainAppShell} />
            <Route path="/gems/create" element={mainAppShell} />
            <Route path="/usage" element={mainAppShell} />

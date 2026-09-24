@@ -249,3 +249,33 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* Light theme overrides matching Google Gemini 1:1 */
+:is(.light-theme, [data-theme="light"]) .spark-settings,
+.light-theme .spark-settings,
+[data-theme="light"] .spark-settings {
+  --sps-surface-bright: var(--studio-surface, #faf9f9);
+  --sps-surface-dim: #f0f4f9;
+  --sps-on-surface: #1f1f1f;
+  --sps-on-surface-alt: #1f1f1f;
+  --sps-outline-variant: #c4c7c5;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-settings__button {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-settings__button:hover {
+  background: #e5ebf3;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-settings__link {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-settings:hover::-webkit-scrollbar-thumb {
+  background: content-box #c4c7c5;
+}
+

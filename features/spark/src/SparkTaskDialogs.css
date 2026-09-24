@@ -20,7 +20,7 @@
 .spark-task-dialog-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -150,4 +150,53 @@
   .spark-task-dialog-backdrop {
     animation: none;
   }
+}
+
+/* ==========================================================================
+   Google Gemini Spark Light Theme - Task Dialogs
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog > p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog > p > a {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog input {
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog input:focus {
+  border-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog__actions button {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog__actions button:hover:not(:disabled) {
+  background: #e5e5e5;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog__actions button:disabled {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-task-dialog__actions button:focus-visible {
+  outline-color: #0b57d0;
 }

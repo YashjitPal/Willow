@@ -510,6 +510,24 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
         (model: any) => model.modelId === systemDefaults.personalIntelligence,
       )?.name || systemDefaults.personalIntelligence || 'Select model';
 
+  const selectableWaifuModels = React.useMemo(() => {
+    const liveModels = [
+      { modelId: 'gemini-3.8-live', name: 'Gemini 3.8 Live', provider: 'gemini' },
+      { modelId: 'gemini-3.8-live-extended-thinking', name: 'Gemini 3.8 Live Extended Thinking', provider: 'gemini' },
+      { modelId: 'gemini-3.1-flash-live-preview', name: 'Gemini 3.1 Flash Live', provider: 'gemini' },
+    ];
+    return [
+      ...liveModels,
+      ...selectablePersonalModels.filter((m: any) => !liveModels.some(l => l.modelId === (m.modelId || m.id))),
+    ];
+  }, [selectablePersonalModels]);
+
+  const waifuModelLabel = selectableWaifuModels.find(
+    (model: any) => model.modelId === (systemDefaults.waifuModel || 'gemini-3.8-live'),
+  )?.name
+    || (systemDefaults.waifuModel === 'gemini-3.8-live' ? 'Gemini 3.8 Live' : systemDefaults.waifuModel)
+    || 'Gemini 3.8 Live';
+
   const savedModelItems = (key: string, currentValue: string | undefined): DropdownItem[] =>
     keyedSystemDefaultModels.map((model: any) => ({
       key: `${model.provider}-${model.id}`,
@@ -770,6 +788,27 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
                 onSelect: () => setSystemDefault('personalIntelligence', model.modelId),
               })),
             ]}
+          />
+        </div>
+      </div>
+
+      <div className="ma-row">
+        <div className="ma-row-text">
+          <div className="ma-title-m">Waifu Model</div>
+          <div className="ma-label-m">
+            Model powering your anime companion. Inherits from Live voice models by default.
+          </div>
+        </div>
+        <div className="ma-row-control">
+          <Dropdown
+            ariaLabel="Waifu Model"
+            value={waifuModelLabel}
+            items={selectableWaifuModels.map((model: any) => ({
+              key: `${model.provider}-${model.modelId || model.id}`,
+              label: model.name,
+              selected: (systemDefaults.waifuModel || 'gemini-3.8-live') === (model.modelId || model.id),
+              onSelect: () => setSystemDefault('waifuModel', model.modelId || model.id),
+            }))}
           />
         </div>
       </div>

@@ -128,3 +128,195 @@
     transform: translateX(-10px);
   }
 }
+
+/* Light Theme overrides for Settings Modal and Tabs */
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog {
+  background-color: #ffffff !important;
+  color: #1f1f1f !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12) !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-close {
+  color: #747775 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-close:hover {
+  color: #1f1f1f !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-sidebar {
+  background-color: #f8f9fa !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-sidebar .text-zinc-500 {
+  color: #747775 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-sidebar-item-active {
+  background-color: #e3e3e3 !important;
+  color: #1f1f1f !important;
+  font-weight: 500 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-sidebar-item-inactive {
+  color: #444746 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-sidebar-item-inactive:hover {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  color: #1f1f1f !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-content {
+  background-color: #ffffff !important;
+  color: #1f1f1f !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .text-white,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .text-zinc-100,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .text-zinc-200,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .text-zinc-300 {
+  color: #1f1f1f !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .text-amber-200 {
+  color: #b45309 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .text-amber-400 {
+  color: #d97706 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .text-zinc-400,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .text-zinc-500 {
+  color: #444746 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .border-white\/5,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .border-white\/10 {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]),
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog textarea,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog select {
+  background-color: #ffffff !important;
+  color: #1f1f1f !important;
+  border-color: #c4c7c5 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog input:focus,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog textarea:focus,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog select:focus {
+  border-color: #0b57d0 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-\[\#1c1c1c\],
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-\[\#141414\],
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-\[\#18181b\],
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-\[\#272729\],
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-\[\#27272a\],
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-\[\#242424\],
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog [class*="bg-[#242424]"],
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-zinc-800,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-zinc-900 {
+  background-color: #f0f4f9 !important;
+  color: #1f1f1f !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .hover\:bg-\[\#323235\]:hover,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .hover\:bg-\[\#1f1f1f\]:hover,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-\[\#272729\]:hover {
+  background-color: #e5ebf3 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog [class*="bg-[#1a1a1a]"] {
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12) !important;
+  color: #1f1f1f !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog [class*="bg-gradient-to-b"] {
+  background-image: none !important;
+  background-color: #f0f4f9 !important;
+  border-color: #c4c7c5 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog [class*="bg-gradient-to-b"]:hover {
+  background-color: #e5ebf3 !important;
+  border-color: #747775 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .w-10.h-10.rounded-xl.bg-black {
+  background-color: #ffffff !important;
+  border-color: #c4c7c5 !important;
+  color: #1f1f1f !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .border-white\/40 {
+  border-color: #0b57d0 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog button[class*="rounded-full"][class*="bg-white/5"] {
+  background-color: #ffffff !important;
+  border-color: #c4c7c5 !important;
+  color: #1f1f1f !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog button[class*="rounded-full"][class*="bg-white/5"]:hover {
+  background-color: #e5ebf3 !important;
+  color: #1f1f1f !important;
+}
+
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .border-white\/20 {
+  border-color: #747775 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .w-2.h-2.bg-white.rounded-full {
+  background-color: #0b57d0 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white\/90 {
+  background-color: #0b57d0 !important;
+  color: #ffffff !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white:hover {
+  background-color: #0842a0 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white\/5,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white\/10 {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  color: #1f1f1f !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white\/5:hover,
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white\/10:hover {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .absolute.bottom-0 {
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog code {
+  background-color: #f0f4f9 !important;
+  color: #1f1f1f !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .hover-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog .hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.25) !important;
+}
+

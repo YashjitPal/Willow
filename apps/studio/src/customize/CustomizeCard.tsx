@@ -1,4 +1,5 @@
 import React from 'react';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { CustomizeIcon } from './CustomizeIcon';
 import type { CustomizeItem } from './customize-data';
 
@@ -13,6 +14,7 @@ export const CustomizeCard: React.FC<CustomizeCardProps> = ({
   onSelect,
   onActionClick,
 }) => {
+  const { isLight } = useThemeMode();
   return (
     <div
       className="customize-card group"
@@ -39,13 +41,13 @@ export const CustomizeCard: React.FC<CustomizeCardProps> = ({
           <CustomizeIcon
             name={item.symbol}
             size={20}
-            className="text-[#e6e6e6]"
+            className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}
           />
         ) : (
           <CustomizeIcon
             name="edit_note"
             size={20}
-            className="text-[#e6e6e6]"
+            className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}
           />
         )}
       </div>

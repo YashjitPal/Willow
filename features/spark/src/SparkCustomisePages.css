@@ -2196,3 +2196,521 @@
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Google Gemini Spark Light Theme - Customise Pages (Apps, Skills, Schedules)
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-page {
+  background: var(--studio-surface, #faf9f9);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-header h1 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-header p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-inline-link {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-page-action {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-page-action:hover {
+  background: #e5e5e5;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-page-action--primary {
+  background: var(--spark-accent-btn-bg, #9dd2ff);
+  color: var(--spark-accent-btn-text, #000000);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-page-action--primary:hover {
+  background: var(--spark-accent-btn-hover, #8ec7f7);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-page-action:disabled {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedules-section > h2,
+:is(.light-theme, [data-theme="light"]) .spark-recommended-skills > h2,
+:is(.light-theme, [data-theme="light"]) .spark-skills-library > h2,
+:is(.light-theme, [data-theme="light"]) .spark-customise-loading-section > h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-loading-list {
+  border: 0.8px solid #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-loading-row {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-loading-row + .spark-customise-loading-row {
+  border-top: 0.8px solid #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-loading-bar-fill {
+  background-image: linear-gradient(
+    33deg,
+    rgba(0, 0, 0, 0.04) 0%,
+    #e8eaed 25%,
+    #f1f3f4 50%,
+    #e8eaed 75%,
+    rgba(0, 0, 0, 0.04) 100%
+  );
+}
+
+/* Schedules Tab */
+:is(.light-theme, [data-theme="light"]) .spark-schedule-list {
+  border: 1px solid #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-card {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-row:hover .spark-schedule-card,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-row:focus-within .spark-schedule-card {
+  background: #f8f8f8;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-card__icon {
+  background: #f2f0f0;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-card__title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-card__detail,
+:is(.light-theme, [data-theme="light"]) .spark-schedule-card__last-run {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-card__paused {
+  background: #f2f0f0;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedule-card__chevron {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedules-empty {
+  border: 1px solid #f2f0f0;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedules-empty .spark-schedules-empty__title,
+:is(.light-theme, [data-theme="light"]) .spark-schedules-empty .spark-schedules-empty__subtitle {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedules-empty__icon,
+:is(.light-theme, [data-theme="light"]) .spark-skills-active-empty__icon,
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-empty__icon {
+  background: #f2f0f0;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedules-empty__copy strong,
+:is(.light-theme, [data-theme="light"]) .spark-skills-active-empty__copy strong,
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-empty__copy strong {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-schedules-empty__copy > span,
+:is(.light-theme, [data-theme="light"]) .spark-skills-active-empty__copy > span,
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-empty__copy > span {
+  color: #747775;
+}
+
+/* Skills Tab */
+:is(.light-theme, [data-theme="light"]) .spark-skills-empty {
+  border: 1px solid #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skills-empty h2,
+:is(.light-theme, [data-theme="light"]) .spark-skills-empty p {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skills-library__list {
+  border: 1px solid #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-row {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-row:hover,
+:is(.light-theme, [data-theme="light"]) .spark-skill-row:focus-within,
+:is(.light-theme, [data-theme="light"]) .spark-skill-row:has(.spark-row-action-menu__trigger[aria-expanded="true"]) {
+  background: #f8f8f8;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-card {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-card__icon {
+  background: #f2f0f0;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-card__title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skill-card__description {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-skills-active-empty {
+  background: #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-recommended-skill {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-recommended-skill:hover {
+  background: #e8e6e6;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-recommended-skill__title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-recommended-skill__description {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-show-more {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-show-more:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-row-action-menu__trigger {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-row-action-menu__trigger:hover,
+:is(.light-theme, [data-theme="light"]) .spark-row-action-menu__trigger[aria-expanded="true"] {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-row-action-menu__popover {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-row-action-menu__popover button {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-row-action-menu__popover button:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-row-action-menu__divider {
+  border-top-color: #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__requirements {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__guidelines {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__guidelines a {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__dropzone {
+  border-color: #c4c7c5;
+  background: #faf9f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__dropzone.is-dragging {
+  border-color: #0b57d0;
+  background: #e8f0fe;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__drop-content {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__link {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__formats {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__progress-track {
+  background: #e0e2e0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-upload-dialog__progress-bar {
+  background: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog__actions button {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog__actions button:hover {
+  background: rgba(11, 87, 208, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog__actions .is-danger {
+  background: #f2f0f0;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog__actions .is-danger:hover {
+  background: #e5e5e5;
+}
+
+/* Connected Apps Tab */
+:is(.light-theme, [data-theme="light"]) .spark-connected-header h1 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-header p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-app-category {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-app-category::before {
+  border-color: #8e918f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-app-category:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-app-section__header h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-workspace-card {
+  background: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-workspace-card__summary h3 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-workspace-card__summary p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-workspace-product {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-workspace-product h4 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-workspace-product a {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-app-card {
+  background: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-app-card h3 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-app-card__handle {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-app-card__description {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-app-card__prompt {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-app-card__prompt:hover:not(:disabled) {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-app-card__prompt:disabled {
+  background: rgba(255, 255, 255, 0.5);
+  color: rgba(0, 0, 0, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-connected-app-card__learn-more {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-app-toggle {
+  background: #e0e2e0;
+  box-shadow: inset 0 0 0 2px #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-app-toggle__thumb {
+  background: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-app-toggle--checked {
+  background: var(--spark-toggle-track, #0b57d0);
+  box-shadow: none;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-app-toggle--checked .spark-app-toggle__thumb {
+  background: var(--spark-toggle-thumb, #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-card {
+  background: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-card > label {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-card__row input {
+  border-color: #8e918f;
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-card__row input:focus {
+  border-color: #0b57d0;
+  box-shadow: inset 0 0 0 1px #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-card__row button {
+  background: #0b57d0;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-card__row button:disabled {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-row {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-row__icon {
+  background: #f2f0f0;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-row__copy span {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-row__remove {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-row__remove:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-premium-content {
+  background: #f0f4f9;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-premium-content h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-premium-content p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-premium-content a {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-apps-privacy-note {
+  background: #f0f4f9;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-apps-privacy-note p {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-photos-notice {
+  background: #e8f0fe;
+  color: #041e49;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-photos-notice__icon {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-photos-notice__copy button {
+  color: #0b57d0;
+}

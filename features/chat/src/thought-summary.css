@@ -118,3 +118,17 @@
     mask-image: none;
   }
 }
+
+:is(.light-theme, [data-theme="light"]) .thought-summary-line {
+  color: rgb(31, 31, 31);
+}
+
+.gemini-thinking-visualizer svg path {
+  fill: rgb(227, 227, 227);
+}
+
+:is(.light-theme, [data-theme="light"]) .gemini-thinking-visualizer svg path {
+  fill: rgb(31, 31, 31) !important;
+}
+
+

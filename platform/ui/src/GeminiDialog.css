@@ -279,3 +279,58 @@
   }
 }
 
+/* ── Light Theme Scoped Rules (Google Gemini measured) ── */
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-surface {
+  background: #ffffff;
+  box-shadow: rgba(0, 0, 0, 0.2) 0px 11px 15px -7px, rgba(0, 0, 0, 0.14) 0px 24px 38px 3px, rgba(0, 0, 0, 0.12) 0px 9px 46px 8px;
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-title {
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-content {
+  color: rgb(68, 71, 70);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-link {
+  color: rgb(11, 87, 208);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-pill {
+  background: rgb(242, 240, 240);
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-pill--text {
+  background: transparent;
+  color: rgb(68, 71, 70);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-pill:disabled {
+  background: rgba(31, 31, 31, 0.08);
+  color: rgba(31, 31, 31, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-pill::before {
+  background: rgb(0, 0, 0);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-field__outline {
+  border-color: rgb(116, 119, 117);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-field:hover .willow-gdlg-field__outline {
+  border-color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-field:focus-within .willow-gdlg-field__outline {
+  border-color: rgb(11, 87, 208);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-gdlg-field__input {
+  color: rgb(31, 31, 31);
+  caret-color: rgb(11, 87, 208);
+}
+

@@ -307,3 +307,86 @@
 .spark-dialog-confirm-button:hover {
   background: rgb(40, 70, 180);
 }
+
+/* Light theme overrides matching Google Gemini 1:1 */
+:is(.light-theme, [data-theme="light"]) .spark-settings-root,
+.light-theme .spark-settings-root,
+[data-theme="light"] .spark-settings-root {
+  background: var(--studio-surface, #faf9f9);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-settings-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-settings-card {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-card-icon {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-card-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-card-description {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-card-link {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-card-link:hover {
+  color: #0842a0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-action-button,
+:is(.light-theme, [data-theme="light"]) .spark-delete-button {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-action-button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-delete-button:hover {
+  background: #e5ebf3;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-delete-icon {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dialog-surface {
+  background: #ffffff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dialog-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dialog-body {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dialog-cancel-button {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dialog-cancel-button:hover {
+  background: rgba(11, 87, 208, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dialog-confirm-button {
+  background: #0b57d0;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dialog-confirm-button:hover {
+  background: #0842a0;
+}
+

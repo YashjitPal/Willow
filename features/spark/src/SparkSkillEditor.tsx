@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import type { SparkSkillSource } from './spark-types';
 import './SparkSkillEditor.css';
@@ -326,7 +327,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
           </div>
         </section>
       </form>
-      {deleteOpen && onDelete && (
+      {deleteOpen && onDelete && typeof document !== 'undefined' && createPortal(
         <div
           className="spark-skill-editor__dialog-backdrop"
           onMouseDown={(event) => {
@@ -341,9 +342,10 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
               <button type="button" className="is-danger" onClick={deleteSkill}>Delete</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-      {discardOpen && (
+      {discardOpen && typeof document !== 'undefined' && createPortal(
         <div
           className={`spark-skill-editor__dialog-backdrop spark-skill-editor__dialog-backdrop--discard${discardClosing ? ' is-closing' : ''}`}
           onMouseDown={(event) => {
@@ -375,7 +377,8 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </main>
   );

@@ -574,6 +574,17 @@
         .gemini-chat-scrollbar::-webkit-scrollbar-thumb:hover {
           background: content-box rgb(68, 71, 70);
         }
+
+        /* Light theme: hover container reveals light gray thumb #dde3ea */
+        .gemini-chat-scrollbar:where(.light-theme *, [data-theme="light"] *):hover::-webkit-scrollbar-thumb {
+          background: content-box #dde3ea;
+        }
+
+        /* Light theme: interacting directly brightens/darkens to outline-variant #c4c7c5 */
+        .gemini-chat-scrollbar:where(.light-theme *, [data-theme="light"] *)::-webkit-scrollbar-thumb:active,
+        .gemini-chat-scrollbar:where(.light-theme *, [data-theme="light"] *)::-webkit-scrollbar-thumb:hover {
+          background: content-box #c4c7c5;
+        }
         
         .gemini-chat-scrollbar::-webkit-scrollbar-button {
           height: 0px;
@@ -589,6 +600,9 @@
         }
         .gemini-chat-scrollbar:hover {
           scrollbar-color: rgb(51, 53, 55) transparent;
+        }
+        .gemini-chat-scrollbar:where(.light-theme *, [data-theme="light"] *):hover {
+          scrollbar-color: #dde3ea transparent;
         }
       }
 
@@ -711,6 +725,33 @@
           ellipse 100% 100% at center 8%,
           rgb(15, 15, 15) 0,
           rgb(68, 71, 70) 50%
+        );
+      }
+
+      /*
+       * Light-theme variants.
+       *
+       * In light theme, Gemini uses:
+       *   var(--lumi-sys-color--surface) (#faf9f9) at stop 0
+       *   var(--lumi-sys-color--surface-accent) (#9dd2ff for blue) at stop 50%
+       *   filter: blur(125px) (vs blur(100px) in dark mode)
+       *
+       * Temporary chat in light theme uses Gemini's outline-variant (#c4c7c5).
+       */
+      :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow::before {
+        background: radial-gradient(
+          ellipse 100% 100% at center 8%,
+          var(--studio-surface, #faf9f9) 0,
+          var(--willow-home-glow-accent, rgb(158, 174, 153)) 50%
+        );
+        filter: blur(125px);
+      }
+
+      :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow.willow-gemini-home-glow-gray::before {
+        background: radial-gradient(
+          ellipse 100% 100% at center 8%,
+          var(--studio-surface, #faf9f9) 0,
+          rgb(196, 199, 197) 50%
         );
       }
 
@@ -841,6 +882,14 @@
         .textarea-wrapper.exiting-dictation {
           opacity: 0;
         }
+      }
+
+      /* Gemini Thinking Dots Visualizer */
+      .gemini-thinking-visualizer svg path {
+        fill: rgb(227, 227, 227);
+      }
+      :is(.light-theme, [data-theme="light"]) .gemini-thinking-visualizer svg path {
+        fill: rgb(31, 31, 31) !important;
       }
     </style>
   </head>

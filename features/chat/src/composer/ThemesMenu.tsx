@@ -15,12 +15,14 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Plus, Search, Settings } from "lucide-react";
 import { THEMES } from './composer-options';
+import { useThemeMode } from '@willow/core/theme-mode';
 
 export const ThemesMenu: React.FC<{
   onClose: () => void;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   onAuthRequired?: () => void;
 }> = ({ onClose, triggerRef, onAuthRequired }) => {
+  const { isLight } = useThemeMode();
   const [selectedId, setSelectedId] = useState("default");
   const [searchQuery, setSearchQuery] = useState("");
   const [side, setSide] = useState<"top" | "bottom">("top");
@@ -89,25 +91,31 @@ export const ThemesMenu: React.FC<{
   return (
     <div
       ref={menuRef}
-      className={`absolute left-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-left" : "top-[calc(100%+8px)] origin-top-left"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+      className={`absolute left-0 w-[240px] rounded-xl flex flex-col overflow-hidden z-[100] ${
+        isLight
+          ? 'bg-white border border-black/10 shadow-[0_0_20px_rgba(0,0,0,0.04)] ring-0'
+          : 'bg-[#1c1c1c] border border-white/10 shadow-2xl ring-1 ring-black/50'
+      } ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-left" : "top-[calc(100%+8px)] origin-top-left"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
     >
-      <div className="relative flex items-center px-4 py-3.5 border-b border-white/5 bg-[#1c1c1c]">
+      <div className={`relative flex items-center px-4 py-3.5 border-b ${isLight ? 'border-black/5 bg-white' : 'border-white/5 bg-[#1c1c1c]'}`}>
         <Search
-          className="text-zinc-500 shrink-0 mr-3"
+          className={`shrink-0 mr-3 ${isLight ? 'text-[#747775]' : 'text-zinc-500'}`}
           size={18}
           strokeWidth={2.5}
         />
         <input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="bg-transparent text-white text-[14px] placeholder-zinc-500 outline-none flex-1 leading-none font-normal"
+          className={`bg-transparent text-[14px] outline-none flex-1 leading-none font-normal ${
+            isLight ? 'text-[#1f1f1f] placeholder-[#747775]' : 'text-white placeholder-zinc-500'
+          }`}
           placeholder="Search themes..."
 
         />
       </div>
 
-      <div className="flex-1 overflow-y-auto max-h-[260px] p-2 pt-0 no-scrollbar bg-[#1c1c1c]">
-        <div className="px-2 pt-3.5 pb-2 text-[10.5px] font-bold text-zinc-500 uppercase tracking-widest">
+      <div className={`flex-1 overflow-y-auto max-h-[260px] p-2 pt-0 no-scrollbar ${isLight ? 'bg-white' : 'bg-[#1c1c1c]'}`}>
+        <div className={`px-2 pt-3.5 pb-2 text-[10.5px] font-bold uppercase tracking-widest ${isLight ? 'text-[#444746]' : 'text-zinc-500'}`}>
           DEFAULT THEMES
         </div>
         <div className="space-y-0.5">
@@ -121,7 +129,9 @@ export const ThemesMenu: React.FC<{
                   ${
                     isSelected
                       ? "bg-[#2563eb] text-white shadow-lg shadow-blue-500/10"
-                      : "text-zinc-300 hover:bg-white/5 hover:text-white"
+                      : isLight
+                        ? "text-[#1f1f1f] hover:bg-black/[0.06] hover:text-[#1f1f1f]"
+                        : "text-zinc-300 hover:bg-white/5 hover:text-white"
                   }`}
               >
                 <span>{theme.name}</span>
@@ -133,7 +143,9 @@ export const ThemesMenu: React.FC<{
                         ${
                           isSelected
                             ? "ring-[#2563eb]"
-                            : "ring-[#1c1c1c] group-hover:ring-[#2a2a2a]"
+                            : isLight
+                              ? "ring-white group-hover:ring-[#f0f0f0]"
+                              : "ring-[#1c1c1c] group-hover:ring-[#2a2a2a]"
                         }`}
                       style={{ backgroundColor: color, zIndex: 3 - i }}
                     />
@@ -145,18 +157,22 @@ export const ThemesMenu: React.FC<{
         </div>
       </div>
 
-      <div className="flex items-center h-[42px] border-t border-white/10 mt-1 bg-[#1c1c1c]">
+      <div className={`flex items-center h-[42px] border-t mt-1 ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#1c1c1c]'}`}>
         <button 
           onClick={() => { onAuthRequired?.(); handleClose(); }}
-          className="flex-1 flex items-center justify-center gap-2 text-[13px] font-medium text-white/70 hover:text-white hover:bg-white/5 h-full"
+          className={`flex-1 flex items-center justify-center gap-2 text-[13px] font-medium h-full ${
+            isLight ? 'text-black/70 hover:text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-white/70 hover:text-white hover:bg-white/5'
+          }`}
         >
           <Plus size={14} strokeWidth={2.5} />
           <span>Create new</span>
         </button>
-        <div className="w-[1px] h-4 bg-white/10"></div>
+        <div className={`w-[1px] h-4 ${isLight ? 'bg-black/10' : 'bg-white/10'}`}></div>
         <button 
           onClick={() => { onAuthRequired?.(); handleClose(); }}
-          className="w-[42px] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/5 h-full"
+          className={`w-[42px] flex items-center justify-center h-full ${
+            isLight ? 'text-black/60 hover:text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-white/60 hover:text-white hover:bg-white/5'
+          }`}
         >
           <Settings size={15} strokeWidth={2.2} />
         </button>

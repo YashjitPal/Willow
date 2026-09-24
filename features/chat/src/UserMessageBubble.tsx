@@ -9,6 +9,7 @@
 
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { ChatMsg } from './chat-message';
 
 /** Four lines at the bubble's 24px line-height. */
@@ -25,6 +26,7 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
   onToggleStart,
   onToggleEnd,
 }) => {
+  const { isLight } = useThemeMode();
   const contentRef = useRef<HTMLDivElement>(null);
   const [naturalHeight, setNaturalHeight] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -62,7 +64,9 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
 
   return (
     <div
-      className="relative min-w-0 max-w-[508px] overflow-visible rounded-[40px] bg-[#171717] px-7 py-5 text-[17px] font-normal leading-6 text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+      className={`relative min-w-0 max-w-[508px] overflow-visible rounded-[40px] ${
+        isLight ? 'bg-[#f2f0f0] text-[#1f1f1f]' : 'bg-[#171717] text-[#e3e3e3]'
+      } px-7 py-5 text-[17px] font-normal leading-6 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
       style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
     >
       <div
@@ -78,7 +82,7 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
       >
         <div ref={contentRef}>
           {isTranscribing && !content ? (
-            <span className="select-none italic text-gray-500">Transcribing…</span>
+            <span className={`select-none italic ${isLight ? 'text-[#747775]' : 'text-gray-500'}`}>Transcribing…</span>
           ) : (
             content
           )}
@@ -90,7 +94,11 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
           {!isExpanded && (
             <div
               aria-hidden="true"
-              className="absolute right-0 top-1/2 z-10 h-[22px] w-[92px] -translate-y-1/2 bg-[linear-gradient(to_right,transparent,#171717_56px,#171717_100%)]"
+              className={`absolute right-0 top-1/2 z-10 h-[22px] w-[92px] -translate-y-1/2 ${
+                isLight
+                  ? 'bg-[linear-gradient(to_right,transparent,#f2f0f0_56px,#f2f0f0_100%)]'
+                  : 'bg-[linear-gradient(to_right,transparent,#171717_56px,#171717_100%)]'
+              }`}
             />
           )}
           <button
@@ -99,12 +107,16 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
               onToggleStart?.(!isExpanded);
               setIsExpanded((expanded) => !expanded);
             }}
-            className="pointer-events-auto absolute right-0 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-transparent p-2 text-[#c4c7c5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+            className={`pointer-events-auto absolute right-0 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-transparent p-2 ${
+              isLight ? 'text-[#444746] focus-visible:ring-black/25' : 'text-[#c4c7c5] focus-visible:ring-white/25'
+            } focus-visible:outline-none focus-visible:ring-2`}
             aria-label={isExpanded ? 'Collapse' : 'Expand'}
             aria-expanded={isExpanded}
             title={toggleLabel}
           >
-            <span className="flex h-[22px] w-8 shrink-0 items-center justify-center rounded-[22px] bg-[#1e1f20]">
+            <span className={`flex h-[22px] w-8 shrink-0 items-center justify-center rounded-[22px] ${
+              isLight ? 'bg-[#ffffff]' : 'bg-[#1e1f20]'
+            }`}>
               <MaterialSymbol
                 family="luminous"
                 name={isExpanded ? 'expand_less' : 'expand_more'}

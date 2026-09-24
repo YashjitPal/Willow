@@ -439,3 +439,85 @@
     animation: none;
   }
 }
+
+/* ==========================================================================
+   Google Gemini Spark Light Theme - Goal Cards & Menus
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-card {
+  background-color: rgba(250, 249, 249, 0.5);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-card:hover,
+:is(.light-theme, [data-theme="light"]) .spark-goal-card.is-selected {
+  background-color: #ffffff;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-card:focus-visible {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-naming-ghost {
+  background-image: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.08) 0%,
+    rgba(0, 0, 0, 0) 50%,
+    rgba(0, 0, 0, 0.08) 100%
+  );
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-description {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-secondary-text {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-time-ago {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-action-menu-button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-action-menu-button:hover,
+:is(.light-theme, [data-theme="light"]) .spark-goal-action-menu-button[aria-expanded="true"] {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-menu-panel {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-menu-item {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-goal-menu-item:hover,
+:is(.light-theme, [data-theme="light"]) .spark-goal-menu-item:focus-visible {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-status-pill {
+  background: #d3e3fd;
+  color: #041e49;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-status-pill--failed {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-status-pulse-dot {
+  background-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-status-pulse-dot.is-complete {
+  background-color: #0b57d0;
+}

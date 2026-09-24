@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { formatSparkRelativeTime, type SparkTask } from './spark-types';
 import { useSparkAccentVars } from './spark-accent';
@@ -417,6 +418,9 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                     {task.status === 'needs-input' && (
                       <span className="spark-task-detail__needs-input-badge">Needs input</span>
                     )}
+                    {task.status === 'failed' && (
+                      <span className="spark-status-pill spark-status-pill--failed">Failed</span>
+                    )}
                     {task.isPinned && (
                       <MaterialSymbol
                         {...SYMBOL_PROPS}
@@ -533,7 +537,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
         </section>
       </div>
 
-      {renameTask && (
+      {renameTask && typeof document !== 'undefined' && createPortal(
         <div
           className="spark-all-tasks__dialog-backdrop"
           role="presentation"
@@ -574,10 +578,11 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {deleteTask && (
+      {deleteTask && typeof document !== 'undefined' && createPortal(
         <div
           className="spark-all-tasks__dialog-backdrop"
           role="presentation"
@@ -626,7 +631,8 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </section>
   );

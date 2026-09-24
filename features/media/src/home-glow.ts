@@ -121,5 +121,57 @@ export const homeGlowAccent = (color: string | null | undefined): string =>
     ? HOME_GLOW_ACCENT[color as WorkspaceColorName]
     : DEFAULT_GLOW_ACCENT);
 
+/** Gemini's `--lumi-sys-color--surface-accent`, light theme. */
+export const GEMINI_GLOW_ACCENT_LIGHT_HEX = '#9dd2ff';
+
+/** The glow Willow ships in light theme when green or default is selected. */
+export const DEFAULT_GLOW_ACCENT_LIGHT = 'rgb(158, 174, 153)';
+
+/**
+ * The measured OKLCh transform from a workspace swatch to its light glow accent,
+ * taken from the Gemini light pair `#3b82f6` -> `#9dd2ff`.
+ */
+export const GLOW_ACCENT_LIGHT_TRANSFORM = {
+  lightnessRatio: 1.3528572927561568,
+  chromaRatio: 0.44604621061150834,
+  hueShiftDeg: -15.17083252049514,
+} as const;
+
+/** Apply the measured light transform to one swatch. Returns `rgb(r, g, b)`. */
+export const deriveGlowAccentLight = (hex: string): string => {
+  const [L, C, h] = rgbToOklch(hexToRgb(hex));
+  const { lightnessRatio, chromaRatio, hueShiftDeg } = GLOW_ACCENT_LIGHT_TRANSFORM;
+  const rgb = oklchToRgb([
+    Math.min(0.92, L * lightnessRatio),
+    C * chromaRatio,
+    (h + hueShiftDeg + 360) % 360,
+  ]);
+  return `rgb(${rgb.map((c) => Math.round(c * 255)).join(', ')})`;
+};
+
+/**
+ * The light-theme accent stop of `.willow-gemini-home-glow::before`, per workspace colour.
+ */
+export const HOME_GLOW_ACCENT_LIGHT = {
+  green: DEFAULT_GLOW_ACCENT_LIGHT,
+  blue: 'rgb(157, 210, 255)',
+  pink: 'rgb(255, 198, 236)',
+  yellow: 'rgb(255, 223, 185)',
+  orange: 'rgb(255, 219, 211)',
+  purple: 'rgb(181, 191, 255)',
+  lilac: 'rgb(228, 224, 255)',
+  coral: 'rgb(255, 194, 210)',
+  teal: 'rgb(194, 241, 221)',
+} as const satisfies Record<WorkspaceColorName, string>;
+
+/**
+ * Resolve a workspace colour to its light glow accent.
+ */
+export const homeGlowAccentLight = (color: string | null | undefined): string =>
+  (color && color in HOME_GLOW_ACCENT_LIGHT
+    ? HOME_GLOW_ACCENT_LIGHT[color as WorkspaceColorName]
+    : DEFAULT_GLOW_ACCENT_LIGHT);
+
 /** The swatch hexes the accents were derived from, re-exported for the test. */
 export { WORKSPACE_COLOR_HEX };
+

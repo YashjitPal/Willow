@@ -21,7 +21,7 @@ import {
 } from './attachment-storage';
 import { GeminiThinkingVisualizer } from '@willow/chat/GeminiThinkingVisualizer';
 import { useAuth } from '@willow/auth/AuthContext';
-import { sparkAccentVars } from './spark-accent';
+import { useSparkAccentVars } from './spark-accent';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { SparkComposer } from './SparkComposer';
@@ -1283,6 +1283,8 @@ const APP_TOOL_LABELS: Record<string, string> = {
   'google-docs': 'Google Docs',
   'google-keep': 'Google Keep',
   'google-chat': 'Google Chat',
+  workspace: 'Google Workspace Search',
+  'google-workspace-search': 'Google Workspace Search',
   youtube: 'YouTube',
   spotify: 'Spotify',
   github: 'GitHub',
@@ -1296,6 +1298,9 @@ const APP_TOOL_ICONS: Record<string, string> = {
   'google-calendar': 'calendar_month',
   'google-drive': 'add_to_drive',
   'google-docs': 'description',
+  'google-keep': 'lightbulb',
+  workspace: 'search',
+  'google-workspace-search': 'search',
   youtube: 'play_circle',
   spotify: 'music_note',
   github: 'code',
@@ -1314,6 +1319,8 @@ const GEMINI_APP_TOOL_LOGOS: Record<string, string> = {
   'google-keep': 'https://www.gstatic.com/images/branding/productlogos/keep_2026/v2/web-96dp/logo_keep_2026_color_2x_web_96dp.png',
   contacts: 'https://www.gstatic.com/images/branding/productlogos/contacts_2022/v2/192px.svg',
   'google-chat': 'https://www.gstatic.com/images/branding/productlogos/chat_2026/v2/web-96dp/logo_chat_2026_color_2x_web_96dp.png',
+  workspace: 'https://www.gstatic.com/lamda/images/logo_workspace_2026_844db1cfe6c6bb65dd11a.png',
+  'google-workspace-search': 'https://www.gstatic.com/lamda/images/logo_workspace_2026_844db1cfe6c6bb65dd11a.png',
 };
 
 const getToolCapabilityLabel = (tool: string): { icon: string; label: string } => {
@@ -1359,7 +1366,7 @@ const normalizeCapabilityTool = (tool: string): string => {
   return raw;
 };
 
-const HIDDEN_NATIVE_CAPABILITY_TOOLS = new Set(['command']);
+const HIDDEN_NATIVE_CAPABILITY_TOOLS = new Set(['command', 'plan']);
 
 const isVisibleCapabilityTool = (tool: string): boolean => (
   tool.startsWith('app:')
@@ -1774,6 +1781,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   setSelectedModelId,
 }) => {
   const { userProfile } = useAuth();
+  const accentVars = useSparkAccentVars();
   const currentTask = task;
   /**
    * The live `request_user_input` round for this task, if any.
@@ -2593,7 +2601,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
       className={`spark-task-detail${isLibraryCollapsed ? ' is-library-collapsed' : ''}${isProgressPanelOpen ? ' is-progress-open' : ''}${computerUse ? ' has-computer-use' : ''}`}
       /* `--spark-task-detail-accent` comes from `sparkAccentVars` now, so the All
        * Tasks route can light its matching wash from the same one place. */
-      style={sparkAccentVars(userProfile?.workspaceColor)}
+      style={accentVars}
     >
       <aside
         className="spark-task-detail__library"
@@ -2705,6 +2713,9 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                       </span>
                       {needsApproval(recentTask) && (
                         <span className="spark-task-detail__needs-input-badge">Needs input</span>
+                      )}
+                      {taskStatus(recentTask) === 'failed' && (
+                        <span className="spark-status-pill spark-status-pill--failed">Failed</span>
                       )}
                       {recentTask.isPinned && (
                         <MaterialSymbol
@@ -2875,7 +2886,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                     name={getStatusSymbol(currentTask)}
                     size={16}
                     opticalSize={16}
-                    className={`spark-task-detail__status-symbol${isTaskActive(currentTask) ? ' is-running' : ''}`}
+                    className={`spark-task-detail__status-symbol${isTaskActive(currentTask) ? ' is-running' : ''}${taskStatus(currentTask) === 'failed' ? ' is-failed' : ''}`}
                   />
                   <span>{getStatusLabel(currentTask)}</span>
                   <MaterialSymbol {...SYMBOL_PROPS} name="expand_more" size={18} opticalSize={18} />
@@ -3297,7 +3308,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             />
           )}
 
-          {renameOpen && (
+          {renameOpen && typeof document !== 'undefined' && createPortal(
             <div
               className="spark-task-detail__dialog-backdrop"
               role="presentation"
@@ -3325,10 +3336,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   <button type="submit" disabled={!renameDraft.trim()}>Rename</button>
                 </div>
               </form>
-            </div>
+            </div>,
+            document.body,
           )}
 
-          {deleteOpen && (
+          {deleteOpen && typeof document !== 'undefined' && createPortal(
             <div
               className="spark-task-detail__dialog-backdrop"
               role="presentation"
@@ -3364,7 +3376,8 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   </button>
                 </div>
               </div>
-            </div>
+            </div>,
+            document.body,
           )}
         </section>
 

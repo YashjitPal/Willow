@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { MODES, type Mode } from './composer-options';
 
 export const ModesMenu: React.FC<{
@@ -20,6 +21,7 @@ export const ModesMenu: React.FC<{
   currentMode: Mode;
   onModeSelect: (mode: Mode) => void;
 }> = ({ onClose, triggerRef, currentMode, onModeSelect }) => {
+  const { isLight } = useThemeMode();
   const [side, setSide] = useState<"top" | "bottom">("top");
   const [isClosing, setIsClosing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -82,7 +84,7 @@ export const ModesMenu: React.FC<{
   return (
     <div
       ref={menuRef}
-      className={`absolute left-0 w-[160px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 p-1.5 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-left" : "top-[calc(100%+8px)] origin-top-left"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+      className={`absolute left-0 w-[160px] ${isLight ? 'bg-[#ffffff] border border-black/10 shadow-[0_0_20px_rgba(0,0,0,0.04)] ring-0' : 'bg-[#1c1c1c] border border-white/10 shadow-2xl ring-1 ring-black/50'} rounded-xl flex flex-col overflow-hidden z-[100] p-1.5 ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-left" : "top-[calc(100%+8px)] origin-top-left"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
     >
       {MODES.map((mode) => (
         <button
@@ -91,10 +93,12 @@ export const ModesMenu: React.FC<{
             onModeSelect(mode.id);
             handleClose();
           }}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13.5px] font-medium
+          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13.5px] font-medium transition-colors
             ${
               currentMode === mode.id
                 ? "bg-[#2563eb] text-white"
+                : isLight
+                ? "text-[#1f1f1f] hover:bg-black/[0.06]"
                 : "text-zinc-300 hover:bg-white/5 hover:text-white"
             }`}
         >

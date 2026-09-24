@@ -129,6 +129,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
   const [personalDropdownOpen, setPersonalDropdownOpen] = React.useState(false);
   const [personalDirection, setPersonalDirection] = React.useState<'down' | 'up'>('down');
   const personalRef = React.useRef<HTMLDivElement>(null);
+  const [waifuModelDropdownOpen, setWaifuModelDropdownOpen] = React.useState(false);
+  const [waifuModelDirection, setWaifuModelDirection] = React.useState<'down' | 'up'>('down');
+  const waifuModelRef = React.useRef<HTMLDivElement>(null);
   const [customModelExpanded, setCustomModelExpanded] = React.useState(false);
   const [draggedModelKey, setDraggedModelKey] = React.useState<string | null>(null);
   const [dragOverModelKey, setDragOverModelKey] = React.useState<string | null>(null);
@@ -333,6 +336,22 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
         (model: any) => model.modelId === modelConfig.systemDefaults?.personalIntelligence,
       )?.name || modelConfig.systemDefaults?.personalIntelligence || 'Select model';
 
+  const selectableWaifuModels = React.useMemo(() => {
+    const liveModels = [
+      { modelId: 'gemini-3.8-live', name: 'Gemini 3.8 Live', provider: 'gemini' },
+      { modelId: 'gemini-3.8-live-extended-thinking', name: 'Gemini 3.8 Live Extended Thinking', provider: 'gemini' },
+      { modelId: 'gemini-3.1-flash-live-preview', name: 'Gemini 3.1 Flash Live', provider: 'gemini' },
+    ];
+    return [
+      ...liveModels,
+      ...selectablePersonalModels.filter((m: any) => !liveModels.some(l => l.modelId === (m.modelId || m.id))),
+    ];
+  }, [selectablePersonalModels]);
+
+  const selectedWaifuModelName = selectableWaifuModels.find(
+    (model: any) => model.modelId === (modelConfig.systemDefaults?.waifuModel || 'gemini-3.8-live'),
+  )?.name || (modelConfig.systemDefaults?.waifuModel === 'gemini-3.8-live' ? 'Gemini 3.8 Live' : modelConfig.systemDefaults?.waifuModel) || 'Gemini 3.8 Live';
+
   React.useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -342,6 +361,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
       if (!target.closest('[data-dropdown="transcription-model"]')) setTranscriptionDropdownOpen(false);
       if (!target.closest('[data-dropdown="chat-search-model"]')) setChatSearchDropdownOpen(false);
       if (!target.closest('[data-dropdown="personal-intelligence-model"]')) setPersonalDropdownOpen(false);
+      if (!target.closest('[data-dropdown="waifu-model"]')) setWaifuModelDropdownOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -2125,6 +2145,67 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                         >
                           <span className="font-medium">{model.name}</span>
                           {modelConfig.systemDefaults?.personalIntelligence === model.modelId && (
+                            <Check size={14} className="text-white" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Waifu Model */}
+            <div className="flex items-center justify-between py-2">
+              <div className="flex flex-col">
+                <span className="text-[14px] font-semibold text-white">Waifu Model</span>
+                <span className="text-[12px] text-zinc-500">Model powering your anime companion. Inherits from Live voice models by default.</span>
+              </div>
+              <div
+                className="relative w-64"
+                ref={waifuModelRef}
+                data-dropdown="waifu-model"
+              >
+                <button
+                  onClick={() => {
+                    if (waifuModelDropdownOpen) {
+                      setWaifuModelDropdownOpen(false);
+                    } else {
+                      setWaifuModelDirection(determineDirection(waifuModelRef));
+                      setWaifuModelDropdownOpen(true);
+                    }
+                  }}
+                  className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-4 py-2.5 text-[13px] text-white text-left focus:outline-none focus:border-white/25 cursor-pointer transition-all hover:border-white/20 flex items-center justify-between"
+                >
+                  <span>{selectedWaifuModelName}</span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-zinc-500 transition-transform duration-200 ${waifuModelDropdownOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {waifuModelDropdownOpen && (
+                  <div className={`absolute ${waifuModelDirection === 'up' ? 'bottom-full mb-2 origin-bottom animate-dropdownOpenUp' : 'top-full mt-2 origin-top animate-dropdownOpen'} left-0 right-0 z-50 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl shadow-black/50 overflow-hidden`}>
+                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                      {selectableWaifuModels.map((model: any) => (
+                        <button
+                          key={`${model.provider}-${model.modelId || model.id}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setModelConfig((previous: any) => ({
+                              ...previous,
+                              systemDefaults: {
+                                ...previous.systemDefaults,
+                                waifuModel: model.modelId || model.id,
+                              },
+                            }));
+                            setWaifuModelDropdownOpen(false);
+                          }}
+                          className={`w-full px-4 py-2.5 text-left text-[13px] transition-all flex items-center justify-between group ${(modelConfig.systemDefaults?.waifuModel || 'gemini-3.8-live') === (model.modelId || model.id) ? 'bg-white/10 text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                        >
+                          <span className="font-medium">{model.name}</span>
+                          {(modelConfig.systemDefaults?.waifuModel || 'gemini-3.8-live') === (model.modelId || model.id) && (
                             <Check size={14} className="text-white" />
                           )}
                         </button>

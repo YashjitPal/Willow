@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { CreateGemView } from './CreateGemView';
 
@@ -29,6 +30,7 @@ const PREMADE_GEM_MENU_ITEMS: MenuItem[] = [
 ];
 
 const ActionButton: React.FC<{ icon: string; onClick?: () => void; title?: string }> = ({ icon, onClick, title }) => {
+  const { isLight } = useThemeMode();
   const [isHovered, setIsHovered] = useState(false);
   return (
     <button
@@ -45,9 +47,9 @@ const ActionButton: React.FC<{ icon: string; onClick?: () => void; title?: strin
         width: '40px',
         height: '40px',
         borderRadius: '50%',
-        backgroundColor: isHovered ? 'rgb(55, 57, 59)' : 'transparent',
+        backgroundColor: isHovered ? (isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgb(55, 57, 59)') : 'transparent',
         border: 'none',
-        color: 'rgb(196, 199, 197)',
+        color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -62,6 +64,7 @@ const ActionButton: React.FC<{ icon: string; onClick?: () => void; title?: strin
 };
 
 const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> = ({ items, isPremade = false }) => {
+  const { isLight } = useThemeMode();
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -91,7 +94,9 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
 
   const buttonSize = isPremade ? '32px' : '40px';
   const buttonPadding = isPremade ? '0px' : '8px';
-  const iconColor = isPremade ? 'rgb(196, 199, 197)' : 'rgb(227, 227, 227)';
+  const iconColor = isPremade
+    ? (isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)')
+    : (isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)');
 
   const [isBtnHovered, setIsBtnHovered] = useState(false);
   const [hoveredItemIndex, setHoveredItemIndex] = useState<number | null>(null);
@@ -116,7 +121,7 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
           width: buttonSize,
           height: buttonSize,
           borderRadius: '50%',
-          backgroundColor: isBtnHovered ? 'rgb(55, 57, 59)' : 'transparent',
+          backgroundColor: isBtnHovered ? (isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgb(55, 57, 59)') : 'transparent',
           border: 'none',
           color: iconColor,
           display: 'flex',
@@ -138,10 +143,12 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
             top: '100%',
             left: '0',
             zIndex: 100,
-            backgroundColor: 'rgb(30, 31, 32)',
+            backgroundColor: isLight ? '#ffffff' : 'rgb(30, 31, 32)',
             borderRadius: '8px',
             padding: '0px',
-            boxShadow: 'rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px',
+            boxShadow: isLight
+              ? '0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08)'
+              : 'rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px',
             minWidth: '112px',
             maxWidth: '280px',
             overflow: 'hidden',
@@ -166,7 +173,7 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
                 alignItems: 'center',
                 padding: '0px 12px',
                 minHeight: '48px',
-                backgroundColor: hoveredItemIndex === index ? 'rgba(227, 227, 227, 0.08)' : 'transparent',
+                backgroundColor: hoveredItemIndex === index ? (isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(227, 227, 227, 0.08)') : 'transparent',
                 border: 'none',
                 width: '100%',
                 cursor: 'pointer',
@@ -179,12 +186,12 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
                   size={24} 
                   family="google-symbols" 
                   variationSettings="normal" 
-                  style={{ fontWeight: 400, color: 'rgb(196, 199, 197)', margin: '0px 12px 0px 0px' }} 
+                  style={{ fontWeight: 400, color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)', margin: '0px 12px 0px 0px' }} 
                 />
               )}
               <span
                 style={{
-                  color: 'rgb(227, 227, 227)',
+                  color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
                   fontSize: '14px',
                   fontWeight: 400,
                   fontFamily: '"Google Sans Flex", "Google Sans", Roboto, Arial, sans-serif',
@@ -200,7 +207,7 @@ const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> =
       )}
     </div>
   );
-}
+};
 
 const PREMADE_GEMS: GemCardProps[] = [
   {
@@ -249,13 +256,14 @@ const PREMADE_GEMS: GemCardProps[] = [
 ];
 
 const GemCard: React.FC<GemCardProps> = ({ title, description, icon, iconColor, iconBg, isExperiment }) => {
+  const { isLight } = useThemeMode();
   return (
     <div
       style={{
         position: 'relative',
         width: '200px',
         height: '176px',
-        backgroundColor: 'rgb(30, 31, 32)',
+        backgroundColor: isLight ? 'rgb(240, 244, 249)' : 'rgb(30, 31, 32)',
         borderRadius: '16px',
         padding: '16px',
         display: 'flex',
@@ -293,9 +301,9 @@ const GemCard: React.FC<GemCardProps> = ({ title, description, icon, iconColor, 
                 fontSize: '15px',
                 fontWeight: 370,
                 fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                color: 'rgb(227, 227, 227)',
-                backgroundColor: 'rgba(0, 0, 0, 0)', // Looks like the badge itself is bordered in actual UI, but the JSON says bg is transparent and no border. Let's add a border matching gemini if needed, but going strictly by JSON:
-                border: '1px solid rgb(68, 71, 70)', // adding a standard border for gemini chips to make it visible
+                color: isLight ? 'rgb(68, 71, 70)' : 'rgb(227, 227, 227)',
+                backgroundColor: 'rgba(0, 0, 0, 0)',
+                border: isLight ? '1px solid rgb(196, 199, 197)' : '1px solid rgb(68, 71, 70)',
                 lineHeight: '20px'
               }}
             >
@@ -310,7 +318,7 @@ const GemCard: React.FC<GemCardProps> = ({ title, description, icon, iconColor, 
           fontSize: '13px',
           fontWeight: 400,
           fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-          color: 'rgb(227, 227, 227)',
+          color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
           marginBottom: '4px',
         }}
       >
@@ -322,7 +330,7 @@ const GemCard: React.FC<GemCardProps> = ({ title, description, icon, iconColor, 
           fontSize: '12px',
           fontWeight: 400,
           fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-          color: 'rgb(196, 199, 197)',
+          color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)',
           display: 'flow-root',
           lineHeight: '1.4',
         }}
@@ -334,6 +342,7 @@ const GemCard: React.FC<GemCardProps> = ({ title, description, icon, iconColor, 
 };
 
 export const GemsView: React.FC = () => {
+  const { isLight } = useThemeMode();
   const navigate = useNavigate();
   const location = useLocation();
   const [premadeExpanded, setPremadeExpanded] = useState(false);
@@ -361,280 +370,286 @@ export const GemsView: React.FC = () => {
           animation: 0.12s linear _mat-menu-exit forwards;
         }
       `}</style>
-      <div className="h-full w-full overflow-y-auto" style={{ backgroundColor: '#131314' }}>
+      <div className="h-full w-full overflow-y-auto" style={{ backgroundColor: isLight ? 'var(--studio-surface, #faf9f9)' : '#131314' }}>
         <div
-        style={{
-          width: '878px',
-          padding: '24px',
-          margin: '0 auto',
-          boxSizing: 'border-box',
-          color: 'rgb(227, 227, 227)',
-          fontFamily: '"Times New Roman"',
-        }}
-      >
-        <h1
           style={{
-            fontSize: '24px',
-            fontWeight: 380,
-            fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-            margin: '16.08px 0px',
-            color: 'rgb(227, 227, 227)',
+            width: '878px',
+            padding: '24px',
+            margin: '0 auto',
+            boxSizing: 'border-box',
+            color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
+            fontFamily: '"Times New Roman"',
           }}
         >
-          Gem manager
-        </h1>
-
-        <section style={{ width: '830px' }}>
-          <div 
-            className="group/premade-header"
-            style={{ 
-              display: 'flex', 
-              flexDirection: 'row', 
-              marginBottom: '4px', 
-              height: '45px',
-              alignItems: 'center',
-              cursor: 'pointer'
+          <h1
+            style={{
+              fontSize: '24px',
+              fontWeight: 380,
+              fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+              margin: '16.08px 0px',
+              color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
             }}
-            onClick={() => setPremadeExpanded(!premadeExpanded)}
           >
-            <h2
-              style={{
-                fontSize: '15px',
-                fontWeight: 500,
-                fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                margin: '12.45px 0px',
-                color: 'rgb(227, 227, 227)',
-                display: 'flex',
+            Gem manager
+          </h1>
+
+          <section style={{ width: '830px' }}>
+            <div 
+              className="group/premade-header"
+              style={{ 
+                display: 'flex', 
+                flexDirection: 'row', 
+                marginBottom: '4px', 
+                height: '45px',
                 alignItems: 'center',
-                gap: '4px'
+                cursor: 'pointer'
               }}
+              onClick={() => setPremadeExpanded(!premadeExpanded)}
             >
-              Premade by Google
-              <span
-                className="luminous-symbols transition-opacity duration-200 opacity-0 group-hover/premade-header:opacity-100"
-                style={{
-                  fontFamily: "'Luminous Symbols', sans-serif",
-                  fontWeight: 330,
-                  fontVariationSettings: '"FILL" 0, "wght" 330, "GRAD" 0, "opsz" 16, "ROND" 100',
-                  fontSize: '16px',
-                  color: 'rgb(196, 199, 197)'
-                }}
-              >
-                {premadeExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
-              </span>
-            </h2>
-          </div>
-
-          <div 
-            style={{ 
-              display: 'flex', 
-              flexDirection: 'row', 
-              gap: '10px', 
-              flexWrap: 'wrap',
-              overflow: 'hidden',
-              maxHeight: premadeExpanded ? '362px' : '176px',
-              transition: 'max-height 300ms cubic-bezier(0.2, 0, 0, 1)'
-            }}
-          >
-            {PREMADE_GEMS.map((gem, index) => (
-              <GemCard key={index} {...gem} />
-            ))}
-          </div>
-        </section>
-
-        {/* My Gems Section */}
-        <section style={{ width: '830px', display: 'flex', flexDirection: 'column', marginBottom: '48px' }}>
-          <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', height: '45px', margin: '16px 0px' }}>
-            <div style={{ display: 'flex', flexDirection: 'row', gap: '8px', alignItems: 'center', position: 'relative' }}>
               <h2
                 style={{
                   fontSize: '15px',
                   fontWeight: 500,
                   fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
                   margin: '12.45px 0px',
-                  color: 'rgb(227, 227, 227)',
-                }}
-              >
-                My Gems
-              </h2>
-              <button
-                className="hover:bg-[rgba(255,255,255,0.08)] transition-colors duration-200"
-                onClick={() => setShowSharedGemsInfo(!showSharedGemsInfo)}
-                title="Notice about shared Gems"
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '9999px',
-                  color: 'rgb(196, 199, 197)',
+                  color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '8px'
+                  gap: '4px'
                 }}
               >
-                <MaterialSymbol name="info" size={20} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400 }} />
-              </button>
-
-              {/* Shared Gems Info Popup */}
-              <div 
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: '0px', 
-                  zIndex: 50,
-                  backgroundColor: 'rgb(31, 55, 96)',
-                  color: 'rgb(227, 227, 227)',
-                  fontFamily: '"Google Sans Flex", "Google Sans", Roboto, Arial, sans-serif',
-                  fontSize: '14px',
-                  fontWeight: 400,
-                  padding: '16px',
-                  borderRadius: '8px',
-                  width: '280px',
-                  boxShadow: 'rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px',
-                  opacity: showSharedGemsInfo ? 1 : 0,
-                  visibility: showSharedGemsInfo ? 'visible' : 'hidden',
-                  transform: showSharedGemsInfo ? 'translateY(0)' : 'translateY(-10px)',
-                  transition: 'opacity 150ms cubic-bezier(0.4, 0, 0.2, 1), transform 150ms cubic-bezier(0.4, 0, 0.2, 1), visibility 150ms'
-                }}
-              >
-                <div
+                Premade by Google
+                <span
+                  className="luminous-symbols transition-opacity duration-200 opacity-0 group-hover/premade-header:opacity-100"
                   style={{
-                    fontSize: '15px',
-                    fontWeight: 400,
-                    fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                    color: 'rgb(227, 227, 227)'
+                    fontFamily: "'Luminous Symbols', sans-serif",
+                    fontWeight: 330,
+                    fontVariationSettings: '"FILL" 0, "wght" 330, "GRAD" 0, "opsz" 16, "ROND" 100',
+                    fontSize: '16px',
+                    color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)'
                   }}
                 >
-                  Your shared Gems are saved in the Gemini Gems folder in Google Drive. They are protected by Drive permissions.
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-                  <button
-                    className="hover:bg-[rgba(168,199,250,0.08)] transition-colors duration-200"
-                    onClick={() => setShowSharedGemsInfo(false)}
-                    style={{
-                      backgroundColor: 'rgba(0, 0, 0, 0)',
-                      color: 'rgb(168, 199, 250)',
-                      fontFamily: '"Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif',
-                      fontSize: '14px',
-                      fontWeight: 500,
-                      padding: '0px 12px',
-                      borderRadius: '9999px',
-                      height: '36px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
-                    Got it
-                  </button>
-                </div>
-              </div>
+                  {premadeExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
+                </span>
+              </h2>
             </div>
-            
-            <button
-              onClick={() => navigate('/gems/create')}
-              style={{
-                color: 'rgb(6, 46, 111)',
-                backgroundColor: 'rgb(168, 199, 250)',
-                fontSize: '14px',
-                fontWeight: 500,
-                fontFamily: '"Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif',
-                padding: '0px 20px 0px 24px',
-                borderRadius: '30px',
-                display: 'inline-flex',
-                flexDirection: 'row',
-                alignItems: 'center',
-                border: 'none',
-                height: '40px',
-                cursor: 'pointer'
-              }}
-            >
-              <MaterialSymbol name="add" size={18} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400, marginRight: '8px', marginLeft: '-8px' }} />
-              <span
-                style={{
-                  fontSize: '13px',
-                  fontWeight: 400,
-                  fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif'
-                }}
-              >
-                New Gem
-              </span>
-            </button>
-          </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {/* Custom Gem List Row */}
-            <div
-              style={{
-                width: '830px',
-                height: '72px',
-                backgroundColor: 'rgb(30, 31, 32)',
-                borderRadius: '12px',
-                padding: '0px 8px 0px 0px',
-                display: 'flex',
-                flexDirection: 'row',
-                alignItems: 'center',
-                boxSizing: 'border-box',
-                cursor: 'pointer'
+            <div 
+              style={{ 
+                display: 'flex', 
+                flexDirection: 'row', 
+                gap: '10px', 
+                flexWrap: 'wrap',
+                overflow: 'hidden',
+                maxHeight: premadeExpanded ? '362px' : '176px',
+                transition: 'max-height 300ms cubic-bezier(0.2, 0, 0, 1)'
               }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  gap: '12px',
-                  padding: '16px 0px 16px 16px',
-                  alignItems: 'center',
-                  flex: 1
-                }}
-              >
-                <div
+              {PREMADE_GEMS.map((gem, index) => (
+                <GemCard key={index} {...gem} />
+              ))}
+            </div>
+          </section>
+
+          {/* My Gems Section */}
+          <section style={{ width: '830px', display: 'flex', flexDirection: 'column', marginBottom: '48px' }}>
+            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', height: '45px', margin: '16px 0px' }}>
+              <div style={{ display: 'flex', flexDirection: 'row', gap: '8px', alignItems: 'center', position: 'relative' }}>
+                <h2
                   style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    backgroundColor: 'rgb(0, 64, 78)',
-                    color: 'rgb(37, 178, 212)',
+                    fontSize: '15px',
+                    fontWeight: 500,
+                    fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+                    margin: '12.45px 0px',
+                    color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
+                  }}
+                >
+                  My Gems
+                </h2>
+                <button
+                  className="transition-colors duration-200"
+                  onClick={() => setShowSharedGemsInfo(!showSharedGemsInfo)}
+                  title="Notice about shared Gems"
+                  style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '9999px',
+                    color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)',
+                    backgroundColor: 'transparent',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '16px',
-                    fontWeight: 500,
-                    fontFamily: '"Google Sans", "Helvetica Neue", sans-serif'
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '8px'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.08)'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <MaterialSymbol name="info" size={20} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400 }} />
+                </button>
+
+                {/* Shared Gems Info Popup */}
+                <div 
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: '0px', 
+                    zIndex: 50,
+                    backgroundColor: isLight ? 'rgb(229, 238, 254)' : 'rgb(31, 55, 96)',
+                    color: isLight ? 'rgb(4, 30, 73)' : 'rgb(227, 227, 227)',
+                    fontFamily: '"Google Sans Flex", "Google Sans", Roboto, Arial, sans-serif',
+                    fontSize: '14px',
+                    fontWeight: 400,
+                    padding: '16px',
+                    borderRadius: '8px',
+                    width: '280px',
+                    boxShadow: isLight
+                      ? '0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08)'
+                      : 'rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px',
+                    opacity: showSharedGemsInfo ? 1 : 0,
+                    visibility: showSharedGemsInfo ? 'visible' : 'hidden',
+                    transform: showSharedGemsInfo ? 'translateY(0)' : 'translateY(-10px)',
+                    transition: 'opacity 150ms cubic-bezier(0.4, 0, 0.2, 1), transform 150ms cubic-bezier(0.4, 0, 0.2, 1), visibility 150ms'
                   }}
                 >
-                  V
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <div
                     style={{
-                      fontSize: '16px',
-                      fontWeight: 500,
+                      fontSize: '15px',
+                      fontWeight: 400,
                       fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                      color: 'rgb(227, 227, 227)'
+                      color: isLight ? 'rgb(4, 30, 73)' : 'rgb(227, 227, 227)'
                     }}
                   >
-                    Video Prompter v2
+                    Your shared Gems are saved in the Gemini Gems folder in Google Drive. They are protected by Drive permissions.
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+                    <button
+                      onClick={() => setShowSharedGemsInfo(false)}
+                      style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0)',
+                        color: isLight ? 'rgb(11, 87, 208)' : 'rgb(168, 199, 250)',
+                        fontFamily: '"Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif',
+                        fontSize: '14px',
+                        fontWeight: 500,
+                        padding: '0px 12px',
+                        borderRadius: '9999px',
+                        height: '36px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isLight ? 'rgba(11, 87, 208, 0.08)' : 'rgba(168, 199, 250, 0.08)'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    >
+                      Got it
+                    </button>
                   </div>
                 </div>
               </div>
               
-              <div style={{ padding: '8px', display: 'flex', flexDirection: 'row' }}>
-                <ActionButton icon="share" title="Share" />
-                <ActionButton icon="edit" title="Edit Gem" />
-                <OverflowMenuButton items={MY_GEM_MENU_ITEMS} />
+              <button
+                onClick={() => navigate('/gems/create')}
+                style={{
+                  color: isLight ? '#ffffff' : 'rgb(6, 46, 111)',
+                  backgroundColor: isLight ? 'rgb(11, 87, 208)' : 'rgb(168, 199, 250)',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  fontFamily: '"Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif',
+                  padding: '0px 20px 0px 24px',
+                  borderRadius: '30px',
+                  display: 'inline-flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  border: 'none',
+                  height: '40px',
+                  cursor: 'pointer'
+                }}
+              >
+                <MaterialSymbol name="add" size={18} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400, marginRight: '8px', marginLeft: '-8px' }} />
+                <span
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 400,
+                    fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif'
+                  }}
+                >
+                  New Gem
+                </span>
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Custom Gem List Row */}
+              <div
+                style={{
+                  width: '830px',
+                  height: '72px',
+                  backgroundColor: isLight ? 'rgb(240, 244, 249)' : 'rgb(30, 31, 32)',
+                  borderRadius: '12px',
+                  padding: '0px 8px 0px 0px',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    gap: '12px',
+                    padding: '16px 0px 16px 16px',
+                    alignItems: 'center',
+                    flex: 1
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '50%',
+                      backgroundColor: 'rgb(0, 64, 78)',
+                      color: 'rgb(37, 178, 212)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '16px',
+                      fontWeight: 500,
+                      fontFamily: '"Google Sans", "Helvetica Neue", sans-serif'
+                    }}
+                  >
+                    V
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div
+                      style={{
+                        fontSize: '16px',
+                        fontWeight: 500,
+                        fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+                        color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)'
+                      }}
+                    >
+                      Video Prompter v2
+                    </div>
+                  </div>
+                </div>
+                
+                <div style={{ padding: '8px', display: 'flex', flexDirection: 'row' }}>
+                  <ActionButton icon="share" title="Share" />
+                  <ActionButton icon="edit" title="Edit Gem" />
+                  <OverflowMenuButton items={MY_GEM_MENU_ITEMS} />
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        {/* End of content */}
+          {/* End of content */}
+        </div>
       </div>
-    </div>
     </>
   );
 };

@@ -291,3 +291,25 @@
   height: 0;
   width: 0;
 }
+
+/* ── Light Theme Scoped Rules (Google Gemini measured) ── */
+
+:is(.light-theme, [data-theme="light"]) .usage-limits {
+  --ul-surface: #faf9f9;
+  --ul-surface-dim: #f2f0f0;
+  --ul-on-surface: #1f1f1f;
+  --ul-on-surface-strong: #000000;
+  --ul-on-surface-variant: rgba(0, 0, 0, 0.55);
+  --ul-accent-fixed: #0b57d0;
+  --ul-track: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-limits:hover::-webkit-scrollbar-thumb {
+  background: content-box #dde3ea;
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-limits::-webkit-scrollbar-thumb:hover,
+:is(.light-theme, [data-theme="light"]) .usage-limits::-webkit-scrollbar-thumb:active {
+  background: content-box #c4c7c5;
+}
+

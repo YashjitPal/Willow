@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { emitChatActionIntent, isChatPinned } from './chat-actions';
+import { useThemeMode } from '@willow/core/theme-mode';
 import './ConversationActionsMenu.css';
 
 /**
@@ -30,7 +31,7 @@ import './ConversationActionsMenu.css';
  * since background-color is the only property that changes.
  */
 const ROW_CLASS =
-  'flex h-9 w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors hover:bg-[rgba(230,230,230,0.08)]';
+  'willow-conv-row flex h-9 w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl p-2 text-left transition-colors hover:bg-[rgba(230,230,230,0.08)]';
 
 /*
  * Label, measured: 13px/17px 400 in rgb(230, 230, 230) at the pane's width axis,
@@ -41,7 +42,7 @@ const ROW_CLASS =
  * row. The trailing slot is what takes up the slack (see below).
  */
 const LABEL_CLASS =
-  'min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] leading-[17px] font-normal tracking-normal text-[#e6e6e6]';
+  'willow-conv-label min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] leading-[17px] font-normal tracking-normal text-[#e6e6e6]';
 
 /*
  * The 20x20 boxes either side of the label. Both measured 20x20 with
@@ -72,30 +73,19 @@ export interface ConversationActionsMenuProps {
 export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = ({ chatId }) => {
   const { chatScopeId } = useLocalFS();
   const [isOpen, setIsOpen] = useState(false);
-  const [shouldRender, setShouldRender] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
   // Read at open rather than held as state: Pin/Unpin closes the pane, so a
   // mounted pane is always looking at storage as it was a frame ago and there is
   // nothing to invalidate. Sidebar remains the only writer.
   const [isPinned, setIsPinned] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  const triggerClose = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      setShouldRender(false);
-      setIsClosing(false);
-      setIsOpen(false);
-    }, 125);
-  };
-
   useEffect(() => {
-    if (!shouldRender || isClosing) return;
+    if (!isOpen) return;
     const onDocumentClick = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) triggerClose();
+      if (!rootRef.current?.contains(event.target as Node)) setIsOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') triggerClose();
+      if (event.key === 'Escape') setIsOpen(false);
     };
     window.addEventListener('click', onDocumentClick);
     window.addEventListener('keydown', onKeyDown);
@@ -103,17 +93,13 @@ export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = (
       window.removeEventListener('click', onDocumentClick);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [shouldRender, isClosing]);
+  }, [isOpen]);
 
   // A chat switch while the pane is open would leave it acting on the old id.
-  useEffect(() => {
-    setIsOpen(false);
-    setShouldRender(false);
-    setIsClosing(false);
-  }, [chatId]);
+  useEffect(() => setIsOpen(false), [chatId]);
 
   const run = (action: () => void) => () => {
-    triggerClose();
+    setIsOpen(false);
     action();
   };
 
@@ -199,20 +185,13 @@ export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = (
         type="button"
         aria-label="Open menu for conversation actions."
         aria-haspopup="menu"
-        aria-expanded={shouldRender && !isClosing}
+        aria-expanded={isOpen}
         onClick={(event) => {
           event.stopPropagation();
-          const nextOpen = !(shouldRender && !isClosing);
-          if (nextOpen) {
-            setIsPinned(isChatPinned(chatScopeId, chatId));
-            setShouldRender(true);
-            setIsClosing(false);
-            setIsOpen(true);
-          } else {
-            triggerClose();
-          }
+          if (!isOpen) setIsPinned(isChatPinned(chatScopeId, chatId));
+          setIsOpen((open) => !open);
         }}
-        className="relative flex h-9 w-9 items-center justify-center rounded-full border-0 bg-transparent p-1.5 text-[#e6e6e6] before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:transition-opacity before:content-[''] hover:before:opacity-[0.08]"
+        className="willow-conv-trigger relative flex h-9 w-9 items-center justify-center rounded-full border-0 bg-transparent p-1.5 text-[#e6e6e6] before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:transition-opacity before:content-[''] hover:before:opacity-[0.08]"
       >
         <MaterialSymbol
           name="more_vert"
@@ -240,12 +219,10 @@ export const ConversationActionsMenu: React.FC<ConversationActionsMenuProps> = (
         * `gem-menu` itself, but both share the same 203.26x268 box and the same
         * 20px radius, so one node carries both here.
         */}
-      {shouldRender && (
+      {isOpen && (
         <div
           role="menu"
-          className={`willow-conv-menu absolute top-[40px] right-0 flex flex-col rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_0_20px_rgba(0,0,0,0.28)] ${
-            isClosing ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'
-          }`}
+          className="willow-conv-menu absolute top-[40px] right-0 flex flex-col rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_0_20px_rgba(0,0,0,0.28)]"
           onClick={(event) => event.stopPropagation()}
         >
           {rows.map((row) => (

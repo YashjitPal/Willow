@@ -3,6 +3,7 @@ import { useStore } from '@nanostores/react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { useThemeMode } from '@willow/core/theme-mode';
 
 import './notebooks.css';
 import { NOTEBOOK_VERTICALS, type NotebookVertical } from './notebook-types';
@@ -240,6 +241,7 @@ export const NotebookCreatePage: React.FC<NotebookCreatePageProps> = ({ onCreate
    * the screen. The copy lives on the vertical so the two cannot fall out of sync.
    */
   const heading = activeVertical.prompt;
+  const { isLight } = useThemeMode();
 
   return (
     <div
@@ -247,9 +249,9 @@ export const NotebookCreatePage: React.FC<NotebookCreatePageProps> = ({ onCreate
       style={{
         '--nb-accent-btn-bg': theme.sendButton.bg,
         '--nb-accent-btn-hover': theme.sendButton.hover,
-        '--nb-link-color': theme.creamy.hex,
-        '--nb-caret-color': theme.creamy.hex,
-        '--nb-chip-selected-bg': theme.chipBg,
+        '--nb-link-color': isLight ? '#0b57d0' : theme.creamy.hex,
+        '--nb-caret-color': isLight ? '#0b57d0' : theme.creamy.hex,
+        '--nb-chip-selected-bg': isLight ? '#d3e3fd' : theme.chipBg,
       } as React.CSSProperties}
     >
       <div className="nb-create-content">
@@ -262,7 +264,7 @@ export const NotebookCreatePage: React.FC<NotebookCreatePageProps> = ({ onCreate
             weight={260}
             roundness={100}
             opticalSize={28}
-            className="text-[#e6e6e6]"
+            className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}
           />
           <h1 className="nb-create-heading">{heading}</h1>
         </div>

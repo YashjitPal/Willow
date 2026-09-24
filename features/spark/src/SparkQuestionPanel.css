@@ -302,3 +302,75 @@
   color: rgba(255, 255, 255, 0.3);
   cursor: default;
 }
+
+/* ==========================================================================
+   Google Gemini Spark Light Theme - Question Panel
+   ========================================================================== */
+
+:is(.light-theme, [data-theme="light"]) .spark-question {
+  background: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.1);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__header,
+:is(.light-theme, [data-theme="light"]) .spark-question__count {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__step {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__step:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__prompt {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__option:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__option--selected {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__option-label {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__option-description {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__freeform {
+  background: rgba(0, 0, 0, 0.04);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__freeform::placeholder {
+  color: rgba(0, 0, 0, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__skip {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__skip:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__submit {
+  background: var(--spark-accent-btn-bg, #0b57d0);
+  color: var(--spark-accent-btn-text, #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-question__submit:disabled {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.38);
+}

@@ -6,9 +6,12 @@
 
 import React, { useEffect, useRef } from 'react';
 import lottie from 'lottie-web';
-import { GEMINI_THINKING_DOTS_DATA } from './gemini-thinking-dots';
+import { useThemeMode } from '@willow/core/theme-mode';
+import { GEMINI_THINKING_DOTS_DATA, GEMINI_THINKING_DOTS_LIGHT_DATA } from './gemini-thinking-dots';
+import './thought-summary.css';
 
 export const GeminiThinkingVisualizer = () => {
+  const { isLight } = useThemeMode();
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -18,10 +21,11 @@ export const GeminiThinkingVisualizer = () => {
       renderer: 'svg',
       loop: true,
       autoplay: true,
-      animationData: GEMINI_THINKING_DOTS_DATA,
+      animationData: isLight ? GEMINI_THINKING_DOTS_LIGHT_DATA : GEMINI_THINKING_DOTS_DATA,
     });
     return () => anim.destroy();
-  }, []);
+  }, [isLight]);
 
-  return <div ref={containerRef} style={{ width: 24, height: 24 }} />;
+  return <div ref={containerRef} className="gemini-thinking-visualizer" style={{ width: 24, height: 24 }} />;
 };
+

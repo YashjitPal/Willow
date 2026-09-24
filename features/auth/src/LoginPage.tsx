@@ -10,7 +10,7 @@ export function LoginPage() {
   const mode = searchParams.get('mode') === 'signup' ? 'signup' : 'login';
 
   return (
-    <div className="h-screen w-screen bg-[#0d0d0d] flex items-center justify-center">
+    <div className="h-screen w-screen bg-[var(--studio-surface,#0d0d0d)] flex items-center justify-center">
       <AuthModal
         isOpen={true}
         onClose={() => navigate('/', { replace: true })}

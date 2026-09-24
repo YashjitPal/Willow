@@ -856,3 +856,140 @@
     transition-duration: 1ms;
   }
 }
+
+/* Light Theme overrides matching Gemini 1:1 */
+:is(.light-theme, [data-theme="light"]) .models-api-container,
+.light-theme .models-api-container,
+[data-theme="light"] .models-api-container {
+  --ma-surface: var(--studio-surface, #faf9f9);
+  --ma-surface-container: #f0f4f9;
+  --ma-surface-child: #ffffff;
+  --ma-surface-field: #ffffff;
+  --ma-surface-menu: #ffffff;
+  --ma-on-surface: #1f1f1f;
+  --ma-on-surface-variant: #444746;
+  --ma-outline: #747775;
+  --ma-divider: #e3e3e3;
+  --ma-error: #b3261e;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-provider-row {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-provider-row:hover {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-provider-mark {
+  background: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-provider-row-configured .ma-provider-mark {
+  box-shadow: 0 0 0 2px var(--ma-primary, #0b57d0);
+  color: var(--ma-primary, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-model-row {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-model-row:hover {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-model-price {
+  background: #f0f4f9;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-row + .ma-row {
+  border-top-color: #e3e3e3;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-button,
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-trigger,
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-input,
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-field-wrapper {
+  background-color: #ffffff;
+  border-color: #c4c7c5;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-button:hover,
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-trigger:hover,
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-input:hover {
+  border-color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-button:focus,
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-trigger:focus-visible,
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-input:focus {
+  border-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-menu {
+  background-color: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-item {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-item:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-back-button:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-icon-button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-expander-trigger {
+  border-color: #c4c7c5;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-expander-trigger:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-expander-body {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-button-filled {
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-button-tonal {
+  background-color: #e3e3e3;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-button-tonal:hover {
+  background-color: #d1d5db;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-button-outlined {
+  border-color: #747775;
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-button-outlined:hover {
+  background-color: rgba(11, 87, 208, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .models-api-container .ma-empty {
+  border-color: #c4c7c5;
+  color: #747775;
+}
+
+

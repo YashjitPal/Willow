@@ -341,3 +341,87 @@
   line-height: 20px;
   color: rgba(255, 255, 255, 0.55);
 }
+
+/* ── Light Theme Scoped Rules (Google Gemini measured) ── */
+
+:is(.light-theme, [data-theme="light"]) .usage-limits-root {
+  background: var(--studio-surface, rgb(250, 249, 249));
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-h1 {
+  color: rgb(0, 0, 0);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-pro-badge {
+  background: rgb(242, 240, 240);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-pro-badge-text {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-description,
+:is(.light-theme, [data-theme="light"]) .usage-updated {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-link {
+  color: rgb(11, 87, 208);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-link:hover {
+  color: rgb(8, 66, 160);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-current-card,
+:is(.light-theme, [data-theme="light"]) .usage-weekly-card {
+  background: rgb(242, 240, 240);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-current-title,
+:is(.light-theme, [data-theme="light"]) .usage-weekly-title {
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-current-pct,
+:is(.light-theme, [data-theme="light"]) .usage-weekly-pct {
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-info-button {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-info-button:hover,
+:is(.light-theme, [data-theme="light"]) .usage-info-button[aria-expanded="true"] {
+  background-color: rgba(0, 0, 0, 0.08);
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-progress-track {
+  background: rgb(255, 255, 255);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-progress-fill {
+  background: rgb(0, 0, 0);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-reset-label,
+:is(.light-theme, [data-theme="light"]) .usage-weekly-reset {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-popover {
+  background: rgb(255, 255, 255);
+  box-shadow: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-popover-subtitle {
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .usage-popover-text {
+  color: rgb(68, 71, 70);
+}
+

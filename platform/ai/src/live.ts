@@ -155,10 +155,13 @@ export interface LiveSessionOptions {
   onClose?: () => void;
   /** Discard all model audio/text and only emit input transcription */
   transcribeOnly?: boolean;
+  /** If true, do not acquire microphone via getUserMedia — playback/output only */
+  disableMic?: boolean;
 }
 
 export class GeminiLiveSession {
   private ws: WebSocket | null = null;
+  private pendingSends: { text: string; turnComplete: boolean }[] = [];
   private audioCtx: AudioContext | null = null;
   private micStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
@@ -276,9 +279,14 @@ export class GeminiLiveSession {
         thinkingConfig = { thinkingLevel: level };
       }
 
+      let wireModel = baseModel;
+      if (wireModel.includes('3.8-live') || wireModel.includes('gemini-3.8-live')) {
+        wireModel = LIVE_3_1_MODEL_ID;
+      }
+
       const setup = {
         setup: {
-          model: `models/${baseModel}`,
+          model: `models/${wireModel}`,
           generationConfig: {
             responseModalities: ['AUDIO'],
             ...(thinkingConfig ? { thinkingConfig } : {}),
@@ -303,7 +311,7 @@ export class GeminiLiveSession {
               : {}),
           },
           systemInstruction: this.opts.systemPrompt
-            ? { role: 'user', parts: [{ text: this.opts.systemPrompt }] }
+            ? { parts: [{ text: this.opts.systemPrompt }] }
             : undefined,
           // Native Google Search grounding — model may invoke it at its own
           // discretion; we don't steer it via the system prompt.
@@ -398,6 +406,10 @@ export class GeminiLiveSession {
     return this.micMuted;
   }
 
+  get hasMic(): boolean {
+    return !!this.micStream;
+  }
+
   /**
    * Microphone analyser, for visualisers. Null until the audio graph is built
    * (and if the browser refused to create the node).
@@ -413,6 +425,42 @@ export class GeminiLiveSession {
 
   get isActive(): boolean {
     return !!this.ws && !this.disposed;
+  }
+
+  /**
+   * Send a text message turn into the live session.
+   * If the session is still establishing setup, the message is queued and sent
+   * immediately once setup completes.
+   */
+  sendText(text: string, turnComplete = true): boolean {
+    if (this.disposed) return false;
+    if (!this.ready || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.pendingSends.push({ text, turnComplete });
+      return true;
+    }
+    return this.doSendText(text, turnComplete);
+  }
+
+  private doSendText(text: string, turnComplete: boolean): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      this.ws.send(
+        JSON.stringify({
+          clientContent: {
+            turns: [
+              {
+                role: 'user',
+                parts: [{ text }],
+              },
+            ],
+            turnComplete,
+          },
+        })
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ── Incoming ──────────────────────────────────────────────────────────────
@@ -449,6 +497,13 @@ export class GeminiLiveSession {
             },
           })
         );
+      }
+      // Flush any queued user messages sent while waiting for socket ACK
+      if (this.pendingSends.length > 0) {
+        for (const item of this.pendingSends) {
+          this.doSendText(item.text, item.turnComplete);
+        }
+        this.pendingSends = [];
       }
       this.opts.onOpen?.();
       return;
@@ -592,6 +647,35 @@ export class GeminiLiveSession {
     // Each session starts from the documented Live output format. Do not let a
     // missing MIME rate in a later session inherit a value from an old stream.
     this.lastAudioRate = OUTPUT_SAMPLE_RATE_DEFAULT;
+
+    const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
+
+    // If disableMic is requested, skip getUserMedia and only initialize the playback context
+    if (this.opts.disableMic) {
+      if (!this.opts.transcribeOnly) {
+        try {
+          this.playCtx = new Ctx({ sampleRate: OUTPUT_SAMPLE_RATE_DEFAULT });
+        } catch {
+          this.playCtx = new Ctx();
+        }
+        void this.playCtx.resume?.();
+        this.playGain = this.playCtx.createGain();
+        this.playGain.gain.value = 1;
+
+        try {
+          this.outputAnalyserNode = this.playCtx.createAnalyser();
+          applyVisualiserAnalyserSettings(this.outputAnalyserNode);
+          this.playGain.connect(this.outputAnalyserNode);
+        } catch {
+          this.outputAnalyserNode = null;
+        }
+
+        this.playGain.connect(this.playCtx.destination);
+      }
+      this.playCursor = 0;
+      return;
+    }
+
     // `mediaDevices` is undefined on insecure origins (non-HTTPS, non-localhost)
     // — catch that explicitly so the user sees a useful message instead of
     // "Cannot read properties of undefined".
@@ -616,7 +700,6 @@ export class GeminiLiveSession {
 
     // Request a 16 kHz context so no manual resampling is needed. Supported in
     // all evergreen browsers; fall back to default rate + downsample if not.
-    const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
     try {
       this.audioCtx = new Ctx({ sampleRate: INPUT_SAMPLE_RATE });
     } catch {

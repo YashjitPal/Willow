@@ -2,6 +2,7 @@ import React from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { useThemeMode } from '@willow/core/theme-mode';
 
 import './notebooks.css';
 
@@ -88,6 +89,7 @@ const DISCLAIMER = (
 export const NotebooksSplashScreen: React.FC<NotebooksSplashScreenProps> = ({ onGetStarted }) => {
   const { userProfile } = useAuth();
   const theme = getWorkspaceTheme(userProfile?.workspaceColor);
+  const { isLight } = useThemeMode();
 
   return (
     <div
@@ -95,7 +97,7 @@ export const NotebooksSplashScreen: React.FC<NotebooksSplashScreenProps> = ({ on
       style={{
         '--nb-accent-btn-bg': theme.sendButton.bg,
         '--nb-accent-btn-hover': theme.sendButton.hover,
-        '--nb-link-color': theme.creamy.hex,
+        '--nb-link-color': isLight ? '#0b57d0' : theme.creamy.hex,
       } as React.CSSProperties}
     >
     <div className="nb-splash-container">
@@ -114,7 +116,7 @@ export const NotebooksSplashScreen: React.FC<NotebooksSplashScreenProps> = ({ on
             weight={260}
             roundness={100}
             opticalSize={28}
-            className="text-[#e6e6e6]"
+            className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}
           />
         </span>
 
@@ -137,7 +139,7 @@ export const NotebooksSplashScreen: React.FC<NotebooksSplashScreenProps> = ({ on
                 weight={300}
                 roundness={100}
                 opticalSize={24}
-                className="text-[#e3e3e3]"
+                className={isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}
               />
             </div>
             <h3 className="nb-splash-feature-title">{feature.title}</h3>

@@ -16,7 +16,8 @@ export type ExperimentId =
   | 'darker-design-background'
   | 'design-surface'
   | 'agents-surface'
-  | 'projects-panel';
+  | 'projects-panel'
+  | 'waifu-tab';
 
 export type ExperimentFlags = Record<ExperimentId, boolean>;
 
@@ -27,6 +28,7 @@ export const EXPERIMENT_DEFAULTS: ExperimentFlags = {
   'design-surface': false,
   'agents-surface': false,
   'projects-panel': false,
+  'waifu-tab': false,
 };
 
 /**

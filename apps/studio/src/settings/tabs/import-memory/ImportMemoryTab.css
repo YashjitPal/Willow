@@ -483,3 +483,72 @@
 .import-memory__link:hover {
   text-decoration: underline;
 }
+
+/* Light Theme overrides matching Gemini 1:1 */
+:is(.light-theme, [data-theme="light"]) .import-memory,
+.light-theme .import-memory,
+[data-theme="light"] .import-memory {
+  --im-surface: var(--studio-surface, #faf9f9);
+  --im-surface-container: #f0f4f9;
+  --im-on-surface: #1f1f1f;
+  --im-on-surface-variant: #444746;
+  --im-outline-low: #c4c7c5;
+  --im-outline-variant: #c4c7c5;
+  --im-surface-container-highest: #e3e3e3;
+  --im-primary: #0b57d0;
+  --im-on-primary: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__step-number {
+  background-color: #e3e3e3;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__card--prompt {
+  background-color: #f0f4f9;
+  border: 0.8px solid #c4c7c5;
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__card--input {
+  background-color: #ffffff;
+  border: 0.8px solid #c4c7c5;
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__card--input.import-memory__card--focused,
+:is(.light-theme, [data-theme="light"]) .import-memory__card--input.import-memory__card--has-content {
+  border: 1.6px solid #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__pill--outlined {
+  background-color: #ffffff;
+  border-color: #c4c7c5;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__pill--outlined:hover {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__pill--copied {
+  color: #0b57d0;
+  border-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__pill--filled {
+  background-color: #0b57d0;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__pill--filled:hover {
+  background-color: #0842a0;
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__pill--filled:disabled {
+  background-color: rgba(31, 31, 31, 0.12);
+  color: rgba(31, 31, 31, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .import-memory__link {
+  color: #0b57d0;
+}
+

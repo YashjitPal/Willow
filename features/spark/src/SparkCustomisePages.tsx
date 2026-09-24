@@ -359,7 +359,9 @@ const SparkDeleteDialog: React.FC<SparkDeleteDialogProps> = ({ itemName, itemTyp
     };
   }, []);
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
       className="spark-customise-dialog-backdrop"
       onMouseDown={(event) => {
@@ -382,7 +384,8 @@ const SparkDeleteDialog: React.FC<SparkDeleteDialogProps> = ({ itemName, itemTyp
           <button type="button" className="is-danger" onClick={onConfirm}>Delete</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
@@ -668,7 +671,9 @@ const SparkUploadDialog: React.FC<SparkUploadDialogProps> = ({ error, isUploadin
     if (files.length) onFiles(files);
   };
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
       className={`spark-upload-dialog-backdrop${closing ? ' is-closing' : ''}`}
       role="presentation"
@@ -757,7 +762,8 @@ const SparkUploadDialog: React.FC<SparkUploadDialogProps> = ({ error, isUploadin
           <input ref={folderInputRef} type="file" hidden multiple accept=".zip,.md,.txt,.py,.csv" disabled={isUploading} {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)} onChange={(event) => { acceptFiles(event.target.files ?? []); event.target.value = ''; }} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

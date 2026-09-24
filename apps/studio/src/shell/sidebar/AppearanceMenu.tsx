@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Check } from 'lucide-react';
 import { useBackground, BackgroundType } from '../BackgroundContext';
+import { useThemeMode } from '@willow/core/theme-mode';
 
 export const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean; isMounted?: boolean; backgroundType?: string }> = ({ onClose, isClosing, isMounted, backgroundType }) => {
-  const [theme, setTheme] = useState('system');
+  const { themeChoice, isLight, setThemeChoice } = useThemeMode();
   const { background, setBackground } = useBackground();
 
   const backgrounds: { id: BackgroundType; label: string; preview: React.ReactNode }[] = [
     {
       id: 'solid',
-      label: 'Dark',
+      label: 'Solid',
       preview: (
         <div className="w-full h-full bg-[#212121] flex flex-col items-center justify-center px-2 gap-1.5">
           <div className="w-8 h-0.5 bg-white/60 rounded-full" />
@@ -51,16 +52,18 @@ export const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean
     return 'opacity-0 translate-x-[-8px]'; // Initial state before mounting animation
   };
 
-  const sidebarBgClass = backgroundType === 'waves' 
-    ? 'bg-[#1f1f1f]/90 backdrop-blur-xl'
-    : 'bg-[#1f1f1f]';
+  const sidebarBgClass = isLight
+    ? (backgroundType === 'waves' ? 'bg-white/90 backdrop-blur-xl' : 'bg-white')
+    : (backgroundType === 'waves' ? 'bg-[#1f1f1f]/90 backdrop-blur-xl' : 'bg-[#1f1f1f]');
 
   return (
     <div 
       style={{ 
-        boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset'
+        boxShadow: isLight
+          ? '0 10px 30px -5px rgba(0, 0, 0, 0.08), 0 0 20px rgba(0, 0, 0, 0.04)'
+          : '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset'
       }}
-      className={`absolute top-0 left-[calc(100%+12px)] w-[200px] ${sidebarBgClass} rounded-xl shadow-2xl py-2 z-[70] transition-all duration-150
+      className={`absolute top-0 left-[calc(100%+12px)] w-[200px] ${sidebarBgClass} ${isLight ? 'border border-black/5 text-[#1f1f1f]' : 'text-white'} rounded-xl shadow-2xl py-2 z-[70] transition-all duration-150
         before:absolute before:-left-6 before:top-0 before:bottom-0 before:w-6 before:content-['']
         ${getAnimationClass()}`}
     >
@@ -71,8 +74,8 @@ export const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean
             onClick={() => setBackground(bg.id)}
             className={`aspect-square rounded-xl overflow-hidden transition-all ring-2 ${
               background === bg.id 
-                ? 'ring-white/60 scale-105' 
-                : 'ring-white/10 hover:ring-white/30'
+                ? (isLight ? 'ring-black/60 scale-105' : 'ring-white/60 scale-105')
+                : (isLight ? 'ring-black/10 hover:ring-black/30' : 'ring-white/10 hover:ring-white/30')
             }`}
             title={bg.label}
           >
@@ -83,25 +86,31 @@ export const AppearanceMenu: React.FC<{ onClose: () => void; isClosing?: boolean
 
       <div className="px-1.5 space-y-0.5 mt-1">
         <button 
-          onClick={() => setTheme('amoled')}
-          className="w-full flex items-center justify-between px-3 h-[30px] text-[13.5px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+          onClick={() => setThemeChoice('light')}
+          className={`w-full flex items-center justify-between px-3 h-[30px] text-[13.5px] font-medium tracking-tight ${
+            isLight ? 'text-[#1f1f1f] hover:bg-black/[0.05]' : 'text-white hover:bg-white/5'
+          } rounded-xl transition-colors`}
         >
-          <span>Amoled</span>
-          {theme === 'amoled' && <Check size={16} className="text-white" />}
+          <span>Light</span>
+          {themeChoice === 'light' && <Check size={16} className={isLight ? 'text-black' : 'text-white'} />}
         </button>
         <button 
-          onClick={() => setTheme('dark')}
-          className="w-full flex items-center justify-between px-3 h-[30px] text-[13.5px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+          onClick={() => setThemeChoice('dark')}
+          className={`w-full flex items-center justify-between px-3 h-[30px] text-[13.5px] font-medium tracking-tight ${
+            isLight ? 'text-[#1f1f1f] hover:bg-black/[0.05]' : 'text-white hover:bg-white/5'
+          } rounded-xl transition-colors`}
         >
           <span>Dark</span>
-          {theme === 'dark' && <Check size={16} className="text-white" />}
+          {themeChoice === 'dark' && <Check size={16} className={isLight ? 'text-black' : 'text-white'} />}
         </button>
         <button 
-          onClick={() => setTheme('system')}
-          className="w-full flex items-center justify-between px-3 h-[30px] text-[13.5px] font-medium tracking-tight text-white hover:bg-white/5 rounded-xl transition-colors"
+          onClick={() => setThemeChoice('system')}
+          className={`w-full flex items-center justify-between px-3 h-[30px] text-[13.5px] font-medium tracking-tight ${
+            isLight ? 'text-[#1f1f1f] hover:bg-black/[0.05]' : 'text-white hover:bg-white/5'
+          } rounded-xl transition-colors`}
         >
           <span>System</span>
-          {theme === 'system' && <Check size={16} className="text-white" />}
+          {themeChoice === 'system' && <Check size={16} className={isLight ? 'text-black' : 'text-white'} />}
         </button>
       </div>
     </div>

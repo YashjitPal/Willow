@@ -238,6 +238,23 @@
 }
 
 /*
+ * Light-theme variants.
+ *
+ * Measured off live Google Gemini in light theme:
+ *   wrapper: color rgb(31, 31, 31)
+ *   surface: background-color rgb(0, 0, 0)
+ *            color rgb(242, 240, 240)
+ */
+:is(.light-theme, [data-theme="light"]) .willow-tooltip {
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-tooltip-surface {
+  background-color: rgb(0, 0, 0);
+  color: rgb(242, 240, 240);
+}
+
+/*
  * The description node the trigger points at with aria-describedby. Gemini
  * keeps these in a `.cdk-describedby-message-container.cdk-visually-hidden`
  * off-screen div and marks the visible tooltip aria-hidden, so a screen reader

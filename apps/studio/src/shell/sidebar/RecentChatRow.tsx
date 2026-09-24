@@ -2,6 +2,7 @@ import React from 'react';
 import { Terminal } from 'lucide-react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { SidebarItem } from './SidebarPrimitives';
+import { useThemeMode } from '@willow/core/theme-mode';
 
 /**
  * One Recents row.
@@ -44,7 +45,9 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
   isMenuOpen,
   onSelect,
   onMenuClick,
-}) => (
+}) => {
+  const { isLight } = useThemeMode();
+  return (
   <SidebarItem
     flushRight
     label={displayName}
@@ -78,14 +81,16 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
               weight={330}
               roundness={100}
               opticalSize={16}
-              className="text-[#e6e6e6]"
+              className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}
             />
           </span>
         )}
         <button
           onClick={(e) => onMenuClick(e, chatId)}
           aria-label={`More options for ${displayName}`}
-          className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-[#e6e6e6] before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08] ${
+          className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 ${
+            isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'
+          } before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08] ${
             isMenuOpen || startedInCode
               ? 'visible'
               : 'invisible group-hover/item:visible'
@@ -114,6 +119,7 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
       </div>
     }
   />
-);
+  );
+};
 
 export const RecentChatRow = React.memo(RecentChatRowImpl);

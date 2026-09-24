@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useBackground } from '@willow/studio/shell/BackgroundContext';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { loadAllProjectCovers, deleteProjectData, PROJECT_COVERS_UPDATED_EVENT } from '@willow/storage/media-storage';
 import { deleteCodeSessions } from '@willow/storage/indexeddb/willow-db';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
@@ -61,6 +62,7 @@ const SortMenu: React.FC<{
   order: string;
   setOrder: (val: string) => void;
 }> = ({ sortBy, setSortBy, order, setOrder }) => {
+  const { isLight } = useThemeMode();
   const sortItems = [
     { id: 'last-edited', label: 'Last edited' },
     { id: 'date-created', label: 'Date created' },
@@ -74,36 +76,44 @@ const SortMenu: React.FC<{
 
   return (
     <div 
-      className="w-[210px] bg-[#1c1c1c] border border-white/10 rounded-2xl shadow-[0_30px_70px_rgba(0,0,0,0.7)] py-2.5 overflow-hidden"
+      className={`w-[210px] ${isLight ? 'bg-white border-black/10 shadow-[0_10px_30px_rgba(0,0,0,0.12)]' : 'bg-[#1c1c1c] border-white/10 shadow-[0_30px_70px_rgba(0,0,0,0.7)]'} border rounded-2xl py-2.5 overflow-hidden`}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="px-5 pb-1 text-[14px] font-normal text-white tracking-tight">
+      <div className={`px-5 pb-1 text-[14px] font-normal ${isLight ? 'text-[#1f1f1f]' : 'text-white'} tracking-tight`}>
         Sort by
       </div>
-      <div className="h-[1px] bg-white/5 mx-2 mb-1" />
+      <div className={`h-[1px] ${isLight ? 'bg-black/5' : 'bg-white/5'} mx-2 mb-1`} />
       <div className="px-2 pb-1.5">
         {sortItems.map((item) => (
           <button
             key={item.id}
             onClick={() => setSortBy(item.id)}
-            className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 text-white hover:bg-[#2596be]"
+            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
+              isLight
+                ? (sortBy === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (sortBy === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+            }`}
           >
             <span>{item.label}</span>
             {sortBy === item.id && <Check size={16} strokeWidth={3} className="ml-2" />}
           </button>
         ))}
       </div>
-      <div className="h-[1px] bg-white/10 mx-1 mb-2" />
-      <div className="px-5 pb-1 text-[14px] font-normal text-white tracking-tight">
+      <div className={`h-[1px] ${isLight ? 'bg-black/10' : 'bg-white/10'} mx-1 mb-2`} />
+      <div className={`px-5 pb-1 text-[14px] font-normal ${isLight ? 'text-[#1f1f1f]' : 'text-white'} tracking-tight`}>
         Order
       </div>
-      <div className="h-[1px] bg-white/5 mx-2 mb-1" />
+      <div className={`h-[1px] ${isLight ? 'bg-black/5' : 'bg-white/5'} mx-2 mb-1`} />
       <div className="px-2 pb-1">
         {orderItems.map((item) => (
           <button
             key={item.id}
             onClick={() => setOrder(item.id)}
-            className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 text-white hover:bg-[#2596be]"
+            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
+              isLight
+                ? (order === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (order === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+            }`}
           >
             <span>{item.label}</span>
             {order === item.id && <Check size={16} strokeWidth={3} className="ml-2" />}
@@ -118,6 +128,7 @@ const VisibilityMenu: React.FC<{
   value: string;
   onChange: (val: string) => void;
 }> = ({ value, onChange }) => {
+  const { isLight } = useThemeMode();
   const items = [
     { id: 'any', label: 'Any visibility' },
     { id: 'public', label: 'Public' },
@@ -126,19 +137,23 @@ const VisibilityMenu: React.FC<{
 
   return (
     <div 
-      className="w-[210px] bg-[#1c1c1c] border border-white/10 rounded-2xl shadow-[0_30px_70px_rgba(0,0,0,0.7)] py-2.5 overflow-hidden"
+      className={`w-[210px] ${isLight ? 'bg-white border-black/10 shadow-[0_10px_30px_rgba(0,0,0,0.12)]' : 'bg-[#1c1c1c] border-white/10 shadow-[0_30px_70px_rgba(0,0,0,0.7)]'} border rounded-2xl py-2.5 overflow-hidden`}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="px-5 pb-1 text-[14px] font-normal text-white tracking-tight">
+      <div className={`px-5 pb-1 text-[14px] font-normal ${isLight ? 'text-[#1f1f1f]' : 'text-white'} tracking-tight`}>
         Visibility
       </div>
-      <div className="h-[1px] bg-white/5 mx-2 mb-1" />
+      <div className={`h-[1px] ${isLight ? 'bg-black/5' : 'bg-white/5'} mx-2 mb-1`} />
       <div className="px-2 pb-1">
         {items.map((item) => (
           <button
             key={item.id}
             onClick={() => onChange(item.id)}
-            className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 text-white hover:bg-[#2596be]"
+            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
+              isLight
+                ? (value === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (value === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+            }`}
           >
             <span>{item.label}</span>
             {value === item.id && <Check size={16} strokeWidth={3} className="ml-2" />}
@@ -153,6 +168,7 @@ const StatusMenu: React.FC<{
   value: string;
   onChange: (val: string) => void;
 }> = ({ value, onChange }) => {
+  const { isLight } = useThemeMode();
   const items = [
     { id: 'any', label: 'Any status' },
     { id: 'all-published', label: 'All published' },
@@ -163,19 +179,23 @@ const StatusMenu: React.FC<{
 
   return (
     <div 
-      className="w-[210px] bg-[#1c1c1c] border border-white/10 rounded-2xl shadow-[0_30px_70px_rgba(0,0,0,0.7)] py-2.5 overflow-hidden"
+      className={`w-[210px] ${isLight ? 'bg-white border-black/10 shadow-[0_10px_30px_rgba(0,0,0,0.12)]' : 'bg-[#1c1c1c] border-white/10 shadow-[0_30px_70px_rgba(0,0,0,0.7)]'} border rounded-2xl py-2.5 overflow-hidden`}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="px-5 pb-1 text-[14px] font-normal text-white tracking-tight">
+      <div className={`px-5 pb-1 text-[14px] font-normal ${isLight ? 'text-[#1f1f1f]' : 'text-white'} tracking-tight`}>
         Publish status
       </div>
-      <div className="h-[1px] bg-white/5 mx-2 mb-1" />
+      <div className={`h-[1px] ${isLight ? 'bg-black/5' : 'bg-white/5'} mx-2 mb-1`} />
       <div className="px-2 pb-1">
         {items.map((item) => (
           <button
             key={item.id}
             onClick={() => onChange(item.id)}
-            className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 text-white hover:bg-[#2596be]"
+            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
+              isLight
+                ? (value === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (value === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+            }`}
           >
             <span>{item.label}</span>
             {value === item.id && <Check size={16} strokeWidth={3} className="ml-2" />}
@@ -190,6 +210,7 @@ const CreatorMenu: React.FC<{
   value: string;
   onChange: (val: string) => void;
 }> = ({ value, onChange }) => {
+  const { isLight } = useThemeMode();
   const [search, setSearch] = useState('');
   const items = [
     { id: 'all', label: 'All creators' },
@@ -198,23 +219,23 @@ const CreatorMenu: React.FC<{
 
   return (
     <div 
-      className="w-[240px] bg-[#1c1c1c] border border-white/10 rounded-2xl shadow-[0_30px_70px_rgba(0,0,0,0.7)] py-2.5 overflow-hidden"
+      className={`w-[240px] ${isLight ? 'bg-white border-black/10 shadow-[0_10px_30px_rgba(0,0,0,0.12)]' : 'bg-[#1c1c1c] border-white/10 shadow-[0_30px_70px_rgba(0,0,0,0.7)]'} border rounded-2xl py-2.5 overflow-hidden`}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="px-5 pb-1 text-[14px] font-normal text-white tracking-tight">
+      <div className={`px-5 pb-1 text-[14px] font-normal ${isLight ? 'text-[#1f1f1f]' : 'text-white'} tracking-tight`}>
         Creator
       </div>
-      <div className="h-[1px] bg-white/5 mx-2 mb-2" />
+      <div className={`h-[1px] ${isLight ? 'bg-black/5' : 'bg-white/5'} mx-2 mb-2`} />
       
       <div className="px-3 mb-2">
         <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${isLight ? 'text-[#747775]' : 'text-zinc-500'}`} />
           <input 
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search creators..."
-            className="w-full bg-[#141414] border border-white/5 rounded-lg pl-9 pr-3 py-2 text-[13px] text-white focus:outline-none focus:border-white/10 placeholder-zinc-600"
+            className={`w-full ${isLight ? 'bg-[#f0f4f9] border-black/10 text-[#1f1f1f] focus:border-[#0b57d0] placeholder-[#747775]' : 'bg-[#141414] border-white/5 text-white focus:border-white/10 placeholder-zinc-600'} border rounded-lg pl-9 pr-3 py-2 text-[13px] outline-none transition-colors`}
           />
         </div>
       </div>
@@ -224,7 +245,11 @@ const CreatorMenu: React.FC<{
           <button
             key={item.id}
             onClick={() => onChange(item.id)}
-            className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 text-white hover:bg-[#2596be]"
+            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
+              isLight
+                ? (value === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (value === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+            }`}
           >
             <span className="truncate">{item.label}</span>
             {value === item.id && <Check size={16} strokeWidth={3} className="ml-2 shrink-0" />}
@@ -236,6 +261,7 @@ const CreatorMenu: React.FC<{
 };
 
 const ProjectMenu: React.FC<{ onClose: () => void; onDelete?: () => void }> = ({ onClose, onDelete }) => {
+  const { isLight } = useThemeMode();
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<'top' | 'bottom'>('bottom');
 
@@ -264,7 +290,7 @@ const ProjectMenu: React.FC<{ onClose: () => void; onDelete?: () => void }> = ({
     <div
       ref={menuRef}
       onMouseDown={(e) => e.stopPropagation()}
-      className={`absolute right-0 w-fit min-w-[150px] bg-[#18181b] border border-white/10 rounded-2xl shadow-2xl py-1.5 z-[100]
+      className={`absolute right-0 w-fit min-w-[150px] ${isLight ? 'bg-white border-black/10 shadow-[0_10px_30px_rgba(0,0,0,0.12)]' : 'bg-[#18181b] border-white/10 shadow-2xl'} border rounded-2xl py-1.5 z-[100]
         ${position === 'bottom' ? 'top-[50px]' : 'bottom-[50px]'}`}
     >
       {menuItems.map((item, idx) => (
@@ -274,8 +300,8 @@ const ProjectMenu: React.FC<{ onClose: () => void; onDelete?: () => void }> = ({
             if (item.onClick) item.onClick();
             onClose();
           }}
-          className={`w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-medium hover:bg-white/5 first:rounded-t-xl last:rounded-b-xl whitespace-nowrap
-            ${item.variant === 'danger' ? 'text-[#ef4444]' : 'text-white/90'}`}
+          className={`w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-medium ${isLight ? 'hover:bg-black/5' : 'hover:bg-white/5'} first:rounded-t-xl last:rounded-b-xl whitespace-nowrap
+            ${item.variant === 'danger' ? 'text-[#ef4444]' : (isLight ? 'text-[#1f1f1f]' : 'text-white/90')}`}
         >
           <item.icon size={15} strokeWidth={2.2} className="shrink-0" />
           {item.label}
@@ -289,6 +315,7 @@ const FilterButton: React.FC<{
   label: string; 
   children?: React.ReactNode;
 }> = ({ label, children }) => {
+  const { isLight } = useThemeMode();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -314,11 +341,11 @@ const FilterButton: React.FC<{
         }}
         className={`flex items-center justify-between gap-3 px-4 h-[40px] max-w-[160px] rounded-2xl border transition-all shadow-sm group select-none flex-shrink-0
           ${isOpen 
-            ? 'border-white/20 bg-white/10 text-white' 
-            : 'border-white/10 bg-[#1c1c1c] hover:bg-white/[0.04] text-white'}`}
+            ? (isLight ? 'border-[#0b57d0] bg-[#e8f0fe] text-[#0b57d0]' : 'border-white/20 bg-white/10 text-white') 
+            : (isLight ? 'border-[#c4c7c5] bg-white hover:bg-black/[0.03] text-[#1f1f1f]' : 'border-white/10 bg-[#1c1c1c] hover:bg-white/[0.04] text-white')}`}
       >
         <span className="text-[13px] font-medium truncate pointer-events-none">{label}</span>
-        <ChevronDown size={14} className={`text-zinc-400 group-hover:text-white transition-all duration-200 pointer-events-none shrink-0 ${isOpen ? 'rotate-180 text-white' : ''}`} />
+        <ChevronDown size={14} className={`${isLight ? 'text-[#747775] group-hover:text-[#1f1f1f]' : 'text-zinc-400 group-hover:text-white'} transition-all duration-200 pointer-events-none shrink-0 ${isOpen ? (isLight ? 'rotate-180 text-[#0b57d0]' : 'rotate-180 text-white') : ''}`} />
       </button>
       {isOpen && (
         <div className="absolute top-[calc(100%+8px)] left-0 z-[1000] animate-in fade-in zoom-in-95 duration-150">
@@ -337,22 +364,26 @@ const FilterToggle: React.FC<{
   label: string;
   active: boolean;
   onToggle: () => void;
-}> = ({ label, active, onToggle }) => (
+}> = ({ label, active, onToggle }) => {
+  const { isLight } = useThemeMode();
+  return (
   <button
     type="button"
     aria-pressed={active}
     onClick={onToggle}
     className={`flex items-center gap-2 px-4 h-[40px] rounded-2xl border transition-all shadow-sm select-none flex-shrink-0
       ${active
-        ? 'border-white/20 bg-white/10 text-white'
-        : 'border-white/10 bg-[#1c1c1c] hover:bg-white/[0.04] text-white'}`}
+        ? (isLight ? 'border-[#0b57d0] bg-[#e8f0fe] text-[#0b57d0]' : 'border-white/20 bg-white/10 text-white')
+        : (isLight ? 'border-[#c4c7c5] bg-white hover:bg-black/[0.03] text-[#1f1f1f]' : 'border-white/10 bg-[#1c1c1c] hover:bg-white/[0.04] text-white')}`}
   >
     <Star size={14} className="shrink-0" fill={active ? 'currentColor' : 'none'} strokeWidth={active ? 0 : 2} />
     <span className="text-[13px] font-medium">{label}</span>
   </button>
-);
+  );
+};
 
 export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ onOpenDriveSettings }) => {
+  const { isLight } = useThemeMode();
   const { background } = useBackground();
   const { isDriveConnected } = useAuth();
   const { deleteLocalFSProject, isLocalFolderConnected } = useLocalFS();
@@ -381,8 +412,8 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
       writeProjectRegistry(updated);
       window.dispatchEvent(new Event('willow_projects_updated'));
       setProjectsData(prev => prev.filter(p => p.id !== id));
-    } catch (err) {
-      console.error('Failed to delete project', err);
+    } catch {
+      /* project deletion error */
     }
   };
 
@@ -558,7 +589,7 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
   };
 
   return (
-    <div className={`flex-1 w-full h-full bg-[#0f0f0f] flex flex-col relative`}>
+    <div className={`flex-1 w-full h-full ${isLight ? 'bg-[var(--studio-surface,#faf9f9)] text-[#1f1f1f]' : 'bg-[#0f0f0f] text-white'} flex flex-col relative`}>
        <style>{`
         @keyframes subtle-star-jump {
           0%, 100% { transform: translateY(0); }
@@ -572,18 +603,18 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
       {/* Drive Not Connected Overlay */}
       {(!isDriveConnected && !isLocalFolderConnected) && (
         <div className="absolute inset-0 z-30 overflow-hidden">
-          <div className="absolute inset-0 backdrop-blur-md bg-[#0f0f0f]/90" />
+          <div className={`absolute inset-0 backdrop-blur-md ${isLight ? 'bg-[#faf9f9]/90' : 'bg-[#0f0f0f]/90'}`} />
           <div className="relative z-10 h-full flex flex-col items-center justify-center gap-6">
-            <div className="w-20 h-20 rounded-2xl bg-[#272729] flex items-center justify-center border border-white/10 shadow-xl">
-              <HardDrive size={36} className="text-white/70" />
+            <div className={`w-20 h-20 rounded-2xl ${isLight ? 'bg-white border-black/10 shadow-lg' : 'bg-[#272729] border-white/10 shadow-xl'} flex items-center justify-center border`}>
+              <HardDrive size={36} className={isLight ? 'text-[#0b57d0]' : 'text-white/70'} />
             </div>
             <div className="text-center">
-              <h3 className="text-[22px] font-bold text-white mb-2">Connect Google Drive to have Projects</h3>
-              <p className="text-[15px] text-zinc-400 max-w-lg">Save and access your projects from anywhere by connecting your Google Drive.</p>
+              <h3 className={`text-[22px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white'} mb-2`}>Connect Google Drive to have Projects</h3>
+              <p className={`text-[15px] ${isLight ? 'text-[#444746]' : 'text-zinc-400'} max-w-lg`}>Save and access your projects from anywhere by connecting your Google Drive.</p>
             </div>
             <button 
               onClick={onOpenDriveSettings}
-              className="px-8 py-3.5 bg-white text-black text-[15px] font-bold rounded-xl hover:bg-zinc-200 transition-all shadow-lg shadow-white/10 flex items-center gap-2.5"
+              className={`px-8 py-3.5 ${isLight ? 'bg-[#0b57d0] text-white hover:bg-[#0842a0] shadow-md' : 'bg-white text-black hover:bg-zinc-200 shadow-white/10'} text-[15px] font-bold rounded-xl transition-all shadow-lg flex items-center gap-2.5`}
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -601,19 +632,19 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
           
           <div className="flex flex-col gap-10 mb-12">
               <div className="flex items-center gap-3">
-                <h1 className="text-[28px] font-bold text-white tracking-tight">Projects</h1>
-                <button className="text-zinc-500 hover:text-white transition-colors p-1 translate-y-0.5">
+                <h1 className={`text-[28px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white'} tracking-tight`}>Projects</h1>
+                <button className={`${isLight ? 'text-[#747775] hover:text-[#1f1f1f]' : 'text-zinc-500 hover:text-white'} transition-colors p-1 translate-y-0.5`}>
                   <MoreHorizontal size={22} />
                 </button>
               </div>
 
               <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 overflow-visible">
                 <div className="relative group w-full lg:w-[380px]">
-                  <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-white transition-colors" size={18} />
+                  <Search className={`absolute left-5 top-1/2 -translate-y-1/2 ${isLight ? 'text-[#747775] group-focus-within:text-[#1f1f1f]' : 'text-zinc-500 group-focus-within:text-white'} transition-colors`} size={18} />
                   <input 
                     type="text" 
                     placeholder="Search projects..." 
-                    className="w-full h-[46px] bg-[#1a1a1a] border border-white/5 rounded-2xl pl-12 pr-4 text-[15px] text-white placeholder-zinc-500 outline-none focus:border-white/10 focus:bg-white/[0.02] transition-all font-normal shadow-lg"
+                    className={`w-full h-[46px] ${isLight ? 'bg-[#f0f4f9] border-[#c4c7c5] text-[#1f1f1f] placeholder-[#747775] focus:border-[#0b57d0] focus:bg-white' : 'bg-[#1a1a1a] border-white/5 text-white placeholder-zinc-500 focus:border-white/10 focus:bg-white/[0.02]'} border rounded-2xl pl-12 pr-4 text-[15px] outline-none transition-all font-normal shadow-sm`}
                   />
                 </div>
 
@@ -639,18 +670,18 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                       <CreatorMenu value={creator} onChange={setCreator} />
                     </FilterButton>
                     
-                    <div className="w-[1px] h-7 bg-white/10 mx-2 shrink-0" />
+                    <div className={`w-[1px] h-7 ${isLight ? 'bg-black/10' : 'bg-white/10'} mx-2 shrink-0`} />
                     
-                    <div className="flex items-center bg-[#1a1a1a] rounded-2xl p-1 border border-white/5 shrink-0 h-[46px] shadow-lg">
+                    <div className={`flex items-center ${isLight ? 'bg-[#f0f4f9] border-[#c4c7c5]' : 'bg-[#1a1a1a] border-white/5'} rounded-2xl p-1 border shrink-0 h-[46px] shadow-sm`}>
                       <button 
                         onClick={() => setLayoutMode('grid')}
-                        className={`h-full px-4 rounded-xl transition-all ${layoutMode === 'grid' ? 'bg-white/10 text-white shadow-inner' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+                        className={`h-full px-4 rounded-xl transition-all ${layoutMode === 'grid' ? (isLight ? 'bg-white text-[#1f1f1f] shadow-sm' : 'bg-white/10 text-white shadow-inner') : (isLight ? 'text-[#747775] hover:text-[#1f1f1f] hover:bg-black/5' : 'text-zinc-500 hover:text-white hover:bg-white/5')}`}
                       >
                         <LayoutGrid size={18} />
                       </button>
                       <button 
                         onClick={() => setLayoutMode('list')}
-                        className={`h-full px-4 rounded-xl transition-all ${layoutMode === 'list' ? 'bg-white/10 text-white shadow-inner' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+                        className={`h-full px-4 rounded-xl transition-all ${layoutMode === 'list' ? (isLight ? 'bg-white text-[#1f1f1f] shadow-sm' : 'bg-white/10 text-white shadow-inner') : (isLight ? 'text-[#747775] hover:text-[#1f1f1f] hover:bg-black/5' : 'text-zinc-500 hover:text-white hover:bg-white/5')}`}
                       >
                         <List size={18} />
                       </button>
@@ -661,20 +692,20 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
 
           {starredOnly && displayedProjects.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-28 text-center">
-              <Star size={32} className="text-zinc-700" />
-              <h3 className="text-[17px] font-bold text-white">No starred projects</h3>
-              <p className="text-[14px] text-zinc-500 max-w-sm">Star a project from its card to keep it here.</p>
+              <Star size={32} className={isLight ? 'text-[#747775]' : 'text-zinc-700'} />
+              <h3 className={`text-[17px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white'}`}>No starred projects</h3>
+              <p className={`text-[14px] ${isLight ? 'text-[#444746]' : 'text-zinc-500'} max-w-sm`}>Star a project from its card to keep it here.</p>
             </div>
           ) : layoutMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-14 pb-24">
               <div className="group cursor-pointer" onClick={handleCreateNewProject}>
-                <button className="w-full aspect-[16/9] rounded-xl border-2 border-dashed border-white/10 hover:border-white/20 hover:bg-white/[0.02] transition-all flex flex-col items-center justify-center gap-3 cursor-pointer">
-                  <div className="w-12 h-12 flex items-center justify-center text-zinc-600 group-hover:text-white group-hover:scale-110 transition-all duration-300">
+                <button className={`w-full aspect-[16/9] rounded-xl border-2 border-dashed ${isLight ? 'border-[#c4c7c5] hover:border-[#0b57d0] hover:bg-[#f0f4f9]' : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'} transition-all flex flex-col items-center justify-center gap-3 cursor-pointer`}>
+                  <div className={`w-12 h-12 flex items-center justify-center ${isLight ? 'text-[#747775] group-hover:text-[#0b57d0]' : 'text-zinc-600 group-hover:text-white'} group-hover:scale-110 transition-all duration-300`}>
                     <Plus size={36} strokeWidth={1.5} />
                   </div>
                 </button>
                 <div className="mt-5 px-1">
-                  <h3 className="text-[16px] font-bold text-white leading-tight tracking-tight">Create new project</h3>
+                  <h3 className={`text-[16px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white'} leading-tight tracking-tight`}>Create new project</h3>
                 </div>
               </div>
 
@@ -685,7 +716,7 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
 
                 return (
                   <div key={project.id} className="group cursor-pointer" onClick={() => handleOpenProject(project)}>
-                      <div className="relative aspect-[16/9] bg-[#2c2c2e] rounded-xl overflow-hidden border border-white/5 mb-4 transition-all group-hover:shadow-xl">
+                      <div className={`relative aspect-[16/9] ${isLight ? 'bg-[#f0f4f9] border-black/5' : 'bg-[#2c2c2e] border-white/5'} rounded-xl overflow-hidden border mb-4 transition-all group-hover:shadow-xl`}>
                           {project.thumbnail ? (
                             isCoverVideo(project.thumbnail) ? (
                               <video 
@@ -704,7 +735,7 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                               />
                             )
                           ) : (
-                            <div className="w-full h-full bg-[#2c2c2e]" />
+                            <div className={`w-full h-full ${isLight ? 'bg-[#f0f4f9]' : 'bg-[#2c2c2e]'}`} />
                           )}
                           
                           <div className="absolute top-3 right-3">
@@ -712,8 +743,8 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                               onClick={(e) => toggleStar(e, project.id)}
                               className={`w-10 h-10 flex items-center justify-center backdrop-blur-xl rounded-xl border active:scale-95 transition-all
                                 ${isStarred 
-                                  ? 'opacity-100 bg-black/60 border-white/10 text-yellow-400 shadow-lg shadow-yellow-500/10' 
-                                  : 'opacity-0 group-hover:opacity-100 bg-black/40 border-white/10 text-white/70 hover:text-white hover:bg-black/60'}`}
+                                  ? (isLight ? 'opacity-100 bg-white/90 border-black/10 text-amber-500 shadow-md' : 'opacity-100 bg-black/60 border-white/10 text-yellow-400 shadow-lg shadow-yellow-500/10')
+                                  : (isLight ? 'opacity-0 group-hover:opacity-100 bg-white/80 border-black/10 text-[#444746] hover:text-[#1f1f1f] hover:bg-white' : 'opacity-0 group-hover:opacity-100 bg-black/40 border-white/10 text-white/70 hover:text-white hover:bg-black/60')}`}
                             >
                               <div className={isAnimating ? 'star-jump-icon' : ''}>
                                 <Star size={18} fill={isStarred ? "currentColor" : "none"} strokeWidth={isStarred ? 0 : 2} />
@@ -722,8 +753,8 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                           </div>
 
                           {project.hasChat && (
-                            <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-xl px-2.5 py-1.5 rounded-lg border border-white/10 flex items-center gap-1.5 shadow-xl">
-                               <span className="text-[10px] font-bold text-white/90 uppercase tracking-widest">Chat</span>
+                            <div className={`absolute bottom-3 left-3 ${isLight ? 'bg-white/90 border-black/10' : 'bg-black/60 border-white/10'} backdrop-blur-xl px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 shadow-md`}>
+                               <span className={`text-[10px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white/90'} uppercase tracking-widest`}>Chat</span>
                             </div>
                           )}
                       </div>
@@ -732,14 +763,14 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                           <div className="flex items-center gap-3">
                               <img 
                                 src={`https://picsum.photos/32/32?random=${index + 10}`} 
-                                className="w-8 h-8 rounded-full border border-white/10 shrink-0"
+                                className={`w-8 h-8 rounded-full border ${isLight ? 'border-black/10' : 'border-white/10'} shrink-0`} 
                                 alt="Project Owner"
                               />
                               <div className="flex flex-col min-w-0">
-                                  <p className="text-[14px] font-bold text-white leading-tight truncate tracking-tight">
+                                  <p className={`text-[14px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white'} leading-tight truncate tracking-tight`}>
                                     {project.title}
                                   </p>
-                                  <p className="text-[12px] font-medium text-[#52525b] mt-0.5">
+                                  <p className={`text-[12px] font-medium ${isLight ? 'text-[#444746]' : 'text-[#52525b]'} mt-0.5`}>
                                     {project.edited}
                                   </p>
                               </div>
@@ -750,8 +781,8 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                               onClick={(e) => toggleMenu(e, project.id)}
                               className={`p-2 rounded-xl transition-all
                                 ${isMenuOpen 
-                                  ? 'opacity-100 text-white bg-transparent' 
-                                  : 'opacity-0 group-hover:opacity-100 text-[#52525b] hover:text-white hover:bg-white/5'}`}
+                                  ? (isLight ? 'opacity-100 text-[#1f1f1f] bg-black/5' : 'opacity-100 text-white bg-transparent')
+                                  : (isLight ? 'opacity-0 group-hover:opacity-100 text-[#747775] hover:text-[#1f1f1f] hover:bg-black/5' : 'opacity-0 group-hover:opacity-100 text-[#52525b] hover:text-white hover:bg-white/5')}`}
                             >
                               <MoreHorizontal size={20} />
                             </button>
@@ -767,10 +798,10 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
             </div>
           ) : (
             <div className="flex flex-col pb-32">
-              <div className="grid grid-cols-[1.8fr_1fr_1fr_140px] gap-6 px-8 py-5 border-b border-white/5">
-                <div className="text-[13px] font-bold text-zinc-600 uppercase tracking-widest">Name</div>
-                <div className="text-[13px] font-bold text-zinc-600 uppercase tracking-widest">Created at</div>
-                <div className="text-[13px] font-bold text-zinc-600 uppercase tracking-widest">Created by</div>
+              <div className={`grid grid-cols-[1.8fr_1fr_1fr_140px] gap-6 px-8 py-5 border-b ${isLight ? 'border-black/5 text-[#747775]' : 'border-white/5 text-zinc-600'}`}>
+                <div className="text-[13px] font-bold uppercase tracking-widest">Name</div>
+                <div className="text-[13px] font-bold uppercase tracking-widest">Created at</div>
+                <div className="text-[13px] font-bold uppercase tracking-widest">Created by</div>
                 <div className="w-[140px]"></div>
               </div>
 
@@ -783,11 +814,11 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                   return (
                     <div 
                       key={project.id} 
-                      className="grid grid-cols-[1.8fr_1fr_1fr_140px] gap-6 px-8 py-6 border-b border-white/5 items-center group/row hover:bg-white/[0.02] transition-colors cursor-pointer"
+                      className={`grid grid-cols-[1.8fr_1fr_1fr_140px] gap-6 px-8 py-6 border-b ${isLight ? 'border-black/5 hover:bg-black/[0.02]' : 'border-white/5 hover:bg-white/[0.02]'} items-center group/row transition-colors cursor-pointer`}
                       onClick={() => handleOpenProject(project)}
                     >
                       <div className="flex items-center gap-6 min-w-0">
-                        <div className="relative w-[130px] aspect-[16/9] rounded-xl overflow-hidden border border-white/5 bg-[#2c2c2e] shrink-0 shadow-lg">
+                        <div className={`relative w-[130px] aspect-[16/9] rounded-xl overflow-hidden border ${isLight ? 'border-black/5 bg-[#f0f4f9]' : 'border-white/5 bg-[#2c2c2e]'} shrink-0 shadow-sm`}>
                            {project.thumbnail ? (
                              isCoverVideo(project.thumbnail) ? (
                                <video 
@@ -802,35 +833,35 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                                <img src={project.thumbnail} className="w-full h-full object-cover opacity-90 group-hover/row:opacity-100 transition-opacity" alt="" />
                              )
                            ) : (
-                             <div className="w-full h-full bg-[#2c2c2e]" />
+                             <div className={`w-full h-full ${isLight ? 'bg-[#f0f4f9]' : 'bg-[#2c2c2e]'}`} />
                            )}
                            {project.hasChat && (
-                            <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-xl px-2 py-1 rounded border border-white/10 flex items-center shadow-xl">
-                               <span className="text-[9px] font-bold text-white/90 uppercase tracking-widest">Chat</span>
+                            <div className={`absolute bottom-2 left-2 ${isLight ? 'bg-white/90 border-black/10' : 'bg-black/60 border-white/10'} backdrop-blur-xl px-2 py-1 rounded border flex items-center shadow-md`}>
+                               <span className={`text-[9px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white/90'} uppercase tracking-widest`}>Chat</span>
                             </div>
                            )}
                         </div>
                         <div className="flex flex-col min-w-0">
-                          <span className="text-[14px] font-bold text-white truncate group-hover/row:text-white transition-colors tracking-tight">
+                          <span className={`text-[14px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white'} truncate transition-colors tracking-tight`}>
                             {project.title}
                           </span>
-                          <span className="text-[12px] font-medium text-[#52525b] mt-0.5">
+                          <span className={`text-[12px] font-medium ${isLight ? 'text-[#444746]' : 'text-[#52525b]'} mt-0.5`}>
                             {project.edited}
                           </span>
                         </div>
                       </div>
 
-                      <div className="text-[14px] font-medium text-[#71717a]">
+                      <div className={`text-[14px] font-medium ${isLight ? 'text-[#444746]' : 'text-[#71717a]'}`}>
                         {project.createdAt}
                       </div>
 
                       <div className="flex items-center gap-4">
                          <img 
                           src={`https://picsum.photos/32/32?random=${index + 50}`} 
-                          className="w-8 h-8 rounded-full border border-white/10 shrink-0 shadow-md"
+                          className={`w-8 h-8 rounded-full border ${isLight ? 'border-black/10' : 'border-white/10'} shrink-0 shadow-sm`}
                           alt=""
                         />
-                        <span className="text-[14px] font-medium text-[#71717a] truncate">
+                        <span className={`text-[14px] font-medium ${isLight ? 'text-[#444746]' : 'text-[#71717a]'} truncate`}>
                           {project.creator}
                         </span>
                       </div>
@@ -840,8 +871,8 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                           onClick={(e) => toggleStar(e, project.id)}
                           className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all active:scale-90
                             ${isStarred 
-                              ? 'text-yellow-400 opacity-100 bg-white/5 shadow-inner' 
-                              : 'text-zinc-600 opacity-0 group-hover/row:opacity-100 hover:text-white hover:bg-white/5'}`}
+                              ? (isLight ? 'text-amber-500 opacity-100 bg-black/5 shadow-inner' : 'text-yellow-400 opacity-100 bg-white/5 shadow-inner')
+                              : (isLight ? 'text-[#747775] opacity-0 group-hover/row:opacity-100 hover:text-[#1f1f1f] hover:bg-black/5' : 'text-zinc-600 opacity-0 group-hover/row:opacity-100 hover:text-white hover:bg-white/5')}`}
                         >
                           <div className={isAnimating ? 'star-jump-icon' : ''}>
                             <Star size={20} fill={isStarred ? "currentColor" : "none"} strokeWidth={isStarred ? 0 : 2} />
@@ -853,8 +884,8 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                             onClick={(e) => toggleMenu(e, project.id)}
                             className={`p-2.5 rounded-xl transition-all
                               ${isMenuOpen 
-                                ? 'opacity-100 text-white bg-white/10' 
-                                : 'opacity-0 group-hover/row:opacity-100 text-zinc-600 hover:text-white hover:bg-white/5'}`}
+                                ? (isLight ? 'opacity-100 text-[#1f1f1f] bg-black/5' : 'opacity-100 text-white bg-white/10') 
+                                : (isLight ? 'opacity-0 group-hover/row:opacity-100 text-[#747775] hover:text-[#1f1f1f] hover:bg-black/5' : 'opacity-0 group-hover/row:opacity-100 text-zinc-600 hover:text-white hover:bg-white/5')}`}
                           >
                             <MoreHorizontal size={22} />
                           </button>

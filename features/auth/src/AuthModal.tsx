@@ -12,6 +12,7 @@ import {
   signInWithPopup
 } from "firebase/auth";
 import { auth } from "@willow/auth/firebase";
+import { useThemeMode } from "@willow/core/theme-mode";
 
 // Willow 4-Point Star Sparkle Glyph
 const WillowSparkleIcon = () => (
@@ -31,11 +32,11 @@ const GoogleIcon = () => (
 );
 
 // Discord Icon SVG
-const DiscordIcon = () => (
+const DiscordIcon = ({ isLight }: { isLight?: boolean }) => (
   <svg 
     viewBox="-2 -2 20 20" 
     fill="currentColor" 
-    className="w-5 h-5 shrink-0 text-white"
+    className={`w-5 h-5 shrink-0 ${isLight ? 'text-[#5865f2]' : 'text-white'}`}
     aria-hidden="true"
   >
     <path d="M13.545 2.907a13.2 13.2 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.2 12.2 0 0 0-3.658 0 8 8 0 0 0-.412-.833.05.05 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.04.04 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032q.003.022.021.037a13.3 13.3 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019q.463-.63.818-1.329a.05.05 0 0 0-.01-.059l-.018-.011a9 9 0 0 1-1.248-.595.05.05 0 0 1-.02-.066l.015-.019q.127-.095.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.05.05 0 0 1 .053.007q.121.1.248.195a.05.05 0 0 1-.004.085 8 8 0 0 1-1.249.594.05.05 0 0 0-.03.03.05.05 0 0 0 .003.041c.24.465.515.909.817 1.329a.05.05 0 0 0 .056.019 13.2 13.2 0 0 0 4.001-2.02.05.05 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.03.03 0 0 0-.02-.019m-8.198 7.307c-.789 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612m5.316 0c-.788 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.451.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612"/>
@@ -43,8 +44,8 @@ const DiscordIcon = () => (
 );
 
 // Phone Icon SVG
-const PhoneIcon = () => (
-  <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 fill-current text-white" aria-hidden="true">
+const PhoneIcon = ({ isLight }: { isLight?: boolean }) => (
+  <svg viewBox="0 0 24 24" className={`w-4 h-4 shrink-0 fill-current ${isLight ? 'text-[#1f1f1f]' : 'text-white'}`} aria-hidden="true">
     <path d="M6.62 10.79a15.053 15.053 0 006.59 6.59l2.2-2.2a1 1 0 011.02-.24c1.12.37 2.33.57 3.57.57a1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.24.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
   </svg>
 );
@@ -60,6 +61,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   initialMode = 'login',
 }) => {
+  const { isLight } = useThemeMode();
   const { user, signInWithGoogle } = useAuth();
 
   const [step, setStep] = useState<'initial' | 'password'>('initial');
@@ -287,7 +289,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       {/* Modal Surface - exact same in/out scale transition as GeminiDialog (Rename/Delete chat) */}
       <div 
-        className="relative z-10 w-full max-w-[448px] rounded-[28px] bg-[#1f1f1f] p-8 text-white shadow-[0_24px_64px_-12px_rgba(0,0,0,0.6)] font-['Google_Sans_Flex','Google_Sans',sans-serif]"
+        className={`relative z-10 w-full max-w-[448px] rounded-[28px] ${
+          isLight 
+            ? 'bg-[#ffffff] text-[#1f1f1f] shadow-[0_24px_64px_-12px_rgba(0,0,0,0.15)] border border-[#e3e3e3]' 
+            : 'bg-[#1f1f1f] text-white shadow-[0_24px_64px_-12px_rgba(0,0,0,0.6)]'
+        } p-8 font-['Google_Sans_Flex','Google_Sans',sans-serif]`}
         style={{
           transform: shown ? 'scale(1)' : 'scale(0.8)',
           transition: 'transform 150ms cubic-bezier(0, 0, 0.2, 1)',
@@ -299,7 +305,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           type="button"
           onClick={handleDismiss}
           aria-label="Close"
-          className="absolute top-5 right-5 flex h-8 w-8 items-center justify-center rounded-full text-[#9c9c9c] hover:text-white hover:bg-white/10 transition-colors"
+          className={`absolute top-5 right-5 flex h-8 w-8 items-center justify-center rounded-full ${
+            isLight ? 'text-[#747775] hover:text-[#1f1f1f] hover:bg-black/5' : 'text-[#9c9c9c] hover:text-white hover:bg-white/10'
+          } transition-colors`}
         >
           <X size={18} strokeWidth={2} />
         </button>
@@ -314,7 +322,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               setSuccess('');
             }}
             aria-label="Go back"
-            className="absolute top-5 left-5 flex h-8 w-8 items-center justify-center rounded-full text-[#9c9c9c] hover:text-white hover:bg-white/10 transition-colors"
+            className={`absolute top-5 left-5 flex h-8 w-8 items-center justify-center rounded-full ${
+              isLight ? 'text-[#747775] hover:text-[#1f1f1f] hover:bg-black/5' : 'text-[#9c9c9c] hover:text-white hover:bg-white/10'
+            } transition-colors`}
           >
             <ArrowLeft size={18} strokeWidth={2} />
           </button>
@@ -334,14 +344,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
 
-          <h2 className="text-[23px] font-semibold text-[#f5f5f5] tracking-tight leading-snug">
+          <h2 className={`text-[23px] font-semibold ${isLight ? 'text-[#1f1f1f]' : 'text-[#f5f5f5]'} tracking-tight leading-snug`}>
             {step === 'initial' 
               ? 'Log in or sign up' 
               : isSignUp 
                 ? 'Create your password' 
                 : 'Enter your password'}
           </h2>
-          <p className="mt-1.5 mb-6 text-[14px] text-[#a6a6a6] leading-relaxed max-w-[340px] mx-auto">
+          <p className={`mt-1.5 mb-6 text-[14px] ${isLight ? 'text-[#444746]' : 'text-[#a6a6a6]'} leading-relaxed max-w-[340px] mx-auto`}>
             {step === 'initial'
               ? 'You’ll get smarter responses and can upload files, images, and more.'
               : `Continue as ${email}`}
@@ -350,14 +360,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Error message */}
         {error && (
-          <div className="mb-4 rounded-2xl bg-red-500/15 px-4 py-2.5 text-[13px] text-red-200 text-center leading-normal">
+          <div className={`mb-4 rounded-2xl ${isLight ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-red-500/15 text-red-200'} px-4 py-2.5 text-[13px] text-center leading-normal`}>
             {error}
           </div>
         )}
 
         {/* Success message */}
         {success && (
-          <div className="mb-4 rounded-2xl bg-emerald-500/15 px-4 py-2.5 text-[13px] text-emerald-200 text-center leading-normal">
+          <div className={`mb-4 rounded-2xl ${isLight ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-emerald-500/15 text-emerald-200'} px-4 py-2.5 text-[13px] text-center leading-normal`}>
             {success}
           </div>
         )}
@@ -371,20 +381,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={isLoading}
-                className="h-12 w-full rounded-full bg-[#303134] hover:bg-[#383a3e] active:bg-[#28292c] text-[#efefef] font-medium text-[15px] flex items-center justify-center gap-3 transition-colors disabled:opacity-50"
+                className={`h-12 w-full rounded-full ${
+                  isLight 
+                    ? 'bg-[#ffffff] hover:bg-[#f0f4f9] active:bg-[#e5ebf3] text-[#1f1f1f] border border-[#c4c7c5] shadow-sm' 
+                    : 'bg-[#303134] hover:bg-[#383a3e] active:bg-[#28292c] text-[#efefef]'
+                } font-medium text-[15px] flex items-center justify-center gap-3 transition-colors disabled:opacity-50`}
               >
                 <GoogleIcon />
                 <span>Continue with Google</span>
               </button>
 
-              {/* Discord Button (replacing Apple per request) */}
+              {/* Discord Button */}
               <button
                 type="button"
                 onClick={handleDiscordSignIn}
                 disabled={isLoading}
-                className="h-12 w-full rounded-full bg-[#303134] hover:bg-[#383a3e] active:bg-[#28292c] text-[#efefef] font-medium text-[15px] flex items-center justify-center gap-3 transition-colors disabled:opacity-50"
+                className={`h-12 w-full rounded-full ${
+                  isLight 
+                    ? 'bg-[#ffffff] hover:bg-[#f0f4f9] active:bg-[#e5ebf3] text-[#1f1f1f] border border-[#c4c7c5] shadow-sm' 
+                    : 'bg-[#303134] hover:bg-[#383a3e] active:bg-[#28292c] text-[#efefef]'
+                } font-medium text-[15px] flex items-center justify-center gap-3 transition-colors disabled:opacity-50`}
               >
-                <DiscordIcon />
+                <DiscordIcon isLight={isLight} />
                 <span>Continue with Discord</span>
               </button>
 
@@ -393,9 +411,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 type="button"
                 onClick={handlePhoneClick}
                 disabled={isLoading}
-                className="h-12 w-full rounded-full bg-[#303134] hover:bg-[#383a3e] active:bg-[#28292c] text-[#efefef] font-medium text-[15px] flex items-center justify-center gap-3 transition-colors disabled:opacity-50"
+                className={`h-12 w-full rounded-full ${
+                  isLight 
+                    ? 'bg-[#ffffff] hover:bg-[#f0f4f9] active:bg-[#e5ebf3] text-[#1f1f1f] border border-[#c4c7c5] shadow-sm' 
+                    : 'bg-[#303134] hover:bg-[#383a3e] active:bg-[#28292c] text-[#efefef]'
+                } font-medium text-[15px] flex items-center justify-center gap-3 transition-colors disabled:opacity-50`}
               >
-                <PhoneIcon />
+                <PhoneIcon isLight={isLight} />
                 <span>Continue with phone</span>
               </button>
             </div>
@@ -403,9 +425,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {/* Divider */}
             <div className="relative my-6 flex items-center justify-center">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-white/10" />
+                <div className={`w-full border-t ${isLight ? 'border-[#e3e3e3]' : 'border-white/10'}`} />
               </div>
-              <div className="relative bg-[#1f1f1f] px-3 text-[11px] font-medium tracking-wider text-[#828282] uppercase">
+              <div className={`relative ${isLight ? 'bg-white text-[#747775]' : 'bg-[#1f1f1f] text-[#828282]'} px-3 text-[11px] font-medium tracking-wider uppercase`}>
                 OR
               </div>
             </div>
@@ -420,12 +442,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 placeholder="Email address"
                 autoComplete="email"
                 required
-                className="h-12 w-full rounded-full bg-[#131314] px-5 text-[15px] text-white placeholder:text-[#787878] focus:outline-none transition-all"
+                className={`h-12 w-full rounded-full ${
+                  isLight 
+                    ? 'bg-[#ffffff] text-[#1f1f1f] placeholder:text-[#747775] border border-[#c4c7c5] focus:border-[#0b57d0]' 
+                    : 'bg-[#131314] text-white placeholder:text-[#787878] focus:outline-none'
+                } px-5 text-[15px] transition-all`}
               />
 
               <button
                 type="submit"
-                className="h-12 w-full mt-3 rounded-full bg-white hover:bg-[#e6e6e6] active:bg-[#d4d4d4] text-[#121212] font-semibold text-[15px] flex items-center justify-center transition-colors"
+                className={`h-12 w-full mt-3 rounded-full ${
+                  isLight 
+                    ? 'bg-[#0b57d0] hover:bg-[#0842a0] active:bg-[#073888] text-white shadow-sm' 
+                    : 'bg-white hover:bg-[#e6e6e6] active:bg-[#d4d4d4] text-[#121212]'
+                } font-semibold text-[15px] flex items-center justify-center transition-colors`}
               >
                 Continue
               </button>
@@ -444,12 +474,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   placeholder="Password"
                   autoComplete={isSignUp ? "new-password" : "current-password"}
                   required
-                  className="h-12 w-full rounded-full bg-[#131314] pl-5 pr-12 text-[15px] text-white placeholder:text-[#787878] focus:outline-none transition-all"
+                  className={`h-12 w-full rounded-full ${
+                    isLight 
+                      ? 'bg-[#ffffff] text-[#1f1f1f] placeholder:text-[#747775] border border-[#c4c7c5] focus:border-[#0b57d0]' 
+                      : 'bg-[#131314] text-white placeholder:text-[#787878] focus:outline-none'
+                  } pl-5 pr-12 text-[15px] transition-all`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                  className={`absolute right-4 top-1/2 -translate-y-1/2 ${
+                    isLight ? 'text-[#747775] hover:text-[#1f1f1f]' : 'text-white/50 hover:text-white'
+                  } transition-colors`}
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -465,7 +501,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     placeholder="Confirm password"
                     autoComplete="new-password"
                     required
-                    className="h-12 w-full rounded-full bg-[#131314] px-5 text-[15px] text-white placeholder:text-[#787878] focus:outline-none transition-all"
+                    className={`h-12 w-full rounded-full ${
+                      isLight 
+                        ? 'bg-[#ffffff] text-[#1f1f1f] placeholder:text-[#747775] border border-[#c4c7c5] focus:border-[#0b57d0]' 
+                        : 'bg-[#131314] text-white placeholder:text-[#787878] focus:outline-none'
+                    } px-5 text-[15px] transition-all`}
                   />
                 </div>
               )}
@@ -474,10 +514,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="h-12 w-full mt-4 rounded-full bg-white hover:bg-[#e6e6e6] active:bg-[#d4d4d4] text-[#121212] font-semibold text-[15px] flex items-center justify-center transition-colors disabled:opacity-50"
+              className={`h-12 w-full mt-4 rounded-full ${
+                isLight 
+                  ? 'bg-[#0b57d0] hover:bg-[#0842a0] active:bg-[#073888] text-white shadow-sm' 
+                  : 'bg-white hover:bg-[#e6e6e6] active:bg-[#d4d4d4] text-[#121212]'
+              } font-semibold text-[15px] flex items-center justify-center transition-colors disabled:opacity-50`}
             >
               {isLoading ? (
-                <Loader2 size={18} className="animate-spin text-[#121212]" />
+                <Loader2 size={18} className={`animate-spin ${isLight ? 'text-white' : 'text-[#121212]'}`} />
               ) : isSignUp ? (
                 'Sign up'
               ) : (
@@ -485,12 +529,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               )}
             </button>
 
-            <div className="mt-4 flex items-center justify-between text-[13px] text-[#9c9c9c] px-1">
+            <div className={`mt-4 flex items-center justify-between text-[13px] ${isLight ? 'text-[#444746]' : 'text-[#9c9c9c]'} px-1`}>
               {!isSignUp && (
                 <button
                   type="button"
                   onClick={handleForgotPassword}
-                  className="hover:text-white underline underline-offset-2 transition-colors"
+                  className={`${isLight ? 'hover:text-[#0b57d0]' : 'hover:text-white'} underline underline-offset-2 transition-colors`}
                 >
                   Forgot password?
                 </button>
@@ -503,7 +547,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setError('');
                   setSuccess('');
                 }}
-                className={`hover:text-white underline underline-offset-2 transition-colors ${isSignUp ? 'w-full text-center' : 'ml-auto'}`}
+                className={`${isLight ? 'hover:text-[#0b57d0]' : 'hover:text-white'} underline underline-offset-2 transition-colors ${isSignUp ? 'w-full text-center' : 'ml-auto'}`}
               >
                 {isSignUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
               </button>
@@ -512,7 +556,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {/* Footer Note */}
-        <div className="mt-6 text-center text-[11px] text-[#6b6b6b]">
+        <div className={`mt-6 text-center text-[11px] ${isLight ? 'text-[#747775]' : 'text-[#6b6b6b]'}`}>
           Willow Studio &bull; Protected by Willow Workspace Auth
         </div>
       </div>

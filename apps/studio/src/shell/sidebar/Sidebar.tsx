@@ -13,12 +13,14 @@ import {
   Terminal,
   Palette,
   Github,
+  Heart,
 } from 'lucide-react';
 import { DiscordIcon } from './SidebarIcons';
 import logo from '@willow/assets/brand/logo.png';
 import './Sidebar.css';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { useThemeMode, setThemeChoice, type ThemeChoice as GeminiThemeChoice } from '@willow/core/theme-mode';
 import { experimentsStore, type ExperimentId } from '@willow/core/experiments-store';
 import { locationStore, requestUserLocation } from '@willow/core/location-store';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
@@ -199,8 +201,8 @@ const GeminiSettingsItemIcon: React.FC<{ item: GeminiSettingsItem }> = ({ item }
  * The viewBox stays 5x10 against a 24x10 box, so the glyph letterboxes to its natural 5px
  * width and centres in the slot — exactly as it does in Gemini, same svg, same box.
  */
-const GeminiSubmenuArrow: React.FC = () => (
-  <svg aria-hidden="true" focusable="false" className="box-content block h-[10px] w-6 shrink-0 pl-3 fill-[#c4c7c5]" viewBox="0 0 5 10">
+const GeminiSubmenuArrow: React.FC<{ isLight?: boolean }> = ({ isLight = false }) => (
+  <svg aria-hidden="true" focusable="false" className={`box-content block h-[10px] w-6 shrink-0 pl-3 ${isLight ? 'fill-[#444746]' : 'fill-[#c4c7c5]'}`} viewBox="0 0 5 10">
     <polygon points="0,0 5,5 0,10" />
   </svg>
 );
@@ -236,7 +238,6 @@ const GeminiSubmenuArrow: React.FC = () => (
  * arithmetic closes exactly: content 208 = label 176 + icon 24 + margin 8 on the checked
  * row, and 208 = label alone on the other two.
  */
-type GeminiThemeChoice = 'system' | 'light' | 'dark';
 
 const GEMINI_THEME_STORAGE_KEY = 'willow_theme';
 
@@ -268,17 +269,20 @@ const GeminiThemeSubmenu: React.FC<{
   top: number;
   value: GeminiThemeChoice;
   activeColor: string;
+  isLight?: boolean;
   onSelect: (value: GeminiThemeChoice) => void;
   onSelectColor: (colorId: string) => void;
   onKeepOpen: () => void;
   onLeave: () => void;
-}> = ({ phase, top, value, activeColor, onSelect, onSelectColor, onKeepOpen, onLeave }) => (
+}> = ({ phase, top, value, activeColor, isLight = false, onSelect, onSelectColor, onKeepOpen, onLeave }) => (
   <div
     role="menu"
     aria-label="Theme"
     onMouseEnter={onKeepOpen}
     onMouseLeave={onLeave}
-    className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} pointer-events-auto absolute z-[101] w-[240px] rounded-[20px] bg-[#1f1f1f] p-2 text-[#e3e3e3] shadow-[0_0_20px_rgba(0,0,0,0.28)]`}
+    className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} pointer-events-auto absolute z-[101] w-[240px] rounded-[20px] ${
+      isLight ? 'bg-[#ffffff] text-[#1f1f1f] shadow-[0_0_20px_rgba(0,0,0,0.04)]' : 'bg-[#1f1f1f] text-[#e3e3e3] shadow-[0_0_20px_rgba(0,0,0,0.28)]'
+    } p-2`}
     style={{
       top,
       /*
@@ -298,7 +302,9 @@ const GeminiThemeSubmenu: React.FC<{
         role="menuitemradio"
         aria-checked={value === option.id}
         onClick={() => onSelect(option.id)}
-        className="flex h-9 w-full items-center rounded-xl px-2 text-left transition-colors hover:bg-[rgba(230,230,230,0.08)]"
+        className={`flex h-9 w-full items-center rounded-xl px-2 text-left transition-colors ${
+          isLight ? 'hover:bg-[rgba(0,0,0,0.06)]' : 'hover:bg-[rgba(230,230,230,0.08)]'
+        }`}
       >
         {/*
           * `.gem-menu-item-label`: 13/17/400 at `"wdth" 92`, and `flex: 1 1 0%` — the label
@@ -307,7 +313,9 @@ const GeminiThemeSubmenu: React.FC<{
           * difference IS the 24px glyph box plus its 8px margin.
           */}
         <span
-          className="min-w-0 flex-1 whitespace-nowrap text-[13px] leading-[17px] font-normal text-[#e6e6e6]"
+          className={`min-w-0 flex-1 whitespace-nowrap text-[13px] leading-[17px] font-normal ${
+            isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'
+          }`}
           style={{
             fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
             fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
@@ -323,7 +331,7 @@ const GeminiThemeSubmenu: React.FC<{
             weight={320}
             roundness={100}
             opticalSize={20}
-            className="mr-2 text-[#e6e6e6]"
+            className={`mr-2 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
             /* 20px glyph in a 24px box — MaterialSymbol ties the two together by default. */
             style={{ width: 24, height: 24, lineHeight: '24px' }}
           />
@@ -348,7 +356,7 @@ const GeminiThemeSubmenu: React.FC<{
             }`}
           >
             {isSelected && (
-              <span className="h-2.5 w-2.5 rounded-full bg-[#1f1f1f]" />
+              <span className={`h-2.5 w-2.5 rounded-full bg-[#1f1f1f] ${isLight ? '!bg-[#ffffff]' : ''}`} />
             )}
           </button>
         );
@@ -431,11 +439,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   const [themePhase, setThemePhase] = useState<'closed' | 'open' | 'closing'>('closed');
   const [themeTop, setThemeTop] = useState(0);
   const themeCloseTimer = useRef<number | null>(null);
-  const [theme, setTheme] = useState<GeminiThemeChoice>(() => {
-    if (typeof window === 'undefined') return 'dark';
-    const stored = window.localStorage.getItem(GEMINI_THEME_STORAGE_KEY);
-    return stored === 'system' || stored === 'light' || stored === 'dark' ? stored : 'dark';
-  });
+  const { themeChoice, isLight, setThemeChoice } = useThemeMode();
 
   const [activeColor, setActiveColor] = useState<string>(() => {
     return userProfile?.workspaceColor || 'green';
@@ -497,7 +501,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   };
 
   const handleThemeSelect = (next: GeminiThemeChoice) => {
-    setTheme(next);
+    setThemeChoice(next);
     try {
       window.localStorage.setItem(GEMINI_THEME_STORAGE_KEY, next);
     } catch {
@@ -585,7 +589,9 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
             setThemeTop(themeRowRef.current.offsetTop - e.currentTarget.scrollTop - 8);
           }
         }}
-        className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} pointer-events-auto relative w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]`}
+        className={`${phase === 'closing' ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'} pointer-events-auto relative w-[300px] max-h-[calc(100vh-16px)] overflow-y-auto rounded-[20px] ${
+          isLight ? 'bg-[#ffffff] text-[#1f1f1f] shadow-[0_0_20px_rgba(0,0,0,0.04)] border border-black/5' : 'bg-[#1f1f1f] text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]'
+        } p-2`}
         style={{
           // Measured `0px <height>` on Gemini's pane: bottom-left, matching its upward growth.
           transformOrigin: '0 100%',
@@ -622,11 +628,13 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
             if (item.submenu === 'theme') openThemeSubmenu(event.currentTarget);
             else closeThemeSubmenu();
           }}
-          className="group/settings-item flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left font-['Google_Sans_Flex','Google_Sans_Text','Google_Sans',sans-serif] text-[13px] font-normal text-[#e6e6e6] transition-colors hover:bg-[rgba(230,230,230,0.08)]"
+          className={`group/settings-item flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left font-['Google_Sans_Flex','Google_Sans_Text','Google_Sans',sans-serif] text-[13px] font-normal transition-colors ${
+            isLight ? 'text-[#1f1f1f] hover:bg-[rgba(0,0,0,0.06)]' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'
+          }`}
         >
           <GeminiSettingsItemIcon item={item} />
           <span className="ml-2 min-w-0 flex-1 truncate">{item.label}</span>
-          {item.trailingArrow && <GeminiSubmenuArrow />}
+          {item.trailingArrow && <GeminiSubmenuArrow isLight={isLight} />}
         </button>
       ))}
       {/*
@@ -660,7 +668,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
       <div role="menuitem" className="flex h-[54px] items-center overflow-hidden rounded-xl p-2 text-[13px]">
         <span
           aria-hidden="true"
-          className="mr-3 inline-flex h-[9px] w-[9px] shrink-0 items-center justify-center text-[9px] leading-[9px] text-[#e6e6e6]"
+          className={`mr-3 inline-flex h-[9px] w-[9px] shrink-0 items-center justify-center text-[9px] leading-[9px] ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
           style={{
             fontFamily: "'Google Symbols', 'Material Symbols Rounded', sans-serif",
             fontVariationSettings: '"FILL" 1',
@@ -669,10 +677,10 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           circle
         </span>
         <span className="min-w-0 leading-[17px]">
-          <span className={`block truncate ${locationRow.known ? 'text-[#a8c7fa]' : 'text-[#e6e6e6]'}`}>
+          <span className={`block truncate ${locationRow.known ? (isLight ? 'text-[#0b57d0]' : 'text-[#a8c7fa]') : (isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]')}`}>
             {locationRow.title}
           </span>
-          <span className="block truncate text-[#e6e6e6]">{locationRow.detail}</span>
+          <span className={`block truncate ${isLight ? 'text-[#444746]' : 'text-[#e6e6e6]'}`}>{locationRow.detail}</span>
         </span>
       </div>
       <button
@@ -683,7 +691,9 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
         // Deliberately does not close the menu: the row above is what changes,
         // and dismissing it would hide the permission outcome the click asked for.
         onClick={() => { void requestUserLocation(); }}
-        className="flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left text-[13px] text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
+        className={`flex h-9 w-full items-center overflow-hidden rounded-xl px-2 text-left text-[13px] ${
+          isLight ? 'text-[#1f1f1f] hover:bg-[rgba(0,0,0,0.06)]' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'
+        } disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent`}
       >
         {/* Hidden, not absent: it reserves the 9px + 12px the row above spends on its dot. */}
         <span
@@ -705,8 +715,9 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
         <GeminiThemeSubmenu
           phase={themePhase}
           top={themeTop}
-          value={theme}
+          value={themeChoice}
           activeColor={activeColor}
+          isLight={isLight}
           onSelect={handleThemeSelect}
           onSelectColor={handleColorSelect}
           onKeepOpen={keepThemeOpen}
@@ -717,7 +728,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'connected-apps' | 'customize' | 'models-api' | 'labs' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook' | 'usage' | 'gemini-spark';
+export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'import-memory' | 'connected-apps' | 'customize' | 'models-api' | 'labs' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook' | 'usage' | 'gemini-spark' | 'waifu';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -725,7 +736,9 @@ const SparkSidebarItem: React.FC<{
   isCollapsed: boolean;
   active?: boolean;
   onClick?: () => void;
-}> = ({ label, symbol, isCollapsed, active = false, onClick }) => (
+}> = ({ label, symbol, isCollapsed, active = false, onClick }) => {
+  const { isLight } = useThemeMode();
+  return (
   <div className="px-1.5">
     <button
       type="button"
@@ -740,25 +753,13 @@ const SparkSidebarItem: React.FC<{
        */
       title={isCollapsed ? label : undefined}
       data-tooltip-position="right"
-      /*
-       * Collapsed, this must become a 32x32 CIRCLE, exactly as <SidebarItem>
-       * does — `ml-1` inside the wrapper's 6px inset puts it at x=10 with the
-       * glyph at x=16, which is where Gemini's `gem-nav-list-item-icon-button`
-       * sits in its own 52px rail (measured 32x32 @ 10,100, icon @ 16,106).
-       *
-       * It was `w-full` in both states. At rail width that is a 40x32 box, and
-       * `rounded-full` on a non-square box gives an ELLIPSE — which is why the
-       * Spark rows looked wrong collapsed while the Chat rows looked right.
-       *
-       * The expanded padding and gap must be `1.5`, matching <SidebarItem>, and
-       * not the `px-2 gap-2` they were. Those two extra pixels put the expanded
-       * glyph at x=18 against the collapsed one's x=16, so every Spark icon
-       * slid sideways on collapse while the Chat icons held still. It also had
-       * the labels starting at x=50; Gemini's, and Willow's Chat rows, are 46.
-       */
-      className={`group/spark-item relative flex h-8 items-center rounded-full text-[#e6e6e6] outline-none transition-colors duration-150 hover:bg-[rgba(230,230,230,0.08)] focus-visible:ring-2 focus-visible:ring-white/25 ${
+      className={`group/spark-item relative flex h-8 items-center rounded-full outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white/25 ${
+        isLight
+          ? `text-[#000000] hover:bg-black/[0.05] ${active ? 'bg-[#f2f0f0]' : ''}`
+          : `text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] ${active ? 'bg-[#171717]' : ''}`
+      } ${
         isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5' : 'w-full gap-1.5 px-1.5'
-      } ${active ? 'bg-[#171717]' : ''}`}
+      }`}
     >
       <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0`}>
         <MaterialSymbol
@@ -771,15 +772,18 @@ const SparkSidebarItem: React.FC<{
         />
       </div>
       {!isCollapsed && (
-        /* Same deliberate deviation as <SidebarItem>: Gemini keeps the active label at
-         * weight 400 / #e6e6e6, but the weight bump was asked for back by name. */
-        <span className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'}`}>
+        <span className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] ${
+          active 
+            ? (isLight ? 'font-medium text-[#1f1f1f]' : 'font-medium text-white') 
+            : (isLight ? 'font-normal text-[#1f1f1f]' : 'font-normal text-[#e6e6e6]')
+        }`}>
           {label}
         </span>
       )}
     </button>
   </div>
-);
+  );
+};
 
 interface SidebarProps {
   onSearchClick?: () => void;
@@ -829,6 +833,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user, userProfile, loading: isAuthLoading } = useAuth();
+  const { isLight } = useThemeMode();
   const currentSparkLocation = useStore(sparkLocation);
   /*
    * True only on the render in which the rail opens or closes.
@@ -1529,16 +1534,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [userProfile?.workspaceColor]);
 
   // Gemini fades the expanded rail surface into the studio surface as it collapses.
-  const expandedSidebarBgClass = backgroundType === 'waves'
-    ? 'bg-[#1f1f1f]/90 backdrop-blur-xl'
-    : 'bg-[#1f1f1f]';
+  const expandedSidebarBgClass = isLight
+    ? (backgroundType === 'waves' ? 'bg-white/90 backdrop-blur-xl' : 'bg-white')
+    : (backgroundType === 'waves' ? 'bg-[#1f1f1f]/90 backdrop-blur-xl' : 'bg-[#1f1f1f]');
   const sidebarBgClass = isCollapsed
     ? 'bg-[var(--studio-surface)]'
     : expandedSidebarBgClass;
 
-  const expandedGlowGradient = backgroundType === 'waves'
-    ? 'linear-gradient(to bottom, rgba(31, 31, 31, 0.9) 15%, rgba(31, 31, 31, 0))'
-    : 'linear-gradient(to bottom, #1f1f1f 15%, rgba(31, 31, 31, 0))';
+  const expandedGlowGradient = isLight
+    ? (backgroundType === 'waves'
+        ? 'linear-gradient(to bottom, rgba(255, 255, 255, 0.9) 15%, rgba(255, 255, 255, 0))'
+        : 'linear-gradient(to bottom, #ffffff 15%, rgba(255, 255, 255, 0))')
+    : (backgroundType === 'waves'
+        ? 'linear-gradient(to bottom, rgba(31, 31, 31, 0.9) 15%, rgba(31, 31, 31, 0))'
+        : 'linear-gradient(to bottom, #1f1f1f 15%, rgba(31, 31, 31, 0))');
   const collapsedGlowGradient = 'linear-gradient(to bottom, var(--studio-surface) 15%, transparent)';
 
   return (
@@ -1627,7 +1636,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {isCollapsed && (
             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 transform scale-90 group-hover:scale-110 pointer-events-none">
               <span
-                className="luminous-symbols text-[24px] leading-none select-none text-[#e3e3e3]"
+                className={`luminous-symbols text-[24px] leading-none select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
                 style={{
                   fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
                   fontWeight: 300,
@@ -1642,7 +1651,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {!isCollapsed && (
           <span
-            className="willow-sidenav-text ml-1 mt-4 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[17px] leading-6 text-[#e6e6e6]"
+            className={`willow-sidenav-text ml-1 mt-4 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[17px] leading-6 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
             style={{
               fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
               fontWeight: 470
@@ -1658,10 +1667,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={onToggleCollapse}
               aria-label="Collapse sidebar"
               title="Collapse sidebar"
-              className="willow-sidenav-close-button flex h-10 w-10 items-center justify-center rounded-full text-[#e3e3e3] hover:bg-white/[0.08] transition-colors"
+              className={`willow-sidenav-close-button flex h-10 w-10 items-center justify-center rounded-full ${
+                isLight ? 'text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#e3e3e3] hover:bg-white/[0.08]'
+              } transition-colors`}
             >
               <span
-                className="luminous-symbols text-[24px] leading-none select-none text-[#e3e3e3]"
+                className={`luminous-symbols text-[24px] leading-none select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
                 style={{
                   fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
                   fontWeight: 300,
@@ -1679,7 +1690,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           compresses into the compact switch instead of swapping in place. */}
       <div className="relative mt-1 mb-[12px] h-8 w-full shrink-0 overflow-hidden px-1.5">
         <div
-          className={`relative flex h-8 w-full items-center rounded-full p-[2px] ${isCollapsed ? 'bg-transparent' : 'bg-[#171717]'}`}
+          className={`relative flex h-8 w-full items-center rounded-full p-[2px] ${
+            isCollapsed ? 'bg-transparent' : (isLight ? 'bg-[#f2f0f0]' : 'bg-[#171717]')
+          }`}
           style={{ transition: `background-color ${GEMINI_SIDEBAR_SURFACE_MOTION}` }}
         >
           {/*
@@ -1698,7 +1711,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             * its travel and settles, where the old one decelerated linearly into place.
             */}
           <div
-            className="absolute top-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-full bg-[#1f1f1f]"
+            className={`absolute top-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-full ${isLight ? 'bg-white shadow-sm' : 'bg-[#1f1f1f]'}`}
             style={{
               left: studioExperience === 'spark' ? '50%' : '2px',
               opacity: isCollapsed ? 0 : 1,
@@ -1736,8 +1749,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               tabIndex={isCollapsed ? -1 : 0}
               className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
                 studioExperience === 'chat'
-                  ? 'text-[#e3e3e3]'
-                  : 'text-white/55 hover:text-[#e3e3e3]'
+                  ? (isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]')
+                  : (isLight ? 'text-black/55 hover:text-[#1f1f1f]' : 'text-white/55 hover:text-[#e3e3e3]')
               }`}
             >
               Chat
@@ -1766,8 +1779,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                * rgba(0,0,0,0) and its colour never moved off rgb(227,227,227). */
               className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
                 studioExperience === 'spark'
-                  ? 'text-[#e3e3e3]'
-                  : 'text-white/55 hover:text-[#e3e3e3]'
+                  ? (isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]')
+                  : (isLight ? 'text-black/55 hover:text-[#1f1f1f]' : 'text-white/55 hover:text-[#e3e3e3]')
               }`}
             >
               {/*
@@ -1795,7 +1808,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  * carrying its own, so it dims with the tab instead of staying
                  * bright at 70% opacity as it used to.
                  */}
-                <span className="willow-beta-badge col-start-3 justify-self-start font-['Google_Sans_Code',monospace] text-[7px] font-medium uppercase leading-5">
+                <span className={`willow-beta-badge col-start-3 justify-self-start font-['Google_Sans_Code',monospace] text-[7px] font-medium uppercase leading-5 ${isLight ? 'text-black/55' : ''}`}>
                   beta
                 </span>
               </div>
@@ -1820,7 +1833,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
              * rest of the rail. See the expand button above for the evidence. */
             data-tooltip-position="right"
             tabIndex={isCollapsed ? 0 : -1}
-            className={`absolute left-1 top-0 flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-1 text-[#e6e6e6] hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${isCollapsed ? '' : 'pointer-events-none'}`}
+            className={`absolute left-1 top-0 flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-1 ${
+              isLight ? 'text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#e6e6e6] hover:bg-white/[0.08]'
+            } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${isCollapsed ? '' : 'pointer-events-none'}`}
             style={{
               opacity: isCollapsed ? 1 : 0,
               transform: isCollapsed ? 'scale(1)' : 'scale(0.72)',
@@ -1936,7 +1951,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
 
           {!isCollapsed && (
-            <div className="mx-3 mt-3 flex h-8 items-center px-1.5 text-[13px] font-normal leading-[17px] text-white/55">
+            <div className={`mx-3 mt-3 flex h-8 items-center px-1.5 text-[13px] font-normal leading-[17px] ${isLight ? 'text-black/55' : 'text-white/55'}`}>
               Customise
             </div>
           )}
@@ -2098,6 +2113,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               active={currentView === 'customize'}
               onClick={() => onViewChange('customize')}
             />
+            {experiments['waifu-tab'] && (
+              <SidebarItem
+                flushRight
+                icon={Heart}
+                label="Waifu"
+                isCollapsed={isCollapsed}
+                active={currentView === 'waifu'}
+                onClick={() => onViewChange('waifu')}
+              />
+            )}
           </div>
 
           {(user || isLocalFolderConnected) && (
@@ -2263,7 +2288,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           style={{
             opacity: isAtScrollEnd ? 0 : 1,
             transition: 'opacity 150ms linear',
-            background: `linear-gradient(to top, ${isCollapsed ? 'var(--studio-surface)' : '#1f1f1f'}, transparent)`,
+            background: `linear-gradient(to top, ${isCollapsed ? 'var(--studio-surface)' : (isLight ? '#ffffff' : '#1f1f1f')}, transparent)`,
           }}
         />
       </div>
@@ -2376,7 +2401,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  * ever exists, the numbers above are the measurement to build it from.
                  */}
                 {!isCollapsed && (
-                  <span className="willow-profile-reveal min-w-0 max-w-[180px] overflow-hidden truncate text-left text-[15px] font-normal leading-5 text-[#e6e6e6]">
+                  <span className={`willow-profile-reveal min-w-0 max-w-[180px] overflow-hidden truncate text-left text-[15px] font-normal leading-5 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}>
                     {userProfile?.displayName || user?.email || 'Account'}
                   </span>
                 )}
@@ -2386,10 +2411,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               onClick={onSignInClick ? onSignInClick : () => navigate('/login')}
-              className="flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left text-white/80"
+              className={`flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left ${isLight ? 'text-black/80' : 'text-white/80'}`}
               title="Sign In"
             >
-              <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border border-white/10"><LogIn size={18} /></span>
+              <span className={`flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border ${isLight ? 'border-black/10' : 'border-white/10'}`}><LogIn size={18} /></span>
               {!isCollapsed && (
                 <span className="min-w-0 max-w-[180px] overflow-hidden truncate text-[15px] font-normal leading-5">
                   Sign In
@@ -2427,11 +2452,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
              */
             data-tooltip-position="right"
             onClick={() => { setIsSettingsMenuOpen((open) => !open); setIsUserMenuOpen(false); }}
-            className="group/settings relative flex h-8 w-8 items-center justify-center text-[#e6e6e6]"
+            className={`group/settings relative flex h-8 w-8 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
           >
             <span
               aria-hidden="true"
-              className={`pointer-events-none absolute -inset-0.5 rounded-full bg-[rgb(196,199,197)] transition-opacity duration-150 group-hover/settings:opacity-[0.08] ${
+              className={`pointer-events-none absolute -inset-0.5 rounded-full ${isLight ? 'bg-black' : 'bg-[rgb(196,199,197)]'} transition-opacity duration-150 group-hover/settings:opacity-[0.08] ${
                 isSettingsMenuOpen ? 'opacity-[0.08]' : 'opacity-0'
               }`}
             />
@@ -2446,8 +2471,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             aria-label="Expand sidebar"
             className="absolute inset-y-0 right-0 w-1 cursor-pointer transition-colors hover:bg-white/5 group/tab"
           >
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 rounded-l-md border border-white/10 bg-[#1f1f1f] p-1 opacity-0 transition-opacity group-hover/tab:opacity-100">
-              <PanelLeft size={14} className="text-white" />
+            <div className={`absolute right-0 top-1/2 -translate-y-1/2 rounded-l-md border ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#1f1f1f]'} p-1 opacity-0 transition-opacity group-hover/tab:opacity-100`}>
+              <PanelLeft size={14} className={isLight ? 'text-black' : 'text-white'} />
             </div>
           </button>
         )}
@@ -2475,7 +2500,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
          * opening up — i.e. the corner nearest the trigger.
          */
         <div
-          className={`fixed z-[9999] box-border min-w-[150px] max-w-[280px] rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_0_20px_rgba(0,0,0,0.28)] ${
+          className={`fixed z-[9999] box-border min-w-[150px] max-w-[280px] rounded-[20px] ${
+            isLight
+              ? 'bg-[#ffffff] text-[#1f1f1f] shadow-[0_0_20px_rgba(0,0,0,0.04)] border border-black/5'
+              : 'bg-[#1f1f1f] text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]'
+          } p-2 ${
             menuPosition.isAbove ? 'origin-bottom-left' : 'origin-top-left'
           } ${isMenuClosing ? 'willow-mat-menu-exit' : 'willow-mat-menu-enter'}`}
           style={{
@@ -2492,10 +2521,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 triggerCloseMenu();
                 alert("Sharing conversation link: " + window.location.origin + "/chat/" + menuActiveChat);
               }}
-              className={GEMINI_MENU_ITEM_CLASS}
+              className={`${GEMINI_MENU_ITEM_CLASS} ${isLight ? '!text-[#1f1f1f] hover:!bg-[rgba(0,0,0,0.06)]' : ''}`}
             >
               <MaterialSymbol name="share_2" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} className="!w-6 shrink-0" />
-              <span className={GEMINI_MENU_LABEL_CLASS}>Share conversation</span>
+              <span className={`${GEMINI_MENU_LABEL_CLASS} ${isLight ? '!text-[#1f1f1f]' : ''}`}>Share conversation</span>
             </button>
             <button
               onClick={(e) => {
@@ -2503,7 +2532,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 togglePinChat(menuActiveChat);
                 triggerCloseMenu();
               }}
-              className={GEMINI_MENU_ITEM_CLASS}
+              className={`${GEMINI_MENU_ITEM_CLASS} ${isLight ? '!text-[#1f1f1f] hover:!bg-[rgba(0,0,0,0.06)]' : ''}`}
             >
               {/* Measured `data-mat-icon-name`: `push_pin` when the chat is
                   unpinned, `unpin` when it is pinned. The label flips with it. */}
@@ -2516,7 +2545,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 opticalSize={20}
                 className="!w-6 shrink-0"
               />
-              <span className={GEMINI_MENU_LABEL_CLASS}>{pinnedChats.includes(menuActiveChat) ? 'Unpin' : 'Pin'}</span>
+              <span className={`${GEMINI_MENU_LABEL_CLASS} ${isLight ? '!text-[#1f1f1f]' : ''}`}>{pinnedChats.includes(menuActiveChat) ? 'Unpin' : 'Pin'}</span>
             </button>
             <button
               onClick={(e) => {
@@ -2524,10 +2553,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 openRenameDialog(menuActiveChat);
                 triggerCloseMenu();
               }}
-              className={GEMINI_MENU_ITEM_CLASS}
+              className={`${GEMINI_MENU_ITEM_CLASS} ${isLight ? '!text-[#1f1f1f] hover:!bg-[rgba(0,0,0,0.06)]' : ''}`}
             >
               <MaterialSymbol name="edit" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} className="!w-6 shrink-0" />
-              <span className={GEMINI_MENU_LABEL_CLASS}>Rename</span>
+              <span className={`${GEMINI_MENU_LABEL_CLASS} ${isLight ? '!text-[#1f1f1f]' : ''}`}>Rename</span>
             </button>
             <button
               onClick={(e) => {
@@ -2538,10 +2567,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 // is mounted once below rather than once per surface.
                 emitChatActionIntent({ action: 'notebook', chatId: chatToFile });
               }}
-              className={GEMINI_MENU_ITEM_CLASS}
+              className={`${GEMINI_MENU_ITEM_CLASS} ${isLight ? '!text-[#1f1f1f] hover:!bg-[rgba(0,0,0,0.06)]' : ''}`}
             >
               <MaterialSymbol name="notebook" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} className="!w-6 shrink-0" />
-              <span className={GEMINI_MENU_LABEL_CLASS}>Add to notebook</span>
+              <span className={`${GEMINI_MENU_LABEL_CLASS} ${isLight ? '!text-[#1f1f1f]' : ''}`}>Add to notebook</span>
             </button>
             <button
               onClick={(e) => {
@@ -2550,10 +2579,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 triggerCloseMenu();
                 handleDeleteChat(chatToDelete);
               }}
-              className={GEMINI_MENU_ITEM_CLASS}
+              className={`${GEMINI_MENU_ITEM_CLASS} ${isLight ? '!text-[#1f1f1f] hover:!bg-[rgba(0,0,0,0.06)]' : ''}`}
             >
               <MaterialSymbol name="delete" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} className="!w-6 shrink-0" />
-              <span className={GEMINI_MENU_LABEL_CLASS}>Delete</span>
+              <span className={`${GEMINI_MENU_LABEL_CLASS} ${isLight ? '!text-[#1f1f1f]' : ''}`}>Delete</span>
             </button>
           </div>
         </div>

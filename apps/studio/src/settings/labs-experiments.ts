@@ -65,6 +65,12 @@ export const LABS_EXPERIMENTS: readonly LabsExperimentRow[] = [
       + 'controls are not wired up yet.',
   },
   {
+    id: 'waifu-tab',
+    title: 'Waifu',
+    description:
+      'Shows the experimental Waifu tab in the sidebar under Customize.',
+  },
+  {
     id: 'darker-design-background',
     title: 'Darker Design Background',
     description:

@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { useThemeMode } from '@willow/core/theme-mode';
 
 /*
  * Spark's accent, from the workspace colour.
@@ -29,24 +30,37 @@ import { getWorkspaceTheme } from '@willow/core/workspace-theme';
  * Home, Schedules, Skills and Apps without the `wrapConnectedPage` shell — so
  * each page root declares these itself.
  */
-export const sparkAccentVars = (workspaceColor?: string | null): React.CSSProperties => {
+export const sparkAccentVars = (workspaceColor?: string | null, isLight?: boolean): React.CSSProperties => {
   const theme = getWorkspaceTheme(workspaceColor);
+  const resolvedIsLight = isLight ?? (
+    typeof document !== 'undefined'
+      ? document.documentElement.classList.contains('light-theme') || document.documentElement.getAttribute('data-theme') === 'light'
+      : false
+  );
+
+  const primaryBtnBg = resolvedIsLight ? (theme.id === 'blue' || !workspaceColor ? '#9dd2ff' : theme.sendButton.lightBg) : theme.sendButton.bg;
+  const primaryBtnHover = resolvedIsLight ? (theme.id === 'blue' || !workspaceColor ? '#8ec7f7' : theme.sendButton.lightHover) : theme.sendButton.hover;
+  const glowLight = theme.id === 'blue' || !workspaceColor ? 'rgb(157, 210, 255)' : theme.glowAccentLight;
+
   return {
-    '--spark-accent': theme.sendButton.bg,
-    '--spark-accent-hover': theme.sendButton.hover,
-    '--spark-accent-bright': theme.creamy.hex,
-    '--spark-task-detail-accent': theme.glowAccent,
+    '--spark-accent': primaryBtnBg,
+    '--spark-accent-hover': primaryBtnHover,
+    '--spark-accent-bright': resolvedIsLight ? '#000000' : theme.creamy.hex,
+    '--spark-task-detail-accent': resolvedIsLight ? glowLight : theme.glowAccent,
+    '--spark-home-glow': resolvedIsLight ? glowLight : theme.glowAccent,
     '--spark-notice-bg': theme.notice.bg,
     '--spark-notice-text': theme.notice.text,
     '--spark-toggle-track': theme.toggle.track,
     '--spark-toggle-thumb': theme.toggle.thumb,
-    '--spark-accent-btn-bg': theme.accentButton.bg,
-    '--spark-accent-btn-hover': theme.accentButton.hover,
+    '--spark-accent-btn-bg': primaryBtnBg,
+    '--spark-accent-btn-hover': primaryBtnHover,
+    '--spark-accent-btn-text': resolvedIsLight ? '#000000' : '#ffffff',
   } as React.CSSProperties;
 };
 
 /** `sparkAccentVars` for the signed-in user's workspace colour. */
 export const useSparkAccentVars = (): React.CSSProperties => {
   const { userProfile } = useAuth();
-  return sparkAccentVars(userProfile?.workspaceColor);
+  const { isLight } = useThemeMode();
+  return sparkAccentVars(userProfile?.workspaceColor, isLight);
 };

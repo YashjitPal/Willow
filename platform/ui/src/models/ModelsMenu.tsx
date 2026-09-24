@@ -24,6 +24,7 @@ import { createPortal } from 'react-dom';
 import { Plus, Search, Settings } from "lucide-react";
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { collectSavedModelsInCatalogOrder, isChatCapableModel } from '@willow/core/model-catalog';
+import { useThemeMode } from '@willow/core/theme-mode';
 import {
   chooseMenuSide,
   chooseSubmenuSide,
@@ -102,6 +103,7 @@ export const ModelsMenu: React.FC<{
     onSelect: () => void;
   }[];
 }> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, voiceModels, extraEfforts }) => {
+  const { isLight } = useThemeMode();
   const isVoiceRoster = !!voiceModels && voiceModels.length > 0;
 
   const providerLabels = {
@@ -554,7 +556,11 @@ export const ModelsMenu: React.FC<{
         ref={menuRef}
         role="menu"
         aria-label="Choose a model"
-        className={`${geminiStyle ? 'fixed' : 'absolute right-0'} w-[241px] bg-[#1f1f1f] rounded-[20px] p-2 z-[100] overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)] ${!isPositionReady ? 'invisible' : ''} ${geminiStyle ? (side === "top" ? "origin-bottom-right" : "origin-top-right") : (side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right")} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+        className={`${geminiStyle ? 'fixed' : 'absolute right-0'} w-[241px] ${
+          isLight
+            ? 'bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.06)]'
+            : 'bg-[#1f1f1f] shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)]'
+        } rounded-[20px] p-2 z-[100] overflow-visible ${!isPositionReady ? 'invisible' : ''} ${geminiStyle ? (side === "top" ? "origin-bottom-right" : "origin-top-right") : (side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right")} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
         style={{
           fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
           animationPlayState: isPositionReady ? undefined : 'paused',
@@ -566,7 +572,7 @@ export const ModelsMenu: React.FC<{
           style={{ willChange: 'transform', transform: 'translateZ(0)' }}
         >
           {groupedModels.length === 0 ? (
-            <div className="px-3 py-8 text-center text-[13px] text-white/55">
+            <div className={`px-3 py-8 text-center text-[13px] ${isLight ? 'text-black/55' : 'text-white/55'}`}>
               No models configured
             </div>
           ) : (
@@ -581,16 +587,20 @@ export const ModelsMenu: React.FC<{
                     onSelect(model.id);
                     handleClose();
                   }}
-                  className="w-full min-h-[52px] rounded-xl flex items-center text-left transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none"
+                  className={`w-full min-h-[52px] rounded-xl flex items-center text-left transition-colors ${
+                    isLight
+                      ? 'hover:bg-black/[0.06] focus-visible:bg-black/[0.06]'
+                      : 'hover:bg-[#333537] focus-visible:bg-[#333537]'
+                  } focus-visible:outline-none`}
                 >
-                  <span className="w-9 shrink-0 flex items-center justify-center text-[#e6e6e6]">
+                  <span className={`w-9 shrink-0 flex items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}>
                     {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
                   </span>
                   <span className="min-w-0 flex-1 pr-2 py-2 flex flex-col">
-                    <span className="truncate text-[13px] leading-[17px] font-normal text-[#e6e6e6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
+                    <span className={`truncate text-[13px] leading-[17px] font-normal ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'} font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}>
                       {formatModelDisplayName(model)}
                     </span>
-                    <span className="truncate text-[13px] leading-[17px] font-normal text-white/55 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
+                    <span className={`truncate text-[13px] leading-[17px] font-normal ${isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'} font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}>
                       {getModelDescription(model)}
                     </span>
                   </span>
@@ -602,7 +612,7 @@ export const ModelsMenu: React.FC<{
 
         {selectedEffort && (
           <>
-            <div className="h-px bg-[#444746] my-2" role="separator" />
+            <div className={`h-px ${isLight ? 'bg-black/10' : 'bg-[#444746]'} my-2`} role="separator" />
             <div 
               className="relative"
               onMouseEnter={() => {
@@ -618,12 +628,16 @@ export const ModelsMenu: React.FC<{
                 type="button"
                 role="menuitem"
                 aria-haspopup="menu"
-                className="flex h-[48px] w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+                className={`flex h-[48px] w-full items-center rounded-xl text-left text-[13px] ${
+                  isLight
+                    ? 'text-[#1f1f1f] hover:bg-black/[0.06] focus-visible:bg-black/[0.06]'
+                    : 'text-[#e6e6e6] hover:bg-[#333537] focus-visible:bg-[#333537]'
+                } transition-colors focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
               >
                 <span className="w-9 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
                   <span className="block leading-[17px]">Thinking Effort</span>
-                  <span className="block truncate text-[12px] leading-4 text-white/55">
+                  <span className={`block truncate text-[12px] leading-4 ${isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'}`}>
                     {getThinkingEffortLabel(selectedEffort)}
                   </span>
                 </span>
@@ -633,7 +647,7 @@ export const ModelsMenu: React.FC<{
                   size={24}
                   weight={400}
                   roundness={100}
-                  className="mr-2"
+                  className={`mr-2 ${isLight ? 'text-[#1f1f1f]' : ''}`}
                 />
               </button>
 
@@ -647,7 +661,11 @@ export const ModelsMenu: React.FC<{
                     ref={effortMenuRef}
                     role="menu"
                     aria-label="Thinking Effort"
-                    className={`pointer-events-auto max-h-[calc(100vh-32px)] w-[220px] overflow-y-auto rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_4px_18px_rgba(0,0,0,0.32)] gemini-chat-scrollbar ${!isEffortPositionReady ? 'invisible' : ''}`}
+                    className={`pointer-events-auto max-h-[calc(100vh-32px)] w-[220px] overflow-y-auto rounded-[20px] ${
+                      isLight
+                        ? 'bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.06)]'
+                        : 'bg-[#1f1f1f] shadow-[0_4px_18px_rgba(0,0,0,0.32)]'
+                    } p-2 gemini-chat-scrollbar ${!isEffortPositionReady ? 'invisible' : ''}`}
                   >
                     {selectedEfforts.map((model) => {
                       const isSelected =
@@ -663,9 +681,13 @@ export const ModelsMenu: React.FC<{
                             onSelect(model.id);
                             handleClose();
                           }}
-                          className="flex h-12 w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none"
+                          className={`flex h-12 w-full items-center rounded-xl text-left text-[13px] ${
+                            isLight
+                              ? 'text-[#1f1f1f] hover:bg-black/[0.06] focus-visible:bg-black/[0.06]'
+                              : 'text-[#e6e6e6] hover:bg-[#333537] focus-visible:bg-[#333537]'
+                          } transition-colors focus-visible:outline-none`}
                         >
-                          <span className="flex w-9 shrink-0 items-center justify-center">
+                          <span className={`flex w-9 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : ''}`}>
                             {isSelected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
                           </span>
                           <span className="truncate pr-3 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
@@ -685,15 +707,19 @@ export const ModelsMenu: React.FC<{
                           extra.onSelect();
                           handleClose();
                         }}
-                        className="flex h-12 w-full items-center rounded-xl text-left text-[13px] text-[#e6e6e6] transition-colors hover:bg-[#333537] focus-visible:bg-[#333537] focus-visible:outline-none"
+                        className={`flex h-12 w-full items-center rounded-xl text-left text-[13px] ${
+                          isLight
+                            ? 'text-[#1f1f1f] hover:bg-black/[0.06] focus-visible:bg-black/[0.06]'
+                            : 'text-[#e6e6e6] hover:bg-[#333537] focus-visible:bg-[#333537]'
+                        } transition-colors focus-visible:outline-none`}
                       >
-                        <span className="flex w-9 shrink-0 items-center justify-center">
+                        <span className={`flex w-9 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : ''}`}>
                           {extra.selected && <MaterialSymbol family="luminous" name="check" size={20} weight={320} roundness={100} opticalSize={20} />}
                         </span>
                         <span className="flex min-w-0 flex-1 items-center gap-2 pr-3 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]">
                           <span className="truncate">{extra.label}</span>
                           {extra.badge && (
-                            <span className="shrink-0 rounded bg-white/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-white/60">
+                            <span className={`shrink-0 rounded ${isLight ? 'bg-black/10 text-black/60' : 'bg-white/10 text-white/60'} px-1.5 py-px text-[10px] font-medium uppercase tracking-wide`}>
                               {extra.badge}
                             </span>
                           )}
@@ -720,31 +746,37 @@ export const ModelsMenu: React.FC<{
   return (
     <div
       ref={menuRef}
-      className={`absolute right-0 w-[240px] bg-[#1c1c1c] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden z-[100] ring-1 ring-black/50 ${!isPositionReady ? 'invisible' : ''} ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-right" : "top-[calc(100%+8px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+      className={`absolute right-0 w-[240px] rounded-xl flex flex-col overflow-hidden z-[100] ${
+        isLight
+          ? 'bg-white border border-black/10 shadow-2xl ring-0'
+          : 'bg-[#1c1c1c] border border-white/10 shadow-2xl ring-1 ring-black/50'
+      } ${!isPositionReady ? 'invisible' : ''} ${side === "top" ? "bottom-[calc(100%+8px)] origin-bottom-right" : "top-[calc(100%+8px)] origin-top-right"} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
       style={{ animationPlayState: isPositionReady ? undefined : 'paused' }}
     >
-      <div className="relative flex items-center px-4 py-3.5 border-b border-white/5 bg-[#1c1c1c]">
+      <div className={`relative flex items-center px-4 py-3.5 border-b ${isLight ? 'border-black/5 bg-white' : 'border-white/5 bg-[#1c1c1c]'}`}>
         <Search
-          className="text-zinc-500 shrink-0 mr-3"
+          className={`shrink-0 mr-3 ${isLight ? 'text-[#747775]' : 'text-zinc-500'}`}
           size={18}
           strokeWidth={2.5}
         />
         <input
           value={localSearchQuery}
           onChange={(e) => setLocalSearchQuery(e.target.value)}
-          className="bg-transparent text-white text-[14px] placeholder-zinc-500 outline-none flex-1 leading-none font-normal"
+          className={`bg-transparent text-[14px] outline-none flex-1 leading-none font-normal ${
+            isLight ? 'text-[#1f1f1f] placeholder-[#747775]' : 'text-white placeholder-zinc-500'
+          }`}
           placeholder="Search models..."
 
         />
       </div>
 
-      <div className="flex-1 overflow-y-auto max-h-[260px] p-2 pt-0 no-scrollbar bg-[#1c1c1c]">
-        <div className="px-2 pt-3.5 pb-2 text-[10.5px] font-bold text-zinc-500 uppercase tracking-widest">
+      <div className={`flex-1 overflow-y-auto max-h-[260px] p-2 pt-0 no-scrollbar ${isLight ? 'bg-white' : 'bg-[#1c1c1c]'}`}>
+        <div className={`px-2 pt-3.5 pb-2 text-[10.5px] font-bold uppercase tracking-widest ${isLight ? 'text-[#444746]' : 'text-zinc-500'}`}>
           AVAILABLE MODELS
         </div>
         <div className="space-y-0.5">
           {filteredModels.length === 0 ? (
-            <div className="px-3 py-8 text-center text-[12px] text-zinc-500">
+            <div className={`px-3 py-8 text-center text-[12px] ${isLight ? 'text-[#747775]' : 'text-zinc-500'}`}>
               {ALL_MODELS.length === 0 ? "No models configured. Add them in Settings." : "No matching models found."}
             </div>
           ) : (
@@ -761,13 +793,15 @@ export const ModelsMenu: React.FC<{
                     ${
                       isSelected
                         ? "bg-[#2563eb] text-white shadow-lg shadow-blue-500/10"
-                        : "text-zinc-300 hover:bg-white/5 hover:text-white"
+                        : isLight
+                          ? "text-[#1f1f1f] hover:bg-black/[0.06] hover:text-[#1f1f1f]"
+                          : "text-zinc-300 hover:bg-white/5 hover:text-white"
                     }`}
                 >
                   <span>{formatModelDisplayName(model)}</span>
                   <span
                     className={`text-[9px] font-bold uppercase tracking-wider opacity-60 ${
-                      isSelected ? "text-white" : "group-hover:text-zinc-400"
+                      isSelected ? "text-white" : isLight ? "group-hover:text-zinc-600 text-zinc-500" : "group-hover:text-zinc-400"
                     }`}
                   >
                     {model.provider}
@@ -779,18 +813,22 @@ export const ModelsMenu: React.FC<{
         </div>
       </div>
 
-      <div className="flex items-center h-[42px] border-t border-white/10 mt-0 bg-[#1c1c1c]">
+      <div className={`flex items-center h-[42px] border-t mt-0 ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#1c1c1c]'}`}>
         <button
           onClick={() => { onAuthRequired?.(); handleClose(); }}
-          className="flex-1 flex items-center justify-center gap-2 text-[13px] font-medium text-white/70 hover:text-white hover:bg-white/5 h-full"
+          className={`flex-1 flex items-center justify-center gap-2 text-[13px] font-medium h-full ${
+            isLight ? 'text-black/70 hover:text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-white/70 hover:text-white hover:bg-white/5'
+          }`}
         >
           <Plus size={14} strokeWidth={2.5} />
           <span>Add new</span>
         </button>
-        <div className="w-[1px] h-4 bg-white/10"></div>
+        <div className={`w-[1px] h-4 ${isLight ? 'bg-black/10' : 'bg-white/10'}`}></div>
         <button
           onClick={() => { onAuthRequired?.(); handleClose(); }}
-          className="w-[42px] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/5 h-full"
+          className={`w-[42px] flex items-center justify-center h-full ${
+            isLight ? 'text-black/60 hover:text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-white/60 hover:text-white hover:bg-white/5'
+          }`}
         >
           <Settings size={15} strokeWidth={2.2} />
         </button>

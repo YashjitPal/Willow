@@ -15,6 +15,7 @@ import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/e
 import { apiKeysForBinding, resolveProviderBinding } from '@willow/ai/providers/profiles';
 import type { ProviderId } from '@willow/ai/providers/endpoints';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { useThemeMode } from '@willow/core/theme-mode';
 import {
   createSparkTaskAttachments,
   deleteSparkAttachmentPayloads,
@@ -381,6 +382,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
 }) => {
   const isUltra = useStore(sparkUltraEngaged);
   const { user, userProfile } = useAuth();
+  const { isLight } = useThemeMode();
   const { chatScopeId, generateChatTitle, generateChatDescription } = useLocalFS();
   const { apiKeys } = useUserDataContext();
   const { connections, customApps, location, schedules, skills, tasks } = useStore(sparkState);
@@ -468,13 +470,16 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (anchor && sharedComposerHost.parentElement !== anchor) anchor.appendChild(sharedComposerHost);
   }, [sharedComposerHost]);
 
+  const workspaceTheme = getWorkspaceTheme(userProfile?.workspaceColor);
+  const glowLight = workspaceTheme.id === 'blue' || !userProfile?.workspaceColor
+    ? 'rgb(157, 210, 255)'
+    : workspaceTheme.glowAccentLight;
+  const resolvedGlow = isLight ? glowLight : workspaceTheme.glowAccent;
+
   const attachSharedGlow = useCallback(() => {
     const shell = workspaceShellRef.current;
     if (!shell || !sharedGlowHost) return;
-    sharedGlowHost.style.setProperty(
-      '--spark-task-detail-accent',
-      getWorkspaceTheme(userProfile?.workspaceColor).glowAccent,
-    );
+    sharedGlowHost.style.setProperty('--spark-task-detail-accent', resolvedGlow);
     const anchor = shell.querySelector<HTMLElement>('[data-spark-glow-anchor]');
     if (!anchor || sharedGlowHost.parentElement === anchor) return;
     anchor.appendChild(sharedGlowHost);
@@ -487,7 +492,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
      */
     if (glowRevealedRef.current) sharedGlowHost.classList.add('is-settled');
     else glowRevealedRef.current = true;
-  }, [sharedGlowHost, userProfile?.workspaceColor]);
+  }, [sharedGlowHost, resolvedGlow]);
+
+  useEffect(() => {
+    if (!sharedGlowHost) return;
+    sharedGlowHost.style.setProperty('--spark-task-detail-accent', resolvedGlow);
+  }, [sharedGlowHost, resolvedGlow]);
 
   useLayoutEffect(() => {
     attachSharedComposer();

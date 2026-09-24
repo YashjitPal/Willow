@@ -305,3 +305,20 @@
     max-width: none;
   }
 }
+
+/* Light Theme overrides matching Gemini 1:1 */
+:is(.light-theme, [data-theme="light"]) .labs-page-container,
+.light-theme .labs-page-container,
+[data-theme="light"] .labs-page-container {
+  --lp-surface: var(--studio-surface, #faf9f9);
+  --lp-surface-container: #f0f4f9;
+  --lp-on-surface: #1f1f1f;
+  --lp-on-surface-variant: #444746;
+  --lp-outline: #747775;
+  --lp-divider: #e3e3e3;
+
+  --lp-switch-off-track: #e3e3e3;
+  --lp-switch-off-outline: #747775;
+  --lp-switch-off-handle: #747775;
+}
+

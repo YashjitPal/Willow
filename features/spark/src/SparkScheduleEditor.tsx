@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import './SparkScheduleEditor.css';
 
@@ -513,7 +514,7 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
           </p>
         </section>
       </form>
-      {deleteOpen && onDelete && (
+      {deleteOpen && onDelete && typeof document !== 'undefined' && createPortal(
         <div
           className="spark-schedule-editor__dialog-backdrop"
           onMouseDown={(event) => {
@@ -528,9 +529,10 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
               <button type="button" className="is-danger" onClick={confirmDelete}>Delete</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-      {discardOpen && (
+      {discardOpen && typeof document !== 'undefined' && createPortal(
         <div
           className="spark-schedule-editor__dialog-backdrop"
           onMouseDown={(event) => {
@@ -557,7 +559,8 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </main>
   );

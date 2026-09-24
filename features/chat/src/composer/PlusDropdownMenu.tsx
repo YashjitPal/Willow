@@ -1,5 +1,6 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, createContext, useContext } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { TOOL_SYMBOLS, TOOL_TOOLTIPS, type ToolId } from './composer-options';
 import {
   CodexGoalIcon,
@@ -7,6 +8,9 @@ import {
   CodexPlanIcon,
   CodexSideChatIcon,
 } from './composer-icons';
+
+const PlusMenuThemeContext = createContext<{ isLight: boolean }>({ isLight: false });
+const usePlusMenuTheme = () => useContext(PlusMenuThemeContext);
 
 /**
  * Gemini's plus menu, transcribed rather than designed.
@@ -78,24 +82,27 @@ const Glyph: React.FC<{ name: string; family?: IconFamily; className?: string }>
   name,
   family = 'luminous',
   className = '',
-}) => (
-  <span className={`flex h-6 w-6 shrink-0 items-center justify-center ${className}`}>
-    <MaterialSymbol
-      name={name}
-      family={family}
-      size={20}
-      weight={family === 'luminous' ? 320 : 330}
-      variationSettings={
-        family === 'luminous'
-          ? '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320'
-          : name === 'more_horiz'
-            ? undefined
-            : '"wght" 330'
-      }
-      className="text-[#e6e6e6]"
-    />
-  </span>
-);
+}) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <span className={`flex h-6 w-6 shrink-0 items-center justify-center ${className}`}>
+      <MaterialSymbol
+        name={name}
+        family={family}
+        size={20}
+        weight={family === 'luminous' ? 320 : 330}
+        variationSettings={
+          family === 'luminous'
+            ? '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320'
+            : name === 'more_horiz'
+              ? undefined
+              : '"wght" 330'
+        }
+        className={isLight ? 'text-[#000000]' : 'text-[#e6e6e6]'}
+      />
+    </span>
+  );
+};
 
 /**
  * Gemini's Personal Intelligence icon, which is NOT a font ligature.
@@ -120,25 +127,28 @@ const Glyph: React.FC<{ name: string; family?: IconFamily; className?: string }>
 const PERSONAL_RECOMMENDATIONS_MASK =
   'url("https://fonts.gstatic.com/render/v1/Luminous+Symbols/28px/personal_recommendations.svg?var=opsz,wght@28,260")';
 
-const PersonalRecommendationsGlyph: React.FC = () => (
-  <span className="flex h-6 w-6 shrink-0 items-center justify-center">
-    <span
-      aria-hidden="true"
-      className="block h-5 w-5 shrink-0"
-      style={{
-        backgroundColor: ON_SURFACE,
-        maskImage: PERSONAL_RECOMMENDATIONS_MASK,
-        WebkitMaskImage: PERSONAL_RECOMMENDATIONS_MASK,
-        maskSize: 'contain',
-        WebkitMaskSize: 'contain',
-        maskRepeat: 'no-repeat',
-        WebkitMaskRepeat: 'no-repeat',
-        maskPosition: 'center',
-        WebkitMaskPosition: 'center',
-      }}
-    />
-  </span>
-);
+const PersonalRecommendationsGlyph: React.FC = () => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+      <span
+        aria-hidden="true"
+        className="block h-5 w-5 shrink-0"
+        style={{
+          backgroundColor: isLight ? '#000000' : ON_SURFACE,
+          maskImage: PERSONAL_RECOMMENDATIONS_MASK,
+          WebkitMaskImage: PERSONAL_RECOMMENDATIONS_MASK,
+          maskSize: 'contain',
+          WebkitMaskSize: 'contain',
+          maskRepeat: 'no-repeat',
+          WebkitMaskRepeat: 'no-repeat',
+          maskPosition: 'center',
+          WebkitMaskPosition: 'center',
+        }}
+      />
+    </span>
+  );
+};
 
 /**
  * One 36px row. `labelInset` is the label's distance from the row's left edge: 40 on the
@@ -182,40 +192,43 @@ const Row: React.FC<{
   onMouseEnter,
   ariaHasPopup,
   expanded,
-}) => (
-  <button
-    type="button"
-    role={ariaHasPopup ? undefined : 'menuitem'}
-    aria-haspopup={ariaHasPopup ? 'menu' : undefined}
-    aria-expanded={ariaHasPopup ? !!expanded : undefined}
-    title={tooltip}
-    onClick={onClick}
-    onMouseEnter={onMouseEnter}
-    data-tooltip-position="right"
-    className="group/row relative flex h-9 w-full items-center rounded-xl px-2 text-left"
-    style={selected ? { backgroundColor: '#171717' } : undefined}
-  >
-    {/* The hover state layer. Separate node so it can snap in with no transition, which
-        is what Gemini does — the row's own background stays the panel surface. */}
-    <span
-      aria-hidden="true"
-      className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
-      style={{ backgroundColor: HOVER_LAYER }}
-    />
-    {icon ?? (glyph ? <Glyph name={glyph} family={family} /> : null)}
-    <span
-      className={`relative ${LABEL_CLASS} whitespace-nowrap`}
-      style={{ ...LABEL_STYLE, marginLeft: labelInset - 32 }}
+}) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <button
+      type="button"
+      role={ariaHasPopup ? undefined : 'menuitem'}
+      aria-haspopup={ariaHasPopup ? 'menu' : undefined}
+      aria-expanded={ariaHasPopup ? !!expanded : undefined}
+      title={tooltip}
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      data-tooltip-position="right"
+      className="group/row relative flex h-9 w-full items-center rounded-xl px-2 text-left"
+      style={selected ? { backgroundColor: isLight ? '#f2f0f0' : '#171717' } : undefined}
     >
-      {label}
-    </span>
-    {trailingChevron && (
-      <span className="relative ml-auto">
-        <Glyph name="chevron_right" family="luminous" />
+      {/* The hover state layer. Separate node so it can snap in with no transition, which
+          is what Gemini does — the row's own background stays the panel surface. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
+        style={{ backgroundColor: isLight ? 'rgba(0, 0, 0, 0.08)' : HOVER_LAYER }}
+      />
+      {icon ?? (glyph ? <Glyph name={glyph} family={family} /> : null)}
+      <span
+        className={`relative ${LABEL_CLASS} ${isLight ? '!text-[#1f1f1f]' : ''} whitespace-nowrap`}
+        style={{ ...LABEL_STYLE, marginLeft: labelInset - 32 }}
+      >
+        {label}
       </span>
-    )}
-  </button>
-);
+      {trailingChevron && (
+        <span className="relative ml-auto">
+          <Glyph name="chevron_right" family="luminous" />
+        </span>
+      )}
+    </button>
+  );
+};
 
 /** The card every menu and submenu is drawn on. */
 const MenuCard: React.FC<{
@@ -225,33 +238,39 @@ const MenuCard: React.FC<{
   style?: React.CSSProperties;
   label: string;
   children: React.ReactNode;
-}> = ({ width, origin, className = '', style, label, children }) => (
-  <div
-    role="menu"
-    aria-label={label}
-    className={`willow-gem-menu-in overflow-auto ${className}`}
-    style={{
-      width,
-      backgroundColor: SURFACE,
-      borderRadius: 20,
-      padding: 8,
-      boxShadow: MENU_SHADOW,
-      transformOrigin: origin,
-      ...style,
-    }}
-  >
-    {children}
-  </div>
-);
+}> = ({ width, origin, className = '', style, label, children }) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <div
+      role="menu"
+      aria-label={label}
+      className={`willow-gem-menu-in overflow-auto ${className}`}
+      style={{
+        width,
+        backgroundColor: isLight ? '#ffffff' : SURFACE,
+        borderRadius: 20,
+        padding: 8,
+        boxShadow: isLight ? '0 0 20px rgba(0,0,0,0.04)' : MENU_SHADOW,
+        transformOrigin: origin,
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+};
 
 /** 0.8px at `--lumi-sys-color--on-surface-low`, inset 8px, `margin-block: 8px`. */
-const Divider: React.FC = () => (
-  <div
-    role="separator"
-    className="mx-2 my-2"
-    style={{ height: 0, borderTop: `0.8px solid ${DIVIDER}` }}
-  />
-);
+const Divider: React.FC = () => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <div
+      role="separator"
+      className="mx-2 my-2"
+      style={{ height: 0, borderTop: `0.8px solid ${isLight ? 'rgba(0, 0, 0, 0.08)' : DIVIDER}` }}
+    />
+  );
+};
 
 export const PlusDropdownMenu: React.FC<{
   isOpen: boolean;
@@ -295,6 +314,7 @@ export const PlusDropdownMenu: React.FC<{
   sparkMode = false,
   sparkToolsEnabled = false,
 }) => {
+  const { isLight } = useThemeMode();
   const [openSub, setOpenSub] = useState<null | 'uploads' | 'tools'>(null);
   // Vertical offset of whichever row opened the submenu, measured from the positioning
   // wrapper. The submenus render as SIBLINGS of the card rather than inside it — see the
@@ -480,117 +500,119 @@ export const PlusDropdownMenu: React.FC<{
   const SUB_LEFT = 249 - 8;
 
   return (
-    <div
-      ref={menuRef}
-      className={`absolute left-0 z-[100] ${side === 'top' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'}`}
-    >
-      <MenuCard
-        width={249}
-        origin={side === 'top' ? '0 100%' : '0 0'}
-        label="Upload and tools"
+    <PlusMenuThemeContext.Provider value={{ isLight }}>
+      <div
+        ref={menuRef}
+        className={`absolute left-0 z-[100] ${side === 'top' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'}`}
       >
-        <Row glyph="attach_file" label="Upload files" onClick={act(onFileSelect)} onMouseEnter={() => setOpenSub(null)} />
-        <Row glyph="drive" family="google-symbols" label="Add from Drive" onClick={act(onAddFromDrive)} onMouseEnter={() => setOpenSub(null)} />
+        <MenuCard
+          width={249}
+          origin={side === 'top' ? '0 100%' : '0 0'}
+          label="Upload and tools"
+        >
+          <Row glyph="attach_file" label="Upload files" onClick={act(onFileSelect)} onMouseEnter={() => setOpenSub(null)} />
+          <Row glyph="drive" family="google-symbols" label="Add from Drive" onClick={act(onAddFromDrive)} onMouseEnter={() => setOpenSub(null)} />
 
-        <div ref={uploadsRef} onMouseEnter={() => openWith('uploads')} onMouseLeave={closeSoon}>
-          <Row
-            glyph="more_horiz"
-            family="google-symbols"
-            label="More uploads"
-            trailingChevron
-            ariaHasPopup
-            expanded={openSub === 'uploads'}
-            onClick={() => openWith('uploads')}
-          />
-        </div>
+          <div ref={uploadsRef} onMouseEnter={() => openWith('uploads')} onMouseLeave={closeSoon}>
+            <Row
+              glyph="more_horiz"
+              family="google-symbols"
+              label="More uploads"
+              trailingChevron
+              ariaHasPopup
+              expanded={openSub === 'uploads'}
+              onClick={() => openWith('uploads')}
+            />
+          </div>
 
-        {!sparkMode && (
-          <>
-            <Divider />
+          {!sparkMode && (
+            <>
+              <Divider />
 
-            <Row glyph={TOOL_SYMBOLS.images} label="Create image" tooltip={TOOL_TOOLTIPS.images} labelInset={44} selected={selectedTool === 'images'} onClick={() => pickTool('images')} onMouseEnter={() => setOpenSub(null)} />
-            <Row glyph={TOOL_SYMBOLS.video} label="Create video" tooltip={TOOL_TOOLTIPS.video} labelInset={44} selected={selectedTool === 'video'} onClick={() => pickTool('video')} onMouseEnter={() => setOpenSub(null)} />
-            <Row glyph={TOOL_SYMBOLS.music} label="Create music" tooltip={TOOL_TOOLTIPS.music} labelInset={44} selected={selectedTool === 'music'} onClick={() => pickTool('music')} onMouseEnter={() => setOpenSub(null)} />
-            <Row glyph={TOOL_SYMBOLS.canvas} label="Canvas" tooltip={TOOL_TOOLTIPS.canvas} labelInset={44} selected={selectedTool === 'canvas'} onClick={() => pickTool('canvas')} onMouseEnter={() => setOpenSub(null)} />
+              <Row glyph={TOOL_SYMBOLS.images} label="Create image" tooltip={TOOL_TOOLTIPS.images} labelInset={44} selected={selectedTool === 'images'} onClick={() => pickTool('images')} onMouseEnter={() => setOpenSub(null)} />
+              <Row glyph={TOOL_SYMBOLS.video} label="Create video" tooltip={TOOL_TOOLTIPS.video} labelInset={44} selected={selectedTool === 'video'} onClick={() => pickTool('video')} onMouseEnter={() => setOpenSub(null)} />
+              <Row glyph={TOOL_SYMBOLS.music} label="Create music" tooltip={TOOL_TOOLTIPS.music} labelInset={44} selected={selectedTool === 'music'} onClick={() => pickTool('music')} onMouseEnter={() => setOpenSub(null)} />
+              <Row glyph={TOOL_SYMBOLS.canvas} label="Canvas" tooltip={TOOL_TOOLTIPS.canvas} labelInset={44} selected={selectedTool === 'canvas'} onClick={() => pickTool('canvas')} onMouseEnter={() => setOpenSub(null)} />
 
-            <div ref={toolsRef} onMouseEnter={() => openWith('tools')} onMouseLeave={closeSoon}>
-              <Row
-                glyph="more_horiz"
-                family="google-symbols"
-                label="More tools"
-                trailingChevron
-                ariaHasPopup
-                expanded={openSub === 'tools'}
-                onClick={() => openWith('tools')}
-              />
-            </div>
-          </>
-        )}
-        {sparkMode && sparkToolsEnabled && (
-          <>
-            <Divider />
-            <Row icon={<span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#e6e6e6]"><CodexPlanIcon size={18} strokeWidth={2} /></span>} label="Plan" labelInset={44} selected={selectedTool === 'plan'} onClick={() => pickTool('plan')} onMouseEnter={() => setOpenSub(null)} />
-            <Row icon={<span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#e6e6e6]"><CodexGoalIcon size={18} strokeWidth={2} /></span>} label="Goal" labelInset={44} selected={selectedTool === 'goal'} onClick={() => pickTool('goal')} onMouseEnter={() => setOpenSub(null)} />
-            <Row glyph={TOOL_SYMBOLS['computer-use']} family="google-symbols" label="Computer Use" labelInset={44} selected={selectedTool === 'computer-use'} onClick={() => pickTool('computer-use')} onMouseEnter={() => setOpenSub(null)} />
-            <Row icon={<span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#e6e6e6]"><CodexSideChatIcon size={18} strokeWidth={2} /></span>} label="Side chat" labelInset={44} onClick={onClose} onMouseEnter={() => setOpenSub(null)} />
-            <div ref={toolsRef} onMouseEnter={() => openWith('tools')} onMouseLeave={closeSoon}>
-              <Row
-                glyph="more_horiz"
-                family="google-symbols"
-                label="More tools"
-                trailingChevron
-                ariaHasPopup
-                expanded={openSub === 'tools'}
-                onClick={() => openWith('tools')}
-              />
-            </div>
-          </>
-        )}
-      </MenuCard>
-
-      {openSub === 'uploads' && (
-        <div ref={submenuRef} className={`absolute z-[110] ${!isSubPositionReady ? 'invisible' : ''}`} style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
-          <MenuCard width={220} origin="0 0" label="More upload options">
-            {sparkMode ? (
-              <>
-                <Row glyph="code" label="Code" onClick={act(onImportCode)} />
-                <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
-              </>
-            ) : (
-              <>
-                <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
-                <Row glyph="likeness_lumi_icon" label="Avatar" onClick={act(onAddAvatar)} />
-                <Row glyph="code" label="Import code" onClick={act(onImportCode)} />
-                <Row glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />
-              </>
-            )}
-          </MenuCard>
-        </div>
-      )}
-
-      {openSub === 'tools' && (
-        <div ref={submenuRef} className={`absolute z-[110] ${!isSubPositionReady ? 'invisible' : ''}`} style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
-          {sparkMode && sparkToolsEnabled ? (
-            <MenuCard width={253} origin="0 0" label="More tools">
-              <Row glyph={TOOL_SYMBOLS['create-skill']} family="google-symbols" label="Create skill" labelInset={44} selected={selectedTool === 'create-skill'} onClick={() => pickTool('create-skill')} />
-              <Row icon={<span className="flex h-6 w-6 shrink-0 items-center justify-center text-[#e6e6e6]"><CodexPetIcon size={18} strokeWidth={2} /></span>} label="Create pet" labelInset={44} selected={selectedTool === 'create-pet'} onClick={() => pickTool('create-pet')} />
-              <Row icon={<PersonalRecommendationsGlyph />} label="Personal Intelligence" labelInset={44} selected={selectedTool === 'personal-intelligence'} onClick={() => pickTool('personal-intelligence')} />
-            </MenuCard>
-          ) : (
-            <MenuCard width={253} origin="0 0" label="More tools">
-              <Row glyph={TOOL_SYMBOLS.research} label="Deep research" tooltip={TOOL_TOOLTIPS.research} labelInset={44} selected={selectedTool === 'research'} onClick={() => pickTool('research')} />
-              <Row glyph={TOOL_SYMBOLS.learn} label="Guided learning" tooltip={TOOL_TOOLTIPS.learn} labelInset={44} selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} />
-              {onTogglePersonalIntelligence && (
-                <PersonalIntelligenceRow
-                  checked={personalIntelligence}
-                  onChange={onTogglePersonalIntelligence}
+              <div ref={toolsRef} onMouseEnter={() => openWith('tools')} onMouseLeave={closeSoon}>
+                <Row
+                  glyph="more_horiz"
+                  family="google-symbols"
+                  label="More tools"
+                  trailingChevron
+                  ariaHasPopup
+                  expanded={openSub === 'tools'}
+                  onClick={() => openWith('tools')}
                 />
+              </div>
+            </>
+          )}
+          {sparkMode && sparkToolsEnabled && (
+            <>
+              <Divider />
+              <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexPlanIcon size={18} strokeWidth={2} /></span>} label="Plan" labelInset={44} selected={selectedTool === 'plan'} onClick={() => pickTool('plan')} onMouseEnter={() => setOpenSub(null)} />
+              <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexGoalIcon size={18} strokeWidth={2} /></span>} label="Goal" labelInset={44} selected={selectedTool === 'goal'} onClick={() => pickTool('goal')} onMouseEnter={() => setOpenSub(null)} />
+              <Row glyph={TOOL_SYMBOLS['computer-use']} family="google-symbols" label="Computer Use" labelInset={44} selected={selectedTool === 'computer-use'} onClick={() => pickTool('computer-use')} onMouseEnter={() => setOpenSub(null)} />
+              <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexSideChatIcon size={18} strokeWidth={2} /></span>} label="Side chat" labelInset={44} onClick={onClose} onMouseEnter={() => setOpenSub(null)} />
+              <div ref={toolsRef} onMouseEnter={() => openWith('tools')} onMouseLeave={closeSoon}>
+                <Row
+                  glyph="more_horiz"
+                  family="google-symbols"
+                  label="More tools"
+                  trailingChevron
+                  ariaHasPopup
+                  expanded={openSub === 'tools'}
+                  onClick={() => openWith('tools')}
+                />
+              </div>
+            </>
+          )}
+        </MenuCard>
+
+        {openSub === 'uploads' && (
+          <div ref={submenuRef} className={`absolute z-[110] ${!isSubPositionReady ? 'invisible' : ''}`} style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
+            <MenuCard width={220} origin="0 0" label="More upload options">
+              {sparkMode ? (
+                <>
+                  <Row glyph="code" label="Code" onClick={act(onImportCode)} />
+                  <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
+                </>
+              ) : (
+                <>
+                  <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
+                  <Row glyph="likeness_lumi_icon" label="Avatar" onClick={act(onAddAvatar)} />
+                  <Row glyph="code" label="Import code" onClick={act(onImportCode)} />
+                  <Row glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />
+                </>
               )}
             </MenuCard>
-          )}
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+
+        {openSub === 'tools' && (
+          <div ref={submenuRef} className={`absolute z-[110] ${!isSubPositionReady ? 'invisible' : ''}`} style={{ left: SUB_LEFT, top: subTop - 8 }} {...subProps}>
+            {sparkMode && sparkToolsEnabled ? (
+              <MenuCard width={253} origin="0 0" label="More tools">
+                <Row glyph={TOOL_SYMBOLS['create-skill']} family="google-symbols" label="Create skill" labelInset={44} selected={selectedTool === 'create-skill'} onClick={() => pickTool('create-skill')} />
+                <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexPetIcon size={18} strokeWidth={2} /></span>} label="Create pet" labelInset={44} selected={selectedTool === 'create-pet'} onClick={() => pickTool('create-pet')} />
+                <Row icon={<PersonalRecommendationsGlyph />} label="Personal Intelligence" labelInset={44} selected={selectedTool === 'personal-intelligence'} onClick={() => pickTool('personal-intelligence')} />
+              </MenuCard>
+            ) : (
+              <MenuCard width={253} origin="0 0" label="More tools">
+                <Row glyph={TOOL_SYMBOLS.research} label="Deep research" tooltip={TOOL_TOOLTIPS.research} labelInset={44} selected={selectedTool === 'research'} onClick={() => pickTool('research')} />
+                <Row glyph={TOOL_SYMBOLS.learn} label="Guided learning" tooltip={TOOL_TOOLTIPS.learn} labelInset={44} selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} />
+                {onTogglePersonalIntelligence && (
+                  <PersonalIntelligenceRow
+                    checked={personalIntelligence}
+                    onChange={onTogglePersonalIntelligence}
+                  />
+                )}
+              </MenuCard>
+            )}
+          </div>
+        )}
+      </div>
+    </PlusMenuThemeContext.Provider>
   );
 };
 
@@ -616,80 +638,86 @@ export const PlusDropdownMenu: React.FC<{
 const PersonalIntelligenceRow: React.FC<{
   checked: boolean;
   onChange: (next: boolean) => void;
-}> = ({ checked, onChange }) => (
-  <button
-    type="button"
-    role="menuitemcheckbox"
-    aria-checked={checked}
-    onClick={() => onChange(!checked)}
-    className="group/row relative flex h-12 w-full items-center rounded-xl px-2 text-left"
-  >
-    <span
-      aria-hidden="true"
-      className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
-      style={{ backgroundColor: HOVER_LAYER }}
-    />
-    <PersonalRecommendationsGlyph />
-    <span className="relative flex flex-col" style={{ marginLeft: 12 }}>
-      <span className={LABEL_CLASS} style={LABEL_STYLE}>Personal Intelligence</span>
+}> = ({ checked, onChange }) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="group/row relative flex h-12 w-full items-center rounded-xl px-2 text-left"
+    >
       <span
-        className="text-[13px] leading-[17px] font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
-        style={{ ...LABEL_STYLE, color: 'rgba(255,255,255,0.55)' }}
-      >
-        Labs
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
+        style={{ backgroundColor: isLight ? 'rgba(0, 0, 0, 0.08)' : HOVER_LAYER }}
+      />
+      <PersonalRecommendationsGlyph />
+      <span className="relative flex flex-col" style={{ marginLeft: 12 }}>
+        <span className={`${LABEL_CLASS} ${isLight ? '!text-[#1f1f1f]' : ''}`} style={LABEL_STYLE}>Personal Intelligence</span>
+        <span
+          className="text-[13px] leading-[17px] font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+          style={{ ...LABEL_STYLE, color: isLight ? 'rgba(0, 0, 0, 0.55)' : 'rgba(255, 255, 255, 0.55)' }}
+        >
+          Labs
+        </span>
       </span>
-    </span>
-    <span className="relative ml-auto" aria-hidden="true">
-      <GeminiSwitch checked={checked} />
-    </span>
-  </button>
-);
+      <span className="relative ml-auto" aria-hidden="true">
+        <GeminiSwitch checked={checked} />
+      </span>
+    </button>
+  );
+};
 
 /**
  * MDC's switch at Gemini's dark-theme tokens, drawn at `scale(0.75)` exactly as Gemini
  * does — intrinsic 52x32 renders as the measured 39x24.
  */
-const GeminiSwitch: React.FC<{ checked: boolean }> = ({ checked }) => (
-  <span
-    className="relative block"
-    style={{ width: 52, height: 32, transform: 'scale(0.75)', transformOrigin: 'center' }}
-  >
+const GeminiSwitch: React.FC<{ checked: boolean }> = ({ checked }) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
     <span
-      className="absolute inset-0 block"
-      style={{
-        borderRadius: 9999,
-        backgroundColor: checked ? 'var(--studio-toggle-track, #a8c7fa)' : '#444746',
-        transition: 'background-color 75ms cubic-bezier(0.4, 0, 0.2, 1)',
-      }}
-    />
-    <span
-      className="absolute flex items-center justify-center"
-      style={{
-        top: '50%',
-        left: 0,
-        width: checked ? 24 : 16,
-        height: checked ? 24 : 16,
-        marginLeft: checked ? 24 : 8,
-        borderRadius: 9999,
-        backgroundColor: checked ? 'var(--studio-toggle-thumb, #062e6f)' : '#8e918f',
-        transform: 'translateY(-50%)',
-        transition:
-          'width 75ms cubic-bezier(0.4, 0, 0.2, 1), height 75ms cubic-bezier(0.4, 0, 0.2, 1), margin-left 75ms cubic-bezier(0.4, 0, 0.2, 1), background-color 75ms cubic-bezier(0.4, 0, 0.2, 1)',
-      }}
+      className="relative block"
+      style={{ width: 52, height: 32, transform: 'scale(0.75)', transformOrigin: 'center' }}
     >
-      {/* The check, measured at 16px with fill #d3e3fd and its own 45ms opacity ramp. */}
-      <svg
-        viewBox="0 0 24 24"
-        width={16}
-        height={16}
+      <span
+        className="absolute inset-0 block"
         style={{
-          fill: 'var(--studio-notice-text, #d3e3fd)',
-          opacity: checked ? 1 : 0,
-          transition: 'opacity 45ms cubic-bezier(0, 0, 0.2, 1)',
+          borderRadius: 9999,
+          backgroundColor: checked ? 'var(--studio-toggle-track, #a8c7fa)' : (isLight ? '#e1e3e1' : '#444746'),
+          transition: 'background-color 75ms cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+      />
+      <span
+        className="absolute flex items-center justify-center"
+        style={{
+          top: '50%',
+          left: 0,
+          width: checked ? 24 : 16,
+          height: checked ? 24 : 16,
+          marginLeft: checked ? 24 : 8,
+          borderRadius: 9999,
+          backgroundColor: checked ? 'var(--studio-toggle-thumb, #062e6f)' : (isLight ? '#747775' : '#8e918f'),
+          transform: 'translateY(-50%)',
+          transition:
+            'width 75ms cubic-bezier(0.4, 0, 0.2, 1), height 75ms cubic-bezier(0.4, 0, 0.2, 1), margin-left 75ms cubic-bezier(0.4, 0, 0.2, 1), background-color 75ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        <path d="M19.69,5.23L8.96,15.96l-4.23-4.23L2.96,13.5l6,6L21.46,7L19.69,5.23z" />
-      </svg>
+        {/* The check, measured at 16px with fill #d3e3fd and its own 45ms opacity ramp. */}
+        <svg
+          viewBox="0 0 24 24"
+          width={16}
+          height={16}
+          style={{
+            fill: 'var(--studio-notice-text, #d3e3fd)',
+            opacity: checked ? 1 : 0,
+            transition: 'opacity 45ms cubic-bezier(0, 0, 0.2, 1)',
+          }}
+        >
+          <path d="M19.69,5.23L8.96,15.96l-4.23-4.23L2.96,13.5l6,6L21.46,7L19.69,5.23z" />
+        </svg>
+      </span>
     </span>
-  </span>
-);
+  );
+};

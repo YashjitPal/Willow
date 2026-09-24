@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { SourceCard, type SourceChipItem } from '@willow/ui/SourceChip';
 import { useInjectStyles } from '@willow/ui/streaming-markdown-styles';
+import { useThemeMode } from '@willow/core/theme-mode';
 
 type Reaction = 'like' | 'dislike' | null;
 
@@ -93,31 +94,38 @@ const CodeGlyph: React.FC<{ struck: boolean }> = ({ struck }) => (
 export const ShowCodeToggle: React.FC<{ open: boolean; onToggle: () => void }> = ({
   open,
   onToggle,
-}) => (
-  <div className="flex h-8 items-center justify-end">
-    <button
-      type="button"
-      onClick={onToggle}
-      // Same reason as the action row: this button sits inside the response's
-      // hover group, so letting a click focus it kept a non-latest turn's action
-      // buttons visible after the pointer left. Keyboard focus is unaffected.
-      onMouseDown={(event) => event.preventDefault()}
-      aria-expanded={open}
-      data-test-id="toggle-code-button"
-      className="flex h-8 items-center justify-center gap-[5px] rounded-full px-4 text-[#a8c7fa] transition-colors duration-150 hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-    >
-      <span
-        className="text-[15px] font-[370] leading-5 text-[#e3e3e3]"
-        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 370' }}
+}) => {
+  const { isLight } = useThemeMode();
+  return (
+    <div className="flex h-8 items-center justify-end">
+      <button
+        type="button"
+        onClick={onToggle}
+        // Same reason as the action row: this button sits inside the response's
+        // hover group, so letting a click focus it kept a non-latest turn's action
+        // buttons visible after the pointer left. Keyboard focus is unaffected.
+        onMouseDown={(event) => event.preventDefault()}
+        aria-expanded={open}
+        data-test-id="toggle-code-button"
+        className={`flex h-8 items-center justify-center gap-[5px] rounded-full px-4 ${
+          isLight
+            ? 'text-[#0b57d0] hover:bg-black/[0.08] focus-visible:ring-black/25'
+            : 'text-[#a8c7fa] hover:bg-white/[0.08] focus-visible:ring-white/25'
+        } transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2`}
       >
-        {open ? 'Hide code' : 'Show code'}
-      </span>
-      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[#a8c7fa]">
-        <CodeGlyph struck={open} />
-      </span>
-    </button>
-  </div>
-);
+        <span
+          className={`text-[15px] font-[370] leading-5 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
+          style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 370' }}
+        >
+          {open ? 'Hide code' : 'Show code'}
+        </span>
+        <span className={`flex h-4 w-4 shrink-0 items-center justify-center ${isLight ? 'text-[#0b57d0]' : 'text-[#a8c7fa]'}`}>
+          <CodeGlyph struck={open} />
+        </span>
+      </button>
+    </div>
+  );
+};
 
 export const ResponseActions: React.FC<ResponseActionsProps> = ({
   reaction,
@@ -134,10 +142,15 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
   onShowThinking,
   onShowSources,
 }) => {
+  const { isLight } = useThemeMode();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition>({ left: 0, bottom: 0 });
+
+  const actionButtonClass = isLight
+    ? 'flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-1 text-[#000000] transition-colors duration-150 hover:bg-black/[0.08] hover:text-[#000000] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25'
+    : ACTION_BUTTON;
 
   /*
    * Row order is Gemini's, measured from the open menu: "View sources" sits
@@ -218,13 +231,13 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
     return (
       <div className="flex h-8 items-center" aria-label="Response actions" style={rowStyle}>
         {canRedo && (
-          <button type="button" className={ACTION_BUTTON} onClick={onRedo} aria-label="Redo" title="Redo">
+          <button type="button" className={actionButtonClass} onClick={onRedo} aria-label="Redo" title="Redo">
             <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="refresh" />
           </button>
         )}
         <button
           type="button"
-          className={ACTION_BUTTON}
+          className={actionButtonClass}
           aria-label="Report legal issue"
           /*
            * The button's own label, as Gemini's action row shows it — not
@@ -254,7 +267,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
       >
         <button
           type="button"
-          className={`${ACTION_BUTTON} ${reaction === 'like' ? 'bg-white/[0.09] text-[#e3e3e3]' : ''}`}
+          className={`${actionButtonClass} ${reaction === 'like' ? (isLight ? 'bg-black/[0.08] text-[#000000]' : 'bg-white/[0.09] text-[#e3e3e3]') : ''}`}
           onClick={onLike}
           aria-label="Good response"
           title="Good response"
@@ -263,7 +276,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
         </button>
         <button
           type="button"
-          className={`${ACTION_BUTTON} ${reaction === 'dislike' ? 'bg-white/[0.09] text-[#e3e3e3]' : ''}`}
+          className={`${actionButtonClass} ${reaction === 'dislike' ? (isLight ? 'bg-black/[0.08] text-[#000000]' : 'bg-white/[0.09] text-[#e3e3e3]') : ''}`}
           onClick={onDislike}
           aria-label="Bad response"
           title="Bad response"
@@ -271,11 +284,11 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
           <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="thumb_down" fill={reaction === 'dislike'} />
         </button>
         {canRedo && (
-          <button type="button" className={ACTION_BUTTON} onClick={onRedo} aria-label="Redo" title="Redo">
+          <button type="button" className={actionButtonClass} onClick={onRedo} aria-label="Redo" title="Redo">
             <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="refresh" />
           </button>
         )}
-        <button type="button" className={ACTION_BUTTON} onClick={onCopy} aria-label="Copy" title="Copy">
+        <button type="button" className={actionButtonClass} onClick={onCopy} aria-label="Copy" title="Copy">
           {/* No tick. Measured before and after a copy in the live app, the
               glyph never changes — the snackbar is the whole feedback. */}
           <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="copy" />
@@ -283,7 +296,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
         <button
           ref={triggerRef}
           type="button"
-          className={`${ACTION_BUTTON} ${menuOpen ? 'bg-white/[0.09] text-[#e3e3e3]' : ''}`}
+          className={`${actionButtonClass} ${menuOpen ? (isLight ? 'bg-black/[0.08] text-[#000000]' : 'bg-white/[0.09] text-[#e3e3e3]') : ''}`}
           onClick={() => (menuOpen ? setMenuOpen(false) : openMenu())}
           aria-label="Show more options"
           aria-expanded={menuOpen}
@@ -303,7 +316,11 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.98, y: 3 }}
               transition={{ duration: 0.14, ease: [0.2, 0, 0, 1] }}
-              className="fixed z-[200] w-[208px] rounded-[20px] bg-[#1f1f1f] p-2 text-[#e6e6e6] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+              className={`fixed z-[200] w-[208px] rounded-[20px] ${
+                isLight
+                  ? 'bg-white shadow-[0_0_20px_rgba(0,0,0,0.04)] border border-black/10 text-[#1f1f1f]'
+                  : 'bg-[#1f1f1f] text-[#e6e6e6]'
+              } p-2 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
               style={{
                 ...menuPosition,
                 transformOrigin: menuPosition.bottom !== undefined ? 'left bottom' : 'left top',
@@ -327,10 +344,14 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
                      * every `title` in the app. `disabled` + `aria-disabled`
                      * already carry the unavailability, visually and to AT.
                      */
-                    className="flex h-9 w-full items-center gap-2 rounded-xl px-2 text-left text-[13px] font-normal leading-[17px] text-[#e6e6e6] transition-colors hover:bg-white/[0.08] focus-visible:bg-white/[0.08] focus-visible:outline-none disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    className={`flex h-9 w-full items-center gap-2 rounded-xl px-2 text-left text-[13px] font-normal leading-[17px] ${
+                      isLight
+                        ? 'text-[#1f1f1f] hover:bg-black/[0.06] focus-visible:bg-black/[0.06]'
+                        : 'text-[#e6e6e6] hover:bg-white/[0.08] focus-visible:bg-white/[0.08]'
+                    } transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:hover:bg-transparent`}
                     onClick={() => runMenuAction(action)}
                   >
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[#e3e3e3]">
+                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center ${isLight ? 'text-[#000000]' : 'text-[#e3e3e3]'}`}>
                       {symbol === 'route' ? (
                         <MaterialSymbol
                           family="google-symbols"
@@ -417,6 +438,7 @@ const ContextSidebar: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
 }> = ({ title, onClose, children }) => {
+  const { isLight } = useThemeMode();
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -446,11 +468,15 @@ const ContextSidebar: React.FC<{
           x: { duration: 0.3, ease: [0.2, 0, 0, 1] },
           opacity: { duration: 0.2, ease: [0.2, 0, 0, 1] },
         }}
-        className="absolute bottom-4 right-3 top-4 z-50 flex w-[400px] max-w-[calc(100%_-_32px)] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-[var(--studio-surface)] text-[#e3e3e3] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+        className={`absolute bottom-4 right-3 top-4 z-50 flex w-[400px] max-w-[calc(100%_-_32px)] flex-col overflow-hidden rounded-2xl border ${
+          isLight
+            ? 'border-black/10 bg-white text-[#1f1f1f] shadow-2xl'
+            : 'border-white/[0.12] bg-[var(--studio-surface)] text-[#e3e3e3]'
+        } font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
       >
         <header className="flex h-16 shrink-0 items-center justify-between py-3 pl-6 pr-3">
           <h2
-            className="text-[20px] font-[470] leading-6"
+            className={`text-[20px] font-[470] leading-6 ${isLight ? 'text-[#1f1f1f]' : ''}`}
             style={{ fontVariationSettings: '"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470' }}
           >
             {title}
@@ -458,7 +484,11 @@ const ContextSidebar: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 items-center justify-center rounded-full text-[#c4c7c5] transition-colors hover:bg-white/[0.08] hover:text-[#e3e3e3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+            className={`flex h-10 w-10 items-center justify-center rounded-full ${
+              isLight
+                ? 'text-[#444746] hover:bg-black/[0.06] hover:text-[#1f1f1f] focus-visible:ring-black/25'
+                : 'text-[#c4c7c5] hover:bg-white/[0.08] hover:text-[#e3e3e3] focus-visible:ring-white/25'
+            } transition-colors focus-visible:outline-none focus-visible:ring-2`}
             aria-label="Close sidebar"
             title="Close"
           >
@@ -526,6 +556,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
   isError = false,
   onClose,
 }) => {
+  const { isLight } = useThemeMode();
   const blocks = parseThoughtBlocks(thinkingText);
   const isProModel = /\bpro\b/i.test(modelLabel);
 
@@ -535,7 +566,9 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
           <div
             className="ml-[7px] flex flex-col gap-2 pl-[25px]"
             style={{
-              backgroundImage: 'radial-gradient(circle closest-side, #e6e6e6 100%, transparent 100%)',
+              backgroundImage: isLight
+                ? 'radial-gradient(circle closest-side, #747775 100%, transparent 100%)'
+                : 'radial-gradient(circle closest-side, #e6e6e6 100%, transparent 100%)',
               backgroundPosition: '0 0',
               backgroundRepeat: 'repeat-y',
               backgroundSize: '1px 4px',
@@ -548,14 +581,14 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
               >
                 {block.title && (
                   <h3
-                    className="text-[15px] font-normal leading-5 text-[#e6e6e6]"
+                    className={`text-[15px] font-normal leading-5 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
                     style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 540' }}
                   >
                     {block.title}
                   </h3>
                 )}
                 <p
-                  className="whitespace-pre-wrap text-[15px] font-normal leading-5 text-white/55"
+                  className={`whitespace-pre-wrap text-[15px] font-normal leading-5 ${isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'}`}
                   style={{
                     fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
                     overflowWrap: 'anywhere',
@@ -568,11 +601,11 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
           </div>
 
           <div
-            className="flex flex-col gap-4 text-[15px] leading-5"
+            className={`flex flex-col gap-4 text-[15px] leading-5 ${isLight ? 'text-[#1f1f1f]' : ''}`}
             style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
           >
             <div className="flex items-center gap-5">
-              <span className="flex h-5 w-5 items-center justify-center text-[#e3e3e3]">
+              <span className={`flex h-5 w-5 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}>
                 <MaterialSymbol
                   family="google-symbols"
                   name={isError ? 'close' : 'check'}
@@ -586,7 +619,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
               <span>{isError ? 'Error' : 'Done'}</span>
             </div>
             <div className="flex items-center gap-5">
-              <span className="flex h-5 w-5 items-center justify-center text-[#e3e3e3]">
+              <span className={`flex h-5 w-5 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}>
                 {isProModel ? (
                   <MaterialSymbol
                     name="auto_awesome"

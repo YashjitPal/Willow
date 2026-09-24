@@ -69,6 +69,7 @@ import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-lo
 import { showCopyToast } from '@willow/ui/copy-toast-store';
 import { ChatAttachment, toPersistedChatAttachment } from '@willow/core/attachments';
 import { deriveFallbackTitle, FALLBACK_CHAT_TITLE } from '@willow/core/fallback-title';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, sanitizeSavedCanvasRefs, sanitizeSavedCitations, sanitizeSavedCodeExecutions, serializeChatMessage } from './chat-message';
 import {
   attachChatTurnListener,
@@ -315,6 +316,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onNewChat,
   workspaceColor,
 }) => {
+  const { isLight } = useThemeMode();
   const { loading: isAuthResolving } = useAuth();
   const { apiKeys, loading: areKeysLoading } = useUserDataContext();
   const {
@@ -3750,10 +3752,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           ))}
                         </div>
                       )}
-                      <div className="relative ml-4 mr-2 rounded-[40px] px-7 py-5">
+                      <div className={`relative ml-4 mr-2 rounded-[40px] px-7 py-5 ${isLight ? 'bg-[#f2f0f0]' : ''}`}>
                         <div
                           aria-hidden="true"
-                          className="pointer-events-none absolute inset-0 rounded-[40px] border-[0.8px] border-[#1f3b9b]"
+                          className={`pointer-events-none absolute inset-0 rounded-[40px] border-[0.8px] ${
+                            isLight ? 'border-[#0b57d0]' : 'border-[#1f3b9b]'
+                          }`}
                         />
                         <textarea
                           ref={editTextareaRef}
@@ -3763,7 +3767,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           rows={1}
                           maxLength={1000000}
                           enterKeyHint="send"
-                          className="relative z-10 block min-h-6 max-h-72 w-full resize-none overflow-y-auto bg-transparent p-0 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] text-[17px] font-normal leading-6 text-[#e6e6e6] outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                          className={`relative z-10 block min-h-6 max-h-72 w-full resize-none overflow-y-auto bg-transparent p-0 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] text-[17px] font-normal leading-6 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                            isLight ? 'text-[#1f1f1f] caret-[#0b57d0]' : 'text-[#e6e6e6] caret-[#e6e6e6]'
+                          }`}
                           style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
                           aria-label="Edit prompt"
                         />
@@ -3772,14 +3778,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         <button
                           type="button"
                           onClick={cancelEditing}
-                          className="relative mx-1 flex h-12 min-w-[72px] items-center justify-center overflow-hidden rounded-full px-4 text-[14px] font-medium text-[#e6e6e6] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e6e6e6] before:opacity-0 before:transition-opacity hover:before:opacity-[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                          className={`relative mx-1 flex h-12 min-w-[72px] items-center justify-center overflow-hidden rounded-full px-4 text-[14px] font-medium ${
+                            isLight
+                              ? 'text-[#1f1f1f] hover:bg-black/5 before:bg-black focus-visible:ring-black/25'
+                              : 'text-[#e6e6e6] before:bg-[#e6e6e6] focus-visible:ring-white/25'
+                          } before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:opacity-0 before:transition-opacity hover:before:opacity-[0.08] focus-visible:outline-none focus-visible:ring-2`}
                         >
                           <span className="relative z-10">Cancel</span>
                         </button>
                         <button
                           type="submit"
                           disabled={!editDraft.trim() || editDraft === msg.content || isGenerating}
-                          className="relative ml-1 flex h-12 items-center justify-center overflow-hidden rounded-full bg-[#1f3b9b] px-4 text-[14px] font-medium text-[#e6e6e6] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e6e6e6] before:opacity-0 before:transition-opacity hover:before:opacity-[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 disabled:cursor-default disabled:bg-[rgba(230,230,230,0.12)] disabled:text-[rgba(230,230,230,0.38)] disabled:before:opacity-0"
+                          className={`relative ml-1 flex h-12 items-center justify-center overflow-hidden rounded-full px-4 text-[14px] font-medium ${
+                            isLight
+                              ? 'bg-[#0b57d0] text-white hover:bg-[#0842a0] before:bg-white focus-visible:ring-black/25 disabled:bg-[rgba(31,31,31,0.12)] disabled:text-[rgba(31,31,31,0.38)]'
+                              : 'bg-[#1f3b9b] text-[#e6e6e6] before:bg-[#e6e6e6] focus-visible:ring-white/25 disabled:bg-[rgba(230,230,230,0.12)] disabled:text-[rgba(230,230,230,0.38)]'
+                          } before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:opacity-0 before:transition-opacity hover:before:opacity-[0.08] focus-visible:outline-none focus-visible:ring-2 disabled:cursor-default disabled:before:opacity-0`}
                         >
                           <span className="relative z-10">Update</span>
                         </button>
@@ -3839,7 +3853,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             <button
                               type="button"
                               onClick={() => handleCopyPrompt(msg)}
-                              className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[rgba(31,31,31,0.34)] text-[#e6e6e6] backdrop-blur-[14px] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e0e0e0] before:opacity-0 before:transition-opacity hover:before:opacity-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                              className={`relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full ${
+                                isLight
+                                  ? 'bg-white/80 text-[#1f1f1f] shadow-sm border border-black/5 hover:bg-white focus-visible:ring-black/25'
+                                  : 'bg-[rgba(31,31,31,0.34)] text-[#e6e6e6] focus-visible:ring-white/25'
+                              } backdrop-blur-[14px] before:pointer-events-none before:absolute before:inset-0 before:rounded-full ${
+                                isLight ? 'before:bg-[#000000]' : 'before:bg-[#e0e0e0]'
+                              } before:opacity-0 before:transition-opacity hover:before:opacity-10 focus-visible:outline-none focus-visible:ring-2`}
                               aria-label="Copy prompt"
                               title="Copy prompt"
                             >
@@ -3857,7 +3877,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => startEditing(msg)}
-                                className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[rgba(31,31,31,0.34)] text-[#e6e6e6] backdrop-blur-[14px] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-[#e0e0e0] before:opacity-0 before:transition-opacity hover:before:opacity-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                                className={`relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full ${
+                                  isLight
+                                    ? 'bg-white/80 text-[#1f1f1f] shadow-sm border border-black/5 hover:bg-white focus-visible:ring-black/25'
+                                    : 'bg-[rgba(31,31,31,0.34)] text-[#e6e6e6] focus-visible:ring-white/25'
+                                } backdrop-blur-[14px] before:pointer-events-none before:absolute before:inset-0 before:rounded-full ${
+                                  isLight ? 'before:bg-[#000000]' : 'before:bg-[#e0e0e0]'
+                                } before:opacity-0 before:transition-opacity hover:before:opacity-10 focus-visible:outline-none focus-visible:ring-2`}
                                 aria-label="Edit"
                                 title="Edit"
                               >
@@ -4441,7 +4467,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <div
             className="pointer-events-none absolute bottom-full left-0 right-0 h-[28px] w-full"
             style={{
-              background: 'linear-gradient(to bottom, transparent 0px, rgba(15,15,15, 0.5) 50%, rgba(15,15,15, 0.85) 75%, rgba(15,15,15, 0.99) 95%, rgba(15,15,15, 1) 100%)',
+              background: isLight
+                ? 'linear-gradient(to bottom, transparent 0px, rgba(250,249,249, 0.5) 50%, rgba(250,249,249, 0.85) 75%, rgba(250,249,249, 0.99) 95%, rgba(250,249,249, 1) 100%)'
+                : 'linear-gradient(to bottom, transparent 0px, rgba(15,15,15, 0.5) 50%, rgba(15,15,15, 0.85) 75%, rgba(15,15,15, 0.99) 95%, rgba(15,15,15, 1) 100%)',
             }}
           />
         )}
@@ -4497,7 +4525,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             recent-chats list underneath stay clickable through the gap. */}
         <div
           className={isThreadDocked
-            ? 'w-full flex justify-center px-4 pb-[49px] pointer-events-auto bg-[#0f0f0f]'
+            ? `w-full flex justify-center px-4 pb-[49px] pointer-events-auto ${isLight ? 'bg-[#faf9f9]' : 'bg-[#0f0f0f]'}`
             : 'absolute inset-0 flex items-center justify-center px-4 pointer-events-none'}
         >
           <motion.div

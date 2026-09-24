@@ -537,3 +537,142 @@
 .saved-info-container .delete-all-memories-button .mat-icon {
   color: #a8c7fa !important;
 }
+
+/* Light Theme overrides matching Gemini 1:1 */
+:is(.light-theme, [data-theme="light"]) .saved-info-container,
+.light-theme .saved-info-container,
+[data-theme="light"] .saved-info-container {
+  background-color: var(--studio-surface, #faf9f9);
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .page-title h2 {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .intro-text {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .intro-text a {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .create-memory-button {
+  background-color: #0b57d0;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .create-memory-button:hover {
+  background-color: #0842a0;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .create-memory-button .mat-icon {
+  color: #ffffff !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .delete-all-memories-button {
+  border-color: #747775;
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .delete-all-memories-button:hover {
+  background-color: rgba(11, 87, 208, 0.08);
+  border-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .delete-all-memories-button .mat-icon {
+  color: #0b57d0 !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .memory {
+  background-color: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .memory:hover {
+  background-color: #e5ebf3;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .memory-text {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .memory-actions-button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .memory-actions-button:hover {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mdc-switch__track {
+  background-color: #e3e3e3;
+  border: 2px solid #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mdc-switch__handle {
+  background-color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mdc-switch--selected .mdc-switch__track {
+  background-color: var(--studio-toggle-track, #0b57d0);
+  border-color: var(--studio-toggle-track, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mdc-switch--selected .mdc-switch__handle {
+  background-color: var(--studio-toggle-thumb, #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mdc-switch--selected .mdc-switch__icon--on {
+  fill: var(--studio-toggle-icon, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-container {
+  background-color: #ffffff;
+  color: #1f1f1f;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .edit-memory-field-wrapper {
+  background-color: #ffffff;
+  border: 1px solid #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .edit-memory-field-wrapper:focus-within {
+  border: 2px solid #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .edit-memory-input {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .edit-memory-input::placeholder {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.cancel-btn {
+  color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.cancel-btn:hover {
+  background-color: rgba(11, 87, 208, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.submit-btn {
+  background-color: #0b57d0;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.submit-btn:hover {
+  background-color: #0842a0;
+}
+
+:is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.submit-btn:disabled {
+  background-color: rgba(31, 31, 31, 0.12) !important;
+  color: rgba(31, 31, 31, 0.38) !important;
+}
+
