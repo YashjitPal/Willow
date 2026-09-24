@@ -77,6 +77,12 @@ export const LABS_EXPERIMENTS: readonly LabsExperimentRow[] = [
       'Applies a darker pitch-black background to the Design tab instead of the default dark gray.',
   },
   {
+    id: 'ring',
+    title: 'Ring',
+    description:
+      'Shows the Google membership ring around the profile picture, matching the Gemini app.',
+  },
+  {
     id: null,
     staticEnabled: true,
     title: 'GitHub branch switching',

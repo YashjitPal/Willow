@@ -77,8 +77,6 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
 
   // Plus, mic, and submit buttons: 32px desktop, 40px tablet & mobile (<= 960px):
   assert.match(composer, /w-8 max-\[960px\]:w-10/);
-  assert.match(composer, /w-8 h-8 max-\[960px\]:w-10 max-\[960px\]:h-10/);
-
   // Plus button and trailing controls vertically centered for each tier:
   assert.match(composer, /bottom-\[16px\] max-\[768px\]:bottom-\[20px\]/);
   assert.match(composer, /bottom-\[12px\] min-\[769px\]:max-\[960px\]:bottom-\[16px\] max-\[768px\]:bottom-\[20px\]/);
@@ -90,21 +88,37 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
   // Width: consumes full width on mobile (<= 768px) and max-w-[660px] on tablet/desktop:
   assert.match(composer, /max-\[768px\]:max-w-full min-\[769px\]:max-w-\[660px\]/);
 
-  // Submit / Live button is visible on both mobile and tablet (<= 960px) and hidden when empty on desktop:
-  assert.match(composer, /isSubmitControlHiddenOnDesktop \? 'hidden max-\[960px\]:flex' : 'flex'/);
+  // Submit / Send button matches Gemini: 32px (w-8 h-8) and hidden when empty across all viewports:
+  assert.match(composer, /isSubmitControlHidden \? 'hidden' : 'flex'/);
+  assert.match(composer, /chatVariant \? 'w-8 h-8' : 'w-\[34px\] h-\[34px\]'/);
 });
 
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {
   const layout = read('apps/studio/src/shell/StudioLayout.tsx');
-  // Mobile account avatar in top right:
-  assert.match(layout, /min-\[961px\]:hidden absolute top-\[8px\] right-\[12px\] z-30 flex items-center/);
+  // Mobile sidebar open button renders exact Gemini 32px Luminous menu icon (not 2-bar SVG):
+  assert.match(layout, /className="studio-sidebar-mobile-open"[\s\S]*?lumi-symbols[\s\S]*?menu/);
+  assert.match(layout, /fontVariationSettings:\s*'"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 32, "wght" 240'/);
+
+  // Mobile account avatar in top right (exact Gemini specs: right: 8px, top: 12px, 40x40):
+  assert.match(layout, /min-\[961px\]:hidden absolute top-\[12px\] right-\[8px\] z-30 flex items-center/);
   assert.match(layout, /aria-label="Open account menu"/);
-  // Temporary chat has mobile offset:
-  assert.match(layout, /right-\[12px\] max-\[960px\]:right-\[60px\]/);
+  // Full 32px avatar without shrinking padding or fake border:
+  assert.match(layout, /h-8 w-8 rounded-full/);
+  // Ring experiment conditionally overlays 42x42 ring at -top-[1px] -left-[1px]:
+  assert.match(layout, /isRingEnabled && \([\s\S]*?profileRingAsset[\s\S]*?w-\[42px\] h-\[42px\]/);
+  // Temporary chat has mobile 52px offset (4px gap to 40px avatar at right 8px):
+  assert.match(layout, /right-\[12px\] max-\[960px\]:right-\[52px\]/);
+  assert.match(layout, /willow-temp-chat-icon/);
+
+  // New Chat button on mobile during ongoing conversation (adjacent to actions menu at right 12px):
+  assert.match(layout, /min-\[961px\]:hidden absolute top-\[14px\] right-\[48px\] z-30 flex items-center/);
+  assert.match(layout, /aria-label="New Chat"/);
 
   const sidebarCss = read('apps/studio/src/shell/sidebar/Sidebar.css');
   // Actions anchor gets mobile 60px offset inside 960px media query:
   assert.match(sidebarCss, /\.willow-conv-actions-anchor \{\s*right:\s*60px !important;/);
+  // Mobile temporary chat icon carries 32px and weight 240:
+  assert.match(sidebarCss, /\.willow-temp-chat-icon \{\s*font-size:\s*32px !important;/);
 
   const chatView = read('features/chat/src/ChatView.tsx');
   // Mobile top-bar model switcher:

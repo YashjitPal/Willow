@@ -14,6 +14,8 @@ import { $chatPanelOpen, $voiceModeActive } from '@willow/chat/chat-panel-store'
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { useThemeMode } from '@willow/core/theme-mode';
+import { experimentsStore } from '@willow/core/experiments-store';
+import profileRingAsset from '@willow/assets/brand/profile-ring.png';
 
 /*
  * Signed out is NOT a different layout. Everything Willow does runs locally, so
@@ -104,6 +106,8 @@ export const StudioLayout: React.FC<{
   const selectionBg = theme.creamy.rgba;
 
   const { isLight } = useThemeMode();
+  const experiments = useStore(experimentsStore);
+  const isRingEnabled = experiments.ring ?? false;
   const isChatExperience = studioExperience === 'chat';
   const chatPanelOpen = useStore($chatPanelOpen);
   const voiceModeActive = useStore($voiceModeActive);
@@ -140,7 +144,7 @@ export const StudioLayout: React.FC<{
         </div>
       )}
 
-      {/* Mobile sidebar toggle button (universal across all views) */}
+      {/* Mobile sidebar toggle button (universal across all views; exact Gemini 32px menu icon in Luminous Symbols) */}
       {isSidebarCollapsed && !isSidebarHidden && (
         <button
           type="button"
@@ -148,17 +152,18 @@ export const StudioLayout: React.FC<{
           aria-label="Open sidebar"
           onClick={() => setIsSidebarCollapsed(false)}
         >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden="true"
-            className="select-none"
+          <span
+            className="lumi-symbols select-none leading-none"
+            style={{
+              fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
+              fontSize: '32px',
+              fontVariationSettings: '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 32, "wght" 240',
+              fontWeight: 240,
+              lineHeight: '32px',
+            }}
           >
-            <rect x="3" y="7" width="18" height="2" rx="1" />
-            <rect x="3" y="15" width="18" height="2" rx="1" />
-          </svg>
+            menu
+          </span>
         </button>
       )}
       <Sidebar
@@ -301,9 +306,13 @@ export const StudioLayout: React.FC<{
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !chatPanelOpen && !voiceModeActive && isChatOngoing && !!activeChatId && (
           <ConversationActionsMenu chatId={activeChatId} />
         )}
-        {/* Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs) */}
+        {/*
+          Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs).
+          Desktop: 36x36 at top 14 / right 12 with 24px icon (opsz 24, wght 300).
+          Tablet & Mobile (<= 960px): 48x48 at top 8 / right 52 with 32px icon (opsz 32, wght 240, lm-icon-xxl).
+        */}
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (
-          <div className="absolute top-[14px] right-[12px] max-[960px]:right-[60px] max-[960px]:top-[8px] z-30 flex items-center">
+          <div className="absolute top-[14px] right-[12px] max-[960px]:right-[52px] max-[960px]:top-[8px] z-30 flex items-center">
             <button
               onClick={() => {
                 selectLocalFSInboxChat(null);
@@ -325,7 +334,7 @@ export const StudioLayout: React.FC<{
               }`}
             >
               <span
-                className={`lumi-symbols text-[24px] max-[960px]:text-[26px] leading-none select-none ${
+                className={`lumi-symbols willow-temp-chat-icon text-[24px] max-[960px]:text-[32px] leading-none select-none ${
                   isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'
                 }`}
                 style={{ fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif" }}
@@ -341,25 +350,71 @@ export const StudioLayout: React.FC<{
             </button>
           </div>
         )}
-        {/* Mobile top-right account avatar button (Exact Gemini mobile specs at right: 12px, top: 8px) */}
-        {currentView === 'home' && isChatExperience && (
-          <div className="min-[961px]:hidden absolute top-[8px] right-[12px] z-30 flex items-center">
+        {/*
+          Top-right: New Chat button on mobile and tablet (<= 960px) during an ongoing conversation.
+          Measured from Gemini web/app at 800px and 390px:
+          Button: 36x36 at top 14 / right 48 (directly adjacent to the 36x36 conversation menu at right 12).
+          Icon: `gemini_chat` in Luminous Symbols at 24px (opsz 24, wght 300, lm-icon-l).
+        */}
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isChatOngoing && (
+          <div className="min-[961px]:hidden absolute top-[14px] right-[48px] z-30 flex items-center">
+            <button
+              type="button"
+              onClick={() => {
+                selectLocalFSInboxChat(null);
+                onNewChat();
+              }}
+              title="New chat"
+              aria-label="New Chat"
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors bg-transparent active:scale-95 ${
+                isLight ? 'text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#e3e3e3] hover:bg-[#e3e3e3]/[0.08]'
+              }`}
+            >
+              <span
+                className={`lumi-symbols text-[24px] leading-none select-none ${
+                  isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'
+                }`}
+                style={{
+                  fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
+                  fontVariationSettings: '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300',
+                  fontWeight: 300,
+                }}
+              >
+                gemini_chat
+              </span>
+            </button>
+          </div>
+        )}
+        {/*
+          Mobile top-right account avatar button (Exact Gemini mobile specs at right: 8px, top: 12px, 40x40).
+          Only shown in zero-state, matching Gemini (in an active conversation, replaced by conversation actions & new chat).
+          Avatar is 32px (h-8 w-8 rounded-full).
+          When the "Ring" experiment is enabled in Labs, overlays the exact Gemini membership ring (42x42 at -top-[1px] -left-[1px]).
+        */}
+        {currentView === 'home' && isChatExperience && !isChatOngoing && (
+          <div className="min-[961px]:hidden absolute top-[12px] right-[8px] z-30 flex items-center">
             <button
               type="button"
               aria-label="Open account menu"
               onClick={() => onSettingsClick()}
-              className="flex h-12 w-12 items-center justify-center rounded-full transition-transform active:scale-95"
+              className="relative flex h-10 w-10 items-center justify-center rounded-full transition-transform active:scale-95"
             >
+              {isRingEnabled && (
+                <img
+                  src={profileRingAsset}
+                  alt=""
+                  aria-hidden="true"
+                  className="pointer-events-none select-none absolute -top-[1px] -left-[1px] w-[42px] h-[42px] max-w-none"
+                />
+              )}
               {userProfile?.photoURL ? (
-                <div className="h-10 w-10 p-[2px] rounded-full border-2 border-[#8ab4f8]">
-                  <img
-                    src={userProfile.photoURL}
-                    alt="User"
-                    className="h-full w-full rounded-full object-cover"
-                  />
-                </div>
+                <img
+                  src={userProfile.photoURL}
+                  alt="User"
+                  className="h-8 w-8 rounded-full object-cover"
+                />
               ) : (
-                <span className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#8ab4f8] bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[15px] font-medium text-white">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[13px] font-medium text-white">
                   {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
                 </span>
               )}

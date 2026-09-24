@@ -17,7 +17,8 @@ export type ExperimentId =
   | 'design-surface'
   | 'agents-surface'
   | 'projects-panel'
-  | 'waifu-tab';
+  | 'waifu-tab'
+  | 'ring';
 
 export type ExperimentFlags = Record<ExperimentId, boolean>;
 
@@ -29,6 +30,7 @@ export const EXPERIMENT_DEFAULTS: ExperimentFlags = {
   'agents-surface': false,
   'projects-panel': false,
   'waifu-tab': false,
+  'ring': false,
 };
 
 /**

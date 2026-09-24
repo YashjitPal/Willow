@@ -211,6 +211,18 @@
   .willow-conv-actions-anchor {
     right: 60px !important;
   }
+
+  /* Mobile Temporary Chat Icon (measured from Gemini lm-icon-xxl) */
+  .willow-temp-chat-icon {
+    font-size: 32px !important;
+    font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 32, "wght" 240 !important;
+    font-weight: 240 !important;
+  }
+}
+
+.willow-temp-chat-icon {
+  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300;
+  font-weight: 300;
 }
 
 /* Sidebar Skeleton Loader */

@@ -746,10 +746,10 @@ export const InputBar: React.FC<{
   // Willow's slot is dual-purpose, so this is not a straight copy. With a live
   // model added the empty-box slot is the Live toggle and has to stay. It is
   // only with no live model that an empty box leaves the slot with nothing to
-  // say — that is the case that used to render a dulled, inert send button, and
-  // On desktop (> 960px), the model pill sits in the prompt box, so the Live/submit button is hidden when empty.
-  // On tablet & mobile (<= 960px), the model pill moves to the top header, and the prompt box displays the Live button when empty.
-  const isSubmitControlHiddenOnDesktop = chatVariant
+  // In Gemini, the send button only mounts when there is a draft to send (hasContent),
+  // or during active generation (stop button), live mode, or transcribing dictation.
+  // When the prompt box is empty in chat mode, the send button is hidden across all viewports.
+  const isSubmitControlHidden = chatVariant
     && !hasContent
     && !liveActive
     && !responseControlActive
@@ -1216,7 +1216,7 @@ export const InputBar: React.FC<{
                 onMouseLeave={() => setIsSubmitHovered(false)}
                 onMouseOver={() => setIsSubmitHovered(true)}
                 onMouseOut={() => setIsSubmitHovered(false)}
-                className={`${isSubmitControlHiddenOnDesktop ? 'hidden max-[960px]:flex' : 'flex'} ${chatVariant ? 'w-8 h-8 max-[960px]:w-10 max-[960px]:h-10' : 'w-[34px] h-[34px]'} rounded-full items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'max-[960px]:[animation:none] willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
+                className={`${isSubmitControlHidden ? 'hidden' : 'flex'} ${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
                     ? responseControlActive || liveActive
                       ? isLight ? 'bg-[#f2f0f0] hover:bg-[#e5e5e5]' : 'bg-[#171717] hover:bg-[#282828]'
