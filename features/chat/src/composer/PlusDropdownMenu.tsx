@@ -1021,13 +1021,15 @@ export const PlusDropdownMenu: React.FC<{
               maxHeight: 360,
               backgroundColor: isLight ? '#ffffff' : '#1c1c1c',
               borderRadius: 20,
-              padding: 8,
+              padding: '8px 0',
               boxShadow: isLight ? '0 0 20px rgba(0,0,0,0.06)' : MENU_SHADOW,
               transformOrigin: side === 'top' ? '0 100%' : '0 0',
             }}
           >
             {renderUploadButtonsRow()}
-            {renderToolsList()}
+            <div className="px-2">
+              {renderToolsList()}
+            </div>
           </div>
         </div>
       </PlusMenuThemeContext.Provider>
