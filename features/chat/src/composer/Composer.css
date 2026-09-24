@@ -326,6 +326,18 @@
     line-height: 24px;
     font-optical-sizing: none;
     font-variation-settings: "ROND" 0, "opsz" 22, "slnt" 0, "wdth" 100;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .willow-dictation-textarea::-webkit-input-placeholder,
+  :is(.light-theme, [data-theme="light"]) .willow-dictation-textarea::placeholder {
+    color: rgba(0, 0, 0, 0.55);
+  }
+
+  .willow-composer-leading-actions .luminous-symbols,
+  .willow-composer-trailing-actions .luminous-symbols {
+    font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260 !important;
+    font-weight: 260 !important;
   }
 
   .willow-composer-leading-actions .luminous-symbols,

@@ -393,11 +393,11 @@ const CompactToolRow: React.FC<{
               name={glyph}
               family={family ?? 'luminous'}
               size={28}
-              weight={family === 'google-symbols' ? 330 : 320}
+              weight={family === 'google-symbols' ? 330 : 260}
               variationSettings={
                 family === 'google-symbols'
                   ? undefined
-                  : '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 320'
+                  : '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260'
               }
               className={isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}
             />
@@ -811,7 +811,7 @@ export const PlusDropdownMenu: React.FC<{
     <div className="flex w-full items-center gap-1 overflow-x-auto px-4 py-1 no-scrollbar overscroll-x-contain">
       <SquircleUploadButton
         label="Files"
-        icon={<MaterialSymbol family="luminous" name="attach_file" size={28} weight={320} />}
+        icon={<MaterialSymbol family="luminous" name="attach_file" size={28} weight={260} variationSettings='"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260' />}
         onClick={act(onFileSelect)}
       />
       <SquircleUploadButton
@@ -831,12 +831,12 @@ export const PlusDropdownMenu: React.FC<{
       />
       <SquircleUploadButton
         label="Notebooks"
-        icon={<MaterialSymbol family="luminous" name="notebook" size={28} weight={320} />}
+        icon={<MaterialSymbol family="luminous" name="notebook" size={28} weight={260} variationSettings='"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260' />}
         onClick={act(onAddNotebook)}
       />
       <SquircleUploadButton
         label="Code"
-        icon={<MaterialSymbol family="luminous" name="code" size={28} weight={320} />}
+        icon={<MaterialSymbol family="luminous" name="code" size={28} weight={260} variationSettings='"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260' />}
         onClick={act(onImportCode)}
       />
     </div>
