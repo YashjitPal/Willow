@@ -820,7 +820,7 @@ export const InputBar: React.FC<{
     return (
       <div
         ref={composerShellRef}
-        className={`w-full mx-auto relative ${isComposerMaximized && chatVariant ? 'z-[120]' : 'z-20'} ${chatVariant ? 'max-w-[660px]' : 'max-w-[760px]'}`}
+        className={`w-full mx-auto relative ${isComposerMaximized && chatVariant ? 'z-[120]' : 'z-20'} ${chatVariant ? 'max-[768px]:max-w-full min-[769px]:max-w-[660px]' : 'max-w-[760px]'}`}
         style={{
           '--chat-collapsed-right-padding': `${collapsedChatPaddingRight}px`,
         } as React.CSSProperties}

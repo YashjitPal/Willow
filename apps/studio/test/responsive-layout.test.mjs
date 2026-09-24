@@ -60,6 +60,7 @@ test('Chat surface adapts messages, bubbles, and composer docking for mobile vie
   assert.match(chatView, /px-3\.5 sm:px-7 pt-\[56px\] sm:pt-\[72px\]/);
   assert.match(chatView, /w-full sm:w-auto sm:max-w-\[516px\]/);
   assert.match(chatView, /px-4 pb-\[12px\] min-\[769px\]:pb-\[16px\] min-\[961px\]:pb-\[49px\]/);
+  assert.match(chatView, /max-\[768px\]:max-w-full min-\[769px\]:max-w-\[660px\]/);
 
   const chrome = read('features/chat/src/ChatResponseChrome.tsx');
   assert.match(chrome, /w-\[400px\] max-w-\[calc\(100%_-_32px\)\]/);
@@ -81,6 +82,9 @@ test('Chat prompt box matches Gemini mobile specs at 768px and preserves tablet/
   // Plus button and trailing controls vertically centered:
   assert.match(composer, /bottom-\[16px\] max-\[768px\]:bottom-\[20px\]/);
   assert.match(composer, /bottom-\[12px\] max-\[768px\]:bottom-\[20px\]/);
+
+  // Width: consumes full width on mobile (<= 768px) and max-w-[660px] on tablet/desktop:
+  assert.match(composer, /max-\[768px\]:max-w-full min-\[769px\]:max-w-\[660px\]/);
 
   // Submit / Live button is permanently visible on mobile (<= 768px) and hidden when empty on tablet/desktop:
   assert.match(composer, /isSubmitControlHiddenAboveMobile \? 'hidden max-\[768px\]:flex' : 'flex'/);

@@ -4642,7 +4642,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 ? { duration: 0.25, ease: [0.2, 0, 0, 1] as const }
                 : { duration: 0 },
             }}
-            className="relative w-full max-w-[660px] pointer-events-auto"
+            className="relative w-full max-[768px]:max-w-full min-[769px]:max-w-[660px] pointer-events-auto"
           >
             {/* The greeting hangs off this box rather than off the page, which
                 is what makes it rise as the composer wraps — Gemini's
