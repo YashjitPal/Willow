@@ -114,6 +114,11 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
   assert.match(composer, /bottom-\[12px\] min-\[769px\]:max-\[960px\]:bottom-\[16px\] max-\[768px\]:bottom-\[20px\] right-\[0px\]/);
   // Left padding of expanded textarea on tablet/mobile matches Gemini (26px total = 14px box + 12px textarea):
   assert.match(composer, /max-\[960px\]:!pl-\[12px\]/);
+
+  // Left padding of collapsed textarea on tablet/mobile matches Gemini (26px gap on tablet, 29px-30px gap on mobile):
+  assert.match(composer, /min-\[769px\]:max-\[960px\]:!pl-\[66px\] max-\[768px\]:!pl-\[70px\]/);
+  // Collapsed dictation waveform matches same starting text offset:
+  assert.match(composer, /min-\[769px\]:max-\[960px\]:left-\[66px\] max-\[768px\]:left-\[70px\]/);
 });
 
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {
