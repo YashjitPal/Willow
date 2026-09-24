@@ -67,7 +67,7 @@
   animation: willow-composer-send-enter 250ms linear both;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 960px) {
   .willow-composer-send-enter {
     animation: none;
   }

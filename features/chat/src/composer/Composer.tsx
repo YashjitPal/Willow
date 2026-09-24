@@ -747,9 +747,9 @@ export const InputBar: React.FC<{
   // model added the empty-box slot is the Live toggle and has to stay. It is
   // only with no live model that an empty box leaves the slot with nothing to
   // say — that is the case that used to render a dulled, inert send button, and
-  // On desktop and tablet (> 768px), Gemini Web hides the submit control when empty.
-  // On mobile (<= 768px), Gemini mobile app shows the permanent Live button in the prompt box when empty.
-  const isSubmitControlHiddenAboveMobile = chatVariant
+  // On desktop (> 960px), the model pill sits in the prompt box, so the Live/submit button is hidden when empty.
+  // On tablet & mobile (<= 960px), the model pill moves to the top header, and the prompt box displays the Live button when empty.
+  const isSubmitControlHiddenOnDesktop = chatVariant
     && !hasContent
     && !liveActive
     && !responseControlActive
@@ -828,7 +828,7 @@ export const InputBar: React.FC<{
         {githubImportDialog}
         <div
           ref={chatComposerBoxRef}
-          className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${dropHeightClass} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : hasDropHeight ? 'justify-end pb-0' : 'justify-center'}` : `${dropHeightClass} ${hasDropHeight ? 'justify-end pb-0' : 'justify-center'} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} transition-all duration-200`} ${chatVariant ? (isLight ? 'bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]') + ' rounded-[32px] max-[768px]:rounded-[40px] pl-[14px] pr-[15px]' : (isLight ? 'bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21]') + ' rounded-[28px] pl-4 pr-3'}`}
+          className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${dropHeightClass} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : hasDropHeight ? 'justify-end pb-0' : 'justify-center'}` : `${dropHeightClass} ${hasDropHeight ? 'justify-end pb-0' : 'justify-center'} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} transition-all duration-200`} ${chatVariant ? (isLight ? 'bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]') + ' rounded-[32px] min-[769px]:max-[960px]:rounded-[36px] max-[768px]:rounded-[40px] pl-[14px] pr-[15px]' : (isLight ? 'bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21]') + ' rounded-[28px] pl-4 pr-3'}`}
         >
           
           {/*
@@ -898,7 +898,7 @@ export const InputBar: React.FC<{
             * fullscreen control) plus `box-shadow 0.1s` on `input-area-v2` and
             * `padding-inline 0.2s` on `input-container`; none of those is size.
             */}
-          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] max-[768px]:py-[28px] min-h-[64px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-[769px]:max-[960px]:py-[24px] max-[768px]:py-[28px] min-h-[64px] min-[769px]:max-[960px]:min-h-[72px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
             {chatVariant && !isDictationActive && (
               <button
                 type="button"
@@ -966,7 +966,7 @@ export const InputBar: React.FC<{
                * so the prompt box scrolls with nothing visible in the gutter. Hiding the
                * bar reproduces what is on screen; the default black strip did not.
                */
-              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775]" : "placeholder-[#bdc1c6]") + " font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] max-[768px]:pl-[52px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
+              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775]" : "placeholder-[#bdc1c6]") + " font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] min-[769px]:max-[960px]:pl-[50px] max-[768px]:pl-[52px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictationActive && (
@@ -1007,15 +1007,15 @@ export const InputBar: React.FC<{
               * never actually rests at, which looks like "no horizontal movement".
               * Type a line at a time and let it settle, or don't trust the number.
               */}
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] max-[768px]:bottom-[20px] ${chatVariant ? 'left-[6px] max-[768px]:left-[4px]' : 'left-[0px]'}`} `}>
-              <div className={`${chatVariant ? 'w-8 max-[768px]:w-10' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] min-[769px]:max-[960px]:bottom-[18px] max-[768px]:bottom-[20px] ${chatVariant ? 'left-[6px] min-[769px]:max-[960px]:left-[6px] max-[768px]:left-[4px]' : 'left-[0px]'}`} `}>
+              <div className={`${chatVariant ? 'w-8 min-[769px]:max-[960px]:w-9 max-[768px]:w-10' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
                   disabled={disabled}
                   aria-label="Upload & tools"
                   aria-expanded={isPlusMenuOpen}
-                  className={`${chatVariant ? `w-8 h-8 max-[768px]:w-10 max-[768px]:h-10 rounded-full ${isLight ? 'text-[#000000] hover:bg-black/[0.08]' : 'text-[#e6e6e6] hover:bg-[#333537]'}` : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
+                  className={`${chatVariant ? `w-8 h-8 min-[769px]:max-[960px]:w-9 min-[769px]:max-[960px]:h-9 max-[768px]:w-10 max-[768px]:h-10 rounded-full ${isLight ? 'text-[#000000] hover:bg-black/[0.08]' : 'text-[#e6e6e6] hover:bg-[#333537]'}` : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
                 >
                   {chatVariant
                     ? (
@@ -1076,7 +1076,7 @@ export const InputBar: React.FC<{
               * invisibly on the 400ms ease; with the ease gone (Gemini doesn't
               * have one) the same 1px became a visible sideways jerk on every
               * wrap and unwrap. Keep it constant. */}
-            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 max-[768px]:gap-2' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'bottom-[12px] max-[768px]:bottom-[20px] right-[0px] max-[768px]:right-[4px]' : 'bottom-[10px] right-[0px]'}`}>
+            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 min-[769px]:max-[960px]:gap-1.5 max-[768px]:gap-2' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'bottom-[12px] min-[769px]:max-[960px]:bottom-[16px] max-[768px]:bottom-[20px] right-[0px] min-[769px]:max-[960px]:right-[4px] max-[768px]:right-[4px]' : 'bottom-[10px] right-[0px]'}`}>
               {chatVariant && !isDictationActive && (
                 <div className="relative hidden min-[961px]:flex items-center shrink-0">
                   <button
@@ -1125,7 +1125,7 @@ export const InputBar: React.FC<{
                 aria-label={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop listening" : "Microphone"}
                 aria-pressed={isMicMuteToggle ? liveMicMuted : undefined}
                 title={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`relative outline-none flex items-center justify-center ${chatVariant ? 'w-8 h-8 max-[768px]:w-10 max-[768px]:h-10' : 'w-8 h-8'} rounded-full disabled:opacity-40 disabled:cursor-default ${isTranscribingDictation && !isMicMuteToggle ? 'cursor-default' : 'cursor-pointer'} ${
+                className={`relative outline-none flex items-center justify-center ${chatVariant ? 'w-8 h-8 min-[769px]:max-[960px]:w-9 min-[769px]:max-[960px]:h-9 max-[768px]:w-10 max-[768px]:h-10' : 'w-8 h-8'} rounded-full disabled:opacity-40 disabled:cursor-default ${isTranscribingDictation && !isMicMuteToggle ? 'cursor-default' : 'cursor-pointer'} ${
                   // ChatGPT transitions only the colour group, over 200ms on
                   // cubic-bezier(0.4, 0, 0.2, 1) — measured off its own button.
                   isMicMuteToggle
@@ -1216,7 +1216,7 @@ export const InputBar: React.FC<{
                 onMouseLeave={() => setIsSubmitHovered(false)}
                 onMouseOver={() => setIsSubmitHovered(true)}
                 onMouseOut={() => setIsSubmitHovered(false)}
-                className={`${isSubmitControlHiddenAboveMobile ? 'hidden max-[768px]:flex' : 'flex'} ${chatVariant ? 'w-8 h-8 max-[768px]:w-10 max-[768px]:h-10' : 'w-[34px] h-[34px]'} rounded-full items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'max-[768px]:[animation:none] willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
+                className={`${isSubmitControlHiddenOnDesktop ? 'hidden max-[960px]:flex' : 'flex'} ${chatVariant ? 'w-8 h-8 min-[769px]:max-[960px]:w-9 min-[769px]:max-[960px]:h-9 max-[768px]:w-10 max-[768px]:h-10' : 'w-[34px] h-[34px]'} rounded-full items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'max-[960px]:[animation:none] willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
                     ? responseControlActive || liveActive
                       ? isLight ? 'bg-[#f2f0f0] hover:bg-[#e5e5e5]' : 'bg-[#171717] hover:bg-[#282828]'

@@ -66,28 +66,28 @@ test('Chat surface adapts messages, bubbles, and composer docking for mobile vie
   assert.match(chrome, /w-\[400px\] max-w-\[calc\(100%_-_32px\)\]/);
 });
 
-test('Chat prompt box matches Gemini mobile specs at 768px and preserves tablet/desktop 64px', () => {
+test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80px mobile', () => {
   const composer = read('features/chat/src/composer/Composer.tsx');
 
-  // Height: 80px on mobile (<= 768px), 64px on tablet/desktop (> 768px):
-  assert.match(composer, /py-\[20px\] max-\[768px\]:py-\[28px\] min-h-\[64px\] max-\[768px\]:min-h-\[80px\]/);
+  // Height: 64px desktop (> 960px), 72px tablet (769px-960px), 80px mobile (<= 768px):
+  assert.match(composer, /py-\[20px\] min-\[769px\]:max-\[960px\]:py-\[24px\] max-\[768px\]:py-\[28px\] min-h-\[64px\] min-\[769px\]:max-\[960px\]:min-h-\[72px\] max-\[768px\]:min-h-\[80px\]/);
 
-  // Corner radius: 40px on mobile:
-  assert.match(composer, /rounded-\[32px\] max-\[768px\]:rounded-\[40px\]/);
+  // Corner radius: 32px desktop, 36px tablet, 40px mobile:
+  assert.match(composer, /rounded-\[32px\] min-\[769px\]:max-\[960px\]:rounded-\[36px\] max-\[768px\]:rounded-\[40px\]/);
 
-  // Buttons sized 40px on mobile:
-  assert.match(composer, /w-8 max-\[768px\]:w-10/);
-  assert.match(composer, /w-8 h-8 max-\[768px\]:w-10 max-\[768px\]:h-10/);
+  // Buttons sized 32px desktop, 36px tablet, 40px mobile:
+  assert.match(composer, /w-8 min-\[769px\]:max-\[960px\]:w-9 max-\[768px\]:w-10/);
+  assert.match(composer, /w-8 h-8 min-\[769px\]:max-\[960px\]:w-9 min-\[769px\]:max-\[960px\]:h-9 max-\[768px\]:w-10 max-\[768px\]:h-10/);
 
-  // Plus button and trailing controls vertically centered:
-  assert.match(composer, /bottom-\[16px\] max-\[768px\]:bottom-\[20px\]/);
-  assert.match(composer, /bottom-\[12px\] max-\[768px\]:bottom-\[20px\]/);
+  // Plus button and trailing controls vertically centered for each tier:
+  assert.match(composer, /bottom-\[16px\] min-\[769px\]:max-\[960px\]:bottom-\[18px\] max-\[768px\]:bottom-\[20px\]/);
+  assert.match(composer, /bottom-\[12px\] min-\[769px\]:max-\[960px\]:bottom-\[16px\] max-\[768px\]:bottom-\[20px\]/);
 
   // Width: consumes full width on mobile (<= 768px) and max-w-[660px] on tablet/desktop:
   assert.match(composer, /max-\[768px\]:max-w-full min-\[769px\]:max-w-\[660px\]/);
 
-  // Submit / Live button is permanently visible on mobile (<= 768px) and hidden when empty on tablet/desktop:
-  assert.match(composer, /isSubmitControlHiddenAboveMobile \? 'hidden max-\[768px\]:flex' : 'flex'/);
+  // Submit / Live button is visible on both mobile and tablet (<= 960px) and hidden when empty on desktop:
+  assert.match(composer, /isSubmitControlHiddenOnDesktop \? 'hidden max-\[960px\]:flex' : 'flex'/);
 });
 
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {
