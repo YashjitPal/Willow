@@ -119,6 +119,11 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
   assert.match(composer, /min-\[769px\]:max-\[960px\]:!pl-\[56px\] max-\[768px\]:!pl-\[58px\]/);
   // Collapsed dictation waveform matches same starting text offset:
   assert.match(composer, /min-\[769px\]:max-\[960px\]:left-\[56px\] max-\[768px\]:left-\[58px\]/);
+
+  // Autosize hook measures wrap-point with identical responsive padding (56px tablet, 58px mobile, 12px expanded):
+  const autosize = read('features/chat/src/composer/use-composer-textarea-autosize.ts');
+  assert.match(autosize, /effectiveCollapsedPaddingLeftVal = chatVariant\s*\?\s*\(isMobileNarrow \? '58px' : isMobileTab \? '56px' : collapsedPaddingLeftVal\)/);
+  assert.match(autosize, /effectiveExpandedPaddingLeftVal = chatVariant\s*\?\s*\(isMobileTab \? '12px' : expandedPaddingLeftVal\)/);
 });
 
 test('Chat top header adapts navigation, actions, model switcher, and user avatar on mobile', () => {

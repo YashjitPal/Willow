@@ -96,9 +96,18 @@ export const useComposerTextareaAutosize = ({
       const expandedPaddingLeftVal = chatVariant ? '10px' : '0px';
       const expandedPaddingRightVal = chatVariant ? '24px' : '0px';
 
+      const isMobileTab = typeof window !== 'undefined' && window.innerWidth <= 960;
+      const isMobileNarrow = typeof window !== 'undefined' && window.innerWidth <= 768;
+      const effectiveCollapsedPaddingLeftVal = chatVariant
+        ? (isMobileNarrow ? '58px' : isMobileTab ? '56px' : collapsedPaddingLeftVal)
+        : collapsedPaddingLeftVal;
+      const effectiveExpandedPaddingLeftVal = chatVariant
+        ? (isMobileTab ? '12px' : expandedPaddingLeftVal)
+        : expandedPaddingLeftVal;
+
       // Force narrow padding for measurement to see if it wraps inline
       textarea.style.scrollbarGutter = 'stable';
-      textarea.style.paddingLeft = collapsedPaddingLeftVal;
+      textarea.style.paddingLeft = effectiveCollapsedPaddingLeftVal;
       textarea.style.paddingRight = collapsedPaddingRightVal;
       textarea.style.height = `${baseHeight}px`;
 
@@ -116,8 +125,8 @@ export const useComposerTextareaAutosize = ({
       textarea.style.scrollbarGutter = shouldExpand ? 'auto' : 'stable';
 
       textarea.style.paddingLeft = shouldExpand
-        ? expandedPaddingLeftVal
-        : collapsedPaddingLeftVal;
+        ? effectiveExpandedPaddingLeftVal
+        : effectiveCollapsedPaddingLeftVal;
       textarea.style.paddingRight = shouldExpand
         ? expandedPaddingRightVal
         : collapsedPaddingRightVal;
