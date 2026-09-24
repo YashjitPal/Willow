@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useThemeMode } from '@willow/core/theme-mode';
 import { TOOL_SYMBOLS, TOOL_TOOLTIPS, type ToolId } from './composer-options';
@@ -272,6 +273,114 @@ const Divider: React.FC = () => {
   );
 };
 
+/**
+ * Gemini's Avatar icon (likeness), captured from live SVG on Gemini.
+ */
+const LikenessAvatarIcon: React.FC<{ size?: number; className?: string }> = ({ size = 26, className = '' }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 28 28"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+  >
+    <path
+      d="M14,24.5C8.201,24.5 3.5,19.799 3.5,14C3.5,8.201 8.201,3.5 14,3.5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+    <circle cx="17.281" cy="11.666" r="1" fill="currentColor" />
+    <circle cx="19.25" cy="4.907" r="1" fill="currentColor" />
+    <circle cx="23.093" cy="8.751" r="1" fill="currentColor" />
+    <circle cx="24.499" cy="14" r="1" fill="currentColor" />
+    <circle cx="23.092" cy="19.249" r="1" fill="currentColor" />
+    <circle cx="19.249" cy="23.091" r="1" fill="currentColor" />
+    <circle cx="10.719" cy="11.666" r="1" fill="currentColor" />
+    <path
+      d="M17.5,16.916C15.469,18.472 12.531,18.472 10.5,16.916"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+/**
+ * Gemini's square squircle upload button used in compact tablet card & mobile bottom sheet.
+ */
+const SquircleUploadButton: React.FC<{
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+}> = ({ label, icon, onClick }) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group flex min-w-[76px] w-[76px] h-[76px] shrink-0 flex-col items-center justify-center gap-1 rounded-[22px] transition-all outline-none ${
+        isLight
+          ? 'bg-[#f2f2f2] hover:bg-[#e8e8e8] text-[#1f1f1f] active:scale-[0.96]'
+          : 'bg-[#141414] hover:bg-[#252525] text-[#e6e6e6] active:scale-[0.96]'
+      }`}
+    >
+      <span className="flex h-7 w-7 items-center justify-center text-current">
+        {icon}
+      </span>
+      <span
+        className="text-[12px] font-normal leading-[14px] text-center px-1 truncate w-full"
+        style={{
+          fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+          fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+        }}
+      >
+        {label}
+      </span>
+    </button>
+  );
+};
+
+type DeviceMode = 'desktop' | 'compact' | 'mobile';
+
+function useDeviceMode(): DeviceMode {
+  const [deviceMode, setDeviceMode] = useState<DeviceMode>(() => {
+    if (typeof window === 'undefined') return 'desktop';
+    const width = window.innerWidth;
+    const isCoarse = window.matchMedia('(pointer: coarse)').matches;
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const isTouch = isCoarse || isMobileUA;
+    if (isTouch && width <= 960) return 'mobile';
+    if (width <= 960) return 'compact';
+    return 'desktop';
+  });
+
+  useEffect(() => {
+    const compute = () => {
+      const width = window.innerWidth;
+      const isCoarse = window.matchMedia('(pointer: coarse)').matches;
+      const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isTouch = isCoarse || isMobileUA;
+      if (isTouch && width <= 960) {
+        setDeviceMode('mobile');
+      } else if (width <= 960) {
+        setDeviceMode('compact');
+      } else {
+        setDeviceMode('desktop');
+      }
+    };
+
+    compute();
+    window.addEventListener('resize', compute);
+    return () => window.removeEventListener('resize', compute);
+  }, []);
+
+  return deviceMode;
+}
+
 export const PlusDropdownMenu: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -323,15 +432,60 @@ export const PlusDropdownMenu: React.FC<{
   const [side, setSide] = useState<'bottom' | 'top'>('bottom');
   const [isSubPositionReady, setIsSubPositionReady] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const uploadsRef = useRef<HTMLDivElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const deviceMode = useDeviceMode();
+  const [cardLeftOffset, setCardLeftOffset] = useState(0);
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const startYRef = useRef(0);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startYRef.current = e.touches[0].clientY;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const currentY = e.touches[0].clientY;
+    const delta = currentY - startYRef.current;
+    if (delta > 0) {
+      setDragOffset(delta);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    if (dragOffset > 75) {
+      onClose();
+    }
+    setDragOffset(0);
+  };
+
+  useLayoutEffect(() => {
+    if (!isOpen || deviceMode !== 'compact') return;
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const cardWidth = Math.min(375, typeof window !== 'undefined' ? window.innerWidth - 32 : 375);
+    const rightEdge = rect.left + cardWidth;
+    const viewportRight = window.innerWidth - 16;
+    if (rightEdge > viewportRight) {
+      setCardLeftOffset(-(rightEdge - viewportRight));
+    } else {
+      setCardLeftOffset(0);
+    }
+  }, [isOpen, deviceMode, buttonRef]);
+
   useEffect(() => {
     if (!isOpen) {
       setOpenSub(null);
       setIsSubPositionReady(false);
+      setDragOffset(0);
+      setIsDragging(false);
     }
   }, [isOpen]);
 
@@ -435,6 +589,7 @@ export const PlusDropdownMenu: React.FC<{
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
+      if (deviceMode === 'mobile') return;
       if (
         menuRef.current && !menuRef.current.contains(e.target as Node)
         && buttonRef.current && !buttonRef.current.contains(e.target as Node)
@@ -449,7 +604,7 @@ export const PlusDropdownMenu: React.FC<{
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [isOpen, onClose, buttonRef]);
+  }, [isOpen, onClose, buttonRef, deviceMode]);
 
   useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
 
@@ -498,6 +653,168 @@ export const PlusDropdownMenu: React.FC<{
     onMouseLeave: closeSoon,
   };
   const SUB_LEFT = 249 - 8;
+
+  const renderUploadButtonsRow = () => (
+    <div className="flex items-center gap-2 overflow-x-auto px-1 py-1 no-scrollbar">
+      <SquircleUploadButton
+        label="Files"
+        icon={<MaterialSymbol family="luminous" name="attach_file" size={26} weight={320} />}
+        onClick={act(onFileSelect)}
+      />
+      <SquircleUploadButton
+        label="Avatar"
+        icon={<LikenessAvatarIcon size={26} />}
+        onClick={act(onAddAvatar)}
+      />
+      <SquircleUploadButton
+        label="Drive"
+        icon={<MaterialSymbol family="google-symbols" name="drive" size={26} weight={330} />}
+        onClick={act(onAddFromDrive)}
+      />
+      <SquircleUploadButton
+        label="Photos"
+        icon={<MaterialSymbol family="google-symbols" name="photos" size={26} weight={330} />}
+        onClick={act(onAddPhotos)}
+      />
+      <SquircleUploadButton
+        label="Notebooks"
+        icon={<MaterialSymbol family="luminous" name="notebook" size={26} weight={320} />}
+        onClick={act(onAddNotebook)}
+      />
+      <SquircleUploadButton
+        label="Code"
+        icon={<MaterialSymbol family="luminous" name="code" size={26} weight={320} />}
+        onClick={act(onImportCode)}
+      />
+    </div>
+  );
+
+  const renderToolsList = () => {
+    if (sparkMode && sparkToolsEnabled) {
+      return (
+        <div className="flex flex-col gap-0.5">
+          <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexPlanIcon size={18} strokeWidth={2} /></span>} label="Plan" labelInset={44} selected={selectedTool === 'plan'} onClick={() => pickTool('plan')} />
+          <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexGoalIcon size={18} strokeWidth={2} /></span>} label="Goal" labelInset={44} selected={selectedTool === 'goal'} onClick={() => pickTool('goal')} />
+          <Row glyph={TOOL_SYMBOLS['computer-use']} family="google-symbols" label="Computer Use" labelInset={44} selected={selectedTool === 'computer-use'} onClick={() => pickTool('computer-use')} />
+          <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexSideChatIcon size={18} strokeWidth={2} /></span>} label="Side chat" labelInset={44} onClick={onClose} />
+          <Row glyph={TOOL_SYMBOLS['create-skill']} family="google-symbols" label="Create skill" labelInset={44} selected={selectedTool === 'create-skill'} onClick={() => pickTool('create-skill')} />
+          <Row icon={<span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}><CodexPetIcon size={18} strokeWidth={2} /></span>} label="Create pet" labelInset={44} selected={selectedTool === 'create-pet'} onClick={() => pickTool('create-pet')} />
+          {onTogglePersonalIntelligence && (
+            <PersonalIntelligenceRow
+              checked={personalIntelligence}
+              onChange={onTogglePersonalIntelligence}
+            />
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-0.5">
+        <Row glyph={TOOL_SYMBOLS.images} label="Create image" tooltip={TOOL_TOOLTIPS.images} labelInset={44} selected={selectedTool === 'images'} onClick={() => pickTool('images')} />
+        <Row glyph={TOOL_SYMBOLS.video} label="Create video" tooltip={TOOL_TOOLTIPS.video} labelInset={44} selected={selectedTool === 'video'} onClick={() => pickTool('video')} />
+        <Row glyph={TOOL_SYMBOLS.music} label="Create music" tooltip={TOOL_TOOLTIPS.music} labelInset={44} selected={selectedTool === 'music'} onClick={() => pickTool('music')} />
+        <Row glyph={TOOL_SYMBOLS.canvas} label="Canvas" tooltip={TOOL_TOOLTIPS.canvas} labelInset={44} selected={selectedTool === 'canvas'} onClick={() => pickTool('canvas')} />
+        <Row glyph={TOOL_SYMBOLS.research} label="Deep research" tooltip={TOOL_TOOLTIPS.research} labelInset={44} selected={selectedTool === 'research'} onClick={() => pickTool('research')} />
+        <Row glyph={TOOL_SYMBOLS.learn} label="Guided learning" tooltip={TOOL_TOOLTIPS.learn} labelInset={44} selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} />
+        {onTogglePersonalIntelligence && (
+          <PersonalIntelligenceRow
+            checked={personalIntelligence}
+            onChange={onTogglePersonalIntelligence}
+          />
+        )}
+      </div>
+    );
+  };
+
+  if (deviceMode === 'mobile') {
+    if (typeof document === 'undefined') return null;
+    return createPortal(
+      <PlusMenuThemeContext.Provider value={{ isLight }}>
+        <div className="willow-bottom-sheet-overlay fixed inset-0 z-[1000] flex flex-col justify-end">
+          {/* Dark backdrop */}
+          <div
+            className="fixed inset-0 backdrop-blur-[0.5px] willow-backdrop-fade-in"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.32)' }}
+            onClick={onClose}
+            aria-hidden="true"
+          />
+
+          {/* Bottom sheet container */}
+          <div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Upload & tools"
+            className="relative z-10 w-full flex flex-col willow-bottom-sheet-enter select-none"
+            style={{
+              backgroundColor: isLight ? '#ffffff' : '#1c1c1c',
+              borderTopLeftRadius: 36,
+              borderTopRightRadius: 36,
+              boxShadow: '0 -8px 24px rgba(0, 0, 0, 0.24)',
+              maxHeight: '82vh',
+              transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
+              transition: isDragging ? 'none' : 'transform 200ms cubic-bezier(0, 0, 0.2, 1)',
+            }}
+          >
+            {/* Drag handle */}
+            <div
+              className="flex items-center justify-center pt-3 pb-2 cursor-grab active:cursor-grabbing touch-none"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div
+                className="w-[54px] h-[5px] rounded-full"
+                style={{
+                  backgroundColor: isLight ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.55)',
+                }}
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-2 pb-6">
+              {renderUploadButtonsRow()}
+              {!sparkMode && <Divider />}
+              {sparkMode && sparkToolsEnabled && <Divider />}
+              {renderToolsList()}
+            </div>
+          </div>
+        </div>
+      </PlusMenuThemeContext.Provider>,
+      document.body
+    );
+  }
+
+  if (deviceMode === 'compact') {
+    return (
+      <PlusMenuThemeContext.Provider value={{ isLight }}>
+        <div
+          ref={menuRef}
+          className={`absolute z-[100] ${side === 'top' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'}`}
+          style={{ left: cardLeftOffset }}
+        >
+          <div
+            role="menu"
+            aria-label="Upload and tools"
+            className="willow-gem-menu-in overflow-hidden"
+            style={{
+              width: Math.min(375, typeof window !== 'undefined' ? window.innerWidth - 32 : 375),
+              backgroundColor: isLight ? '#ffffff' : '#1c1c1c',
+              borderRadius: 20,
+              padding: 8,
+              boxShadow: isLight ? '0 0 20px rgba(0,0,0,0.06)' : MENU_SHADOW,
+              transformOrigin: side === 'top' ? '0 100%' : '0 0',
+            }}
+          >
+            {renderUploadButtonsRow()}
+            {!sparkMode && <Divider />}
+            {sparkMode && sparkToolsEnabled && <Divider />}
+            {renderToolsList()}
+          </div>
+        </div>
+      </PlusMenuThemeContext.Provider>
+    );
+  }
 
   return (
     <PlusMenuThemeContext.Provider value={{ isLight }}>
@@ -658,7 +975,7 @@ const PersonalIntelligenceRow: React.FC<{
         <span className={`${LABEL_CLASS} ${isLight ? '!text-[#1f1f1f]' : ''}`} style={LABEL_STYLE}>Personal Intelligence</span>
         <span
           className="text-[13px] leading-[17px] font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
-          style={{ ...LABEL_STYLE, color: isLight ? 'rgba(0, 0, 0, 0.55)' : 'rgba(255, 255, 255, 0.55)' }}
+          style={{ ...LABEL_STYLE, color: isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)' }}
         >
           Labs
         </span>

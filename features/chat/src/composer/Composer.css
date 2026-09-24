@@ -142,8 +142,36 @@
   animation: willow-gem-menu-in 0.1s ease-in-out;
 }
 
+@keyframes willow-bottom-sheet-enter {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
+}
+
+.willow-bottom-sheet-enter {
+  animation: willow-bottom-sheet-enter 0.195s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+@keyframes willow-backdrop-fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.willow-backdrop-fade-in {
+  animation: willow-backdrop-fade-in 0.2s ease forwards;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .willow-gem-menu-in { animation: none; }
+  .willow-bottom-sheet-enter { animation: none; }
+  .willow-backdrop-fade-in { animation: none; }
 }
 
 /* ==========================================================================
