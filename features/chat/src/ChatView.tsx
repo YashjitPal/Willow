@@ -3636,7 +3636,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               weight={300}
               roundness={100}
               opticalSize={20}
-              className={`transition-transform duration-200 ${isMobileModelsOpen ? 'rotate-180' : ''}`}
+              className={`text-[#062e6f] transition-transform duration-200 ${isMobileModelsOpen ? 'rotate-180' : ''}`}
             />
           </button>
           {isMobileModelsOpen && (
