@@ -59,7 +59,7 @@ test('Chat surface adapts messages, bubbles, and composer docking for mobile vie
   const chatView = read('features/chat/src/ChatView.tsx');
   assert.match(chatView, /px-3\.5 sm:px-7 pt-\[56px\] sm:pt-\[72px\]/);
   assert.match(chatView, /w-full sm:w-auto sm:max-w-\[516px\]/);
-  assert.match(chatView, /px-4 max-\[960px\]:pb-\[12px\] min-\[961px\]:pb-\[49px\]/);
+  assert.match(chatView, /px-4 pb-\[12px\] min-\[769px\]:pb-\[16px\] min-\[961px\]:pb-\[49px\]/);
 
   const chrome = read('features/chat/src/ChatResponseChrome.tsx');
   assert.match(chrome, /w-\[400px\] max-w-\[calc\(100%_-_32px\)\]/);
