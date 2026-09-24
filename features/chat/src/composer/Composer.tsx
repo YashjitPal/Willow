@@ -814,11 +814,12 @@ export const InputBar: React.FC<{
     && !hasContent
     && !liveActive
     && !responseControlActive
-    && !isTranscribingDictation;
+    && !isTranscribingDictation
+    && !liveAvailable;
 
   // True when this slot is the one that mounts and unmounts with the draft, so
   // the entrance below applies only where Gemini actually plays it.
-  const isSubmitControlContentGated = chatVariant && !liveActive;
+  const isSubmitControlContentGated = chatVariant && !liveActive && !liveAvailable;
 
   // Synchronous expand flag for the LEFT CLUSTER ONLY: when a tool is picked, the
   // chip mounts in the same render, so the left group's bottom/py must flip now
@@ -959,12 +960,12 @@ export const InputBar: React.FC<{
             * fullscreen control) plus `box-shadow 0.1s` on `input-area-v2` and
             * `padding-inline 0.2s` on `input-container`; none of those is size.
             */}
-          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px] max-[960px]:pt-5 max-[960px]:pb-[72px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-[769px]:max-[960px]:py-[24px] max-[768px]:py-[28px] min-h-[64px] min-[769px]:max-[960px]:min-h-[72px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[56px] max-[960px]:pt-3.5 max-[960px]:pb-[56px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-[769px]:max-[960px]:py-[24px] max-[768px]:py-[28px] min-h-[64px] min-[769px]:max-[960px]:min-h-[72px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
             {chatVariant && !isDictationActive && (
               <button
                 type="button"
                 onClick={toggleComposerMaximized}
-                className={`absolute right-[-7px] top-[8px] z-[70] flex h-10 w-10 items-center justify-center rounded-full p-2 ${isLight ? 'text-[#444746] hover:text-[#1f1f1f] hover:bg-black/[0.08] focus-visible:ring-black/25' : 'text-[#c4c7c5] hover:bg-white/[0.08] focus-visible:ring-white/25'} transition-[opacity,transform,background-color] duration-[300ms] delay-[100ms] ease-[cubic-bezier(0.2,0,0,1)] focus-visible:outline-none focus-visible:ring-2 ${showComposerMaximizeToggle ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-[0.8] opacity-0'}`}
+                className={`max-[960px]:hidden absolute right-[-7px] top-[8px] z-[70] flex h-10 w-10 items-center justify-center rounded-full p-2 ${isLight ? 'text-[#444746] hover:text-[#1f1f1f] hover:bg-black/[0.08] focus-visible:ring-black/25' : 'text-[#c4c7c5] hover:bg-white/[0.08] focus-visible:ring-white/25'} transition-[opacity,transform,background-color] duration-[300ms] delay-[100ms] ease-[cubic-bezier(0.2,0,0,1)] focus-visible:outline-none focus-visible:ring-2 ${showComposerMaximizeToggle ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-[0.8] opacity-0'}`}
                 aria-label="Expand input to Fullscreen"
                 aria-pressed={isComposerMaximized}
                 aria-hidden={!showComposerMaximizeToggle}
@@ -1033,7 +1034,7 @@ export const InputBar: React.FC<{
                * so the prompt box scrolls with nothing visible in the gutter. Hiding the
                * bar reproduces what is on screen; the default black strip did not.
                */
-              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775] max-[960px]:placeholder-black/55" : "placeholder-[#bdc1c6] max-[960px]:placeholder-white/55") + " placeholder:text-[17px] max-[960px]:placeholder:text-[20px] max-[960px]:placeholder:font-[375] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] min-[769px]:max-[960px]:pl-[58px] max-[768px]:pl-[54px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
+              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775] max-[960px]:placeholder-black/55" : "placeholder-[#bdc1c6] max-[960px]:placeholder-white/55") + " placeholder:text-[17px] max-[960px]:placeholder:text-[20px] max-[960px]:placeholder:font-[375] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[8px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[8px] pr-[8px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] min-[769px]:max-[960px]:pl-[58px] max-[768px]:pl-[54px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`}`}
             />
 
             {chatVariant && isDictationActive && (
@@ -1074,8 +1075,8 @@ export const InputBar: React.FC<{
               * never actually rests at, which looks like "no horizontal movement".
               * Type a line at a time and let it settle, or don't trust the number.
               */}
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] willow-composer-leading-actions ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] max-[768px]:bottom-[20px] ${chatVariant ? 'left-[6px] min-[769px]:max-[960px]:left-[10px] max-[768px]:left-[6px]' : 'left-[0px]'}`} `}>
-              <div className={`${chatVariant ? 'w-8 max-[960px]:w-10' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'py-2.5' : ''}`}>
+            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] willow-composer-leading-actions ${solidExpanded && chatVariant ? 'bottom-[12px] left-[0px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] max-[768px]:bottom-[20px] ${chatVariant ? 'left-[6px] min-[769px]:max-[960px]:left-[10px] max-[768px]:left-[6px]' : 'left-[0px]'}`} `}>
+              <div className={`${chatVariant ? 'w-8 max-[960px]:w-10' : 'w-[30px]'} flex items-center justify-center`}>
                 <button 
                   ref={solidPlusRef}
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
@@ -1143,7 +1144,7 @@ export const InputBar: React.FC<{
               * invisibly on the 400ms ease; with the ease gone (Gemini doesn't
               * have one) the same 1px became a visible sideways jerk on every
               * wrap and unwrap. Keep it constant. */}
-            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'min-[769px]:max-[960px]:gap-1.5 max-[768px]:gap-2' : ''} ${chatVariant ? 'bottom-[12px] min-[769px]:max-[960px]:bottom-[16px] max-[768px]:bottom-[20px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'min-[769px]:max-[960px]:gap-1.5 max-[768px]:gap-2' : ''} ${solidExpanded && chatVariant ? 'bottom-[12px] right-[0px]' : chatVariant ? 'bottom-[12px] min-[769px]:max-[960px]:bottom-[16px] max-[768px]:bottom-[20px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
               {chatVariant && !isDictationActive && (
                 <div className="relative hidden min-[961px]:flex items-center shrink-0">
                   <button
@@ -1216,7 +1217,7 @@ export const InputBar: React.FC<{
                 {isDictationActive && chatVariant && !isMicMuteToggle ? (
                   <span className={`w-2.5 h-2.5 rounded-[1.5px] ${isLight ? 'bg-[#1f1f1f]' : 'bg-[#e3e3e3]'}`} aria-hidden="true" />
                 ) : chatVariant ? (
-                  <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} className="max-[960px]:!w-7 max-[960px]:!h-7 max-[960px]:!text-[28px]" />
+                  <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} />
                 ) : (
                   <Mic size={20} strokeWidth={1.8} />
                 )}
@@ -1227,7 +1228,7 @@ export const InputBar: React.FC<{
                 {isMicMuteToggle && liveMicMuted && (
                   <MicMutedSlash
                     size={chatVariant ? 24 : 20}
-                    className="absolute inset-0 m-auto pointer-events-none max-[960px]:w-7 max-[960px]:h-7"
+                    className="absolute inset-0 m-auto pointer-events-none"
                   />
                 )}
               </button>
@@ -1283,7 +1284,7 @@ export const InputBar: React.FC<{
                 onMouseLeave={() => setIsSubmitHovered(false)}
                 onMouseOver={() => setIsSubmitHovered(true)}
                 onMouseOut={() => setIsSubmitHovered(false)}
-                className={`${isSubmitControlHidden ? 'hidden' : 'flex'} ${chatVariant ? 'w-8 h-8' : 'w-[34px] h-[34px]'} rounded-full items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
+                className={`${isSubmitControlHidden ? 'hidden' : 'flex'} ${chatVariant ? 'w-8 h-8 max-[960px]:w-10 max-[960px]:h-10' : 'w-[34px] h-[34px]'} rounded-full items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
                   chatVariant
                     ? responseControlActive || liveActive
                       ? isLight ? 'bg-[#f2f0f0] hover:bg-[#e5e5e5]' : 'bg-[#171717] hover:bg-[#282828]'
@@ -1309,12 +1310,12 @@ export const InputBar: React.FC<{
                   <MaterialSymbol name="progress_activity" size={20} weight={400} className={chatVariant ? (isLight ? 'text-black' : 'text-white') : 'text-black'} />
                 ) : hasContent ? (
                   chatVariant
-                    ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className={`max-[960px]:!w-7 max-[960px]:!h-7 max-[960px]:!text-[28px] ${isLight ? 'text-black' : 'text-white'}`} />
+                    ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className={isLight ? 'text-black' : 'text-white'} />
                     : <ArrowUp size={22} className="text-black stroke-[2]" />
                 ) : chatVariant && liveActive ? (
-                  <MaterialSymbol name="stop" size={18} weight={600} fill className={`max-[960px]:!w-6 max-[960px]:!h-6 max-[960px]:!text-[22px] ${isLight ? 'text-black' : 'text-white'}`} />
+                  <MaterialSymbol name="stop" size={18} weight={600} fill className={isLight ? 'text-black' : 'text-white'} />
                 ) : chatVariant ? (
-                  <svg width="24" height="24" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className={`max-[960px]:w-7 max-[960px]:h-7 ${isLight ? 'text-black' : 'text-white'}`}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className={isLight ? 'text-black' : 'text-white'}>
                     <path d="M10 3.1a.9.9 0 0 1 .9.9v16a.9.9 0 0 1-1.8 0V4a.9.9 0 0 1 .9-.9M15 5.6a.9.9 0 0 1 .9.9v10a.9.9 0 0 1-1.8 0v-10a.9.9 0 0 1 .9-.9M5 8.6a.9.9 0 0 1 .9.9v5a.9.9 0 0 1-1.8 0v-5a.9.9 0 0 1 .9-.9M20 9.1a.9.9 0 0 1 .9.9v4a.9.9 0 0 1-1.8 0v-4a.9.9 0 0 1 .9-.9"/>
                   </svg>
                 ) : liveActive ? (

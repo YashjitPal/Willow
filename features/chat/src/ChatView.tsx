@@ -1711,10 +1711,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // Whether the user has added a Gemini Live model to their saved models.
   // Live mode is gated on this — users must explicitly add it from Settings → Models.
   const hasLiveModel = useMemo(() => {
-    const savedModels = modelConfig?.gemini?.savedModels || [];
-    return savedModels.some((m: any) => {
+    const geminiModels = modelConfig?.gemini?.savedModels || [];
+    const allSaved = [
+      ...geminiModels,
+      ...(modelConfig?.openai?.savedModels || []),
+      ...(modelConfig?.anthropic?.savedModels || []),
+      ...(modelConfig?.moonshot?.savedModels || []),
+      ...(modelConfig?.spacexai?.savedModels || []),
+      ...(modelConfig?.zhipuai?.savedModels || []),
+    ];
+    return allSaved.some((m: any) => {
       const id = (m.modelId || m.id || '').toLowerCase();
-      return id.includes('gemini') && id.includes('live');
+      const name = (m.name || '').toLowerCase();
+      return id.includes('live') || id.includes('realtime') || name.includes('live');
     });
   }, [modelConfig]);
 

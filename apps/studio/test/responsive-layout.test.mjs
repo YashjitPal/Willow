@@ -89,16 +89,19 @@ test('Chat prompt box matches Gemini 3-tier specs: 64px desktop, 72px tablet, 80
   // Width: consumes full width on mobile (<= 768px) and max-w-[660px] on tablet/desktop:
   assert.match(composer, /max-\[768px\]:max-w-full min-\[769px\]:max-w-\[660px\]/);
 
-  // Submit / Send button matches Gemini: 32px (w-8 h-8) and hidden when empty across all viewports:
+  // Submit / Send / Live button matches Gemini: 32px desktop, 40px mobile/tab, gated on liveAvailable:
   assert.match(composer, /isSubmitControlHidden \? 'hidden' : 'flex'/);
-  assert.match(composer, /chatVariant \? 'w-8 h-8' : 'w-\[34px\] h-\[34px\]'/);
+  assert.match(composer, /!liveAvailable/);
+  assert.match(composer, /chatVariant \? 'w-8 h-8 max-\[960px\]:w-10 max-\[960px\]:h-10' : 'w-\[34px\] h-\[34px\]'/);
+
+  // Expand input to fullscreen button removed in mobile/tab view:
+  assert.match(composer, /max-\[960px\]:hidden absolute right-\[-7px\] top-\[8px\][\s\S]*?Expand input to Fullscreen/);
 
   // Selected tool chip placement matches Gemini:
   // Tablet & Mobile (<= 960px): dedicated top row above textarea with 48px pill chip:
   assert.match(composer, /min-\[961px\]:hidden flex items-center mb-4 pl-1/);
   assert.match(composer, /<MobileToolChip toolId=\{selectedTool\}/);
   assert.match(composer, /flex h-12 shrink-0 select-none items-center rounded-full/);
-  assert.match(composer, /max-\[960px\]:pt-5 max-\[960px\]:pb-\[72px\]/);
 
   // Desktop (> 960px): bottom row beside plus button:
   assert.match(composer, /hidden min-\[961px\]:block mt-\[1px\][\s\S]*?<ToolChip/);
