@@ -1074,7 +1074,7 @@ export const HeroSection: React.FC<{
               the composer as it wraps, which a wrapper out here cannot do. */}
           {/* Mobile zero-state greeting with Willow logo for <= 960px viewports when composer is docked at the bottom */}
           {pinnedComposer && isGreetingReady && (
-            <div className="min-[961px]:hidden flex flex-col items-center justify-center px-4 pb-20 text-center select-none">
+            <div className="min-[961px]:hidden flex flex-col items-center justify-center w-full px-4 pb-20 text-center select-none">
               {!isIncognito && (
                 <img
                   src={logo}

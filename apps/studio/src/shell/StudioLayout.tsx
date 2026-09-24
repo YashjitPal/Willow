@@ -385,10 +385,12 @@ export const StudioLayout: React.FC<{
           </div>
         )}
         <main
-          className={`flex-1 relative z-10 overflow-y-auto scroll-smooth flex flex-col ${
+          className={`flex-1 relative z-10 ${
+            isChatExperience ? 'overflow-hidden' : 'overflow-y-auto scroll-smooth'
+          } flex flex-col ${
             isChatExperience ? '' : 'spark-studio-scroll'
           }`}
-          style={{ scrollbarGutter: 'stable' }}
+          style={isChatExperience ? undefined : { scrollbarGutter: 'stable' }}
         >
              {children}
         </main>

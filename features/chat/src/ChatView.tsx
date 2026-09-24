@@ -3649,8 +3649,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
           the moment streamed content grows tall enough to spawn a scrollbar. */}
       <div
         ref={chatScrollRef}
-        className="gemini-chat-scrollbar min-h-0 flex-1 overflow-y-auto"
-        style={{ scrollbarGutter: 'stable' }}
+        className={`gemini-chat-scrollbar min-h-0 flex-1 ${
+          !hasStarted && !showBlankThread
+            ? 'overflow-y-hidden min-[961px]:overflow-y-auto'
+            : 'overflow-y-auto'
+        }`}
+        style={{ scrollbarGutter: hasStarted || showBlankThread ? 'stable' : 'auto' }}
         {...voiceFocusSurfaceAttributes}
       >
         {/* Zero state lives in the same scroller as the thread, so the two
@@ -3664,7 +3668,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             because this scroller has a definite height (`flex-1` + `min-h-0`). */}
         {!hasStarted && !showBlankThread && (
           <>
-            <div className="h-full">
+            <div className="h-full w-full">
               <HeroSection
                 initialMode="chat"
                 pinnedComposer
@@ -3679,13 +3683,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
               />
             </div>
             {isAuthenticated && (
-              // `empty:pb-0` because BottomPanel renders nothing on a solid
-              // background (MediaShowcase: `background === 'solid' && !forceVisible`
-              // returns null). The old tree's `min-h-full` swallowed the stray
-              // padding; the hero is now exactly one column tall — it has to be,
-              // since the greeting anchors to 50% of it — so an empty wrapper
-              // would otherwise leave the zero state scrollable by 80px of nothing.
-              <div className="pb-20 empty:pb-0">
+              // On mobile viewports (<= 960px), recents live in the sidebar drawer
+              // matching Gemini mobile; suppressing BottomPanel here guarantees
+              // the zero state height matches the viewport with no stray overflow.
+              <div className="hidden min-[961px]:block pb-20 empty:pb-0">
                 <BottomPanel onOpenDriveSettings={onOpenDriveSettings} />
               </div>
             )}

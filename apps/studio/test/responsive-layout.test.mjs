@@ -86,3 +86,21 @@ test('Chat top header adapts navigation, actions, model switcher, and user avata
   // Model button inside composer is hidden on mobile/tablets to give full width to input:
   assert.match(composer, /relative hidden min-\[961px\]:block/);
 });
+
+test('Mobile zero-state suppresses overflow, scrollbars, and asymmetric gutters for 100% horizontal centering', () => {
+  const html = read('apps/studio/index.html');
+  assert.match(html, /main\s*\{\s*scrollbar-gutter:\s*auto\s*!important;\s*\}/);
+  assert.match(html, /\.gemini-chat-scrollbar\s*\{\s*scrollbar-gutter:\s*auto\s*!important;\s*\}/);
+
+  const layout = read('apps/studio/src/shell/StudioLayout.tsx');
+  assert.match(layout, /isChatExperience \? 'overflow-hidden' : 'overflow-y-auto scroll-smooth'/);
+  assert.match(layout, /style=\{isChatExperience \? undefined : \{ scrollbarGutter: 'stable' \}\}/);
+
+  const chatView = read('features/chat/src/ChatView.tsx');
+  assert.match(chatView, /overflow-y-hidden min-\[961px\]:overflow-y-auto/);
+  assert.match(chatView, /scrollbarGutter: hasStarted \|\| showBlankThread \? 'stable' : 'auto'/);
+  assert.match(chatView, /hidden min-\[961px\]:block pb-20 empty:pb-0/);
+
+  const mediaHome = read('features/media/src/MediaHome.tsx');
+  assert.match(mediaHome, /min-\[961px\]:hidden flex flex-col items-center justify-center w-full px-4 pb-20 text-center select-none/);
+});
