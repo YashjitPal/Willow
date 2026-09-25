@@ -53,7 +53,7 @@ export const SidebarItem: React.FC<{
       }}
       className={`sidebar-item-row relative flex h-8 max-[960px]:h-11 items-center transition-colors duration-150 group/item cursor-pointer outline-none
         ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : `mx-auto w-full gap-1.5 max-[960px]:gap-3 ${!Icon && !symbol ? 'pl-[8px] max-[960px]:pl-4 pr-1.5 max-[960px]:pr-4' : 'px-1.5 max-[960px]:px-4'} overflow-hidden`}
-        ${active ? 'bg-[#171717]' : ''} ${isLight ? (active ? '!bg-[#f2f0f0] !text-[#000000]' : '!text-[#000000] hover:!bg-black/[0.05]') : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'}
+        ${active ? 'is-active bg-[#171717] max-[960px]:!bg-[#141414]' : ''} ${isLight ? (active ? '!bg-[#f2f0f0] !text-[#000000]' : '!text-[#000000] hover:!bg-black/[0.05]') : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'}
         rounded-full`}
     >
       {symbol ? (
@@ -73,7 +73,7 @@ export const SidebarItem: React.FC<{
         </div>
       ) : null}
       {!isCollapsed && (
-        <span className={`sidebar-item-label whitespace-nowrap text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} ${isLight ? '!text-[#000000]' : ''} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
+        <span className={`sidebar-item-label whitespace-nowrap text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white max-[960px]:!font-normal max-[960px]:!text-[#e0e0e0]' : 'font-normal text-[#e6e6e6] max-[960px]:!text-[#e0e0e0]'} ${isLight ? '!text-[#000000]' : ''} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
           {customLabel || label}
         </span>
       )}

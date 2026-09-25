@@ -755,8 +755,8 @@ const SparkSidebarItem: React.FC<{
       data-tooltip-position="right"
       className={`sidebar-item-row group/spark-item relative flex h-8 max-[960px]:h-11 items-center rounded-full outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white/25 ${
         isLight
-          ? `text-[#000000] hover:bg-black/[0.05] ${active ? 'bg-[#f2f0f0]' : ''}`
-          : `text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] ${active ? 'bg-[#171717]' : ''}`
+          ? `text-[#000000] hover:bg-black/[0.05] ${active ? 'is-active bg-[#f2f0f0]' : ''}`
+          : `text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] ${active ? 'is-active bg-[#171717] max-[960px]:!bg-[#141414]' : ''}`
       } ${
         isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5' : 'w-full gap-1.5 max-[960px]:gap-3 px-1.5 max-[960px]:px-4'
       }`}
@@ -772,7 +772,7 @@ const SparkSidebarItem: React.FC<{
         />
       </div>
       {!isCollapsed && (
-        <span className={`sidebar-item-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} ${isLight ? '!text-[#1f1f1f]' : ''}`}>
+        <span className={`sidebar-item-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 ${active ? 'font-medium text-white max-[960px]:!font-normal max-[960px]:!text-[#e0e0e0]' : 'font-normal text-[#e6e6e6] max-[960px]:!text-[#e0e0e0]'} ${isLight ? '!text-[#1f1f1f]' : ''}`}>
           {label}
         </span>
       )}
@@ -1696,8 +1696,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           compresses into the compact switch instead of swapping in place. */}
       <div className="relative mt-1 mb-[12px] h-8 w-full shrink-0 overflow-hidden px-1.5 max-[960px]:mt-3 max-[960px]:mb-7 max-[960px]:h-8 max-[960px]:px-2">
         <div
-          className={`relative flex h-8 w-full items-center rounded-full p-[2px] ${
-            isCollapsed ? 'bg-transparent' : (isLight ? 'bg-[#f2f0f0]' : 'bg-[#171717]')
+          className={`sidebar-mode-switcher relative flex h-8 w-full items-center rounded-full p-[2px] ${
+            isCollapsed ? 'bg-transparent' : (isLight ? 'bg-[#f2f0f0]' : 'bg-[#171717] max-[960px]:bg-[#141414]')
           }`}
           style={{ transition: `background-color ${GEMINI_SIDEBAR_SURFACE_MOTION}` }}
         >
@@ -1717,7 +1717,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             * its travel and settles, where the old one decelerated linearly into place.
             */}
           <div
-            className={`absolute top-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-full ${isLight ? 'bg-white shadow-sm' : 'bg-[#1f1f1f] max-[960px]:bg-[#1c1c1c]'}`}
+            className={`sidebar-mode-slider absolute top-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-full ${isLight ? 'bg-white shadow-sm' : 'bg-[#1f1f1f] max-[960px]:bg-[#1c1c1c]'}`}
             style={{
               left: studioExperience === 'spark' ? '50%' : '2px',
               opacity: isCollapsed ? 0 : 1,
