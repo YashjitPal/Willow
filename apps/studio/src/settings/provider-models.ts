@@ -237,10 +237,9 @@ export const GEMINI_MODELS: ProviderModelOption[] = [
 ];
 
 export const OPENAI_MODELS: ProviderModelOption[] = [
+  { id: 'gpt-6-sol', name: 'GPT 6 Sol', maxLevels: 3, hasNone: false },
   { id: 'gpt-6-astra', name: 'GPT 6 Astra', maxLevels: 3, hasNone: false },
-  { id: 'gpt-5.6-sol', name: 'GPT 5.6 Sol', maxLevels: 3, hasNone: false },
-  { id: 'gpt-5.6-terra', name: 'GPT 5.6 Terra', maxLevels: 3, hasNone: false },
-  { id: 'gpt-5.6-luna', name: 'GPT 5.6 Luna', maxLevels: 3, hasNone: false },
+  { id: 'gpt-6-luna', name: 'GPT 6 Luna', maxLevels: 3, hasNone: false },
   { id: 'gpt-image-2', name: 'GPT Image 2', maxLevels: 3, hasNone: false },
 ];
 
@@ -353,11 +352,9 @@ const MODEL_PRICES: Record<string, string> = {
   'gemini-3.5-transcribe-live': '$3.50/$21.00',
 
   // ── OpenAI ────────────────────────────────────────────────────────────────
+  'gpt-6-sol': '',
   'gpt-6-astra': '',
-  // Sol is on a promotional rate at least to 2026-11-21; list is $5.00/$30.00.
-  'gpt-5.6-sol': '$4.00/$20.00',
-  'gpt-5.6-terra': '$2.00/$12.00',
-  'gpt-5.6-luna': '$0.20/$1.20',
+  'gpt-6-luna': '',
   // Text input against image output. Image *input*, for edits, is $8.00.
   'gpt-image-2': '$5.00/$30.00',
 

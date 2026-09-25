@@ -320,13 +320,90 @@ export const ChatView: React.FC<ChatViewProps> = ({
 }) => {
   const { isLight } = useThemeMode();
   const [isMobileModelsOpen, setIsMobileModelsOpen] = useState(false);
+  const [isMobileModelPressed, setIsMobileModelPressed] = useState(false);
+  const [mobileModelRipple, setMobileModelRipple] = useState<{
+    x: number;
+    y: number;
+    size: number;
+    key: number;
+  } | null>(null);
+
+  const handleMobileModelPressStart = (clientX?: number, clientY?: number, currentTarget?: HTMLElement | null) => {
+    setIsMobileModelPressed(true);
+    if (currentTarget && clientX !== undefined && clientY !== undefined) {
+      const rect = currentTarget.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const size = Math.max(rect.width, rect.height) * 2.4;
+      setMobileModelRipple({ x, y, size, key: Date.now() });
+    } else if (currentTarget) {
+      const rect = currentTarget.getBoundingClientRect();
+      const x = rect.width / 2;
+      const y = rect.height / 2;
+      const size = Math.max(rect.width, rect.height) * 2.4;
+      setMobileModelRipple({ x, y, size, key: Date.now() });
+    }
+  };
+
   const mobileModelButtonRef = useRef<HTMLButtonElement>(null);
-  const { activeModel, getShortName } = useComposerModels({
+  const { activeModel, getShortName, activeEffortDisplayLabel } = useComposerModels({
     modelConfig,
     selectedModelId,
     setSelectedModelId,
   });
-  const mobileModelLabel = activeModel ? getShortName(activeModel.name) : 'Willow';
+  const mobileModelInfo = useMemo(() => {
+    if (!activeModel) {
+      return { primary: 'Willow', secondary: '' };
+    }
+    const fullName = activeModel.name || '';
+    const effort = activeEffortDisplayLabel;
+
+    // Detect provider prefix (e.g. Gemini, Claude, GPT, Grok, Kimi, GLM, DeepSeek, Mistral, Llama, Qwen, etc.)
+    const providerRegex = /^(Gemini|Claude|GPT|OpenAI|Google|Anthropic|DeepSeek|Meta|Mistral|Grok|Kimi|GLM|Llama|Qwen)\b/i;
+    const match = fullName.match(providerRegex);
+    const provider = match ? match[0] : '';
+    const modelWithoutProvider = provider
+      ? fullName.slice(provider.length).trim()
+      : fullName;
+
+    // Case 1: Thinking active (e.g. "High", "Medium", "Low", "Max")
+    // Target format: [Model Without Provider] (White) + [Effort] (Off-white)
+    // e.g. "3.8 Flash" (White) + "High" (Off-white)
+    // e.g. "Opus 5.5" (White) + "High" (Off-white)
+    // e.g. "6 Sol" (White) + "Medium" (Off-white)
+    if (effort && effort.toLowerCase() !== 'none') {
+      return {
+        primary: modelWithoutProvider || fullName,
+        secondary: effort,
+      };
+    }
+
+    // Case 2: Non-thinking
+    // Target format: [Provider] (White) + [Model Without Provider] (Off-white)
+    // e.g. "Gemini" (White) + "3.8 Flash" (Off-white)
+    // e.g. "Claude" (White) + "Opus 5.5" (Off-white)
+    // e.g. "GPT" (White) + "6 Sol" (Off-white)
+    if (provider) {
+      return {
+        primary: provider,
+        secondary: modelWithoutProvider,
+      };
+    }
+
+    // Fallback for models without recognized provider prefix: split first word
+    const parts = fullName.split(' ');
+    if (parts.length > 1) {
+      return {
+        primary: parts[0],
+        secondary: parts.slice(1).join(' '),
+      };
+    }
+
+    return {
+      primary: fullName,
+      secondary: '',
+    };
+  }, [activeModel, activeEffortDisplayLabel]);
   const { loading: isAuthResolving } = useAuth();
   const { apiKeys, loading: areKeysLoading } = useUserDataContext();
   const {
@@ -3612,31 +3689,103 @@ export const ChatView: React.FC<ChatViewProps> = ({
           contextSidebarOpen ? 'min-[1024px]:mr-[428px]' : 'mr-0'
         }`}
       >
-        {/* Mobile top-bar model switcher (Exact Gemini mobile specs at x:56, y:14) */}
-        <div className="min-[961px]:hidden absolute top-[14px] left-[56px] z-30 flex items-center">
+        {/* Mobile/tablet top-bar model switcher (Exact Gemini specs: 16px-18px Google Sans Flex, vertically centered at y:32px) */}
+        <div className="min-[961px]:hidden absolute top-[14px] left-[56px] z-30 flex items-center" style={{ zIndex: 40 }}>
           <button
             ref={mobileModelButtonRef}
             type="button"
             onClick={() => setIsMobileModelsOpen((prev) => !prev)}
-            className={`flex items-center gap-1 h-9 px-3 rounded-full text-[14px] font-medium transition-colors ${
-              isLight
-                ? 'text-[#1f1f1f] hover:bg-black/5 active:bg-black/10'
-                : 'text-[#e3e3e3] hover:bg-white/[0.08] active:bg-white/[0.12]'
+            onPointerDown={(e) => handleMobileModelPressStart(e.clientX, e.clientY, e.currentTarget)}
+            onPointerUp={() => setIsMobileModelPressed(false)}
+            onPointerLeave={() => setIsMobileModelPressed(false)}
+            onPointerCancel={() => setIsMobileModelPressed(false)}
+            onTouchStart={(e) => {
+              const t = e.touches[0];
+              if (t) handleMobileModelPressStart(t.clientX, t.clientY, e.currentTarget);
+            }}
+            onTouchEnd={() => setIsMobileModelPressed(false)}
+            className={`studio-mobile-model-button relative flex items-center gap-2.5 h-[44px] -mt-[4px] pl-4 pr-[18px] rounded-full text-[16px] min-[640px]:text-[17px] min-[769px]:text-[18px] leading-6 select-none pointer-events-auto overflow-hidden bg-transparent ${
+              (isMobileModelPressed || isMobileModelsOpen)
+                ? 'is-active is-open'
+                : ''
             }`}
-            aria-label="Select model"
+            style={{
+              position: 'relative',
+              zIndex: 40,
+              touchAction: 'manipulation',
+              fontFamily: '"Google Sans Flex", "Google Sans", "Google Sans Text", sans-serif',
+            }}
+            aria-label={`Select model, currently ${mobileModelInfo.primary} ${mobileModelInfo.secondary}`.trim()}
             aria-expanded={isMobileModelsOpen}
           >
-            <span className="font-['Google_Sans_Flex','Google_Sans',sans-serif] tracking-tight font-medium">
-              {mobileModelLabel}
+            {/* Material 3 Expanding Ink Ripple */}
+            {mobileModelRipple && (isMobileModelPressed || isMobileModelsOpen) && (
+              <span
+                key={mobileModelRipple.key}
+                className={`studio-m3-ripple pointer-events-none ${isLight ? 'bg-[#d3e3fd]' : 'bg-[#151d29]'}`}
+                style={{
+                  left: mobileModelRipple.x,
+                  top: mobileModelRipple.y,
+                  width: mobileModelRipple.size,
+                  height: mobileModelRipple.size,
+                }}
+              />
+            )}
+            {/* Material 3 Full Pill State Layer */}
+            <span
+              className={`studio-mobile-model-pill pointer-events-none ${
+                isLight ? 'bg-[#d3e3fd]' : 'bg-[#151d29]'
+              } ${
+                (isMobileModelPressed || isMobileModelsOpen)
+                  ? 'is-active is-open opacity-100 scale-100'
+                  : 'opacity-0 scale-[0.92]'
+              }`}
+            />
+            {/* Text and Chevron content sitting on relative z-10 */}
+            <span
+              className="relative z-10 flex items-center gap-1"
+              style={{
+                fontFamily: '"Google Sans Flex", "Google Sans", "Google Sans Text", sans-serif',
+              }}
+            >
+              <span
+                className="font-medium"
+                style={{
+                  color: isLight ? '#1f1f1f' : '#e3e3e3',
+                  fontFamily: '"Google Sans Flex", "Google Sans", "Google Sans Text", sans-serif',
+                  fontVariationSettings: '"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470',
+                  letterSpacing: '-0.3px',
+                }}
+              >
+                {mobileModelInfo.primary}
+              </span>
+              {mobileModelInfo.secondary && (
+                <span
+                  className="font-normal"
+                  style={{
+                    color: isLight ? '#70757a' : '#8c8c8c',
+                    fontFamily: '"Google Sans Flex", "Google Sans", "Google Sans Text", sans-serif',
+                    fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
+                    letterSpacing: 'normal',
+                  }}
+                >
+                  {mobileModelInfo.secondary}
+                </span>
+              )}
             </span>
             <MaterialSymbol
               name="expand_more"
               family="luminous"
-              size={18}
-              weight={300}
+              size={20}
+              weight={320}
               roundness={100}
               opticalSize={20}
-              className={`text-[#062e6f] transition-transform duration-200 ${isMobileModelsOpen ? 'rotate-180' : ''}`}
+              className={`relative z-10 text-[#062e6f] transition-transform duration-250 ease-[cubic-bezier(0.2,0,0,1)] ${isMobileModelsOpen ? 'rotate-180' : ''}`}
+              style={{
+                color: (isMobileModelPressed || isMobileModelsOpen)
+                  ? (isLight ? '#041e49' : '#062e6f')
+                  : (isLight ? '#1a73e8' : '#1d68a8'),
+              }}
             />
           </button>
           {isMobileModelsOpen && (
@@ -3650,6 +3799,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 setIsMobileModelsOpen(false);
               }}
               onAuthRequired={onAuthRequired}
+              geminiStyle
+              align="left"
             />
           )}
         </div>

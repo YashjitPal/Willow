@@ -684,7 +684,7 @@ export const HeroSection: React.FC<{
 
   return (
     <div
-      className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative z-30 ${mtClass} ${glowClass}`}
+      className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative ${pinnedComposer ? 'z-10 pointer-events-none' : 'z-30'} ${mtClass} ${glowClass}`}
       style={{
         '--willow-home-glow-accent': glowAccent,
         '--willow-home-glow-mobile-accent': glowAccentMobile,

@@ -52,7 +52,7 @@ export interface AutoSelection {
  */
 const FAMILY_ORDER: Record<AutoSelectProvider, string[]> = {
   gemini: ['flash-lite', 'flash', 'pro'],
-  openai: ['luna', 'terra', 'sol', 'astra'],
+  openai: ['luna', 'sol', 'astra'],
   anthropic: ['haiku', 'sonnet', 'opus', 'fable'],
 };
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { Sidebar, ViewType } from './sidebar/Sidebar';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
@@ -113,6 +113,7 @@ export const StudioLayout: React.FC<{
   const voiceModeActive = useStore($voiceModeActive);
   const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
   const studioSurface = isLight ? '#faf9f9' : undefined;
+  const [isSidebarOpenPressed, setIsSidebarOpenPressed] = useState(false);
   
   return (
     <div
@@ -149,11 +150,24 @@ export const StudioLayout: React.FC<{
         <button
           type="button"
           className="studio-sidebar-mobile-open"
+          style={{
+            backgroundColor: isSidebarOpenPressed
+              ? (isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(227, 227, 227, 0.18)')
+              : undefined,
+          }}
           aria-label="Open sidebar"
           onClick={() => setIsSidebarCollapsed(false)}
+          onPointerDown={() => setIsSidebarOpenPressed(true)}
+          onPointerUp={() => setIsSidebarOpenPressed(false)}
+          onPointerLeave={() => setIsSidebarOpenPressed(false)}
+          onPointerCancel={() => setIsSidebarOpenPressed(false)}
+          onTouchStart={() => setIsSidebarOpenPressed(true)}
+          onTouchEnd={() => setIsSidebarOpenPressed(false)}
         >
+          {/* Material 3 circular ripple indicator */}
+          <span className={`studio-icon-ripple ${isSidebarOpenPressed ? 'is-pressed' : ''}`} />
           <span
-            className="lumi-symbols select-none leading-none"
+            className="relative z-10 lumi-symbols select-none leading-none"
             style={{
               fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
               fontSize: '32px',

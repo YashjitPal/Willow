@@ -40,7 +40,7 @@ it('orders the catalog from the persisted modelOrder and appends new models', ()
 it('keeps embedding and image models out of the text catalog', () => {
   assert.equal(catalog.isChatCapableModel({ id: 'embedding', modelId: 'gemini-embedding-2', name: 'Gemini Embedding 2' }), false);
   assert.equal(catalog.isChatCapableModel({ id: 'image', modelId: 'gpt-image-2', name: 'GPT Image 2' }), false);
-  assert.equal(catalog.isChatCapableModel({ id: 'chat', modelId: 'gpt-5.6-sol', name: 'GPT 5.6' }), true);
+  assert.equal(catalog.isChatCapableModel({ id: 'chat', modelId: 'gpt-6-sol', name: 'GPT 6 Sol' }), true);
   assert.equal(catalog.getModelCategory({ id: 'embedding', modelId: 'gemini-embedding-2', name: 'Gemini Embedding 2' }), 'embedding');
   assert.equal(catalog.getModelCategory({ id: 'image', modelId: 'gpt-image-2', name: 'GPT Image 2' }), 'image');
 });
@@ -132,7 +132,7 @@ it('prices every model the catalogue offers', async () => {
 
   // An unknown id gets nothing, never a guess.
   assert.equal(models.getModelPricing('some-custom-model'), '');
-  assert.equal(models.getModelPricing('gpt-5.6-sol'), '$4.00/$20.00');
+  assert.equal(models.getModelPricing('claude-sonnet-5'), '$2.00/$10.00');
   // Per-generation models carry their real unit, not an invented token pair.
   assert.equal(models.getModelPricing('veo-3.1'), '$0.40/video');
   assert.equal(models.getModelPricing('lyria-3'), '$0.04/clip');

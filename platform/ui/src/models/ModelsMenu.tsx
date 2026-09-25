@@ -102,7 +102,8 @@ export const ModelsMenu: React.FC<{
     selected: boolean;
     onSelect: () => void;
   }[];
-}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, voiceModels, extraEfforts }) => {
+  align?: 'left' | 'right';
+}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, align = 'right', voiceModels, extraEfforts }) => {
   const { isLight } = useThemeMode();
   const isVoiceRoster = !!voiceModels && voiceModels.length > 0;
 
@@ -170,6 +171,7 @@ export const ModelsMenu: React.FC<{
   const [isPositionReady, setIsPositionReady] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [geminiMenuPosition, setGeminiMenuPosition] = useState<React.CSSProperties>({});
+  const [menuAlign, setMenuAlign] = useState<'left' | 'right'>(align);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const handleClose = () => {
@@ -199,9 +201,17 @@ export const ModelsMenu: React.FC<{
     setSide((currentSide) => currentSide === nextSide ? currentSide : nextSide);
 
     if (geminiStyle) {
+      const effectiveWidth = menuWidth || 241;
+      const isAlignLeft = align === 'left' || triggerRect.left < effectiveWidth;
+      setMenuAlign(isAlignLeft ? 'left' : 'right');
+
+      const horizontalPos = isAlignLeft
+        ? { left: `${Math.max(8, Math.min(triggerRect.left, window.innerWidth - effectiveWidth - 8))}px` }
+        : { right: `${Math.max(0, window.innerWidth - triggerRect.right)}px` };
+
       setGeminiMenuPosition({
         position: 'fixed',
-        right: `${Math.max(0, window.innerWidth - triggerRect.right)}px`,
+        ...horizontalPos,
         ...(nextSide === 'top'
           ? { bottom: `${window.innerHeight - triggerRect.top + spacing}px` }
           : { top: `${triggerRect.bottom + spacing}px` }),
@@ -213,16 +223,22 @@ export const ModelsMenu: React.FC<{
       // effort submenu's direction while the main picker is positioned, rather
       // than waiting for hover to mount the submenu. That keeps the indicator
       // stable before, during and after hover.
+      const effectiveWidth = menuWidth || 241;
+      const isAlignLeft = align === 'left' || triggerRect.left < effectiveWidth;
       const modelMenuLeft = triggerRect.right - menuWidth;
+      const effectiveLeft = isAlignLeft
+        ? Math.max(8, Math.min(triggerRect.left, window.innerWidth - effectiveWidth - 8))
+        : modelMenuLeft;
+      const effectiveRight = isAlignLeft ? effectiveLeft + effectiveWidth : triggerRect.right;
       const nextEffortSide = chooseSubmenuSide({
         submenuWidth: 220,
         spacing: 8,
-        spaceLeft: modelMenuLeft - 16,
-        spaceRight: window.innerWidth - triggerRect.right - 16,
+        spaceLeft: (isAlignLeft ? effectiveLeft : modelMenuLeft) - 16,
+        spaceRight: window.innerWidth - effectiveRight - 16,
       });
       setEffortSide((currentSide) => currentSide === nextEffortSide ? currentSide : nextEffortSide);
     }
-  }, [geminiStyle, preferredSide, triggerRef]);
+  }, [align, geminiStyle, preferredSide, triggerRef]);
 
   useLayoutEffect(() => {
     calculatePosition();
@@ -319,15 +335,23 @@ export const ModelsMenu: React.FC<{
   }, [calculatePosition]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        // Click is outside menu - trigger animated close
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      const target = (event.target as Node) || (event as any).touches?.[0]?.target;
+      if (triggerRef?.current && target && triggerRef.current.contains(target)) {
+        return;
+      }
+      if (menuRef.current && target && !menuRef.current.contains(target)) {
+        // Click/tap is outside menu - trigger animated close
         handleClose();
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    document.addEventListener("touchstart", handleClickOutside, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, [triggerRef]);
 
   const filteredModels = ALL_MODELS.filter((m: any) =>
     m.name.toLowerCase().includes(localSearchQuery.toLowerCase())
@@ -560,7 +584,13 @@ export const ModelsMenu: React.FC<{
           isLight
             ? 'bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.06)]'
             : 'bg-[#1f1f1f] shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)]'
-        } rounded-[20px] p-2 z-[100] overflow-visible ${!isPositionReady ? 'invisible' : ''} ${geminiStyle ? (side === "top" ? "origin-bottom-right" : "origin-top-right") : (side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right")} ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
+        } rounded-[20px] p-2 z-[100] overflow-visible ${!isPositionReady ? 'invisible' : ''} ${
+          geminiStyle
+            ? (menuAlign === 'left'
+                ? (side === "top" ? "origin-bottom-left" : "origin-top-left")
+                : (side === "top" ? "origin-bottom-right" : "origin-top-right"))
+            : (side === "top" ? "bottom-[calc(100%+4px)] origin-bottom-right" : "top-[calc(100%+4px)] origin-top-right")
+        } ${isClosing ? (side === "top" ? 'animate-dropdownCloseUp' : 'animate-dropdownClose') : (side === "top" ? 'animate-dropdownOpenUp' : 'animate-dropdownOpen')}`}
         style={{
           fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
           animationPlayState: isPositionReady ? undefined : 'paused',
@@ -628,6 +658,10 @@ export const ModelsMenu: React.FC<{
                 type="button"
                 role="menuitem"
                 aria-haspopup="menu"
+                onClick={() => {
+                  setIsEffortPositionReady(false);
+                  setIsEffortHovered((prev) => !prev);
+                }}
                 className={`flex h-[48px] w-full items-center rounded-xl text-left text-[13px] ${
                   isLight
                     ? 'text-[#1f1f1f] hover:bg-black/[0.06] focus-visible:bg-black/[0.06]'
@@ -654,7 +688,11 @@ export const ModelsMenu: React.FC<{
               {isEffortHovered && (
                 <div 
                   ref={effortMenuWrapperRef}
-                  className={`pointer-events-auto absolute ${effortSide === 'left' ? 'right-full -mr-2 pr-4' : 'left-full -ml-2 pl-4'} ${side === "top" ? "bottom-0" : "top-0"}`}
+                  className={`pointer-events-auto absolute ${
+                    typeof window !== 'undefined' && window.innerWidth < 500
+                      ? (menuAlign === 'left' ? 'left-0 top-full mt-2' : 'right-0 top-full mt-2')
+                      : (effortSide === 'left' ? 'right-full -mr-2 pr-4' : 'left-full -ml-2 pl-4')
+                  } ${side === "top" ? "bottom-0" : "top-0"}`}
                   style={{ transform: `translateY(${effortOffset}px)` }}
                 >
                   <div

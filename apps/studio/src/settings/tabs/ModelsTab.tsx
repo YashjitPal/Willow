@@ -668,10 +668,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                             <span className="flex items-center gap-2">
                                 <span>{
                                     {
+                                        'gpt-6-sol': 'GPT 6 Sol',
                                         'gpt-6-astra': 'GPT 6 Astra',
-                                        'gpt-5.6-sol': 'GPT 5.6 Sol',
-                                        'gpt-5.6-terra': 'GPT 5.6 Terra',
-                                        'gpt-5.6-luna': 'GPT 5.6 Luna',
+                                        'gpt-6-luna': 'GPT 6 Luna',
                                         'gpt-image-2': 'GPT Image 2'
                                     }[modelConfig.openai.model] || 'Select model'
                                 }</span>
@@ -688,10 +687,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                                 <div className="absolute -bottom-px -right-px w-[1px] h-16 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.4), transparent)' }} />
                                 <div className="max-h-[280px] overflow-y-auto custom-scrollbar">
                                     {[
+                                        { id: 'gpt-6-sol', name: 'GPT 6 Sol' },
                                         { id: 'gpt-6-astra', name: 'GPT 6 Astra' },
-                                        { id: 'gpt-5.6-sol', name: 'GPT 5.6 Sol' },
-                                        { id: 'gpt-5.6-terra', name: 'GPT 5.6 Terra' },
-                                        { id: 'gpt-5.6-luna', name: 'GPT 5.6 Luna' },
+                                        { id: 'gpt-6-luna', name: 'GPT 6 Luna' },
                                         { id: 'gpt-image-2', name: 'GPT Image 2' }
                                     ].map((model, index, arr) => (
                                         <button
@@ -728,10 +726,9 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                 <button 
                   onClick={() => {
                     const modelNames: Record<string, string> = {
+                      'gpt-6-sol': 'GPT 6 Sol',
                       'gpt-6-astra': 'GPT 6 Astra',
-                      'gpt-5.6-sol': 'GPT 5.6 Sol',
-                      'gpt-5.6-terra': 'GPT 5.6 Terra',
-                      'gpt-5.6-luna': 'GPT 5.6 Luna',
+                      'gpt-6-luna': 'GPT 6 Luna',
                       'gpt-image-2': 'GPT Image 2'
                     };
                     const modelName = modelNames[modelConfig.openai.model] || modelConfig.openai.model.split('-').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');

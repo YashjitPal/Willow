@@ -67,8 +67,8 @@ test('orders each provider by its own family names', () => {
     'claude-opus-5',
   );
   assert.equal(
-    pickAutoModel(saved('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'), keysFor('openai')).modelId,
-    'gpt-5.6-luna',
+    pickAutoModel(saved('gpt-6-sol', 'gpt-6-astra', 'gpt-6-luna'), keysFor('openai')).modelId,
+    'gpt-6-luna',
   );
 });
 
@@ -82,7 +82,7 @@ test('a cheap tier from a dearer provider still beats a large local tier', () =>
 
 test('breaks a same-tier tie on provider price', () => {
   const pick = pickAutoModel(
-    saved('claude-haiku-4-5-20251001', 'gpt-5.6-luna', 'gemini-3.5-flash-lite'),
+    saved('claude-haiku-4-5-20251001', 'gpt-6-luna', 'gemini-3.5-flash-lite'),
     allKeys,
   );
   assert.equal(pick.modelId, 'gemini-3.5-flash-lite');

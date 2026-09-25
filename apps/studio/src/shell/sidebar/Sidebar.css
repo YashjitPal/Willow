@@ -184,7 +184,7 @@
     border: 0;
     border-radius: 50%;
     background: transparent;
-    color: #c4c7c5;
+    color: #e3e3e3;
     cursor: pointer;
     transition: background-color 150ms ease, color 150ms ease;
   }
@@ -194,18 +194,139 @@
     color: #ffffff;
   }
 
+  .studio-sidebar-mobile-open:active {
+    background: rgba(227, 227, 227, 0.18) !important;
+    border-radius: 50%;
+  }
+
+  .studio-sidebar-mobile-open.is-pressed {
+    background: rgba(227, 227, 227, 0.18) !important;
+    border-radius: 50%;
+  }
+
   .studio-sidebar-mobile-open:focus-visible {
     outline: 2px solid #a8c7fa;
     outline-offset: -2px;
   }
 
   :is(.light-theme, [data-theme="light"]) .studio-sidebar-mobile-open {
-    color: #444746;
+    color: #1f1f1f;
   }
 
   :is(.light-theme, [data-theme="light"]) .studio-sidebar-mobile-open:hover {
     background: rgba(0, 0, 0, 0.06);
     color: #1f1f1f;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-sidebar-mobile-open:active {
+    background: rgba(0, 0, 0, 0.12) !important;
+    border-radius: 50%;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-sidebar-mobile-open.is-pressed {
+    background: rgba(0, 0, 0, 0.12) !important;
+    border-radius: 50%;
+  }
+
+  /* Mobile/Tablet Model Selector Button (Exact Gemini Material 3 styling & Ripple Animation) */
+  .studio-mobile-model-button {
+    position: relative;
+    background-color: transparent;
+    -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .studio-mobile-model-button:hover {
+    background-color: transparent;
+  }
+
+  .studio-mobile-model-button:active,
+  .studio-mobile-model-button.is-active,
+  .studio-mobile-model-button.is-open {
+    background-color: #151d29 !important;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-button:hover {
+    background-color: transparent;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-button:active,
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-button.is-active,
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-button.is-open {
+    background-color: #d3e3fd !important;
+  }
+
+  /* Animated Material 3 pill state-layer */
+  .studio-mobile-model-pill {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background-color: #151d29;
+    opacity: 0;
+    transform: scale(0.92);
+    transform-origin: center;
+    pointer-events: none;
+    transition: opacity 180ms cubic-bezier(0.2, 0, 0, 1), transform 220ms cubic-bezier(0.05, 0.7, 0.1, 1);
+  }
+
+  .studio-mobile-model-pill.is-active,
+  .studio-mobile-model-pill.is-open {
+    opacity: 1 !important;
+    transform: scale(1) !important;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-pill {
+    background-color: #d3e3fd;
+  }
+
+  /* Material 3 touch/click ripple expansion */
+  .studio-m3-ripple {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%) scale(0);
+    animation: m3-ripple-expand 280ms cubic-bezier(0.05, 0.7, 0.1, 1) forwards;
+    background-color: #151d29;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-m3-ripple {
+    background-color: #d3e3fd;
+  }
+
+  @keyframes m3-ripple-expand {
+    0% {
+      transform: translate(-50%, -50%) scale(0);
+      opacity: 0.35;
+    }
+    60% {
+      opacity: 0.8;
+    }
+    100% {
+      transform: translate(-50%, -50%) scale(1);
+      opacity: 1;
+    }
+  }
+
+  /* Material 3 circular ripple indicator for two-bar menu icon */
+  .studio-icon-ripple {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: rgba(227, 227, 227, 0.18);
+    opacity: 0;
+    transform: scale(0.6);
+    pointer-events: none;
+    transition: opacity 160ms cubic-bezier(0.2, 0, 0, 1), transform 200ms cubic-bezier(0.05, 0.7, 0.1, 1);
+  }
+
+  .studio-icon-ripple.is-pressed {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-icon-ripple {
+    background: rgba(0, 0, 0, 0.12);
   }
 
   .willow-conv-actions-anchor {

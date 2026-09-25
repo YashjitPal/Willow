@@ -493,7 +493,7 @@ const App: React.FC = () => {
         ] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
     },
     openai: {
-        model: 'gpt-5.6-sol',
+        model: 'gpt-6-sol',
         thinkingLevel: 2,
         baseUrl: 'https://api.openai.com/v1',
         savedModels: [] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
