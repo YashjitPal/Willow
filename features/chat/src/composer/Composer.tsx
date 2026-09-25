@@ -1079,7 +1079,7 @@ export const InputBar: React.FC<{
               * Type a line at a time and let it settle, or don't trust the number.
               */}
             <div className={`absolute shrink-0 flex items-center gap-2 z-[60] willow-composer-leading-actions ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] ${chatVariant ? 'left-[6px]' : 'left-[0px]'}`} ${chatVariant ? 'min-[769px]:max-[960px]:!bottom-[16px] max-[768px]:!bottom-[20px] max-[960px]:!left-[6px]' : ''} `}>
-              <div className={`${chatVariant ? 'w-8 max-[960px]:w-10' : 'w-[30px]'} flex items-center justify-center`}>
+              <div className={`${chatVariant ? 'w-8 max-[960px]:w-10' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'min-[961px]:py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
