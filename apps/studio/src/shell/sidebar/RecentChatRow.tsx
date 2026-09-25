@@ -56,7 +56,7 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
     onClick={() => onSelect(chatId)}
     keepActionsVisible={isPinned || isMenuOpen || startedInCode}
     actions={
-      <div className="relative flex h-6 w-6 max-[960px]:h-8 max-[960px]:w-8 shrink-0 items-center justify-center">
+      <div className="relative flex h-6 w-6 max-[960px]:h-9 max-[960px]:w-9 shrink-0 items-center justify-center">
         {/*
          * Gemini's pinned marker, measured off its own Recents row: `push_pin`
          * in Luminous Symbols, 16px glyph, `"FILL" 0, "GRAD" 0, "ROND" 100,
@@ -70,7 +70,7 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
          */}
         {isPinned && (
           <span
-            className={`absolute inset-0 flex items-center justify-center pointer-events-none ${
+            className={`sidebar-row-pin-icon absolute inset-0 flex items-center justify-center pointer-events-none ${
               isMenuOpen || startedInCode ? 'hidden' : 'group-hover/item:hidden'
             }`}
           >
@@ -81,14 +81,14 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
               weight={330}
               roundness={100}
               opticalSize={16}
-              className={`max-[960px]:!w-5 max-[960px]:!h-5 max-[960px]:!text-[20px] ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
+              className={`${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
             />
           </span>
         )}
         <button
           onClick={(e) => onMenuClick(e, chatId)}
           aria-label={`More options for ${displayName}`}
-          className={`relative flex h-6 w-6 max-[960px]:h-8 max-[960px]:w-8 shrink-0 items-center justify-center rounded-full p-0 ${
+          className={`sidebar-row-menu-btn relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 ${
             isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'
           } before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08] ${
             isMenuOpen || startedInCode

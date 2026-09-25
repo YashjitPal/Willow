@@ -150,7 +150,7 @@ export const NotebooksSection: React.FC<NotebooksSectionProps> = ({
                       onNotebookMenu(event, notebook);
                     }}
                     aria-label={`More options for ${notebook.title}`}
-                    className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-[#e6e6e6] before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08] ${
+                    className={`sidebar-row-menu-btn relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-[#e6e6e6] before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08] ${
                       openMenuNotebookId === notebook.id ? 'visible' : 'invisible group-hover/item:visible'
                     }`}
                   >

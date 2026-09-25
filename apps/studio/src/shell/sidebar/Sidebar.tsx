@@ -753,7 +753,7 @@ const SparkSidebarItem: React.FC<{
        */
       title={isCollapsed ? label : undefined}
       data-tooltip-position="right"
-      className={`group/spark-item relative flex h-8 max-[960px]:h-11 items-center rounded-full outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white/25 ${
+      className={`sidebar-item-row group/spark-item relative flex h-8 max-[960px]:h-11 items-center rounded-full outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white/25 ${
         isLight
           ? `text-[#000000] hover:bg-black/[0.05] ${active ? 'bg-[#f2f0f0]' : ''}`
           : `text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] ${active ? 'bg-[#171717]' : ''}`
@@ -761,18 +761,18 @@ const SparkSidebarItem: React.FC<{
         isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5' : 'w-full gap-1.5 max-[960px]:gap-3 px-1.5 max-[960px]:px-4'
       }`}
     >
-      <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7 max-[960px]:h-6 max-[960px]:w-6'} flex items-center justify-center shrink-0`}>
+      <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0 sidebar-item-icon-box`}>
         <MaterialSymbol
           family="luminous"
           name={symbol}
           size={20}
           opticalSize={20}
           fill={active}
-          className="transition-transform duration-200 group-active/spark-item:scale-90 max-[960px]:!w-6 max-[960px]:!h-6 max-[960px]:!text-[24px]"
+          className="transition-transform duration-200 group-active/spark-item:scale-90"
         />
       </div>
       {!isCollapsed && (
-        <span className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} ${isLight ? '!text-[#1f1f1f]' : ''}`}>
+        <span className={`sidebar-item-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} ${isLight ? '!text-[#1f1f1f]' : ''}`}>
           {label}
         </span>
       )}
@@ -1957,7 +1957,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
 
           {!isCollapsed && (
-            <div className={`mx-3 mt-3 flex h-8 items-center px-1.5 text-[13px] font-normal leading-[17px] ${isLight ? 'text-black/55' : 'text-white/55'}`}>
+            <div className={`sidebar-section-header sidebar-section-title mx-3 mt-3 flex h-8 items-center px-1.5 text-[13px] font-normal leading-[17px] ${isLight ? 'text-black/55' : 'text-white/55'}`}>
               Customise
             </div>
           )}
