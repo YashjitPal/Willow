@@ -245,9 +245,9 @@ it('never leaves the measurement padding on the painted box', () => {
   // The inline values are scratch. Left behind, they would beat the class and
   // the editor would render at the measurement geometry instead of its own.
   const source = codeOnly(AUTOSIZE());
-  assert.match(source, /style\.paddingLeft = '';/,
+  assert.match(source, /style\.removeProperty\('padding-left'\)/,
     'the measurement no longer clears its inline paddingLeft');
-  assert.match(source, /style\.paddingRight = '';/,
+  assert.match(source, /style\.removeProperty\('padding-right'\)/,
     'the measurement no longer clears its inline paddingRight');
 });
 

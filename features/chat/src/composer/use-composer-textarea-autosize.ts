@@ -106,10 +106,15 @@ export const useComposerTextareaAutosize = ({
         ? (isMobileTab ? '12px' : expandedPaddingLeftVal)
         : expandedPaddingLeftVal;
 
-      // Force narrow padding for measurement to see if it wraps inline
+      // Force narrow padding for measurement to see if it wraps inline.
+      // Must use setProperty with 'important' so the inline value beats the
+      // !important Tailwind class (e.g. max-[960px]:!pl-[12px]) that is active
+      // when composerPaddingExpanded is true. Without this, the CSS override
+      // makes the measurement see the wrong content width, and shouldExpand
+      // oscillates between true and false across renders.
       textarea.style.scrollbarGutter = 'stable';
-      textarea.style.paddingLeft = effectiveCollapsedPaddingLeftVal;
-      textarea.style.paddingRight = collapsedPaddingRightVal;
+      textarea.style.setProperty('padding-left', effectiveCollapsedPaddingLeftVal, 'important');
+      textarea.style.setProperty('padding-right', collapsedPaddingRightVal, 'important');
       textarea.style.height = `${baseHeight}px`;
 
       const hypotheticalScrollHeight = textarea.scrollHeight;
@@ -125,12 +130,12 @@ export const useComposerTextareaAutosize = ({
       setIsSolidExpanded(shouldExpand);
       textarea.style.scrollbarGutter = shouldExpand ? 'auto' : 'stable';
 
-      textarea.style.paddingLeft = shouldExpand
+      textarea.style.setProperty('padding-left', shouldExpand
         ? effectiveExpandedPaddingLeftVal
-        : effectiveCollapsedPaddingLeftVal;
-      textarea.style.paddingRight = shouldExpand
+        : effectiveCollapsedPaddingLeftVal, 'important');
+      textarea.style.setProperty('padding-right', shouldExpand
         ? expandedPaddingRightVal
-        : collapsedPaddingRightVal;
+        : collapsedPaddingRightVal, 'important');
 
       textarea.style.height = `${baseHeight}px`;
       const naturalExpandedScrollHeight = textarea.scrollHeight;
@@ -141,9 +146,9 @@ export const useComposerTextareaAutosize = ({
         && naturalExpandedScrollHeight >= baseHeight * 3;
       setCanMaximizeComposer(nextCanMaximizeComposer);
 
-      textarea.style.paddingRight = shouldExpand
+      textarea.style.setProperty('padding-right', shouldExpand
         ? expandedPaddingRightVal
-        : collapsedPaddingRightVal;
+        : collapsedPaddingRightVal, 'important');
       textarea.style.height = `${baseHeight}px`;
       const scrollHeight = textarea.scrollHeight;
       const maxTextareaHeight = chatVariant ? 168 : 300;
@@ -161,8 +166,8 @@ export const useComposerTextareaAutosize = ({
       }
 
       textarea.scrollTop = 0;
-      textarea.style.paddingLeft = '';
-      textarea.style.paddingRight = '';
+      textarea.style.removeProperty('padding-left');
+      textarea.style.removeProperty('padding-right');
       void textarea.offsetHeight;
       textarea.style.transition = '';
     } else {
