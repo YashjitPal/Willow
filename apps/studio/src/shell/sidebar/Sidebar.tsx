@@ -739,7 +739,7 @@ const SparkSidebarItem: React.FC<{
 }> = ({ label, symbol, isCollapsed, active = false, onClick }) => {
   const { isLight } = useThemeMode();
   return (
-  <div className="px-1.5">
+  <div className="px-1.5 max-[960px]:px-2">
     <button
       type="button"
       onClick={onClick}
@@ -758,10 +758,10 @@ const SparkSidebarItem: React.FC<{
           ? `text-[#000000] hover:bg-black/[0.05] ${active ? 'bg-[#f2f0f0]' : ''}`
           : `text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] ${active ? 'bg-[#171717]' : ''}`
       } ${
-        isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5' : 'w-full gap-1.5 max-[960px]:gap-3 px-1.5 max-[960px]:px-3.5'
+        isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5' : 'w-full gap-1.5 max-[960px]:gap-3 px-1.5 max-[960px]:px-4'
       }`}
     >
-      <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7 max-[960px]:h-9 max-[960px]:w-9'} flex items-center justify-center shrink-0`}>
+      <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7 max-[960px]:h-6 max-[960px]:w-6'} flex items-center justify-center shrink-0`}>
         <MaterialSymbol
           family="luminous"
           name={symbol}
@@ -772,7 +772,7 @@ const SparkSidebarItem: React.FC<{
         />
       </div>
       {!isCollapsed && (
-        <span className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] max-[960px]:text-[15px] max-[960px]:leading-5 ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} ${isLight ? '!text-[#1f1f1f]' : ''}`}>
+        <span className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} ${isLight ? '!text-[#1f1f1f]' : ''}`}>
           {label}
         </span>
       )}
@@ -1581,7 +1581,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         * This was a 36px button centred in a 52px box with a 28px glyph — 1px left and
         * 2px high of Gemini, with the wordmark 4px further right and half a pixel large.
         */}
-      <div className="relative flex h-[52px] min-w-[52px] shrink-0 items-start max-[960px]:h-[64px]">
+      <div className="relative flex h-[52px] min-w-[52px] shrink-0 items-start max-[960px]:h-[48px] max-[960px]:mt-2 max-[960px]:px-2">
         <button
           onClick={onToggleCollapse}
           aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -1596,7 +1596,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
            * expanded, where that is what was measured.
            */
           data-tooltip-position={isCollapsed ? 'right' : 'below'}
-          className="group/logo relative ml-[10px] mt-3 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-200 active:scale-95 max-[960px]:ml-4 max-[960px]:mt-3 max-[960px]:h-10 max-[960px]:w-10"
+          className="group/logo relative ml-[10px] mt-3 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-200 active:scale-95 max-[960px]:ml-2 max-[960px]:mt-2 max-[960px]:h-8 max-[960px]:w-8"
         >
           {/*
            * `opacity-100 scale-100` are UNCONDITIONAL on purpose. They used to sit only in
@@ -1625,7 +1625,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <img
               src={logo}
               alt="Logo"
-              className="h-[22px] w-[22px] object-contain shrink-0 transition-[filter,transform] duration-300 max-[960px]:!h-[26px] max-[960px]:!w-[26px]"
+              className="h-[22px] w-[22px] object-contain shrink-0 transition-[filter,transform] duration-300 max-[960px]:!h-[28px] max-[960px]:!w-[28px]"
               style={{ filter: getLogoFilter(userProfile?.workspaceColor) }}
             />
           </div>
@@ -1647,7 +1647,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {!isCollapsed && (
           <span
-            className={`willow-sidenav-text ml-1 mt-4 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[17px] leading-6 text-[#e6e6e6] max-[960px]:!text-[18.5px] max-[960px]:!leading-7 max-[960px]:ml-2.5 max-[960px]:mt-4 ${isLight ? '!text-[#1f1f1f]' : ''}`}
+            className={`willow-sidenav-text ml-1 mt-4 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[17px] leading-6 text-[#e6e6e6] max-[960px]:!text-[20px] max-[960px]:!leading-6 max-[960px]:ml-3 max-[960px]:mt-2.5 ${isLight ? '!text-[#1f1f1f]' : ''}`}
             style={{
               fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
               fontWeight: 470
@@ -1658,12 +1658,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {!isCollapsed && (
-          <div className="absolute right-[14px] top-1.5 max-[960px]:right-3.5 max-[960px]:top-3">
+          <div className="absolute right-[14px] top-1.5 max-[960px]:right-2 max-[960px]:top-0">
             <button
               onClick={onToggleCollapse}
               aria-label="Collapse sidebar"
               title="Collapse sidebar"
-              className={`willow-sidenav-close-button flex h-10 w-10 max-[960px]:h-11 max-[960px]:w-11 items-center justify-center rounded-full ${
+              className={`willow-sidenav-close-button flex h-10 w-10 max-[960px]:h-12 max-[960px]:w-12 items-center justify-center rounded-full ${
                 isLight ? 'text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#e3e3e3] hover:bg-white/[0.08]'
               } transition-colors`}
             >
@@ -1678,11 +1678,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 side_nav
               </span>
               <span
-                className={`inline-flex min-[961px]:hidden luminous-symbols text-[24px] max-[960px]:text-[26px] leading-none select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
+                className={`inline-flex min-[961px]:hidden luminous-symbols text-[24px] max-[960px]:!text-[28px] leading-none select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
                 style={{
                   fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
-                  fontWeight: 300,
-                  fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24, "ROND" 100'
+                  fontWeight: 260,
+                  fontVariationSettings: '"FILL" 0, "wght" 260, "GRAD" 0, "opsz" 28, "ROND" 100'
                 }}
               >
                 close
@@ -1694,9 +1694,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* One persistent pill follows the rail width, so Chat/Spark visibly
           compresses into the compact switch instead of swapping in place. */}
-      <div className="relative mt-1 mb-[12px] h-8 w-full shrink-0 overflow-hidden px-1.5 max-[960px]:mt-2 max-[960px]:mb-7 max-[960px]:h-10 max-[960px]:px-2.5">
+      <div className="relative mt-1 mb-[12px] h-8 w-full shrink-0 overflow-hidden px-1.5 max-[960px]:mt-3 max-[960px]:mb-7 max-[960px]:h-8 max-[960px]:px-2">
         <div
-          className={`relative flex h-8 max-[960px]:h-10 w-full items-center rounded-full p-[2px] max-[960px]:p-[3px] ${
+          className={`relative flex h-8 w-full items-center rounded-full p-[2px] ${
             isCollapsed ? 'bg-transparent' : (isLight ? 'bg-[#f2f0f0]' : 'bg-[#171717]')
           }`}
           style={{ transition: `background-color ${GEMINI_SIDEBAR_SURFACE_MOTION}` }}
@@ -1717,7 +1717,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             * its travel and settles, where the old one decelerated linearly into place.
             */}
           <div
-            className={`absolute top-[2px] bottom-[2px] max-[960px]:top-[3px] max-[960px]:bottom-[3px] w-[calc(50%-2px)] max-[960px]:w-[calc(50%-3px)] rounded-full ${isLight ? 'bg-white shadow-sm' : 'bg-[#1f1f1f]'}`}
+            className={`absolute top-[2px] bottom-[2px] w-[calc(50%-2px)] rounded-full ${isLight ? 'bg-white shadow-sm' : 'bg-[#1f1f1f] max-[960px]:bg-[#1c1c1c]'}`}
             style={{
               left: studioExperience === 'spark' ? '50%' : '2px',
               opacity: isCollapsed ? 0 : 1,
@@ -1753,7 +1753,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                * The suffix is outside the ternary, so it is appended either way. */
               title={studioExperience === 'chat' ? undefined : 'Switch to Chat (Ctrl+Shift+S)'}
               tabIndex={isCollapsed ? -1 : 0}
-              className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] max-[960px]:text-[14.5px] font-normal max-[960px]:font-medium transition-colors duration-150 select-none cursor-pointer ${
+              className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
                 studioExperience === 'chat'
                   ? (isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]')
                   : (isLight ? 'text-black/55 hover:text-[#1f1f1f]' : 'text-white/55 hover:text-[#e3e3e3]')
@@ -1783,7 +1783,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                * tabs at all — hover recolours the inactive tab's text and nothing else.
                * Confirmed under forcePseudoState: the active tab's background stayed
                * rgba(0,0,0,0) and its colour never moved off rgb(227,227,227). */
-              className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] max-[960px]:text-[14.5px] font-normal max-[960px]:font-medium transition-colors duration-150 select-none cursor-pointer ${
+              className={`flex-1 flex h-full items-center justify-center rounded-full text-[13px] font-normal transition-colors duration-150 select-none cursor-pointer ${
                 studioExperience === 'spark'
                   ? (isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]')
                   : (isLight ? 'text-black/55 hover:text-[#1f1f1f]' : 'text-white/55 hover:text-[#e3e3e3]')
@@ -1814,7 +1814,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  * carrying its own, so it dims with the tab instead of staying
                  * bright at 70% opacity as it used to.
                  */}
-                <span className={`willow-beta-badge col-start-3 justify-self-start font-['Google_Sans_Code',monospace] text-[7px] max-[960px]:text-[9px] font-medium uppercase leading-5 ${isLight ? 'text-black/55' : ''}`}>
+                <span className={`willow-beta-badge col-start-3 justify-self-start font-['Google_Sans_Code',monospace] text-[7px] font-medium uppercase leading-5 ${isLight ? 'text-black/55' : ''}`}>
                   beta
                 </span>
               </div>
@@ -2327,7 +2327,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         * "behaves weirdly different while collapsing and expanding" that was reported.
         */}
       <div
-        className="relative mt-auto flex shrink-0 select-none px-1.5 py-1 max-[960px]:px-4 max-[960px]:py-3 max-[960px]:pb-5"
+        className="relative mt-auto flex shrink-0 select-none px-1.5 py-1 max-[960px]:h-[52px] max-[960px]:px-2 max-[960px]:py-2 max-[960px]:pb-2"
         style={{
           height: isCollapsed ? '92px' : '48px',
           flexDirection: isCollapsed ? 'column-reverse' : 'row',
@@ -2374,16 +2374,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 aria-label="Open account menu"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={handleUserMenuToggle}
-                className="group/profile relative flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left max-[960px]:h-12 max-[960px]:gap-3 max-[960px]:pl-0"
+                className="group/profile relative flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left max-[960px]:h-10 max-[960px]:gap-2 max-[960px]:pl-0"
               >
                 {userProfile?.photoURL ? (
                   <img
                     src={userProfile.photoURL}
                     alt="User"
-                    className={`willow-profile-reveal h-[30px] w-[30px] max-[960px]:!h-[36px] max-[960px]:!w-[36px] shrink-0 rounded-full object-cover transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}
+                    className={`willow-profile-reveal h-[30px] w-[30px] max-[960px]:!h-[28px] max-[960px]:!w-[28px] shrink-0 rounded-full object-cover transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}
                   />
                 ) : (
-                  <span className={`willow-profile-reveal flex h-[30px] w-[30px] max-[960px]:!h-[36px] max-[960px]:!w-[36px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[12px] max-[960px]:text-[14px] font-medium text-white transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}>
+                  <span className={`willow-profile-reveal flex h-[30px] w-[30px] max-[960px]:!h-[28px] max-[960px]:!w-[28px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[12px] font-medium text-white transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}>
                     {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
                   </span>
                 )}
@@ -2409,7 +2409,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  * ever exists, the numbers above are the measurement to build it from.
                  */}
                 {!isCollapsed && (
-                  <span className={`willow-profile-reveal min-w-0 max-w-[180px] overflow-hidden truncate text-left text-[15px] font-normal leading-5 text-[#e6e6e6] max-[960px]:!text-[16px] max-[960px]:!leading-6 ${isLight ? '!text-[#1f1f1f]' : ''}`}>
+                  <span className={`willow-profile-reveal min-w-0 max-w-[180px] overflow-hidden truncate text-left text-[15px] font-normal leading-5 text-[#e6e6e6] max-[960px]:!text-[17px] max-[960px]:!leading-6 ${isLight ? '!text-[#1f1f1f]' : ''}`}>
                     {userProfile?.displayName || user?.email || 'Account'}
                   </span>
                 )}
@@ -2419,12 +2419,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               onClick={onSignInClick ? onSignInClick : () => navigate('/login')}
-              className={`flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left max-[960px]:h-12 max-[960px]:gap-3 max-[960px]:pl-0 ${isLight ? 'text-black/80' : 'text-white/80'}`}
+              className={`flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left max-[960px]:h-10 max-[960px]:gap-2 max-[960px]:pl-0 ${isLight ? 'text-black/80' : 'text-white/80'}`}
               title="Sign In"
             >
-              <span className={`flex h-[30px] w-[30px] max-[960px]:!h-[36px] max-[960px]:!w-[36px] shrink-0 items-center justify-center rounded-full border ${isLight ? 'border-black/10' : 'border-white/10'}`}><LogIn size={18} /></span>
+              <span className={`flex h-[30px] w-[30px] max-[960px]:!h-[28px] max-[960px]:!w-[28px] shrink-0 items-center justify-center rounded-full border ${isLight ? 'border-black/10' : 'border-white/10'}`}><LogIn size={18} /></span>
               {!isCollapsed && (
-                <span className="min-w-0 max-w-[180px] overflow-hidden truncate text-[15px] font-normal leading-5 max-[960px]:!text-[16px] max-[960px]:!leading-6">
+                <span className="min-w-0 max-w-[180px] overflow-hidden truncate text-[15px] font-normal leading-5 max-[960px]:!text-[17px] max-[960px]:!leading-6">
                   Sign In
                 </span>
               )}

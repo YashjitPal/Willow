@@ -29,7 +29,7 @@ export const SidebarItem: React.FC<{
 }> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible, flushRight, shortcut, iconClassName = '' }) => {
   const { isLight } = useThemeMode();
   return (
-  <div className={flushRight ? 'pl-1.5 pr-0 max-[960px]:px-2.5' : 'px-1.5 max-[960px]:px-2.5'}>
+  <div className={flushRight ? 'pl-1.5 pr-0 max-[960px]:px-2' : 'px-1.5 max-[960px]:px-2'}>
     <div
       role="button"
       tabIndex={0}
@@ -52,12 +52,12 @@ export const SidebarItem: React.FC<{
         }
       }}
       className={`relative flex h-8 max-[960px]:h-11 items-center transition-colors duration-150 group/item cursor-pointer outline-none
-        ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : `mx-auto w-full gap-1.5 max-[960px]:gap-3 ${!Icon && !symbol ? 'pl-[8px] max-[960px]:pl-3.5 pr-1.5 max-[960px]:pr-3.5' : 'px-1.5 max-[960px]:px-3.5'} overflow-hidden`}
+        ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : `mx-auto w-full gap-1.5 max-[960px]:gap-3 ${!Icon && !symbol ? 'pl-[8px] max-[960px]:pl-4 pr-1.5 max-[960px]:pr-4' : 'px-1.5 max-[960px]:px-4'} overflow-hidden`}
         ${active ? 'bg-[#171717]' : ''} ${isLight ? (active ? '!bg-[#f2f0f0] !text-[#000000]' : '!text-[#000000] hover:!bg-black/[0.05]') : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'}
         rounded-full`}
     >
       {symbol ? (
-        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7 max-[960px]:h-9 max-[960px]:w-9'} flex items-center justify-center shrink-0`}>
+        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7 max-[960px]:h-6 max-[960px]:w-6'} flex items-center justify-center shrink-0`}>
           <MaterialSymbol
             family="luminous"
             name={symbol}
@@ -68,12 +68,12 @@ export const SidebarItem: React.FC<{
           />
         </div>
       ) : Icon ? (
-        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7 max-[960px]:h-9 max-[960px]:w-9'} flex items-center justify-center shrink-0 ${iconClassName}`}>
+        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7 max-[960px]:h-6 max-[960px]:w-6'} flex items-center justify-center shrink-0 ${iconClassName}`}>
           <Icon size={20} strokeWidth={active ? 2 : 1.85} className="transition-transform duration-200 group-active/item:scale-90 max-[960px]:w-6 max-[960px]:h-6" />
         </div>
       ) : null}
       {!isCollapsed && (
-        <span className={`whitespace-nowrap text-[13px] leading-[17px] max-[960px]:text-[15px] max-[960px]:leading-5 transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} ${isLight ? '!text-[#000000]' : ''} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
+        <span className={`whitespace-nowrap text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} ${isLight ? '!text-[#000000]' : ''} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
           {customLabel || label}
         </span>
       )}
