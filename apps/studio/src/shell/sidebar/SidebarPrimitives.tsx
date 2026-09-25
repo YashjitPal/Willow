@@ -51,35 +51,29 @@ export const SidebarItem: React.FC<{
           else if (onClick) onClick();
         }
       }}
-      className={`relative flex h-8 items-center transition-colors duration-150 group/item cursor-pointer outline-none
-        ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : `mx-auto w-full gap-1.5 ${!Icon && !symbol ? 'pl-[8px] pr-1.5' : 'px-1.5'} overflow-hidden`}
-        ${active ? (isLight ? 'bg-[#f2f0f0]' : 'bg-[#171717]') : ''} ${
-          isLight ? 'text-[#000000] hover:bg-black/[0.05]' : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'
-        }
+      className={`relative flex h-8 max-[960px]:h-11 items-center transition-colors duration-150 group/item cursor-pointer outline-none
+        ${isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5 overflow-visible' : `mx-auto w-full gap-1.5 max-[960px]:gap-3 ${!Icon && !symbol ? 'pl-[8px] max-[960px]:pl-3.5 pr-1.5 max-[960px]:pr-3.5' : 'px-1.5 max-[960px]:px-3.5'} overflow-hidden`}
+        ${active ? 'bg-[#171717]' : ''} ${isLight ? (active ? '!bg-[#f2f0f0] !text-[#000000]' : '!text-[#000000] hover:!bg-black/[0.05]') : 'text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)]'}
         rounded-full`}
     >
       {symbol ? (
-        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0`}>
+        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7 max-[960px]:h-9 max-[960px]:w-9'} flex items-center justify-center shrink-0`}>
           <MaterialSymbol
             family="luminous"
             name={symbol}
             size={20}
             opticalSize={20}
             fill={active}
-            className="transition-transform duration-200 group-active/item:scale-90"
+            className="transition-transform duration-200 group-active/item:scale-90 max-[960px]:!w-6 max-[960px]:!h-6 max-[960px]:!text-[24px]"
           />
         </div>
       ) : Icon ? (
-        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0 ${iconClassName}`}>
-          <Icon size={20} strokeWidth={active ? 2 : 1.85} className="transition-transform duration-200 group-active/item:scale-90" />
+        <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7 max-[960px]:h-9 max-[960px]:w-9'} flex items-center justify-center shrink-0 ${iconClassName}`}>
+          <Icon size={20} strokeWidth={active ? 2 : 1.85} className="transition-transform duration-200 group-active/item:scale-90 max-[960px]:w-6 max-[960px]:h-6" />
         </div>
       ) : null}
       {!isCollapsed && (
-        <span className={`whitespace-nowrap text-[13px] leading-[17px] transition-opacity duration-200 ease-linear ${
-          active
-            ? (isLight ? 'font-medium text-[#000000]' : 'font-medium text-white')
-            : (isLight ? 'font-normal text-[#000000]' : 'font-normal text-[#e6e6e6]')
-        } opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
+        <span className={`whitespace-nowrap text-[13px] leading-[17px] max-[960px]:text-[15px] max-[960px]:leading-5 transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} ${isLight ? '!text-[#000000]' : ''} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
           {customLabel || label}
         </span>
       )}
@@ -114,8 +108,8 @@ export const SidebarItem: React.FC<{
       )}
 
       {actions && !isCollapsed && (
-        <div className={`ml-auto pr-0.5 flex items-center justify-center shrink-0 ${
-          keepActionsVisible ? 'opacity-100' : 'max-w-0 overflow-hidden opacity-0 group-hover/item:max-w-none group-hover/item:overflow-visible group-hover/item:opacity-100'
+        <div className={`ml-auto pr-0.5 max-[960px]:pr-1.5 flex items-center justify-center shrink-0 ${
+          keepActionsVisible ? 'opacity-100' : 'max-w-0 overflow-hidden opacity-0 group-hover/item:max-w-none group-hover/item:overflow-visible group-hover/item:opacity-100 max-[960px]:opacity-100 max-[960px]:max-w-none max-[960px]:overflow-visible'
         }`}>
           {actions}
         </div>
@@ -160,7 +154,7 @@ export const SectionHeader: React.FC<{
       aria-expanded={isExpanded}
       aria-controls={controlsId}
       onClick={onToggle}
-      className={`group/section mt-3 flex h-8 w-[calc(100%-12px)] items-center overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal ${
+      className={`group/section mt-3 max-[960px]:mt-4 flex h-8 max-[960px]:h-10 w-[calc(100%-12px)] items-center overflow-hidden pl-[14px] max-[960px]:pl-4 pr-1.5 max-[960px]:pr-3 text-left text-[13px] leading-[17px] max-[960px]:text-[14.5px] max-[960px]:leading-5 font-normal ${
         isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'
       } outline-none`}
     >
@@ -182,7 +176,7 @@ export const SectionHeader: React.FC<{
          *   .expandable-section-header:hover .toggle-icon,
          *   .expandable-section-header:focus-visible .toggle-icon { opacity: 1 }
          */
-        className="luminous-symbols ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center text-[16px] leading-4 opacity-0 transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.2,0,0,1)] group-hover/section:opacity-100 group-focus-visible/section:opacity-100"
+        className="luminous-symbols ml-1 max-[960px]:ml-1.5 inline-flex h-4 w-4 max-[960px]:h-5 max-[960px]:w-5 shrink-0 items-center justify-center text-[16px] leading-4 max-[960px]:text-[18px] opacity-0 transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.2,0,0,1)] group-hover/section:opacity-100 group-focus-visible/section:opacity-100 max-[960px]:opacity-100"
         style={{
           fontFamily: "'Luminous Symbols', sans-serif",
           fontWeight: 330,

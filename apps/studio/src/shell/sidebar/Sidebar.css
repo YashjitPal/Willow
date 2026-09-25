@@ -151,23 +151,46 @@
     z-index: 50 !important;
     height: 100% !important;
     height: 100dvh !important;
+    width: min(320px, 85vw) !important;
     transition: transform 250ms cubic-bezier(0, 0, 0.2, 1), box-shadow 250ms ease !important;
   }
 
   .studio-sidebar--collapsed {
     transform: translateX(-100%) !important;
     pointer-events: none !important;
-    width: 0 !important;
-    min-width: 0 !important;
-    visibility: hidden;
+    box-shadow: none !important;
   }
 
   .studio-sidebar--expanded {
     transform: translateX(0) !important;
-    width: min(288px, 85vw) !important;
+    width: min(320px, 85vw) !important;
     margin-right: 0 !important;
     box-shadow: 12px 0 32px rgba(0, 0, 0, 0.36) !important;
     visibility: visible;
+  }
+
+  .willow-sidenav-close-button {
+    opacity: 1 !important;
+    visibility: visible !important;
+    animation: none !important;
+  }
+
+  .willow-sidenav-text {
+    opacity: 1 !important;
+    animation: none !important;
+  }
+
+  .studio-sidebar .group\/settings {
+    width: 40px !important;
+    height: 40px !important;
+  }
+
+  .studio-sidebar .group\/settings .luminous-symbols,
+  .studio-sidebar .group\/settings svg {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 24px !important;
+    line-height: 24px !important;
   }
 
   .studio-sidebar-mobile-open {
