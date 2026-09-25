@@ -29,7 +29,7 @@ export const SidebarItem: React.FC<{
 }> = ({ icon: Icon, symbol, label, customLabel, active, isCollapsed, onClick, href, actions, keepActionsVisible, flushRight, shortcut, iconClassName = '' }) => {
   const { isLight } = useThemeMode();
   return (
-  <div className={flushRight ? 'pl-1.5 pr-0' : 'px-1.5'}>
+  <div className={flushRight ? 'pl-1.5 pr-0 max-[960px]:px-2.5' : 'px-1.5 max-[960px]:px-2.5'}>
     <div
       role="button"
       tabIndex={0}
