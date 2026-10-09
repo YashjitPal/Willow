@@ -3,26 +3,25 @@
 .dot-computer-secret {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  margin: 14px 0 0;
 }
 
 .dot-computer-secret__input {
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
-  background: #131314;
-  color: #e3e3e3;
-  font-size: 14px;
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--md-sys-color-outline, rgba(255, 255, 255, 0.16));
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-lowest, #131314);
+  color: var(--md-sys-color-on-surface, #e3e3e3);
+  font-size: 15px;
+  letter-spacing: 0.1em;
   outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
 .dot-computer-secret__input:focus {
-  border-color: var(--sync-a8c7fa, #a8c7fa);
-}
-
-.dot-computer-secret .spark-dots-approval__actions {
-  margin-top: 0;
+  border-color: var(--md-sys-color-primary, #a8c7fa);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary, #a8c7fa) 22%, transparent);
 }
 
 .dot-computer-preview {

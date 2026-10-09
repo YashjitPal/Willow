@@ -534,12 +534,14 @@ export function installWillowBridge(): WillowEmbed | null {
   ];
 
   let bearer: Promise<string> | null = null;
+  // No scopes asked for, so the session gets the credential's own: Willow's desktop launch token
+  // is the computer owner's, as T3's desktop renderer is (pairing links, other clients), and a
+  // phone's sign-in carries that phone's (apps/server src/willow/mobile.ts).
   const exchangeToken = async (): Promise<string> => {
-    const outcome = await runRemote(({ authorization, contracts }) =>
+    const outcome = await runRemote(({ authorization }) =>
       authorization.bootstrapRemoteBearerSession({
         httpBaseUrl,
         credential: init.token,
-        scopes: contracts.AuthStandardClientScopes,
         clientMetadata: { label: "Willow", deviceType: "desktop" },
       }),
     );

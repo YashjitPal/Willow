@@ -84,22 +84,107 @@
   }
 }
 
-.dot-chat__mark-action {
-  padding: 2px 10px;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--md-sys-color-primary);
+/*
+ * The screen in the bot's hands right now: the line becomes a capsule in the bot's colour, a dot pulsing at its start
+ * and Stop at its end, red-toned with a stop glyph — Material's tonal button in the error colour. Once the bot is done
+ * it is a plain line again.
+ */
+.dot-chat__live {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 4px 4px 4px 16px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 28%, var(--md-sys-color-outline-variant));
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface-container));
+  box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--md-sys-color-primary) 55%, transparent);
+  font-size: 13px;
+  line-height: 18px;
+  text-align: start;
+  animation: dot-chat-live-in 360ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes dot-chat-live-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+}
+
+.dot-chat__live .dot-chat__mark-text {
+  min-width: 0;
+}
+
+.dot-chat__live-dot {
+  position: relative;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+}
+
+.dot-chat__live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+  animation: dot-chat-live-pulse 1.8s cubic-bezier(0.2, 0, 0, 1) infinite;
+}
+
+@keyframes dot-chat-live-pulse {
+  from {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+
+.dot-chat__stop {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px 0 12px;
+  border: 0;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
+  color: var(--md-sys-color-error);
   cursor: pointer;
   font: inherit;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  transition: background-color 150ms ease, transform 150ms ease;
 }
 
-.dot-chat__mark-action:hover {
-  background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+.dot-chat__stop::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 2.5px;
+  background: currentColor;
 }
 
-.dot-chat__mark-action:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
+.dot-chat__stop:hover {
+  background: color-mix(in srgb, var(--md-sys-color-error) 24%, transparent);
+}
+
+.dot-chat__stop:active {
+  transform: scale(0.96);
+  background: color-mix(in srgb, var(--md-sys-color-error) 30%, transparent);
+}
+
+.dot-chat__stop:focus-visible {
+  outline: 2px solid var(--md-sys-color-error);
   outline-offset: 2px;
 }
 
@@ -108,6 +193,11 @@
     animation: none;
     background: none;
     color: var(--md-sys-color-on-surface);
+  }
+
+  .dot-chat__live,
+  .dot-chat__live-dot::after {
+    animation: none;
   }
 }
 

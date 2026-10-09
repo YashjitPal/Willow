@@ -1011,10 +1011,32 @@ it('draws a message that is only a picture, and marks each app a turn reached on
   assert.equal(chatRows(store.getDotThread(dotId), Date.now(), appOf).find((row) => row.key === asked.id)?.type, 'card', 'a request waiting on the user stays a card');
   store.appendDotItem(dotId, { kind: 'event', event: 'screen', ref: asked.id, screenStep: 'allowed', text: 'allowed' });
   store.updateDotRuntime(dotId, { screen: { itemId: asked.id, since: Date.now(), lastAt: Date.now() } });
-  const using = chatRows(store.getDotThread(dotId), Date.now(), appOf).find((row) => row.key === asked.id);
-  assert.deepEqual([using.type, using.state], ['screen', 'allowed'], 'in use, it is a line of the conversation');
+  const screenMarks = (liveTurn) => chatRows(store.getDotThread(dotId), Date.now(), appOf, liveTurn).filter((row) => row.type === 'screen').map((row) => row.mark);
+  assert.deepEqual(screenMarks(), ['allowed'], 'a go-ahead not used yet is a line of its own');
+  store.appendDotItem(dotId, { kind: 'call', tool: 'user_screenshot', args: {}, text: '', turnId: 't3' });
+  store.appendDotItem(dotId, { kind: 'call', tool: 'user_desktop_click', args: {}, text: '', turnId: 't3' });
+  assert.deepEqual(screenMarks('t3'), ['using'], 'used by the turn under way: live, once for the turn, in place of the go-ahead');
+  assert.deepEqual(screenMarks(), ['used'], 'the turn over, it is done — however long the go-ahead still holds');
+  store.appendDotItem(dotId, { kind: 'call', tool: 'user_screenshot', args: {}, text: '', turnId: 't4' });
+  assert.deepEqual(screenMarks('t4'), ['used', 'using'], 'a later turn under the same go-ahead marks its own use');
   store.appendDotItem(dotId, { kind: 'event', event: 'screen', ref: asked.id, screenStep: 'stopped', text: 'stopped' });
-  assert.equal(chatRows(store.getDotThread(dotId), Date.now(), appOf).find((row) => row.key === asked.id)?.state, 'stopped');
+  store.updateDotRuntime(dotId, { screen: undefined });
+  assert.deepEqual(screenMarks('t4'), ['used', 'used', 'stopped'], 'taken back: nothing is live any more, and the line says where');
+});
+
+it('marks a declined request, and leaves nothing — not even a day — for one withdrawn before an answer', async () => {
+  const { chatRows } = await importTs(path.join(repoRoot, 'features', 'spark', 'src', 'dots', 'chat', 'chat-rows.ts'));
+  const dotId = await newDot();
+  const declined = store.appendDotItem(dotId, { kind: 'screen', text: 'To look', screen: { reason: 'To look' }, turnId: 't1' });
+  store.appendDotItem(dotId, { kind: 'event', event: 'screen', ref: declined.id, screenStep: 'declined', text: 'declined' });
+  store.appendDotItem(dotId, { kind: 'call', tool: 'user_screenshot', args: {}, text: '', turnId: 't1' });
+  const rows = chatRows(store.getDotThread(dotId), Date.now(), undefined, 't1');
+  assert.deepEqual(rows.filter((row) => row.type === 'screen').map((row) => row.mark), ['declined'], 'a look without a go-ahead is no use of the screen');
+
+  const withdrawn = await newDot();
+  const request = store.appendDotItem(withdrawn, { kind: 'screen', text: 'To look', screen: { reason: 'To look' }, turnId: 't1' });
+  store.appendDotItem(withdrawn, { kind: 'event', event: 'screen', ref: request.id, screenStep: 'ended', text: 'withdrawn' });
+  assert.deepEqual(chatRows(store.getDotThread(withdrawn), Date.now()), [], 'no line, and no day standing over nothing');
 });
 
 /* ------------------------------------------------------------------------ */

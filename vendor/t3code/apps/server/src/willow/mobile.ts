@@ -25,6 +25,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpRouter, HttpServerResponse } from "effect/http";
 
+import { AuthAdministrativeScopes, type AuthEnvironmentScope } from "@t3tools/contracts";
+
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import * as Phone from "./phone.ts";
@@ -249,8 +251,21 @@ interface ListenerOptions {
   readonly agentsPort: number;
   readonly agentsOrigin: string;
   readonly companion: Companion | null;
-  readonly issueHarnessToken: () => Promise<string>;
+  readonly issueHarnessToken: (scopes: Scopes) => Promise<string>;
 }
+
+type Scopes = ReadonlyArray<AuthEnvironmentScope>;
+
+/** A phone's session, which every request here must carry, and what it may do. */
+interface PhoneSession {
+  readonly paired: boolean;
+  readonly scopes: Scopes;
+}
+
+const NOT_PAIRED: PhoneSession = { paired: false, scopes: [] };
+
+const isScope = (value: unknown): value is AuthEnvironmentScope =>
+  typeof value === "string" && (AuthAdministrativeScopes as ReadonlyArray<string>).includes(value);
 
 async function startListener(options: ListenerOptions): Promise<Http.Server> {
   const distDir = NodePath.join(options.root, "apps", "studio", "dist");
@@ -267,33 +282,40 @@ async function startListener(options: ListenerOptions): Promise<Http.Server> {
   // `bin/willow.js` turns notebook sources on the same way.
   if (fetchSource) process.env.SOURCE_FETCH_ENABLED ??= "1";
 
-  const sessions = new Map<string, { readonly paired: boolean; readonly at: number }>();
-  const paired = async (cookie: string | undefined) => {
-    if (!cookie) return false;
+  const sessions = new Map<string, { readonly session: PhoneSession; readonly at: number }>();
+  const sessionOf = async (cookie: string | undefined): Promise<PhoneSession> => {
+    if (!cookie) return NOT_PAIRED;
     const now = Date.now();
     const cached = sessions.get(cookie);
-    if (cached && now - cached.at < SESSION_CACHE_MS) return cached.paired;
-    let result = false;
+    if (cached && now - cached.at < SESSION_CACHE_MS) return cached.session;
+    let session = NOT_PAIRED;
     try {
       const response = await fetch(`${options.agentsOrigin}/api/auth/session`, {
         headers: { cookie },
         signal: AbortSignal.timeout(5_000),
       });
       if (response.ok) {
-        result = ((await response.json()) as { authenticated?: unknown }).authenticated === true;
+        const state = (await response.json()) as { authenticated?: unknown; scopes?: unknown };
+        if (state.authenticated === true) {
+          session = {
+            paired: true,
+            scopes: Array.isArray(state.scopes) ? state.scopes.filter(isScope) : [],
+          };
+        }
       }
     } catch {
-      result = false;
+      session = NOT_PAIRED;
     }
     if (sessions.size > 200) sessions.clear();
-    sessions.set(cookie, { paired: result, at: now });
-    return result;
+    sessions.set(cookie, { session, at: now });
+    return session;
   };
 
   const handle = async (request: Http.IncomingMessage, response: Http.ServerResponse) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     const pathname = url.pathname;
-    const isPaired = await paired(request.headers.cookie);
+    const session = await sessionOf(request.headers.cookie);
+    const isPaired = session.paired;
 
     if (pathname === "/api/willow/session") {
       json(response, 200, {
@@ -325,8 +347,13 @@ async function startListener(options: ListenerOptions): Promise<Http.Server> {
     }
 
     if (pathname === "/api/willow/harness" && request.method === "POST") {
+      // The agents tab may do what the phone's own pairing lets it, and no more.
+      if (session.scopes.length === 0) {
+        json(response, 403, { error: "This phone's pairing gives it no access to the agents." });
+        return;
+      }
       try {
-        json(response, 200, { token: await options.issueHarnessToken() });
+        json(response, 200, { token: await options.issueHarnessToken(session.scopes) });
       } catch {
         json(response, 500, {
           error: "The agents' server could not issue a sign-in for the agents tab.",
@@ -400,7 +427,7 @@ async function startListener(options: ListenerOptions): Promise<Http.Server> {
       const url = new URL(request.url ?? "/", "http://localhost");
       const companion = options.companion;
       if (url.pathname !== "/api/willow/companion" || !companion) return rejectUpgrade(socket, 404);
-      if (!(await paired(request.headers.cookie))) return rejectUpgrade(socket, 401);
+      if (!(await sessionOf(request.headers.cookie)).paired) return rejectUpgrade(socket, 401);
       const upstream = Net.connect(companion.port, "127.0.0.1");
       const close = () => {
         upstream.destroy();
@@ -455,10 +482,10 @@ const start = Effect.gen(function* () {
         agentsPort: config.port,
         agentsOrigin: loopbackOrigin(config.port, config.host),
         companion: companionFromEnv(),
-        issueHarnessToken: () =>
+        issueHarnessToken: (scopes) =>
           Effect.runPromise(
             auth
-              .issuePairingCredential({ label: "Willow on a phone" })
+              .issuePairingCredential({ label: "Willow on a phone", scopes })
               .pipe(Effect.map((issued) => issued.credential)),
           ),
       }),

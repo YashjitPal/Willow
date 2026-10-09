@@ -1,59 +1,23 @@
-.dot-email-card {
-  width: min(460px, 100%);
-  --md-outlined-card-container-shape: 16px;
-  --md-outlined-card-outline-color: var(--md-sys-color-outline-variant);
-  --md-circular-progress-size: 20px;
-  --md-circular-progress-active-indicator-width: 12;
-}
+/*
+ * What an email or a post would say, inside its ask card (DotAskCard): a small letter — who it goes to and its subject
+ * above a hairline, the text below, a few lines of it until asked for all.
+ */
 
-.dot-email-card md-outlined-card {
-  display: block;
-}
-
-.dot-email-card__body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-  color: var(--md-sys-color-on-surface);
-}
-
-.dot-email-card__head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.dot-email-card__icon {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-}
-
-.dot-email-card.is-declined .dot-email-card__icon,
-.dot-email-card.is-failed .dot-email-card__icon {
-  background: var(--md-sys-color-surface-container-highest);
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-.dot-email-card__title {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 20px;
+.dot-email-card__letter {
+  margin: 12px 0 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 70%, transparent);
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container-lowest);
 }
 
 .dot-email-card__fields {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 2px 10px;
+  gap: 6px 14px;
   margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 70%, transparent);
   font-size: 13px;
   line-height: 18px;
 }
@@ -68,9 +32,17 @@
   overflow-wrap: anywhere;
 }
 
+.dot-email-card__subject {
+  font-weight: 500;
+}
+
 .dot-email-card__recipient {
   display: flex;
   flex-direction: column;
+}
+
+.dot-email-card__recipient + .dot-email-card__recipient {
+  margin-top: 4px;
 }
 
 .dot-email-card__address {
@@ -82,39 +54,39 @@
 
 .dot-email-card__text {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--md-sys-color-surface-container);
+  padding: 12px 14px;
   font-size: 13px;
-  line-height: 19px;
+  line-height: 20px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
 .dot-email-card__more {
-  align-self: flex-start;
-  margin: -6px 0 -4px -12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: -6px 0 6px 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
 }
 
-.dot-email-card__note {
-  margin: 0;
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 12px;
-  line-height: 16px;
+.dot-email-card__more:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent);
 }
 
-.dot-email-card__note.is-error {
-  color: var(--md-sys-color-error);
+.dot-email-card__more:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 1px;
 }
 
-.dot-email-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin: 0 -4px -4px 0;
-}
-
-.dot-email-card.is-declined .dot-email-card__text,
-.dot-email-card.is-failed .dot-email-card__text {
+/* Once it did not go, what it would have said reads quieter. */
+.dot-ask:is(.is-off, .is-error) .dot-email-card__text {
   color: var(--md-sys-color-on-surface-variant);
 }

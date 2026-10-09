@@ -5,11 +5,10 @@ import { useDotTint } from '../dot-tint';
 import type { SparkDot } from '../dots-store';
 import { reactToDotMessage, stopDotScreen, type DotActivity } from '../harness/dot-runtime';
 import { dotAttachmentBlob } from '../harness/runtime/dot-attachments';
-import type { ScreenState } from '../harness/runtime/screen-control';
 import type { DotAttachmentRef, DotItem, DotThread } from '../harness/thread/thread-types';
 import { M3_SCOPE } from '../m3/m3';
 import { appOfCall, type DotAppMark } from './app-marks';
-import { chatRows, type MessageRow } from './chat-rows';
+import { chatRows, type MessageRow, type ScreenMark as ScreenMarkKind } from './chat-rows';
 import './DotChat.css';
 
 /** The row a long press or the react button opens with; "more" shows the rest of the picker. */
@@ -374,26 +373,39 @@ function AppMark({ mark, live }: { mark: DotAppMark; live: boolean }) {
   );
 }
 
-const SCREEN_MARKS: Record<Exclude<ScreenState, 'pending'>, (name: string) => string> = {
-  allowed: (name) => `${name} is using your screen`,
-  ended: (name) => `${name} used your screen`,
-  stopped: (name) => `You took your screen back from ${name}`,
-  declined: (name) => `You didn’t let ${name} use your screen`,
+const SCREEN_MARKS: Record<ScreenMarkKind, { icon: string; text: (name: string) => string }> = {
+  using: { icon: 'screen_share', text: (name) => `${name} is using your screen` },
+  used: { icon: 'desktop_windows', text: (name) => `${name} used your screen` },
+  allowed: { icon: 'desktop_windows', text: (name) => `You let ${name} use your screen` },
+  declined: { icon: 'desktop_access_disabled', text: (name) => `You didn’t let ${name} use your screen` },
+  stopped: { icon: 'stop_screen_share', text: (name) => `You took your screen back from ${name}` },
 };
 
-/** The user's screen in the bot's hands, as a line of the conversation, with Stop while it lasts. */
-function ScreenMark({ dotId, name, state }: { dotId: string; name: string; state: Exclude<ScreenState, 'pending'> }) {
+/**
+ * The user's screen in the bot's hands, as a line of the conversation. While the bot is at it, the line is a capsule
+ * that says so live, with Stop; once it is done, the line is a record like any other.
+ */
+function ScreenMark({ dotId, name, mark }: { dotId: string; name: string; mark: ScreenMarkKind }) {
+  const { icon, text } = SCREEN_MARKS[mark];
+  if (mark === 'using') {
+    return (
+      <div className="dot-chat__mark is-live" data-mark="screen" role="status">
+        <span className="dot-chat__live">
+          <span className="dot-chat__live-dot" aria-hidden="true" />
+          <span className="dot-chat__mark-text">{text(name)}</span>
+          <button type="button" className="dot-chat__stop" data-action="screen-stop" aria-label={`Stop ${name} using your screen`} onClick={() => stopDotScreen(dotId)}>
+            Stop
+          </button>
+        </span>
+      </div>
+    );
+  }
   return (
-    <p className={`dot-chat__mark${state === 'allowed' ? ' is-live' : ''}`} data-mark="screen">
+    <p className="dot-chat__mark" data-mark="screen">
       <span className="dot-chat__mark-icon" aria-hidden="true">
-        <MaterialSymbol name={state === 'allowed' ? 'screen_share' : 'desktop_windows'} size={16} opticalSize={20} weight={400} />
+        <MaterialSymbol name={icon} size={16} opticalSize={20} weight={400} />
       </span>
-      <span className="dot-chat__mark-text">{SCREEN_MARKS[state](name)}</span>{' '}
-      {state === 'allowed' && (
-        <button type="button" className="dot-chat__mark-action" data-action="screen-stop" onClick={() => stopDotScreen(dotId)}>
-          Stop
-        </button>
-      )}
+      <span className="dot-chat__mark-text">{text(name)}</span>
     </p>
   );
 }
@@ -441,12 +453,12 @@ export function DotChat({ dot, name, thread, activity, renderCard }: DotChatProp
     const timer = window.setInterval(() => setTick((value) => value + 1), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  const rows = useMemo(() => chatRows(thread, Date.now(), appOfCall), [thread, tick]);
+  const working = Boolean(activity?.working);
+  // The turn under way: its app calls without a result yet are still connecting, and its use of the screen is live.
+  const liveTurn = useMemo(() => (working ? [...(thread?.items ?? [])].reverse().find((item) => item.turnId)?.turnId : undefined), [thread, working]);
+  const rows = useMemo(() => chatRows(thread, Date.now(), appOfCall, liveTurn), [thread, tick, liveTurn]);
   const messages = rows.filter((row): row is MessageRow => row.type === 'message');
   const last = messages.at(-1);
-  const working = Boolean(activity?.working);
-  // The turn under way, whose app calls without a result yet are still connecting.
-  const liveTurn = useMemo(() => (working ? [...(thread?.items ?? [])].reverse().find((item) => item.turnId)?.turnId : undefined), [thread, working]);
   // "Typing…" is the message being written, as in a messenger: it shows while the bot writes, the message whole once
   // written. Working without writing shows under its name in the header, not here.
   const typing = working ? activity?.typingItemId ?? null : null;
@@ -475,7 +487,7 @@ export function DotChat({ dot, name, thread, activity, renderCard }: DotChatProp
           );
         }
         if (row.type === 'app') return <AppMark key={row.key} mark={row.mark} live={row.pending && row.turnId === liveTurn} />;
-        if (row.type === 'screen') return <ScreenMark key={row.key} dotId={dot.id} name={name} state={row.state} />;
+        if (row.type === 'screen') return <ScreenMark key={row.key} dotId={dot.id} name={name} mark={row.mark} />;
         if (row.from === 'dot' && row.item.streaming && row.item.id === typing) return <TypingBubble key={row.key} name={name} />;
         return row.from === 'user' ? (
           <UserMessage key={row.key} name={name} row={row} seen={row.key === seenKey} />

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 import { useStore } from '@nanostores/react';
 import { isDesktopApp } from '@willow/core/desktop-bridge';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { DotAskCard, DotAskFacts, DotAskMeta, DotAskNote, type DotAskTone } from '../ask/DotAskCard';
 import { DesktopIcon } from '../dot-icons';
 import { dotTintHex } from '../dot-tint';
 import { sparkDots } from '../dots-store';
@@ -24,8 +25,6 @@ import {
   type DotComputerView,
 } from './dot-computer-store';
 
-const SYMBOL_PROPS = { family: 'luminous' as const, weight: 320, roundness: 100 };
-
 const useView = (dotId: string): DotComputerView => useStore(dotComputers, { keys: [dotId] })[dotId] ?? dotComputerView(dotId);
 
 const percent = (view: DotComputerView) => (view.progress ? `${view.progress.detail} · ${Math.round(view.progress.fraction * 100)}%` : 'Starting…');
@@ -39,20 +38,40 @@ const hostOf = (url: string | undefined): string => {
   }
 };
 
-const MonitorSymbol = () => <MaterialSymbol family="google-symbols" name="monitor" size={18} weight={330} roundness={100} opticalSize={18} />;
+const MonitorSymbol = ({ size = 18 }: { size?: number }) => <MaterialSymbol family="google-symbols" name="monitor" size={size} weight={330} roundness={100} opticalSize={size} />;
 
 /**
  * Without WSL, setting up goes as far as Windows' own installer: Willow starts
  * it, Windows asks for permission, and a restart may follow.
  */
-function InstallWsl({ name, className = 'spark-dots-approval__approve' }: { name: string; className?: string }) {
+function InstallWsl({ name, inCard = false }: { name: string; inCard?: boolean }) {
   const [started, setStarted] = useState(false);
-  return started ? (
-    <p className="spark-dots-approval__where">Follow Windows&rsquo; prompts; restart if it asks, then set up {name}&rsquo;s computer again.</p>
+  const install = () => void installDotMachineSupport().then(() => setStarted(true));
+  if (started) {
+    const next = <>Follow Windows&rsquo; prompts; restart if it asks, then set up {name}&rsquo;s computer again.</>;
+    return inCard ? <DotAskNote>{next}</DotAskNote> : <p className="spark-dots-approval__where">{next}</p>;
+  }
+  return inCard ? (
+    <md-filled-button data-action="machine-install-wsl" onClick={install}>
+      Install WSL
+    </md-filled-button>
   ) : (
-    <button type="button" className={className} onClick={() => void installDotMachineSupport().then(() => setStarted(true))}>
+    <button type="button" className="spark-dots-profile__toggle" onClick={install}>
       Install WSL
     </button>
+  );
+}
+
+/** How far setting up has got, as a bar and in words. */
+function SetupProgress({ view }: { view: DotComputerView }) {
+  const fraction = view.progress ? Math.max(0.02, Math.min(1, view.progress.fraction)) : null;
+  return (
+    <div className="dot-ask__progress">
+      <span className={`dot-ask__progress-track${fraction === null ? ' is-indeterminate' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}>
+        <span style={fraction === null ? undefined : { width: `${fraction * 100}%` }} />
+      </span>
+      <span className="dot-ask__progress-label">{percent(view)}</span>
+    </div>
   );
 }
 
@@ -68,61 +87,66 @@ export function DotMachineSetupCard({ dotId, name, item, thread }: { dotId: stri
   const desktop = isDesktopApp();
   const needsWsl = view.status?.reason === 'wsl-missing';
   const heading = working
-    ? `Setting up ${name}'s computer`
+    ? `Setting up ${name}’s computer`
     : state === 'ready'
-      ? `${name}'s computer is ready`
+      ? `${name}’s computer is ready`
       : state === 'failed'
-        ? `Setting up ${name}'s computer didn't finish`
+        ? `Setting up ${name}’s computer didn’t finish`
         : state === 'declined'
           ? 'You declined this'
           : `${name} would like a computer of its own`;
+  const tone: DotAskTone = working ? 'busy' : state === 'pending' ? 'ask' : state === 'failed' ? 'error' : state === 'declined' ? 'off' : 'done';
 
   return (
-    <article className={`spark-dots-approval is-${state === 'pending' ? 'pending' : state === 'failed' ? 'failed' : 'done'}`} aria-label={heading}>
-      <div className="spark-dots-approval__heading">
-        {working ? (
-          <MaterialSymbol {...SYMBOL_PROPS} name="progress_activity" size={18} opticalSize={18} className="spark-dots-approval__spinner" />
-        ) : (
-          <MonitorSymbol />
-        )}
-        <span>{heading}</span>
-      </div>
+    <DotAskCard
+      kind="machine"
+      tone={tone}
+      icon={<MonitorSymbol size={22} />}
+      kicker={`${name}’s computer`}
+      title={heading}
+      label={heading}
+      footer={
+        desktop && (state === 'pending' || state === 'failed') && !working ? (
+          <>
+            {state === 'pending' && (
+              <md-text-button data-action="machine-decline" onClick={() => declineDotMachine(dotId, item.id)}>
+                Not now
+              </md-text-button>
+            )}
+            {needsWsl ? (
+              <InstallWsl name={name} inCard />
+            ) : (
+              <md-filled-button data-action="machine-set-up" onClick={() => void setUpDotComputer(dotId)}>
+                {state === 'failed' ? 'Try again' : 'Set up'}
+              </md-filled-button>
+            )}
+          </>
+        ) : undefined
+      }
+    >
       {state === 'pending' && (
-        <p className="spark-dots-approval__reason">
-          {name}&rsquo;s own account on a Linux computer on this PC that your bots share, with its own desktop, browser, files and shell, which {name} uses without asking at every step. You can watch its screen, take it over or turn it off at any time. {view.status?.base.ready ? 'Setting it up takes a few seconds.' : 'Setting up the computer takes a few minutes and about 2 GB, once for all your bots.'}
-        </p>
+        <DotAskFacts
+          facts={[
+            { icon: 'computer', text: `Its own account on a Linux computer on this PC, with a desktop, a browser, files and a shell` },
+            { icon: 'bolt', text: `${name} uses it without asking at every step; your other bots have accounts of their own beside it` },
+            { icon: 'visibility', text: 'You can watch its screen, take it over or turn it off at any time' },
+          ]}
+        />
       )}
-      {working && <p className="spark-dots-approval__where">{percent(view)}</p>}
-      {state === 'failed' && <p className="spark-dots-approval__reason">{answer?.text.replace(/^Setting up your computer \(i\d+\) failed: /, '')}</p>}
-      {state === 'pending' && needsWsl && (
-        <p className="spark-dots-approval__where">It runs on Windows Subsystem for Linux, which isn&rsquo;t on this PC yet.</p>
-      )}
-      {state === 'pending' && !desktop && <p className="spark-dots-approval__where">This needs the Willow desktop app.</p>}
-      {desktop && (state === 'pending' || state === 'failed') && !working && (
-        <div className="spark-dots-approval__actions">
-          {state === 'pending' && (
-            <button type="button" className="spark-dots-approval__deny" onClick={() => declineDotMachine(dotId, item.id)}>
-              Not now
-            </button>
-          )}
-          {needsWsl ? (
-            <InstallWsl name={name} />
-          ) : (
-            <button type="button" className="spark-dots-approval__approve" onClick={() => void setUpDotComputer(dotId)}>
-              {state === 'failed' ? 'Try again' : 'Set up'}
-            </button>
-          )}
-        </div>
-      )}
+      {state === 'pending' && <DotAskNote>{view.status?.base.ready ? 'Setting it up takes a few seconds.' : 'Setting up takes a few minutes and about 2 GB, once for all your bots.'}</DotAskNote>}
+      {working && <SetupProgress view={view} />}
+      {state === 'failed' && <DotAskNote error>{answer?.text.replace(/^Setting up your computer \(i\d+\) failed: /, '')}</DotAskNote>}
+      {state === 'pending' && needsWsl && <DotAskNote>It runs on Windows Subsystem for Linux, which isn&rsquo;t on this PC yet.</DotAskNote>}
+      {state === 'pending' && !desktop && <DotAskNote>This needs the Willow desktop app.</DotAskNote>}
       {state === 'ready' && (
-        <div className="spark-dots-approval__outcome">
+        <div className="dot-ask__outcome">
           <span>It turns on by itself when {name} needs it.</span>
-          <button type="button" className="spark-dots-approval__toggle" onClick={() => openDotComputer(dotId)}>
+          <button type="button" className="dot-ask__chip" data-action="machine-open" onClick={() => openDotComputer(dotId)}>
             Open
           </button>
         </div>
       )}
-    </article>
+    </DotAskCard>
   );
 }
 
@@ -164,16 +188,16 @@ function SecretForm({ dotId, name, item }: { dotId: string; name: string; item: 
         placeholder={item.help?.label ?? ''}
         onChange={(event) => setValue(event.target.value)}
       />
-      <div className="spark-dots-approval__actions">
-        <button type="button" className="spark-dots-approval__deny" disabled={busy} onClick={() => void dismissDotHelp(dotId, item.id)}>
+      <DotAskNote>It goes straight into the page on {name}&rsquo;s computer. {name} never sees it.</DotAskNote>
+      {problem && <DotAskNote error>{problem}</DotAskNote>}
+      <div className="dot-ask__footer">
+        <md-text-button type="button" data-action="help-dismiss" disabled={busy} onClick={() => void dismissDotHelp(dotId, item.id)}>
           Not now
-        </button>
-        <button type="submit" className="spark-dots-approval__approve" disabled={busy || !value}>
+        </md-text-button>
+        <md-filled-button type="submit" data-action="help-enter" disabled={busy || !value}>
           {busy ? 'Entering…' : 'Enter'}
-        </button>
+        </md-filled-button>
       </div>
-      <p className="spark-dots-approval__where">It goes straight into the page on {name}&rsquo;s computer. {name} never sees it.</p>
-      {problem && <p className="spark-dots-profile__problem" role="alert">{problem}</p>}
     </form>
   );
 }
@@ -197,37 +221,47 @@ export function DotHelpCard({ dotId, name, item, thread }: { dotId: string; name
       ? `You have ${name}'s computer`
       : HELP_ENDED[state] ?? 'Done';
 
+  const tone: DotAskTone = state === 'waiting' ? 'ask' : state === 'taken' ? 'live' : 'done';
+
   return (
-    <article className={`spark-dots-approval is-${state === 'waiting' ? 'pending' : state === 'taken' ? 'running' : 'done'}`} aria-label={heading}>
-      <div className="spark-dots-approval__heading">
-        <MonitorSymbol />
-        <span>{heading}</span>
-      </div>
-      {!secret && <p className="spark-dots-approval__reason">{help.reason}</p>}
-      {host && <p className="spark-dots-approval__where" title={help.url}>On {host}</p>}
+    <DotAskCard
+      kind="help"
+      tone={tone}
+      icon={secret ? <MaterialSymbol name="password" size={22} opticalSize={24} weight={350} /> : <MonitorSymbol size={22} />}
+      kicker={`${name}’s computer`}
+      title={heading}
+      label={heading}
+      reason={!secret ? help.reason : undefined}
+      footer={
+        !secret && state === 'waiting' ? (
+          <>
+            <md-text-button data-action="help-dismiss" onClick={() => void dismissDotHelp(dotId, item.id)}>
+              Dismiss
+            </md-text-button>
+            <md-filled-button data-action="help-take-over" disabled={view.busy === 'taking-over'} onClick={() => void takeOverDotComputer(dotId, help.requestId)}>
+              Take over
+            </md-filled-button>
+          </>
+        ) : state === 'taken' ? (
+          <>
+            <md-text-button data-action="help-show" onClick={() => openDotComputer(dotId)}>
+              Show
+            </md-text-button>
+            <md-filled-button data-action="help-hand-back" onClick={() => void handBackDotComputer(dotId)}>
+              Go back to {name}
+            </md-filled-button>
+          </>
+        ) : undefined
+      }
+    >
+      {host && (
+        <DotAskMeta icon="language" title={help.url}>
+          On {host}
+        </DotAskMeta>
+      )}
       {secret && state === 'waiting' && <SecretForm dotId={dotId} name={name} item={item} />}
-      {!secret && state === 'waiting' && (
-        <div className="spark-dots-approval__actions">
-          <button type="button" className="spark-dots-approval__deny" onClick={() => void dismissDotHelp(dotId, item.id)}>
-            Dismiss
-          </button>
-          <button type="button" className="spark-dots-approval__approve" disabled={view.busy === 'taking-over'} onClick={() => void takeOverDotComputer(dotId, help.requestId)}>
-            Take over
-          </button>
-        </div>
-      )}
-      {state === 'taken' && (
-        <div className="spark-dots-approval__actions">
-          <button type="button" className="spark-dots-approval__deny" onClick={() => openDotComputer(dotId)}>
-            Show
-          </button>
-          <button type="button" className="spark-dots-approval__approve" onClick={() => void handBackDotComputer(dotId)}>
-            Go back to {name}
-          </button>
-        </div>
-      )}
-      {view.problem && (state === 'waiting' || state === 'taken') && <p className="spark-dots-profile__problem" role="alert">{view.problem}</p>}
-    </article>
+      {view.problem && (state === 'waiting' || state === 'taken') && <DotAskNote error>{view.problem}</DotAskNote>}
+    </DotAskCard>
   );
 }
 
@@ -343,7 +377,7 @@ export function DotComputerRow({ dotId, name }: { dotId: string; name: string })
     );
   } else if (state === 'none') {
     action = reason === 'wsl-missing' ? (
-      <InstallWsl name={name} className="spark-dots-profile__toggle" />
+      <InstallWsl name={name} />
     ) : (
       <button type="button" className="spark-dots-profile__toggle" onClick={() => void setUpDotComputer(dotId)}>
         Set up

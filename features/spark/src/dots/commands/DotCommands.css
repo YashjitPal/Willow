@@ -1,38 +1,17 @@
-/* The commands of one stretch of work, opened from Activity. */
+/* The commands of one stretch of work, opened from Activity: the chat's cards, the panel's full width, a list. */
 
 .dot-commands {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
-.dot-commands .spark-dots-approval {
-  max-width: none;
-  margin: 0;
-  border-color: var(--dot-panel-hairline, rgba(255, 255, 255, 0.07));
-  background: var(--md-sys-color-surface-container, #1f1f1f);
+.dot-commands .dot-ask {
+  width: 100%;
 }
 
-.dot-commands .spark-dots-approval.is-pending {
-  border-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.45);
-}
-
-.dot-commands .spark-dots-approval__actions {
-  flex-wrap: wrap;
-}
-
-.dot-commands__time {
-  flex: none;
-  margin-inline-start: auto;
-  white-space: nowrap;
-  color: var(--dot-panel-muted, #9a9b9c);
-  font-size: 12px;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-}
-
-.dot-commands__time + .spark-dots-approval__stop {
-  margin-inline-start: 0;
+.dot-commands .dot-ask:not(.is-ask) {
+  animation: none;
 }
 
 .dot-commands__gone {

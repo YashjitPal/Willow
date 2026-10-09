@@ -4,7 +4,7 @@
  * be read, and tested, without a page.
  */
 import { decidedCommands } from '../commands/dot-commands';
-import { screenState, type ScreenState } from '../harness/runtime/screen-control';
+import { activeScreen, screenState } from '../harness/runtime/screen-control';
 import { dotReactionsByMessage, userReactionsByMessage } from '../harness/thread/reactions';
 import type { DotItem, DotThread } from '../harness/thread/thread-types';
 import type { DotAppMark } from './app-marks';
@@ -25,10 +25,21 @@ export interface MessageRow {
   userReaction: string | null;
 }
 
+/** Calls that see or use the user's screen. */
+const SCREEN_TOOLS = new Set(['user_screenshot', 'user_zoom', 'user_apps', 'user_elements', 'user_element', 'user_focus_window', 'user_open_app']);
+export const isScreenCall = (tool: string | undefined): boolean => Boolean(tool && (SCREEN_TOOLS.has(tool) || tool.startsWith('user_desktop_')));
+
+/**
+ * What the user's screen in the bot's hands leaves in the conversation: each turn that used it, at its first look —
+ * `using` while that turn is under way and the go-ahead holds, with Stop, and `used` after — then `allowed` for a
+ * go-ahead not used yet, `declined`, and `stopped` where the user took it back.
+ */
+export type ScreenMark = 'using' | 'used' | 'allowed' | 'declined' | 'stopped';
+
 /** A line of the conversation's own, centred like a day: an app the bot reached, or the user's screen in its hands. */
 export type MarkRow =
   | { type: 'app'; key: string; mark: DotAppMark; turnId?: string; pending: boolean }
-  | { type: 'screen'; key: string; item: DotItem; state: Exclude<ScreenState, 'pending'> };
+  | { type: 'screen'; key: string; item: DotItem; mark: ScreenMark };
 
 export type ChatRow = { type: 'day'; key: string; label: string } | { type: 'card'; key: string; item: DotItem } | MessageRow | MarkRow;
 
@@ -63,12 +74,14 @@ const dayLabel = (at: number, now: number): string => {
 
 /**
  * The conversation as a messenger shows it: day separators, bubbles grouped into bursts, the cards between them, and
- * centred marks where the bot reached an app (`appOf`, once an app a turn) or had the user's screen.
+ * centred marks where the bot reached an app (`appOf`, once an app a turn) or had the user's screen. `liveTurn` is the
+ * turn under way, if any: only its use of the screen is live.
  */
 export const chatRows = (
   thread: (Pick<DotThread, 'items'> & Partial<Pick<DotThread, 'runtime'>>) | undefined,
   now: number,
   appOf?: (tool: string | undefined) => DotAppMark | null,
+  liveTurn?: string,
 ): ChatRow[] => {
   if (!thread) return [];
   const dotReactions = dotReactionsByMessage(thread);
@@ -76,6 +89,42 @@ export const chatRows = (
   const decided = decidedCommands(thread);
   const answered = new Set(thread.items.filter((item) => item.kind === 'result' && item.callId).map((item) => item.callId));
   const marked = new Set<string>();
+
+  // Where the screen was used, a turn at a time: the first call that saw or used it while a go-ahead held.
+  const screenUse = new Map<string, { turnId: string; request: string }>();
+  const allowedRequests = new Set<string>();
+  const usedRequests = new Set<string>();
+  let grant: string | null = null;
+  const usedTurns = new Set<string>();
+  for (const item of thread.items) {
+    if (item.kind === 'event' && item.event === 'screen' && item.ref) {
+      if (item.screenStep === 'allowed') {
+        grant = item.ref;
+        allowedRequests.add(item.ref);
+      } else if ((item.screenStep === 'stopped' || item.screenStep === 'ended') && grant === item.ref) {
+        grant = null;
+      }
+    } else if (item.kind === 'call' && grant && item.turnId && isScreenCall(item.tool) && !usedTurns.has(item.turnId)) {
+      usedTurns.add(item.turnId);
+      screenUse.set(item.id, { turnId: item.turnId, request: grant });
+      usedRequests.add(grant);
+    }
+  }
+  const grantHolds = (request: string) => Boolean(thread.runtime) && activeScreen(thread as DotThread, now)?.itemId === request;
+
+  /** The mark an item about the screen leaves: undefined when it is not one, null when it leaves none. */
+  const screenRow = (item: DotItem): MarkRow | null | undefined => {
+    const use = item.kind === 'call' ? screenUse.get(item.id) : undefined;
+    if (use) return { type: 'screen', key: `screen-use-${item.id}`, item, mark: use.turnId === liveTurn && grantHolds(use.request) ? 'using' : 'used' };
+    if (item.kind === 'event' && item.event === 'screen' && item.screenStep === 'stopped') return { type: 'screen', key: `screen-stop-${item.id}`, item, mark: 'stopped' };
+    if (item.kind !== 'screen' || !thread.runtime) return undefined;
+    const state = screenState(thread as DotThread, item, now);
+    if (state === 'pending') return undefined;
+    if (state === 'declined') return { type: 'screen', key: item.id, item, mark: 'declined' };
+    // A go-ahead shows as its own line only until the screen is used under it, or where it was never used.
+    return allowedRequests.has(item.id) && !usedRequests.has(item.id) && state !== 'stopped' ? { type: 'screen', key: item.id, item, mark: 'allowed' } : null;
+  };
+
   const rows: ChatRow[] = [];
   let day = '';
   let previous: MessageRow | null = null;
@@ -83,7 +132,9 @@ export const chatRows = (
     const message = isMessage(item);
     const app = item.kind === 'call' && appOf ? appOf(item.tool) : null;
     if (app && marked.has(`${item.turnId}:${app.key}`)) continue;
-    if (!message && !isCard(item) && !app) continue;
+    const screen = screenRow(item);
+    if (screen === null) continue;
+    if (!message && !isCard(item) && !app && !screen) continue;
     if (item.kind === 'approval' && decided.has(item.id)) continue;
     const key = dayKey(item.at);
     if (key !== day) {
@@ -97,9 +148,8 @@ export const chatRows = (
       previous = null;
       continue;
     }
-    const screen = item.kind === 'screen' && thread.runtime ? screenState(thread as DotThread, item, now) : null;
-    if (screen && screen !== 'pending') {
-      rows.push({ type: 'screen', key: item.id, item, state: screen });
+    if (screen) {
+      rows.push(screen);
       previous = null;
       continue;
     }
