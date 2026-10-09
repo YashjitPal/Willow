@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Vendoring tool for the Codex harness behind the Code tab's Agent tool.
+ * Vendoring tool for Spark's Codex-derived harness.
  *
  * The harness tracks a pinned commit of openai/codex (Apache-2.0). Upstream's
  * prompts and tool grammars are copied byte-for-byte into
- * `features/code/src/agent/harness/upstream/` and are never hand-edited —
+ * `features/spark/src/harness/upstream/` and are never hand-edited —
  * everything Willow changes lives in `../overlay/` and is applied at runtime.
  * That split is what makes an upgrade mechanical: re-run this script, read the
  * diff, and adjust the overlay only if an anchor it depends on moved.
@@ -29,21 +29,16 @@ const REPO_ROOT = path.resolve(HERE, '..', '..');
 /**
  * Every harness that vendors upstream, in priority order.
  *
- * There are two, because the Code tab's harness and Spark's are separate forks
- * that each compose the prompt themselves. They must be pinned to the *same*
- * commit — a Spark agent running an older Codex prompt than the Code agent is
- * exactly the kind of silent divergence this script exists to prevent.
- *
- * This used to point at Code's folder alone, and Spark's copy was made by hand.
- * The predictable happened: Code moved to ten vendored files and Spark still had
- * five, so Spark's Plan mode had no mode template to compose. Writing every
- * directory from one list is what stops that recurring.
+ * Spark's is the only one now. The Code tab's harness used to vendor the same
+ * files; it was replaced by a purpose-built harness (`features/code/src/harness/`)
+ * that writes its own prompt for a browser-only app builder, so it tracks no
+ * upstream text. The list stays a list so a future fork is pinned to the same
+ * commit by construction rather than by hand.
  *
  * The first entry owns the canonical `MANIFEST.json`; the rest receive an
  * identical copy, and `check()` verifies all of them.
  */
 const UPSTREAM_DIRS = [
-  path.join(REPO_ROOT, 'features', 'code', 'src', 'agent', 'harness', 'upstream'),
   path.join(REPO_ROOT, 'features', 'spark', 'src', 'harness', 'upstream'),
 ];
 const MANIFEST_PATH = path.join(UPSTREAM_DIRS[0], 'MANIFEST.json');
@@ -260,8 +255,8 @@ async function update() {
     console.log(`\nWrote ${path.relative(REPO_ROOT, target)}`);
   }
   console.log(
-    '\nNext: run `npm run codex:check`, then review overlay anchors in\n' +
-      'features/code/src/agent/harness/overlay/prompt-overlay.ts.'
+    '\nNext: run `npm run codex:check`, then review the overlay in\n' +
+      'features/spark/src/harness/overlay/.'
   );
 }
 

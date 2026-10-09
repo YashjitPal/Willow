@@ -5,7 +5,7 @@ import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { streamChat, ChatMessage as AiChatMessage, prewarmClient } from '@willow/ai/chat';
 import { apiKeysForBinding, resolveProviderBinding } from '@willow/ai/providers/profiles';
 import type { ProviderId } from '@willow/ai/providers/endpoints';
-import { addDesignNode, designNodesStore, selectedDesignNodeIds } from './design-store';
+import { addDesignNode, designNodesStore, designTurnRunning, selectedDesignNodeIds } from './design-store';
 import { useStore } from '@nanostores/react';
 import { TextShimmer } from '@willow/ui/text-shimmer';
 import ReactMarkdown from 'react-markdown';
@@ -48,6 +48,8 @@ export const DesignChat = forwardRef<DesignChatHandle, DesignChatProps>(({ model
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [promptValue, setPromptValue] = useState('');
   const [isCurrentlyGenerating, setIsCurrentlyGenerating] = useState(false);
+  useEffect(() => { designTurnRunning.set(isCurrentlyGenerating); }, [isCurrentlyGenerating]);
+  useEffect(() => () => designTurnRunning.set(false), []);
   const [currentStreamingResponse, setCurrentStreamingResponse] = useState('');
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);

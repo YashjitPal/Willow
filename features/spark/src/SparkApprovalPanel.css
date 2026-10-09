@@ -1,0 +1,81 @@
+/*
+ * The approval panel is the question panel's surface (`SparkQuestionPanel.css`):
+ * the same composer-family box, option rows and type. Only what a command needs is
+ * added here: the command itself in monospace, where it runs, and the key hints.
+ */
+
+.spark-approval__command {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(230, 230, 230, 0.05);
+  color: #e6e6e6;
+  font-family: "Google Sans Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 19px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.spark-approval__paths {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(230, 230, 230, 0.05);
+  list-style: none;
+  color: #e6e6e6;
+  font-family: "Google Sans Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 19px;
+  word-break: break-all;
+}
+
+.spark-approval__where {
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 16px;
+  color: rgba(255, 255, 255, 0.55);
+  word-break: break-all;
+}
+
+.spark-approval__option {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.spark-approval__hint {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.spark-approval__inline-code {
+  padding: 0 4px;
+  border-radius: 6px;
+  background: rgba(230, 230, 230, 0.08);
+  font-family: "Google Sans Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-approval__command,
+:is(.light-theme, [data-theme="light"]) .spark-approval__paths {
+  background: rgba(0, 0, 0, 0.04);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-approval__where,
+:is(.light-theme, [data-theme="light"]) .spark-approval__hint {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-approval__inline-code {
+  background: rgba(0, 0, 0, 0.06);
+}

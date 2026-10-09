@@ -1,0 +1,120 @@
+.dot-email-card {
+  width: min(460px, 100%);
+  --md-outlined-card-container-shape: 16px;
+  --md-outlined-card-outline-color: var(--md-sys-color-outline-variant);
+  --md-circular-progress-size: 20px;
+  --md-circular-progress-active-indicator-width: 12;
+}
+
+.dot-email-card md-outlined-card {
+  display: block;
+}
+
+.dot-email-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-email-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dot-email-card__icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.dot-email-card.is-declined .dot-email-card__icon,
+.dot-email-card.is-failed .dot-email-card__icon {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-email-card__title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.dot-email-card__fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.dot-email-card__fields dt {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-email-card__fields dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.dot-email-card__recipient {
+  display: flex;
+  flex-direction: column;
+}
+
+.dot-email-card__address {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.dot-email-card__text {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container);
+  font-size: 13px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.dot-email-card__more {
+  align-self: flex-start;
+  margin: -6px 0 -4px -12px;
+}
+
+.dot-email-card__note {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.dot-email-card__note.is-error {
+  color: var(--md-sys-color-error);
+}
+
+.dot-email-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 -4px -4px 0;
+}
+
+.dot-email-card.is-declined .dot-email-card__text,
+.dot-email-card.is-failed .dot-email-card__text {
+  color: var(--md-sys-color-on-surface-variant);
+}

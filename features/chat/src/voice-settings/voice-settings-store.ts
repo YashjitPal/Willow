@@ -45,19 +45,22 @@ const STORAGE_KEY = 'willow:voice-settings';
  * `getVoiceSelection`, so a voice retired from the API falls back to the
  * provider default rather than being sent on the wire.
  */
+const parseState = (parsed: unknown): VoiceSettingsState => {
+  const next: VoiceSettingsState = {};
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return next;
+  for (const [providerId, value] of Object.entries(parsed)) {
+    const entry = value as Partial<VoiceSelection> | null;
+    if (!entry || typeof entry !== 'object') continue;
+    if (typeof entry.voiceId !== 'string' || typeof entry.languageCode !== 'string') continue;
+    next[providerId] = { voiceId: entry.voiceId, languageCode: entry.languageCode };
+  }
+  return next;
+};
+
 const readStored = (): VoiceSettingsState => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const next: VoiceSettingsState = {};
-    for (const [providerId, value] of Object.entries(parsed ?? {})) {
-      const entry = value as Partial<VoiceSelection> | null;
-      if (!entry || typeof entry !== 'object') continue;
-      if (typeof entry.voiceId !== 'string' || typeof entry.languageCode !== 'string') continue;
-      next[providerId] = { voiceId: entry.voiceId, languageCode: entry.languageCode };
-    }
-    return next;
+    return raw ? parseState(JSON.parse(raw)) : {};
   } catch {
     // Corrupt or unavailable storage must not stop the app booting.
     return {};
@@ -110,6 +113,13 @@ export const setVoice = (provider: VoiceProvider, voiceId: string): void =>
 
 export const setLanguage = (provider: VoiceProvider, languageCode: string): void =>
   update(provider, { languageCode });
+
+/** Every provider's selection at once (`settings.json`), held to the shape `readStored` keeps. */
+export const replaceVoiceSettings = (value: unknown): void => {
+  const next = parseState(value);
+  voiceSettingsStore.set(next);
+  persist(next);
+};
 
 /**
  * What a session should be started with for `modelId`.

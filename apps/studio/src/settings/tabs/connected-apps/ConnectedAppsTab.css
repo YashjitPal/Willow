@@ -456,7 +456,7 @@
   border: none;
   border-radius: var(--ca-spacing-s);
   background: var(--ca-primary);
-  color: #062e6f;
+  color: var(--sync-062e6f, #062e6f);
   font-family: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -886,10 +886,41 @@
 
 /* ---------- Narrow viewports ---------- */
 
-@media (max-width: 767px) {
+/*
+ * On a phone, measured at 390x844: one full-width column of cards 20px apart, each card as
+ * tall as its content, with the example prompt 16px under "Learn more" at its own height.
+ * The Workspace card stacks its title over one column of tools and keeps the title's 60px
+ * right margin, 12px above them. The chip row loses its bottom padding.
+ */
+@media (max-width: 768px) {
+  .connected-apps-container .ca-chip-row {
+    padding: var(--ca-spacing-l) var(--ca-spacing-xxl) 0;
+  }
+
+  .connected-apps-container .ca-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ca-spacing-xl) var(--ca-spacing-xxl);
+  }
+
+  .connected-apps-container .ca-card {
+    height: auto;
+  }
+
+  /* With the card sized by its content there is no free space for `flex: 1 1 0` to claim. */
+  .connected-apps-container .ca-collapsed-content {
+    flex: 0 0 auto;
+  }
+
+  .connected-apps-container .ca-description {
+    margin-bottom: var(--ca-spacing-m);
+  }
+
+  .connected-apps-container .ca-hero-prompt-slot {
+    margin-top: var(--ca-spacing-l);
+  }
+
   .connected-apps-container .ca-hero-prompt {
     height: auto;
-    min-height: 88px;
   }
 
   .connected-apps-container .ca-hero-prompt span {
@@ -901,13 +932,86 @@
   }
 
   .connected-apps-container .ca-parent-title {
-    width: 100%;
-    margin-right: 0;
-    margin-bottom: var(--ca-spacing-l);
+    width: auto;
+    margin: 0 60px 0 0;
+  }
+
+  .connected-apps-container .ca-parent-description {
+    margin-bottom: var(--ca-spacing-m);
   }
 
   .connected-apps-container .ca-child-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/*
+ * At 960px and below, measured off /apps at 390x844 and 800x1280: the window loses its
+ * corners, the footer blocks sit 40px in from each side with the privacy note on its own
+ * #1b1b1b card, and links read in on-surface #e0e0e0. The Spotify notice is Willow's alone;
+ * it takes the grid's 24px inset rather than running edge to edge.
+ */
+@media (max-width: 960px) {
+  /* The page scrolls in a region that starts under the 68px top bar. */
+  .connected-apps-container {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+
+  .connected-apps-container .ca-window {
+    margin-top: 0;
+    border-radius: 0;
+  }
+
+  .connected-apps-container .ca-subtitle a,
+  .connected-apps-container .ca-privacy a {
+    color: #e0e0e0;
+  }
+
+  .connected-apps-container .ca-banner {
+    width: auto;
+    margin: var(--ca-spacing-l) var(--ca-spacing-xxl) 0;
+  }
+
+  .connected-apps-container .ca-premium,
+  .connected-apps-container .ca-privacy {
+    width: auto;
+    margin: var(--ca-spacing-xxl) 40px 0;
+  }
+
+  .connected-apps-container .ca-privacy {
+    border-radius: var(--ca-spacing-l);
+    background: var(--ca-surface-child);
+  }
+
+  /* Out of a line box the inline-flex switch centres on the logo, as Gemini's does. */
+  .connected-apps-container .ca-toggle-slot {
+    display: flex;
+  }
+
+  /* Gemini renders `.handle` (and its 8px margin) on every card, empty where there is none. */
+  .connected-apps-container .ca-card > div:has(> .ca-card-name):not(:has(> .ca-handle)) {
+    padding-bottom: var(--ca-spacing-s);
+  }
+}
+
+/* On a tablet Gemini's Workspace card spans three tracks of a two-column grid, which adds
+ * an implicit third (264, 264, then 184px at 800 wide) so the card fills the row; its title
+ * column takes what the two 246px tools leave. */
+@media (min-width: 769px) and (max-width: 960px) {
+  .connected-apps-container .ca-parent-card {
+    grid-column: span 3;
+  }
+
+  .connected-apps-container .ca-parent-title {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 0;
+    flex-shrink: 1;
+  }
+
+  .connected-apps-container .ca-child-grid {
+    flex: 0 0 auto;
   }
 }
 
@@ -945,7 +1049,7 @@
 :is(.light-theme, [data-theme="light"]) .connected-apps-container .ca-privacy a,
 :is(.light-theme, [data-theme="light"]) .connected-apps-container .ca-token-help a,
 :is(.light-theme, [data-theme="light"]) .connected-apps-container .ca-premium-links a {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .connected-apps-container .ca-chip {
@@ -979,7 +1083,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .connected-apps-container .ca-token-submit {
-  background: #0b57d0;
+  background: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
@@ -990,7 +1094,7 @@
 
 :is(.light-theme, [data-theme="light"]) .connected-apps-container .ca-prompt-pill {
   background: #f0f4f9;
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
   border: 1px solid #dde3ea;
 }
 
@@ -1020,3 +1124,200 @@
   background: #f0f4f9;
 }
 
+
+/* ---------- Your own OAuth clients (OAuthClientSetup.tsx) ---------- */
+
+.connected-apps-container .ca-client-setup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ca-spacing-m);
+  width: 100%;
+  max-width: calc(var(--ca-content-max-width) - 2 * var(--ca-spacing-xxl));
+  margin: 0 auto var(--ca-spacing-l);
+  padding: var(--ca-spacing-xl);
+  border-radius: var(--ca-spacing-xxl);
+  background: var(--ca-surface-container);
+  box-sizing: border-box;
+}
+
+.connected-apps-container .ca-client-setup.is-compact {
+  flex-direction: row;
+  align-items: center;
+  padding: var(--ca-spacing-m) var(--ca-spacing-l);
+}
+
+.connected-apps-container .ca-client-setup__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--ca-spacing-s);
+}
+
+.connected-apps-container .ca-client-setup__heading h2 {
+  margin: 0;
+  color: var(--ca-on-surface);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.connected-apps-container .ca-client-setup__steps {
+  display: grid;
+  gap: var(--ca-spacing-s);
+  margin: 0;
+  padding-left: 20px;
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-client-setup__steps code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--ca-surface-prompt);
+  color: var(--ca-on-surface);
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.connected-apps-container .ca-client-setup__summary {
+  flex: 1;
+  min-width: 0;
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-client-setup__link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ca-primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.connected-apps-container .ca-client-setup.is-compact .ca-client-setup__link {
+  align-self: center;
+}
+
+.connected-apps-container .ca-client-setup__link:hover {
+  text-decoration: underline;
+}
+
+.connected-apps-container .ca-client-setup__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ca-spacing-s);
+}
+
+.connected-apps-container .ca-client-setup__input {
+  flex: 1 1 260px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 var(--ca-spacing-m);
+  border: 1px solid var(--ca-outline);
+  border-radius: var(--ca-spacing-s);
+  background: var(--ca-surface);
+  color: var(--ca-on-surface);
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 13px;
+  outline: none;
+}
+
+.connected-apps-container .ca-client-setup__input:focus {
+  border-color: var(--ca-primary);
+}
+
+.connected-apps-container .ca-client-setup__save {
+  height: 36px;
+  padding: 0 var(--ca-spacing-l);
+  border: 0;
+  border-radius: 999px;
+  background: var(--ca-primary);
+  color: var(--ca-surface);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.connected-apps-container .ca-client-setup__save:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.connected-apps-container .ca-client-setup__problem {
+  margin: 0;
+  color: var(--ca-error);
+}
+
+/* ---------- Google permissions, under the Workspace card ---------- */
+
+.connected-apps-container .ca-google-permissions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ca-spacing-m);
+  margin-top: var(--ca-spacing-xl);
+  padding-top: var(--ca-spacing-l);
+  border-top: 1px solid var(--ca-divider);
+}
+
+.connected-apps-container .ca-permission-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ca-spacing-l);
+}
+
+.connected-apps-container .ca-permission-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.connected-apps-container .ca-permission-name {
+  color: var(--ca-on-surface);
+}
+
+.connected-apps-container .ca-permission-detail,
+.connected-apps-container .ca-permission-problem {
+  color: var(--ca-on-surface-variant);
+}
+
+.connected-apps-container .ca-permission-button {
+  flex: none;
+  padding: 8px 16px;
+  border: 1px solid var(--ca-divider);
+  border-radius: 999px;
+  background: none;
+  color: var(--ca-primary);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.connected-apps-container .ca-permission-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ca-primary) 8%, transparent);
+}
+
+.connected-apps-container .ca-permission-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.connected-apps-container .ca-permission-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--ca-outline);
+}
+
+@media (max-width: 599px) {
+  .connected-apps-container .ca-permission-row {
+    align-items: flex-start;
+  }
+}

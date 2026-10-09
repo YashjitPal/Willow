@@ -1,0 +1,166 @@
+/*
+ * Gemini's `remy-confirmation-card.draft-approval`, measured at 1536×826: #131314 under a
+ * 1px #171717 edge and a faint 20px glow, 28px corners, 24px in. The headline is
+ * gds-headline-l (28/36 weight 350, ROND 20); the body is gds-body-m (15/20), headings
+ * emphasised at the same size; "See more" a dotted underline 24px down; the disclaimer
+ * gds-body-s (13/17) at 55% white under a hairline, 24px down and 12px in.
+ */
+.willow-confirmation-card {
+  display: flex;
+  box-sizing: border-box;
+  min-width: 0;
+  flex-direction: column;
+  padding: 24px;
+  border: 0.0625rem solid #171717;
+  border-radius: 28px;
+  background: #131314;
+  box-shadow: 0 0 20px 0 rgba(230, 230, 230, 0.04);
+  color: #e6e6e6;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+}
+
+.willow-confirmation-card__header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.willow-confirmation-card__title {
+  min-width: 0;
+  margin: 0;
+  color: #e6e6e6;
+  font-size: 28px;
+  font-weight: 350;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 350;
+  line-height: 36px;
+  overflow-wrap: anywhere;
+}
+
+.willow-confirmation-card__body {
+  margin-top: 16px;
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+/* Gemini's `.body-text--collapsed`: five lines, and nothing inside it is live meanwhile. */
+.willow-confirmation-card__body.is-collapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  pointer-events: none;
+}
+
+.willow-confirmation-card__body :is(h1, h2, h3, h4, h5, h6) {
+  margin: 24px 0 8px;
+  font-size: 15px;
+  font-weight: 540;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+  line-height: 20px;
+}
+
+.willow-confirmation-card__body p {
+  margin: 0 0 12.5px;
+}
+
+.willow-confirmation-card__body :is(ol, ul) {
+  margin: 8px 0 16px;
+  padding-left: 32px;
+}
+
+.willow-confirmation-card__body li {
+  margin: 8px 0;
+  padding-left: 4px;
+}
+
+.willow-confirmation-card__body li > p {
+  margin: 0;
+}
+
+.willow-confirmation-card__body > :last-child {
+  margin-bottom: 0;
+}
+
+.willow-confirmation-card__body a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.willow-confirmation-card__body code {
+  font-family: "Google Sans Mono", "Roboto Mono", monospace;
+  font-size: 14px;
+}
+
+.willow-confirmation-card__body pre {
+  margin: 8px 0 16px;
+  white-space: pre-wrap;
+}
+
+.willow-confirmation-card__toggle {
+  align-self: flex-start;
+  margin: 24px 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #e6e6e6;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.125rem;
+  cursor: pointer;
+}
+
+.willow-confirmation-card__disclaimer {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 0.0625rem solid #171717;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 17px;
+}
+
+.willow-confirmation-card__disclaimer p {
+  margin: 0;
+}
+
+/* Gemini's narrow surfaces: the edge #141414, the type #e0e0e0. */
+@media (max-width: 960px) {
+  .willow-confirmation-card {
+    border-color: #141414;
+  }
+
+  .willow-confirmation-card,
+  .willow-confirmation-card__title,
+  .willow-confirmation-card__body,
+  .willow-confirmation-card__toggle {
+    color: #e0e0e0;
+  }
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-confirmation-card {
+  border-color: #e9eef6;
+  background: #ffffff;
+  box-shadow: 0 0 20px 0 rgba(31, 31, 31, 0.04);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-confirmation-card__title,
+:is(.light-theme, [data-theme="light"]) .willow-confirmation-card__body,
+:is(.light-theme, [data-theme="light"]) .willow-confirmation-card__toggle {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-confirmation-card__disclaimer {
+  border-top-color: #e9eef6;
+  color: rgba(0, 0, 0, 0.55);
+}

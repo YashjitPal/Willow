@@ -1,18 +1,22 @@
 import React, { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useThemeMode } from '@willow/core/theme-mode';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import { CustomizeIcon } from './CustomizeIcon';
 import { CustomizeCard } from './CustomizeCard';
-import { CustomizeCardMenu } from './CustomizeCardMenu';
+import { CustomizeCardMenu, cardMenuExitMs } from './CustomizeCardMenu';
 import { CustomizeDetailView } from './CustomizeDetailView';
 import { CustomizeCategoryView } from './CustomizeCategoryView';
 import { CustomizeSkeletonGrid } from './CustomizeSkeletonGrid';
 import { GeminiDialog, GeminiDialogPill } from '@willow/ui/GeminiDialog';
+import { GeminiBottomSheet, GeminiSheetItem, GeminiSheetList } from '@willow/ui/GeminiBottomSheet';
 import {
   CONNECTORS_DATA,
   SKILLS_DATA,
   DISCOVER_CATEGORIES,
   type CustomizeItem,
 } from './customize-data';
+import { parseSkillFile, useCustomizeSkills } from './customize-skills';
 import './CustomizeView.css';
 
 type CustomizeTab = 'discover' | 'connectors' | 'skills';
@@ -32,15 +36,54 @@ const TAB_HEADERS: Record<CustomizeTab, { title: string; subtitle: string }> = {
   },
 };
 
+/**
+ * Where the page was left: Customize is one of the rail's tabs, and each opens where it was — after a
+ * reload too (an update, the agents starting), kept in `sessionStorage` as the rail's places are.
+ */
+const LEFT_KEY = 'willow:customize-left';
+const TABS: readonly CustomizeTab[] = ['discover', 'connectors', 'skills'];
+const isItem = (value: unknown): value is CustomizeItem =>
+  Boolean(value) && typeof (value as CustomizeItem).id === 'string' && typeof (value as CustomizeItem).title === 'string';
+const readLeft = (): {
+  tab: CustomizeTab;
+  item: CustomizeItem | null;
+  category: { title: string; items: CustomizeItem[] } | null;
+} => {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(LEFT_KEY) || 'null');
+    const category = stored?.category;
+    return {
+      tab: TABS.includes(stored?.tab) ? stored.tab : 'discover',
+      item: isItem(stored?.item) ? stored.item : null,
+      category: category && typeof category.title === 'string' && Array.isArray(category.items)
+        ? { title: category.title, items: category.items.filter(isItem) }
+        : null,
+    };
+  } catch {
+    return { tab: 'discover', item: null, category: null };
+  }
+};
+const left = readLeft();
+
 export const CustomizeView: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<CustomizeTab>('discover');
+  const isCompact = useCompactViewport();
+  const { isLight } = useThemeMode();
+  const [activeTab, setActiveTab] = useState<CustomizeTab>(() => left.tab);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedItem, setSelectedItem] = useState<CustomizeItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<CustomizeItem | null>(() => left.item);
   const [selectedCategory, setSelectedCategory] = useState<{
     title: string;
     items: CustomizeItem[];
-  } | null>(null);
+  } | null>(() => left.category);
+  useEffect(() => {
+    left.tab = activeTab;
+    left.item = selectedItem;
+    left.category = selectedCategory;
+    try {
+      sessionStorage.setItem(LEFT_KEY, JSON.stringify(left));
+    } catch {}
+  }, [activeTab, selectedItem, selectedCategory]);
   const [loadedTabs, setLoadedTabs] = useState<Record<CustomizeTab, boolean>>({
     discover: false,
     connectors: false,
@@ -59,10 +102,17 @@ export const CustomizeView: React.FC = () => {
   }, [selectedItem, selectedCategory, activeTab]);
 
   const [disconnectedConnectors, setDisconnectedConnectors] = useState<Set<string>>(new Set());
-  const [activeSkillIds, setActiveSkillIds] = useState<Set<string>>(new Set(['apple-music-playlist']));
-  const [inactiveSkillIds, setInactiveSkillIds] = useState<Set<string>>(new Set());
-  const [customSkills, setCustomSkills] = useState<CustomizeItem[]>([]);
-  const [savedSkillsData, setSavedSkillsData] = useState<Record<string, { title: string; description: string; instructions: string }>>({});
+  // Persisted, and published into the skill library the Code harness reads.
+  const {
+    activeSkillIds,
+    setActiveSkillIds,
+    inactiveSkillIds,
+    setInactiveSkillIds,
+    customSkills,
+    setCustomSkills,
+    savedSkillsData,
+    setSavedSkillsData,
+  } = useCustomizeSkills();
 
   const [cardMenu, setCardMenu] = useState<{
     item: CustomizeItem;
@@ -112,6 +162,24 @@ export const CustomizeView: React.FC = () => {
     }
   };
 
+  const createSkillManually = () => {
+    closeCreateMenu();
+    setSelectedItem({
+      id: `new-skill-${Date.now()}`,
+      type: 'skill',
+      title: '',
+      subtitle: '',
+      hasAddButton: true,
+      description: '',
+      instructions: '',
+    });
+  };
+
+  const uploadSkill = () => {
+    closeCreateMenu();
+    fileInputRef.current?.click();
+  };
+
   useEffect(() => {
     return () => {
       if (closeTimeoutRef.current) {
@@ -140,7 +208,7 @@ export const CustomizeView: React.FC = () => {
     cardMenuTimeoutRef.current = window.setTimeout(() => {
       setCardMenu(null);
       cardMenuTimeoutRef.current = null;
-    }, 125);
+    }, cardMenuExitMs(isCompact));
   };
 
   const handleUseNow = (item: CustomizeItem) => {
@@ -190,18 +258,29 @@ export const CustomizeView: React.FC = () => {
 
   const handleReplaceSkill = (item: CustomizeItem, content?: string) => {
     if (!content) return;
-    let title = item.title;
-    let description = item.description || '';
-    let instructions = item.instructions || '';
-    try {
-      const parsed = JSON.parse(content);
-      if (parsed.title) title = parsed.title;
-      if (parsed.description) description = parsed.description;
-      if (parsed.instructions) instructions = parsed.instructions;
-    } catch {
-      instructions = content;
-    }
-    handleSaveSkill(item, { title, description, instructions }, false);
+    const parsed = parseSkillFile(content, item.slug || item.title);
+    handleSaveSkill(item, {
+      title: parsed?.title || item.title,
+      description: parsed?.description || item.description || '',
+      instructions: parsed?.instructions || content,
+    }, false);
+  };
+
+  /** Upload: a SKILL.md, this page's JSON export, or plain Markdown becomes a new active skill. */
+  const handleUploadFile = async (file: File) => {
+    const content = await file.text();
+    const parsed = parseSkillFile(content, file.name);
+    if (!parsed) return;
+    const item: CustomizeItem = {
+      id: `uploaded-skill-${Date.now()}`,
+      type: 'skill',
+      title: parsed.title,
+      subtitle: parsed.description,
+      description: parsed.description,
+      instructions: parsed.instructions,
+      hasMoreButton: true,
+    };
+    handleSaveSkill(item, parsed, true);
   };
 
   const handleToggleActiveSkill = (item: CustomizeItem) => {
@@ -347,7 +426,8 @@ export const CustomizeView: React.FC = () => {
   };
 
   useEffect(() => {
-    if (createMenuState !== 'open') return;
+    // Below 961px the menu is a bottom sheet, which has its own scrim and takes Escape.
+    if (createMenuState !== 'open' || isCompact) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (
         createDropdownRef.current &&
@@ -367,7 +447,7 @@ export const CustomizeView: React.FC = () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [createMenuState]);
+  }, [createMenuState, isCompact]);
 
   const activeSkills = useMemo(() => {
     const list: CustomizeItem[] = [];
@@ -574,6 +654,7 @@ export const CustomizeView: React.FC = () => {
           headingAs="h2"
           title={`Disconnect ${disconnectDialog.item.title} from Willow?`}
           width={512}
+          message
           closing={disconnectDialog.isClosing}
           onDismiss={closeDisconnectDialog}
           actions={(
@@ -769,7 +850,7 @@ export const CustomizeView: React.FC = () => {
                   />
                 </button>
 
-                {createMenuState !== 'closed' && (
+                {!isCompact && createMenuState !== 'closed' && (
                   <div
                     role="menu"
                     className={`customize-create-menu-panel ${createMenuState === 'closing' ? 'closing' : ''}`}
@@ -794,18 +875,7 @@ export const CustomizeView: React.FC = () => {
                       type="button"
                       role="menuitem"
                       className="customize-create-menu-item"
-                      onClick={() => {
-                        closeCreateMenu();
-                        setSelectedItem({
-                          id: `new-skill-${Date.now()}`,
-                          type: 'skill',
-                          title: '',
-                          subtitle: '',
-                          hasAddButton: true,
-                          description: '',
-                          instructions: '',
-                        });
-                      }}
+                      onClick={createSkillManually}
                     >
                       <span className="customize-create-menu-icon">
                         <CustomizeIcon name="edit" size={16} />
@@ -818,10 +888,7 @@ export const CustomizeView: React.FC = () => {
                       type="button"
                       role="menuitem"
                       className="customize-create-menu-item"
-                      onClick={() => {
-                        closeCreateMenu();
-                        fileInputRef.current?.click();
-                      }}
+                      onClick={uploadSkill}
                     >
                       <span className="customize-create-menu-icon">
                         <CustomizeIcon name="upload" size={16} />
@@ -832,11 +899,27 @@ export const CustomizeView: React.FC = () => {
                     </button>
                   </div>
                 )}
+                {/* Below 961px the same three, as a bottom sheet. */}
+                <GeminiBottomSheet
+                  isOpen={isCompact && createMenuState === 'open'}
+                  onClose={closeCreateMenu}
+                  label="Create options"
+                  isLight={isLight}
+                >
+                  <GeminiSheetList label="Create options">
+                    <GeminiSheetItem icon="chat_bubble" label="Create with Gemini" onSelect={closeCreateMenu} />
+                    <GeminiSheetItem icon="edit" label="Create manually" onSelect={createSkillManually} />
+                    <GeminiSheetItem icon="upload" label="Upload" onSelect={uploadSkill} />
+                  </GeminiSheetList>
+                </GeminiBottomSheet>
                 <input
                   type="file"
+                  accept=".md,.markdown,.json,.txt"
                   ref={fileInputRef}
                   style={{ display: 'none' }}
-                  onChange={() => {
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleUploadFile(file);
                     if (fileInputRef.current) fileInputRef.current.value = '';
                   }}
                 />

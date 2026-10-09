@@ -8,6 +8,8 @@ stream. Loaded as the "Chat" tab in Willow Studio.
 | Path | Role |
 | --- | --- |
 | `src/ChatView.tsx` | The chat tab surface (1750 lines). Threads, streaming, live mode, model selection, scroll machinery. |
+| `src/MobileModelPicker.tsx` | The top-bar model pill shown below 961px, with its ripple and `ModelsMenu`. Its own module so the notebook page mounts the same picker: `App` lazy-loads it into `NotebookPage`'s `renderModelPicker`. The Code landing mounts it too, passing `onSelect` for its own model handling. |
+| `src/use-compact-viewport.ts` | `useCompactViewport()` — true at 960px and below, Gemini's phone and tablet layout. Every narrow JSX branch in Chat and Notebooks keys on it, so CSS and JS switch at the same width. |
 | `src/ChatResponseChrome.tsx` | The decorated container around an LLM response: `ResponseActions` and `ThinkingStepsSidebar` (412 lines). |
 | `src/UserMessageBubble.tsx` | One user turn: the clamp-to-4-lines bubble and its expand/collapse transition (122 lines). |
 | `src/GeminiThinkingVisualizer.tsx` | The three-dot Lottie "thinking" indicator. |
@@ -18,17 +20,26 @@ stream. Loaded as the "Chat" tab in Willow Studio.
 | `src/chat-timing.ts` | `waitForBrowserPaint()` — yields one frame so an intermediate render is actually seen. |
 | `src/chat-turn-store.ts` | Module-level registry of in-flight turns, so a response outlives ChatView. |
 | `src/chat-turn-runner.ts` | Drives one turn to completion, independent of React. Owns finalisation and checkpointing. |
+| `src/chat-turn-setup.ts` | Everything a turn is built from besides its history: system prompt, personal/canvas/search tools, provider options, notebook and Gem grounding. Shared by the composer's send and a resumed turn, so the two cannot drift. |
+| `src/chat-turn-takeover.ts` | The cross-tab half: every saved turn is a `chat-turn` background job, and a tab that inherits one regenerates the reply from the chat file. |
+| `src/ChatTurnTakeover.tsx` | Mounted once at the app root (lazy); registers the takeover with this tab's storage, keys and model config. |
 | `src/composer/Composer.tsx` | `InputBar`, the prompt box (885 lines). Attachments, tool chips, send, and the two JSX branches. |
 | `src/composer/composer-options.tsx` | The composer's static option tables: `TOOLS`, `TOOL_SYMBOLS`, `THEMES`, `MODES` and their types. |
 | `src/composer/composer-icons.tsx` | `SpotifyIcon` and `ModelIcon` — inline SVG/provider glyphs. |
 | `src/composer/ModesMenu.tsx` | The mode dropdown. |
 | `src/composer/ThemesMenu.tsx` | The theme dropdown. |
-| `src/composer/use-composer-dictation.ts` | The whole dictation subsystem: recording, transcription, caret restoration (343 lines). |
+| `src/composer/use-composer-dictation.ts` | The composer's side of dictation over `@willow/ai/dictation`: the take's phases, placeholder and status text, the reveal, caret restoration (262 lines). See *Dictation: the mic beside Submit*. |
 | `src/composer/use-composer-models.ts` | Resolves the selected model/effort id and derives the pill labels. |
 | `src/composer/use-composer-textarea-autosize.ts` | The RAF-throttled textarea measurement, and the two flags the layout derives from it. |
 | `src/composer/use-composer-chat-layout.ts` | `useCollapsedChatPaddingRight` and `useFullscreenShellCentering` — the two chat-variant layout measurements. |
-| `src/composer/DictationWaveform.tsx` | Canvas mic waveform shown while dictating (234 lines). |
+| `src/composer/DictationWaveform.tsx` | Canvas mic waveform shown while dictating, drawn at the screen's pixel density (246 lines). |
 | `src/composer/PlusDropdownMenu.tsx` | The + button dropdown (attachments, code, images, etc.). |
+| `src/composer/ComposerCompanion.tsx` | The creation tools' companion row (aspect ratio, length, vocals, genre, sources) and its menus / phone sheets; the tools' placeholders. |
+| `src/composer/mentions/` | The composer's "@" (models, apps) and "/" (skills) menus laid over `InputBar`, their text logic, what a send carries for them, and `chat-apps.ts`, the app list "@" and the "Connecting to" line share. |
+| `src/media/` | Generated image / video / music: tool declarations and executor, generators, the cards, the luminous player, the image viewer, the zero-state gallery and its template data, the video discovery card, the `/images` page and its templates. |
+| `src/chat-page-store.ts` | The sidebar's creation pages (`/images`, `/videos`): the request the shell sends and the page ChatView reports back. |
+| `src/research/` | Deep Research: the plan tool, the background runner, the plan and progress cards, the side panel. |
+| `src/library/` | Scheduled actions and skills a chat saves: `create_schedule` / `create_skill` and their executor, and the cards. See *Scheduled actions and skills*. |
 
 ## Architecture
 
@@ -45,8 +56,10 @@ feature it lived in:
   `@willow/ui/models/ModelsMenu`, which both features import sideways. It takes
   props and holds no chat state, so nothing had to change but the path.
 - `newChatSignal` / `triggerNewChat`, once `src/chat-store.ts`. Despite the
-  name, **Chat never subscribed** — Code's top bar fires it and Code's sidebar
-  listens. It is now `@willow/core/new-chat-signal`.
+  name, **Chat never subscribed** — Code's top bar fired it and Code's sidebar
+  listened. It is now each Code screen's own `newChat`
+  (`@willow/code/session/code-session`), so one screen's New chat button never
+  resets another screen's chat.
 
 `@willow/media` and `@willow/studio` are still imported from here, and Media and
 Spark still import this package's composer. Those are live couplings, not
@@ -73,9 +86,9 @@ Where each one sits is the point:
 
 - The three chat-surface blocks are directly below `CHAT_SYSTEM_PROMPT` in
   `src/chat-model.ts`.
-- The media block is **not here**. It sits above `systemPrompt` in
-  `features/media/src/MediaView.tsx`, the one surface that sets
-  `enableMediaTools: true` and can therefore honestly claim it.
+- The media block is **not here**. It sits above `buildMediaAgentSystemPrompt`
+  in `features/media/src/agent/agent-tools.ts`, the prompt of the one agent
+  whose turns set `enableMediaTools: true` and can therefore honestly claim it.
 
 The gate for moving one up into a prompt is not "is the UI ready" — it is **is
 the tool declared to the model on that turn**.
@@ -84,6 +97,26 @@ the tool declared to the model on that turn**.
 become live code (it strips comments and re-checks). That test is load-bearing:
 the prompt they were extracted from was never committed, so if the comments go,
 the text is gone.
+
+## Chat context: notebooks and Gems
+
+Two atoms say what a chat belongs to: `$chatNotebookId`
+(`@willow/notebooks/notebook-chat-store`) and `$chatGemId` (`@willow/gems/gem-chat-store`). The shell sets
+one when you open a notebook or `/gem/<id>`, and clears both on New chat.
+
+When a chat is selected from history, ChatView restores each atom: the notebook from
+the notebook's `chatIds`, the Gem from `gemIdForChat`. It does this on a change of
+`chatSelectionEpoch`, which moves only on a real user selection, so an atom set on
+purpose is never overwritten by an autosave.
+
+With a Gem active, ChatView does four things:
+
+- It shows `GemZeroState` in place of the hero.
+- It puts the Gem's prompt block ahead of the notebook grounding.
+- It records the chat under the Gem.
+- It passes the Gem's default tool to the composer as `defaultTool`, only before the
+  first turn. `defaultTool` is `undefined` (leave the selection alone), `null` (clear
+  it) or a `ToolId` (select it).
 
 ## The plus menu
 
@@ -160,6 +193,57 @@ stylesheet that had not loaded when the capture ran. `personal_intelligence` was
 inferred from the convention every other glyph obeys — and it renders as nothing,
 which proves no such ligature exists. It needs the real mask URL off a live capture.
 `apps/studio/test/gemini-plus-menu.test.mjs` pins all of the above.
+
+### On phones and tablets
+
+At 960px and below Gemini renders the same menu as `gem-menu.is-mobile`. It is still
+a popover anchored to the plus button, **not a bottom sheet**, at every narrow width.
+`PlusDropdownMenu` branches on `useCompactViewport()` for it; the desktop card above
+is untouched. Measured at 390×844 and 800×1280:
+
+| | Measured (≤960px) |
+| --- | --- |
+| Panel | `#1c1c1c`, radius 20px, `padding: 0 8px` inside an 8px transparent `border-block`, min-width 260px, `width: max-content`, `max-height: min(440px, 42vh)` |
+| Row | 48px tall, padding 12px, gap 8px, radius 12px |
+| Label | 17px/24px, `#e0e0e0` |
+| Glyph | 24px at weight 300, `#e3e3e3` |
+| Placement | 4px left of the plus button; 8px below it, or 16px above it when opening upward |
+| Submenu | A card with its own header (`padding: 16px 12px 8px`, close glyph). Its left edge sits at the trigger row's right edge, pushed left to stay 24px inside the viewport; its bottom is 8px above the main card's |
+
+**Tools fold by height, not width.** As many tools stay inline as fit under the
+`min(440px, 42vh)` cap — `floor((cap − 176.8) / 48)`, where 176.8px is the three upload
+rows, the divider and the panel's 8px borders — and the rest go under **More tools**.
+From 1000px tall nothing folds. Spark's composer folds its own tool list the same way.
+
+As on the desktop there is no backdrop and no leave animation, and the panel opens
+with the same `expand-in`. A tapped button keeps `:hover` on a touchscreen, so the plus
+and mic buttons drop their hover circle under `(hover: none)`
+(`.willow-composer-icon-button` in `Composer.css`).
+`apps/studio/test/responsive-plus-menu.test.mjs` pins the narrow layout.
+
+## Thinking steps and sources at 960px and below
+
+"Show thinking steps" and "View sources" open one shared panel, `ContextSidebar` in
+`ChatResponseChrome.tsx`, because Gemini uses one `context-sidebar` element for both.
+On desktop it is the docked 400px card. At 960px and below, measured on Gemini at
+800×1280, it becomes a sheet over the whole screen:
+
+- **Surface:** `position: fixed` at (0, 0) and #131314, with no border, radius or
+  scrim. The header and contents keep their desktop geometry. It is portalled to
+  `body`, because the shell's top-bar controls stack above everything in the chat
+  column, and Gemini's sheet covers the bar.
+- **Motion:** it animates `margin-right` (-424px to 0, 300ms on `[0.2, 0, 0, 1]`) and
+  opacity (200ms, linear), read from Gemini's own animation objects. The left edge
+  stays put and only the close button slides.
+  `onUpdate={noop}` keeps framer-motion off WAAPI for that opacity: the WAAPI hand-off
+  painted one frame at the starting value, a full-screen flash on close.
+- **Focus:** opening moves focus to the close button. Gemini marks that with its
+  program-focus ring (0.8px #a8c7fa, inset) over a 12% state layer until focus leaves.
+- **Colour:** thought titles and the dotted rail switch to the narrow on-surface
+  #e0e0e0 (#e6e6e6 on desktop).
+
+`apps/studio/test/thinking-steps-responsive.test.mjs` pins this and checks that the
+desktop card is unchanged.
 
 ## The big one
 
@@ -362,6 +446,13 @@ Two consequences that have each already cost a debugging session:
 
 ## Opening a chat
 
+**A Code chat is never shown here.** Chat cannot render one, and its next save
+would strip the Code fields. However one becomes the open chat, the load effect
+hands it to Code (`handOverCodeChat`: `selectLocalFSInboxChat(null)` plus
+`requestCodeChatOpen`) — by its marker before reading it, or by its messages
+(`isCodeChatBody`) when it has no marker yet, before anything is committed. See
+`platform/storage` AGENTS.md for the other guards.
+
 The load effect keyed on `activeChatId` has three guards that all exist for a
 recorded failure. None are optional.
 
@@ -475,7 +566,10 @@ class of staleness cannot come back through a different route. That branch
 `background-chat-turns.test.mjs` pins both halves.
 
 **Abort on:** delete, scope/workspace/account switch, sign-out, incognito
-unmount, and the stop button (attached turn only). **Never on** unmount or chat
+unmount, and the stop button (attached turn only). The account switch is why
+`AuthContext` holds back a "no user" for `SIGN_OUT_CONFIRM_MS`: another tab
+starting up made Firebase report one for about two seconds, which aborted every
+running turn in the first tab whenever a second was opened. **Never on** unmount or chat
 switch. Delete is the sharp one: `saveLocalFSChat` clears the tombstone and
 re-adds the id, so a completion landing after a delete *resurrects* the chat in
 IndexedDB, in Recents and on disk, and it survives the reconciler. Hence
@@ -485,6 +579,19 @@ IndexedDB, in Recents and on disk, and it survives the reconciler. Hence
 the partial response every `CHECKPOINT_INTERVAL_MS` as `wasStopped: true` — the
 existing "ended early but keep it" shape, which `hasSavedMessageContent` retains
 even when empty and the thread renders with the divider.
+
+**Another tab carries it on.** A turn in a saved chat (not temporary, folder
+connected) is also a `chat-turn` background job (`platform/core` AGENTS.md). Closing
+or reloading the tab hands it to another open Willow tab, whose
+`resumeChatTurn` reads the chat back, finds the question by id (or uses the copy
+in the job, if the tab closed before any checkpoint), and runs the turn again
+under the **same assistant id**, so its saves replace the checkpoint in place.
+Regenerated, not continued: no provider reliably carries on from half a message.
+The job records the model id, notebook, Gem and composer tool, because those live
+in the sending tab's UI, not in the chat file; a rename reaches the job through
+`rebindChatTurnChatId`. A tab showing that chat picks the turn up through
+`chatTurnsVersion` and the ordinary reload, which attaches in `commitLoadedChat`.
+Verified live with `tools/scratch/bg-takeover.cjs chat`.
 
 **A checkpoint is a crash artefact, so on re-open the record outranks it — for
 the assistant message only.** That `wasStopped: true` is written while the turn
@@ -516,6 +623,359 @@ backgrounded turn, the empty placeholder, which `hasSavedMessageContent` drops.
 Landing after the runner's save, that would write the user message alone and
 *erase the reply*. It therefore prefers the live record when one is running.
 
+## Canvas
+
+Matched to Gemini's October 2026 canvas, measured over CDP at 1536x826 and under
+390x844 / 800x1280 emulation (scripts in `tools/ui-research/scrapers/gemini/canvas-2026/`,
+gitignored; the values are repeated in `src/canvas/canvas.css` beside each rule).
+`apps/studio/test/canvas-2026.test.mjs` pins them, and the smoke test renders both
+surfaces.
+
+**The flow is Gemini's three steps.** A canvas arrives as the turn's expanded card. Its
+`Close` folds it to the chip; the chip (or its `Open`) expands it back IN PLACE. Only
+the card's `Fullscreen` reaches the panel — it is the card's `onOpen` prop, the one
+press `canvas-refs-plumbing.test.mjs` allows to call `handleOpenCanvas`. The panel's
+`Collapse` returns to the expanded card. The panel has no cross.
+
+**Full screen is full width.** With a canvas open, `ChatView`'s grid has ONE track
+(`canvasFullWidth`): the panel fills it edge to edge (full height, no border or radius)
+and the chat column is laid over it in the same cell, inert,
+at the width it already had — the thread is `invisible` (never unmounted or
+`display:none`, which would lose the scroll position), the composer fades out over
+500ms, and the "Ask Willow" fab (`CanvasPromptFab`) takes its place. The resource
+panel keeps the split layout; `splitThread` is what narrows the thread, and it is
+false behind a canvas. Below 960px the panel is portalled to `document.body` (z 900):
+inside `ChatView` an ancestor's stacking context left the shell's mobile header icons
+on top of the toolbar, taking its taps. There is no fab below 960px — Gemini's phone
+and tablet full screen offer no prompt.
+
+**The fab's floating chat is a conversation, not a toast.** Hovering or pressing the
+fab opens the pill; sending turns it into Gemini's `floating-chat-window`, which lists
+EVERY turn asked since the pill opened (the question at once, before its turn exists),
+renders answers as Markdown at the window's 15/20, and shows the dots while the thread
+generates. A plain answer stays on screen. The window closes itself only when the
+newest answer is complete and wrote the canvas — the old close-after-every-turn timer
+is what made answers vanish. It does NOT close on pointer-leave or Escape (Gemini's
+does neither); a press outside it does. A question sent mid-turn waits with the input
+disabled and goes the moment the turn ends, because `handleSend` silently drops a send
+while a turn runs. These rules are pure functions in `canvas-floating.ts`
+(`floatingTurns` reads the thread — the generating answer from the `streaming`
+buffer, never `content`; `floatingWindowView` derives what the window shows), and the
+tests run them.
+
+**Ask Willow on any page is the same pill and window.** In the desktop app, the
+right-click menu on selected text starts with Ask Willow
+(`apps/studio/src/shell/rail/ContextMenu.tsx`), which opens `AskWillow.tsx` (its request
+in `ask-willow.ts`): `CanvasCoCreateInput` 4px under the selection (above it where the pill
+does not fit below), turning into the floating window once a question is sent — the same
+`FloatingReply`, `ThinkingDots` and `cv-float-*` classes, not copies. It is not the canvas's
+thread: the conversation is the window's own and is not saved, the first question carries
+the passage (`askAboutPrompt`), and `streamChat` answers with the composer's model and
+Willow's chat system prompt, without tools. The input is disabled while an answer streams;
+a press outside or Escape closes the window and stops the answer. It keeps inside the
+viewport as it grows, and its header drags it.
+
+**Breakpoints are Gemini's, measured edge by edge.** The narrow card is
+`max-width: 600px` inclusive (600 wraps, 601 does not); the narrow toolbar's title
+hides at `max-width: 480px`; the toolbar's tokens and layout switch at 959.98px. The
+card's title row wraps rather than overlapping: the actions (Code / Preview, Download
+or Export, Share, Fullscreen, Close) are ONE group, and the title group cannot shrink
+below its versioning trio, so when the actions no longer fit they drop under the title,
+right-aligned. Gemini's own row overflows between 601px and ~690px (its title goes to
+zero and the redo arrow slides under the toggle); Willow's did too while the toggle sat
+inside the title group. The same rule covers the 476px split thread beside the resource
+panel. The overflow panel under `more_vert` is shrink-to-fit from the container's left
+edge — no right edge and no width — which is what makes it 148px on a phone and the
+container's width on a tablet.
+
+**The prose editor is rich text, not Markdown.** `CanvasRichEditor` is a
+`contenteditable` whose DOM the browser owns; `canvas-markdown.ts` builds its HTML
+from the Markdown and serialises edits back (lossless for headings, emphasis, lists,
+quotes, code, tables, links and `$`/`$$` math, which are atoms carrying `data-tex`).
+Two traps, both hit while building it:
+
+- `dangerouslySetInnerHTML` must be ONE object for the editor's life. React compares
+  that prop by identity, so a fresh `{ __html }` per render rewrites innerHTML on
+  every re-render — the selection collapses the moment a mouse-up reports it, and
+  typing is thrown away.
+- Outside changes (a new version, a scrub) are written by a layout effect only when
+  `content` differs from the last Markdown the editor sent — the same echo rule as
+  `useCanvasDraft`.
+
+The Styles menu and the `more_vert` formatting row drive `execCommand` through the
+editor's handle; their buttons `preventDefault` on mouse-down so the selection
+survives the press. A non-empty selection opens the "Ask Willow" co-creation pill 4px
+under it, and the fab steps aside (`$canvasSelectionPromptOpen`) while it is open.
+
+**The code panel** keeps the sibling trick (the iframe is hidden, never unmounted, on
+the Code tab). The preview shim now also relays `console.*` to the panel's Console and
+answers select-and-ask's region query with the elements inside the rectangle — an
+opaque frame cannot be screenshotted, so that list is what the model is told. Code is
+coloured with Gemini's Monaco palette (`.cv-code-tokens`, plus `colorBrackets` for
+bracket-pair depth), inside a box inset 48px from the panel's sides.
+
+**Two departures, both forced.** Share hands the document to the system share sheet
+or copies it — Gemini mints a public link, and Willow has nowhere to host one. Export
+to Docs is real: a `drive.file` token from `@willow/personal`'s Google token source
+and a multipart upload Drive converts from `text/markdown`; without a configured
+client or consent it says it could not export. One departure is a choice: below 960px
+the code panel's overflow keeps Download, where Gemini's narrow code toolbar has none.
+
+**Icons** name Gemini's own faces (Luminous Symbols / Google Symbols). Both are subset
+fonts in `apps/studio/index.html`, and a missing ligature renders as its own name in
+words. Add icons ONLY with `tools/icons/icon-kit-superset.cjs --family=… --add=… --write`:
+it reads the current kit's ligatures out of the font file and refuses to write a kit that
+lost any. Building the list from names harvested out of the source (what the retired
+`w-symbols-subset.cjs` and `scrapers/flow/54-symbols-subset.cjs` do) drops every icon the
+code names outside a quoted string — the sidebar's `side_nav` is JSX text — and did so on
+Oct 4 2026, turning the sidebar toggle into the word "SIDE_NAV".
+
+## Creation tools and Deep Research
+
+Gemini's Create image / Create video / Create music and Deep research, measured off the
+live app in October 2026 (scripts and dumps in
+`tools/ui-research/scrapers/gemini/media-tools-2026/`, gitignored; values repeated beside
+each rule in `src/media/media.css`, `src/composer/composer-companion.css` and
+`src/research/research.css`).
+
+**Media are client tools.** The composer tool decides the declaration
+(`media/media-tools.ts`: `generate_image` / `generate_video` / `generate_music`); with no
+tool attached all three are offered, never forced (`MediaToolMode` `auto`), once there is a
+Gemini key, so "draw me a cat" draws one as Gemini does, and the message's images go along
+as the source to edit or animate. Deep research stays chip-only, as in Gemini. The
+runner routes the call after Canvas, and `media/media-host.ts` calls the generators with
+the Media app's model picks and the Gemini key. Every item is published to
+`record.media` the moment its call starts — the waiting state IS the card — and mirrored
+onto the message through `onPhase`, then handed back by `finalizeAssistant` like
+`canvasRefs`. Files go through `keepGeneratedMedia` in ChatView: the blob cache, the
+chat's IndexedDB scope, and the chat folder (`chatAttachmentRefs` counts media). A saved
+item that never finished comes back as an error card (`sanitizeSavedMedia`).
+
+**"Make it cuter" carries the image.** The generators see only what the request hands
+them, and a follow-up has no attachment. So `generate_image` and `generate_video` take
+`use_previous_image`, which the model sets when the user asks to change or animate an
+image already in the conversation. `media-host.ts` then reads the newest image in the
+thread (`media/previous-image.ts`: a finished generated image or one the user sent,
+newest message first) from the blob cache, else the chat folder. That image goes first
+in the image model's inputs; for a video it is the still only when the message brings
+none. A message that sends a thread image again (the image card's Edit) gets nothing
+added, since that image is the one to change; a new upload still goes along with the
+newest image. `chat-history.ts` notes each item in the reply that made it (`mediaContext`: "[You
+made an image here, from the prompt: …]"), so the model knows there is an image to
+change and what it showed. Music never takes one.
+
+**An image sits where its call ran.** An image with text written after its call is a cut
+at `item.index`, snapped by `canvasSplitOffset` the way a Canvas card is. Text written
+before the call stays above it, and the rest goes 16px under it. An image at the end of
+the reply, and every video and track, are drawn after the text, as Gemini lays them out
+("Your video is ready!" above the player). The image's tool result tells the model that
+its next words appear under the image. Moving from the end into the reply mounts the
+card again, so `GeneratedImage` remembers which URLs have zoomed in (`shownImages`) and
+shows those at once (`.is-shown`) instead of zooming in a second time. `tools/scratch/willow-media-followup.cjs` checks
+both against a mocked API, before and after a reload.
+
+**The waiting states are Gemini's.** Image: the status row says "Creating your image" and
+a 708-square shimmer (`.gm-shimmer`, Gemini's -65deg sweep) sits 16px under it, whatever
+the asked shape. Video and music show only the status row (the video's sentence runs to
+two lines, so the row aligns its dots to the first). A finished image hangs 16px left of
+the text (on a phone it runs 16px past both edges), a landscape video bleeds 16px past both
+edges at every width, a track is a 420 square of cover art; the action row's glyphs sit
+12px under an image or video (22 under a track), and Share replaces Copy there
+(`ResponseActions`' `media` prop; a track has neither), until 960px and below, where the
+row is the ratings, regenerate and more. The viewer's image is `min(1024px, 75vw)` wide,
+95vw on a phone with the exit 12px in, and vertically centred.
+
+**The composer gains Gemini's companion row** (`composer/ComposerCompanion.tsx`): Aspect
+ratio for images, an add-image chip and Landscape/Portrait for video, Length / Vocals /
+Genre for music, Sources / Files for Deep research. Menus open above the chip, bottom edge
+on its top; at 600px and below they are a `GeminiBottomSheet` with Done. Video's and Deep
+research's rows go once a conversation is on screen (the composer's `conversation` prop,
+not `docked`: a gallery docks the box too, and Gemini keeps the video row under its gallery);
+image and music keep theirs. Below 960px an unpicked Aspect ratio chip is its glyph and
+chevron. A creation tool alone does not enable Send — text, a file or a
+template does. **The tool chip stays 24px on purpose**: Gemini's is 36px now, that
+reading was tried and reverted (see the note above `ToolChip`).
+
+**A creation tool picked on the zero state opens its gallery** (`media/MediaGallery.tsx`)
+and docks the composer (`galleryTool` joins `isThreadDocked`). Scrolled to its end, the last
+row sits 56px over the prompt box for every tool and at every width, as Gemini's does
+(`.gm-gallery`'s bottom padding; `tools/scratch/gemini-gallery-bottom.cjs` and
+`willow-gallery-bottom.cjs` measure both). Cards, tabs, art, hover art,
+preview tracks and each template's placeholder come from `media/media-templates.ts`,
+generated from the captures by `tools/media/gen-media-templates.cjs`; the style prompts
+in it are Willow's own (Gemini's are not in its client). A picked template is a tile in
+the attachment strip and rides to the turn as `toolOptions.template`. Gemini serves and
+reshuffles this set, so it is a snapshot. The video tool's first open shows the "Create
+videos" card (`media/VideoDiscoveryCard.tsx`, dismissal in localStorage
+`willow.videoDiscoverySeen`).
+
+**The sidebar's Images and Videos are creation pages**, Gemini's `/images` and `/videos`: a
+new chat with the tool picked, each lit in the sidebar instead of New chat. `chat-page-store.ts`
+carries them — the sidebar (or an address opened at one, through `ShellRouteSync`) sets
+`$chatCreationPageRequest`, ChatView picks the tool through `ComposerHandle.selectTool` and
+publishes `$chatCreationPage`, and the address follows it until the first message makes it the
+chat's own. Removing the chip, another tool or New chat ends the page (`/app`). `/videos` is the
+video gallery; `/images` is a page of its own (`media/ImagesPage.tsx`, not the gallery): a hero
+215px down, the composer placed at 379 (447 under a tablet's bar) and scrolling with the page,
+and a carousel of five templates plus a 2x2 tile that opens the whole set as a grid ending in a
+Close card. On a phone the carousel scrolls sideways and the composer docks. The carousel and
+the grid each fade in as they are put in (Gemini's `fade-layout`: 0.4s ease-in-out), so the
+tile and Close fade too. The page keeps its scrollbar's gutter at every width
+(`.gm-images-scroller`, Gemini's `scrollbar-gutter: stable`), and the composer's layer is given
+the same inset on its right, so the grid making the page scroll moves nothing sideways.
+`tools/scratch/gemini-images-more.cjs` and `willow-images-more.cjs` record both sides. A card opens its
+dialog; "Choose photo" sends the template's prompt with the photo (`ComposerHandle.sendWith`),
+Images picked. The set is `media/images-page-templates.ts`, generated by
+`tools/media/gen-images-page-templates.cjs`; Plushie's prompt is Gemini's, the rest Willow's.
+
+**Deep Research is plan, confirm, run.** A turn sent with the chip gets
+`create_research_plan` (`research/research-tools.ts`) and the instruction not to answer;
+the plan lands on the message as `research` and draws the plan card. **Start research is
+not a model turn**: ChatView posts "Start research" and the "I'm on it" reply itself,
+opens the panel, and hands the plan to `research/research-runner.ts`, which runs six
+grounded `runWebSearch` queries in pairs, writes a first-person note after each pair (the
+panel's italic thinking), then streams the Markdown report. Jobs live in that module keyed
+by the reply's message id, so a run outlives the view; a view subscribes while it shows
+the chat, and a chat reloaded mid-run reads the live record. A run that was saved while
+going and has no job (the page was reloaded) loads as interrupted. The composer's stop
+button cancels a run. `chat-history.ts` shows the model a message's plan or report, which
+is what makes "change the plan" and the panel's Create items work.
+
+**The research panel shares the immersive slot** (resource panel, canvas): split layout,
+the same scale-in, full screen below 960px, where it is portalled to `document.body` for the
+same reason Canvas is (the shell's mobile header icons). Departures, all forced: Sources lists only
+Search (Willow reads the web and nothing else); Share & Export has no Export to Notebook,
+and Export to Docs downloads a `.doc` rather than creating a Doc; Create has no Audio
+Overview. On a phone Contents steps aside and Share & Export is its glyph.
+
+## "@", "/" and "Connecting to"
+
+Gemini's prompt-box menus and its tool status line, measured off gemini.google.com/app in
+October 2026 at 1536, 800 and 390 wide (scripts and captures in
+`tools/ui-research/scrapers/gemini/media-tools-2026/`: `21-at-menu.cjs`,
+`22-at-details.cjs`, `23-connecting.cjs`; Willow's side is checked by `w-mentions.cjs`).
+
+**The menus are Spark's, copied, not imported** (`composer/mentions/`; chat cannot import
+Spark, which imports chat). `ChatMentions` listens on the composer box in the capture phase,
+so the arrows, Enter, Tab and Escape reach it before `InputBar` would send, and writes the
+textarea through its native setter plus an `input` event, so `InputBar` keeps owning the
+draft. A picked mention reads bold through a stroked copy of the text laid over the
+textarea; Backspace at its end takes the whole mention. Gemini sets a mention at
+`'wght' 540` against 400, in #e3e3e3 like the rest of the box's text; the stroke steps
+with resolution (0.2px at 1x to 0.45px at 3x) to give the stems that thickness
+(`w-mention-stem.cjs`). The pane opens 4px under the line
+and flips above it with its bottom 1px into the line, as Gemini's does, placed by its layout
+box (the enter animation starts at `scale(0.8)`, which a client rect would report).
+
+**"@" lists the saved models, then the apps** (`use-chat-mention-options.ts`). Picking a
+model switches to it. An app is listed only when this turn would be given its tools
+(connected with a live token, Personal Intelligence on, not a temporary chat — the same test
+as `personal-tools.ts`). **"/" lists the enabled skills** in `@willow/core/skill-library`;
+with none there is no menu at all. A send reads its mentions back out of the text
+(`mentionsIn`): each "/skill" puts that skill's instructions and supporting files in the
+system prompt for the turn, and each "@App" tells the model to answer with that app's tools
+(`mention-prompts.ts`). Departures: Gemini also lists the apps it cannot reach, dimmed to
+0.38, and Willow leaves them out (the user's call); no "Create new" (Gemini's likeness
+avatar); Willow's eight apps rather than Gemini's list; disabled skills are not listed.
+
+**"Connecting to <logo> <app>"** is the thinking row's status heading while a connected
+app's tool runs: the runner sets `record.connectingApp` around `runPersonalTool` and
+ChatView mirrors it through `onPhase`. It outranks search and code but not a media status,
+and `ThoughtSummaryLine` draws the 24px logo with 8px either side inside the line, wiping in
+like any heading. Two measured details of that row: its text uses Gemini's `gds-body-l`
+axes (`'wdth' 92`), and on a desktop the row drops 4px once it carries a heading (192 against
+the bare dots' 188).
+
+## Dictation: the mic beside Submit
+
+Gemini's `speech-dictation-mic-button`, measured off gemini.google.com/app in October 2026 at
+1536, 800 and 390 wide, signed out, in a headless Chrome whose microphone is a WAV file
+(`gemini-dictation.cjs`, `gemini-composer-states.cjs`; Willow's side is
+`w-composer-states.cjs`, whose `submit` phase covers the shortcut and Submit mid-take). What
+listens and what transcribes is `@willow/ai/dictation` (see `platform/ai/AGENTS.md`); the
+hook only drives it.
+
+- **Idle**: "Dictate (^⇧D)". On a desktop, 32px with the Luminous mic at 24px and weight
+  300, in a 48px slot 8px off the model pill and 10px before Submit. An empty box has no
+  Submit, and the mic takes its place. At 960px and below the glyph is 28px at weight 260,
+  and phones get a 40px button. On a tablet the mic sits 1px above Submit. Attachments and
+  tool chips change only the row's height, which `trailingTouchOffset` already follows.
+- **Listening**: the mic becomes Gemini's stop button (`send-button stop`): #171717
+  (#141414 at 960px and below), the filled Google Symbols `stop`, "Stop dictation (^⇧D)",
+  level with Submit. Submit stays, and pressing it ends the take and sends the transcript
+  (`stopDictationThen`). Focus moves to the stop button as the take starts, as Gemini's
+  does; at 960px and below that draws a 2.4px #e0e0e0 ring, 1.6px out. The waveform fills
+  the space between the plus and the stop button: 642→1132 at 1536, 142→608 at 800,
+  84→248.4 at 390.
+- **The box folds to one line while listening**, as Gemini's does: with a two-line draft
+  its box went from 132px to 72px at 800 wide, then came back with the transcript added
+  (`gemini-expanded-dictation.cjs`). A 24px line stands in for the hidden text, so
+  attachments and a tablet's tool row stay stacked above it rather than sliding under the
+  plus. The waveform sits on that line, level with the buttons, and a desktop tool chip
+  beside the plus pushes the waveform's start 8px past itself (`--willow-wave-left`).
+  Gemini signed out has no uploads or tools, so those two cases follow the fold rather
+  than a measurement.
+- **Ctrl+Shift+D** toggles a take from anywhere inside the composer, though not during
+  Live, where the mic button mutes.
+- **After**: Gemini shows no interim text and fills the box once the take ends; so does
+  Willow. While on-device voice typing downloads for the first time, a status line
+  takes the waveform's place.
+
+Light theme was not captured. There the stop button uses the response stop's #f2f0f0
+and the box's #1f1f1f.
+
+## A sent image, full screen
+
+Pressing an image in a sent message opens it over the chat (`media/SentImageViewer.tsx`), as
+Gemini's `image-expansion-dialog` does for an upload (`trusted-image-dialog-container`). It is
+the generated-image lightbox's backdrop and colour wash with a lighter header — Close, the
+image glyph and the file's name (17px, cut at 30vw), More options holding Copy — and no editing.
+The image keeps its own size up to 768 wide, never past 95vw nor max(75vw, 480px) (600 on a
+tablet, 371 on a phone), and 90vh tall. The thumbnail fades out over 83ms while its image is
+open (`GeminiAttachmentCard`'s `previewing`). Gemini closes it only from Close, so a click around
+the image does nothing; Escape closes it here too. Other file types still open in a tab.
+Recorded at 1536, 800 and 390 wide by `tools/scratch/gemini-sent-image.cjs`; Willow's side is
+`willow-sent-image.cjs`, which matches every box.
+
+## Scheduled actions and skills
+
+Gemini's chat saves both from a conversation — "Every Saturday at 10 AM, send me…" is a
+scheduled action, "Create a skill…" a skill — and shows each as a card under its sentence.
+Recorded on 2026-10-06 at 1536, 800 and 390 wide by using it
+(`tools/ui-research/captures/spark/137-create-with-gemini/`); Willow's side is checked by
+`tools/scratch/create-with-verify.cjs`.
+
+**They are Spark's schedules and skills** (`library/library-tools.ts`). Chat cannot import
+Spark, so it writes through the writer Spark registers in `@willow/core/spark-library`: a
+schedule asked for here is on Spark's Schedules page and runs where Spark's run, and a
+skill is in the library "/" lists. The tools are declared on any turn that can keep what
+they make (`chat-turn-setup.ts`): not in a temporary chat, not with tools off, not on a
+Deep Research turn, and not in a build without Spark.
+
+- **Never a second copy.** A turn retried after a dropped stream calls again, and so does
+  one another tab takes over; a call the turn already answered gets that answer, and a
+  schedule identical to one that is on, or a skill identical to one saved, is shown rather
+  than saved. That is also why `resetForRetry` keeps `record.created`.
+- **The card shows when the save lands** (`record.created`, mirrored through `onPhase`
+  like media), is on the saved message (`created`), and survives settling, an error
+  included: `finalizeAssistant` does not list it, so the mirrored value stays.
+- **The scheduled action's card is Gemini's `live-prompt-card`**: a 32px `#003d64` clock
+  (`schedule_auto`, from Luminous Symbols — the Google Symbols subset lacks it), "Saturday
+  by 10 AM" (`formatScheduleDue`), the title and request on one line each, the on/off
+  switch and ⋮ with Edit and Delete. It reads the Spark schedule live, so a switched-off
+  one shows off and a deleted one says "Deleted". Edit opens Spark's schedule editor
+  through the shell (`requestSparkLocation`); Delete asks first.
+- **The info note** is Gemini's `xap-inline-dialog` (a `#1f3760` note over the icon, 14px
+  of it to the left). Gemini's says actions are "prepped in advance"; Willow's run at about
+  their time while it is open, and the note says that.
+- **The skill's card is `ConfirmationCard`** from `@willow/ui`, Spark's card too, titled
+  with the skill's name. A scheduled action's card sits 16px under the text and 20px over
+  the action row, a skill's 24px and 28px (set inline in ChatView, against `space-y-3`).
+- **A seeded chat** is what Spark's Skills page "Create with Gemini" opens: ChatView takes
+  the seed as it mounts (`takeChatSeed`) and plays it as Gemini's appears — the prompt, the
+  thinking row, then the reply revealing — with no model behind it. The reply waits in a
+  ref, because StrictMode's second effect run would otherwise drop it.
+
 ## Dependencies
 
 Imports from 7 Willow packages: `@willow/ui` (11), `@willow/ai` (6),
@@ -542,6 +1002,12 @@ together; importing a repo produces a `'github'` `ComposerAttachment`, a kind
 Chats and their attachments persist through
 `@willow/storage/local-fs/LocalFSContext`; blobs are cached in a
 `Map<string, Blob>` ref in `ChatView` and re-read from storage on a miss.
+The bytes are in IndexedDB and, beside the chat's file, in
+`Chats/<chat>/Attachments/<name [hash].ext>` (`platform/storage/ARCHITECTURE.md`
+§6a). `hydrateSavedAttachments` passes the chat's id so a miss in IndexedDB is read
+from that folder; an attachment found nowhere comes back `unavailable`, and
+`GeminiAttachmentCard` draws it as a quiet "Unavailable" tile rather than a broken
+image or a plain file chip.
 
 <!-- related-packages -->
 

@@ -10,8 +10,13 @@ import { transactionalRenameProject } from '@willow/projects/rename';
 import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
 import { useThemeMode } from '@willow/core/theme-mode';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
-import { homeGlowAccent, homeGlowAccentLight, homeGlowMobileAccent } from './home-glow';
+import { homeGlowAccent, homeGlowAccentLight, homeGlowDesktopAccent, homeGlowMobileAccent } from './home-glow';
 import logo from '@willow/assets/brand/logo.png';
+import { Pencil, Trash2 } from 'lucide-react';
+import { GeminiBottomSheet, GeminiSheetItem, GeminiSheetList } from '@willow/ui/GeminiBottomSheet';
+import { useTouchScreen } from './use-media-viewport';
+import { useLongPress } from './use-long-press';
+import './home-responsive.css';
 
 /**
  * The gap between the greeting's baseline box and the composer's top edge, in
@@ -272,6 +277,8 @@ export const HeroSection: React.FC<{
   studioMode?: 'develop' | 'media';
   isIncognito?: boolean;
   isSidebarCollapsed?: boolean;
+  /** No sidebar beside the page at all (the desktop app's Media tab), collapsed or not. */
+  isSidebarAway?: boolean;
   /**
    * ChatView owns the composer itself — one persistent node it slides between
    * the centre and the bottom bar — so the hero must not build a second one.
@@ -285,8 +292,8 @@ export const HeroSection: React.FC<{
    * centre rather than being centred with the input as a group.
    */
   pinnedComposer?: boolean;
-}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, studioMode, isIncognito = false, isSidebarCollapsed = false, pinnedComposer = false }) => {
-  const { userProfile } = useAuth();
+}> = ({ onPromptSubmit, onProjectSelect, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, initialMode = 'ship', onStartLive, studioMode, isIncognito = false, isSidebarCollapsed = false, isSidebarAway = false, pinnedComposer = false }) => {
+  const { userProfile, workspaceColor } = useAuth();
   const { isLight } = useThemeMode();
   const { deleteLocalFSProject, renameLocalFSProject, isLocalFolderConnected } = useLocalFS();
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -479,6 +486,38 @@ export const HeroSection: React.FC<{
   const [editingValue, setEditingValue] = React.useState<string>('');
   const activeMedia = mediaPlaylist[currentMediaIndex];
 
+  // Delete the project's folder first. If that fails, keep browser data and the registry intact so
+  // reconciliation cannot resurrect an empty shell of the project.
+  const deleteProject = async (proj: { id: string; name: string }) => {
+    const diskDeleted = await deleteLocalFSProject(proj.id, proj.name);
+    if (!diskDeleted) {
+      console.error('Project folder deletion failed; browser data was preserved.');
+      return;
+    }
+    await deleteProjectData(proj.id);
+    const list = readProjectRegistry() as any[];
+    writeProjectRegistry(list.filter((p: any) => p.id !== proj.id));
+    window.dispatchEvent(new Event('willow_projects_updated'));
+    setProjectsList((prev) => prev.filter((p) => p.id !== proj.id));
+  };
+
+  // A touch screen has no hover for a card's Rename and Delete: a menu button and a long press open
+  // them as a sheet (home-responsive.css). The sheet keeps the last project it opened for, so its
+  // rows stay filled while it animates out.
+  const touch = useTouchScreen();
+  const [sheetProjectId, setSheetProjectId] = React.useState<string | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = React.useState(false);
+  const openProjectSheet = (projectId: string) => {
+    setSheetProjectId(projectId);
+    setIsSheetOpen(true);
+  };
+  const cardHold = useLongPress((_x, _y, target) => {
+    if (target.closest('input')) return;
+    const projectId = target.closest<HTMLElement>('[data-project-id]')?.dataset.projectId;
+    if (projectId) openProjectSheet(projectId);
+  });
+  const sheetProject = projectsList.find((p) => p.id === sheetProjectId);
+
   // Ref to track progress tick intervals & smooth interpolation state
   const progressIntervalRef = React.useRef<number | null>(null);
   const progressStartTimeRef = React.useRef<number>(0);
@@ -518,6 +557,23 @@ export const HeroSection: React.FC<{
   const handleMediaEnd = React.useCallback(() => {
     triggerTransition((currentMediaIndex + 1) % mediaPlaylist.length);
   }, [currentMediaIndex, mediaPlaylist.length, triggerTransition]);
+
+  // On a touch screen a sideways swipe across the promo moves a slide either way, as a story's
+  // does; the promo's `touch-action: pan-y` leaves upright swipes to the page's scroll.
+  const swipeStartRef = React.useRef<{ x: number; y: number; pointerId: number } | null>(null);
+  const onPromoPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'touch' || !e.isPrimary) return;
+    swipeStartRef.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
+  };
+  const onPromoPointerUp = (e: React.PointerEvent) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || start.pointerId !== e.pointerId || isFading) return;
+    const dx = e.clientX - start.x;
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(e.clientY - start.y) * 1.5) return;
+    const count = mediaPlaylist.length;
+    triggerTransition((currentMediaIndex + (dx < 0 ? 1 : count - 1)) % count);
+  };
 
   // Clean up timers on unmount
   React.useEffect(() => {
@@ -645,18 +701,21 @@ export const HeroSection: React.FC<{
   const mtClass = background === 'solid' && studioMode !== 'media' && !pinnedComposer ? '-mt-20' : '';
 
   /*
-   * The glow's accent stop, driven by the workspace colour. Declared on the
-   * glow host because `::before` inherits custom properties from its
-   * originating element, and set as a variable rather than by swapping classes
+   * The glow's accent, driven by the workspace colour. Declared on the glow
+   * host because its pseudo-elements, and the desktop layer's, inherit custom
+   * properties from it, and set as a variable rather than by swapping classes
    * so the `grow` animation is not restarted — same reason the temporary-chat
    * variant is a modifier. A colour change is then a repaint of the existing
-   * gradient, with no collapse-and-regrow.
+   * glow, with no collapse-and-regrow. The mobile and desktop accents are both
+   * Gemini's `--bard-color-lm-glow-chat`, and differ only in green (see
+   * `home-glow.ts`); in light theme both widths take `glowAccent`.
    */
-  const glowAccentDark = homeGlowAccent(userProfile?.workspaceColor);
+  const glowAccentDark = homeGlowAccent(workspaceColor);
   const glowAccent = isLight
-    ? homeGlowAccentLight(userProfile?.workspaceColor)
+    ? homeGlowAccentLight(workspaceColor)
     : glowAccentDark;
-  const glowAccentMobile = homeGlowMobileAccent(userProfile?.workspaceColor);
+  const glowAccentMobile = homeGlowMobileAccent(workspaceColor);
+  const glowAccentDesktop = homeGlowDesktopAccent(workspaceColor);
 
   /*
    * The glow waits for the greeting, and arrives with it.
@@ -667,11 +726,12 @@ export const HeroSection: React.FC<{
    * against an empty centre and the heading dropping in afterwards. Sharing
    * `useGreetingReady` puts both on the same trigger.
    *
-   * Withholding the CLASS is what withholds the glow: the gradient is a
-   * `::before` on this element, and `willow-gemini-home-glow-grow` is declared
-   * on that rule, so the animation starts when the class lands rather than on
-   * mount. There is also nothing to reserve space for — the pseudo-element is
-   * absolutely positioned at `z-index: -1` — so this costs no layout either way.
+   * Withholding the CLASS is what withholds the glow: the glow is pseudo-elements
+   * whose rules need this element's class (on the host at 960px and below, on
+   * the `willow-home-glow-layer` inside it above that), so they are created, and
+   * their grow plays, when the class lands rather than on mount. There is also
+   * nothing to reserve space for — everything is absolutely positioned at
+   * `z-index: -1` — so this costs no layout either way.
    *
    * It is additionally gated on `initialMode === 'chat'` (unchanged): Media and
    * Develop have no glow to begin with.
@@ -684,18 +744,24 @@ export const HeroSection: React.FC<{
 
   return (
     <div
-      className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative ${pinnedComposer ? 'z-10 pointer-events-none' : 'z-30'} ${mtClass} ${glowClass}`}
+      className={`flex-1 flex flex-col items-center ${justifyClass} ${minHeightClass} w-full ${pxClass} relative ${pinnedComposer ? 'z-10 pointer-events-none' : 'z-30'} ${mtClass} ${glowClass}${studioMode === 'media' ? ' mh-root' : ''}`}
       style={{
         '--willow-home-glow-accent': glowAccent,
         '--willow-home-glow-mobile-accent': glowAccentMobile,
+        '--willow-home-glow-desktop-accent': glowAccentDesktop,
       } as React.CSSProperties}
     >
+      {/* Above 960px the glow paints on this layer, clipped to the chat area as Gemini's `.lm-glow` is. */}
+      {initialMode === 'chat' && <div className="willow-home-glow-layer" aria-hidden="true" />}
       {studioMode === 'media' ? (
         <>
           {/* Centered Silent Media Player (Video / Image Playlist Carousel) */}
           <div 
             style={{ aspectRatio: '1200 / 350' }}
-            className="w-full h-auto rounded-[18px] overflow-hidden border border-white/10 bg-[#0d0d0d] flex items-center justify-center mb-5 transition-all duration-300 select-none relative shrink-0"
+            className="mh-promo w-full h-auto rounded-[18px] overflow-hidden border border-white/10 bg-[#0d0d0d] flex items-center justify-center mb-5 transition-all duration-300 select-none relative shrink-0"
+            onPointerDown={onPromoPointerDown}
+            onPointerUp={onPromoPointerUp}
+            onPointerCancel={() => { swipeStartRef.current = null; }}
           >
             {/* Single player wrapper with smooth CSS transitions */}
             <div 
@@ -730,24 +796,24 @@ export const HeroSection: React.FC<{
             <div className="absolute inset-0 bg-black/25 pointer-events-none rounded-[18px] z-20" />
 
             {/* Premium left-side cinematic vignette shadow (55% width to provide ample readability coverage for text overlays) */}
-            <div className="absolute inset-y-0 left-0 w-[55%] bg-gradient-to-r from-black/75 via-black/35 to-transparent pointer-events-none rounded-l-[18px] z-20" />
+            <div className="mh-promo-vignette absolute inset-y-0 left-0 w-[55%] bg-gradient-to-r from-black/75 via-black/35 to-transparent pointer-events-none rounded-l-[18px] z-20" />
 
             {/* Dynamic Branding Text and Button Overlay (Left Side, above Vignette, below story bars) */}
             {activeMedia.title && (
               <div 
                 style={{ 
                   transition: 'opacity 800ms ease-in-out, max-width 280ms cubic-bezier(0.32, 0.72, 0, 1)',
-                  maxWidth: isSidebarCollapsed ? '38%' : '50%'
+                  maxWidth: isSidebarCollapsed || isSidebarAway ? '38%' : '50%'
                 }}
-                className={`absolute left-10 bottom-14 z-30 flex flex-col items-start text-left select-text ${isFading ? 'opacity-0' : 'opacity-100'}`}
+                className={`mh-promo-text absolute left-10 bottom-14 z-30 flex flex-col items-start text-left select-text ${isFading ? 'opacity-0' : 'opacity-100'}`}
               >
                 {/* Big Title */}
-                <h2 className="text-white font-['Google_Sans',_sans-serif] text-[40px] font-medium leading-[1.15] tracking-tight mb-3">
+                <h2 className="mh-promo-title text-white font-['Google_Sans',_sans-serif] text-[40px] font-medium leading-[1.15] tracking-tight mb-3">
                   {activeMedia.title}
                 </h2>
 
                 {/* Description */}
-                <p className="text-white/80 font-['Google_Sans',_sans-serif] text-[15px] font-normal leading-relaxed tracking-normal max-w-[540px] mb-6">
+                <p className="mh-promo-desc text-white/80 font-['Google_Sans',_sans-serif] text-[15px] font-normal leading-relaxed tracking-normal max-w-[540px] mb-6">
                   {activeMedia.description}
                 </p>
 
@@ -761,7 +827,7 @@ export const HeroSection: React.FC<{
                         onPromptSubmit?.('', 'design');
                       }
                     }}
-                    className="h-11 px-6 bg-white hover:bg-white/90 active:bg-white/80 text-black font-['Google_Sans',_sans-serif] text-[14px] font-medium rounded-full flex items-center justify-center transition-all hover:scale-[1.03] active:scale-[0.97] shadow-lg cursor-pointer"
+                    className="mh-promo-cta h-11 px-6 bg-white hover:bg-white/90 active:bg-white/80 text-black font-['Google_Sans',_sans-serif] text-[14px] font-medium rounded-full flex items-center justify-center transition-all hover:scale-[1.03] active:scale-[0.97] shadow-lg cursor-pointer"
                   >
                     {activeMedia.buttonIcon === 'character' && (
                       <svg className="w-[14px] h-[14px] text-black mr-2 fill-current" viewBox="9 8 82 82">
@@ -785,7 +851,7 @@ export const HeroSection: React.FC<{
             {currentMediaIndex === 2 && (
               <div 
                 style={{ transition: 'opacity 800ms ease-in-out' }}
-                className={`absolute right-10 top-1/2 -translate-y-1/2 w-[420px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[22px] pt-3 pb-2 px-3 shadow-2xl border border-white/5 flex flex-col select-none pointer-events-none z-30 transition-opacity duration-800 ease-in-out ${isFading ? 'opacity-0' : 'opacity-100'}`}
+                className={`mh-promo-deco absolute right-10 top-1/2 -translate-y-1/2 w-[420px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[22px] pt-3 pb-2 px-3 shadow-2xl border border-white/5 flex flex-col select-none pointer-events-none z-30 transition-opacity duration-800 ease-in-out ${isFading ? 'opacity-0' : 'opacity-100'}`}
               >
                 {/* Top prompt text area resembling textarea */}
                 <div className="relative flex items-start w-full">
@@ -867,7 +933,7 @@ export const HeroSection: React.FC<{
             )}
 
             {/* Symmetrical Sequential Story Timeline Progress Bars (Lower Left Area) */}
-            <div className="absolute bottom-5 left-6 flex items-center gap-[6px] z-40 select-none">
+            <div className="mh-promo-bars absolute bottom-5 left-6 flex items-center gap-[6px] z-40 select-none">
               {mediaPlaylist.map((_, idx) => {
                 let fillWidth = '0%';
                 if (idx < currentMediaIndex) {
@@ -879,7 +945,7 @@ export const HeroSection: React.FC<{
                 return (
                   <div 
                     key={idx}
-                    className="w-[60px] h-[3px] bg-white/25 rounded-full overflow-hidden relative cursor-pointer hover:bg-white/40 transition-colors"
+                    className="mh-promo-bar w-[60px] h-[3px] bg-white/25 rounded-full overflow-hidden relative cursor-pointer hover:bg-white/40 transition-colors"
                     onClick={() => {
                       if (idx !== currentMediaIndex) {
                         triggerTransition(idx);
@@ -901,11 +967,15 @@ export const HeroSection: React.FC<{
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-x-4 gap-y-6 w-full mt-6 pb-[179px] shrink-0">
+          <div
+            className="mh-projects grid grid-cols-3 gap-x-4 gap-y-6 w-full mt-6 pb-[179px] shrink-0"
+            {...(touch ? cardHold.handlers : {})}
+            onContextMenu={touch ? (e) => e.preventDefault() : undefined}
+          >
             {projectsList.map((proj, idx) => {
               const isEditing = editingProjectId === proj.id;
               return (
-                <div key={proj.id} onClick={() => onProjectSelect?.(proj.id)} className="flex flex-col group cursor-pointer relative">
+                <div key={proj.id} data-project-id={proj.id} onClick={() => onProjectSelect?.(proj.id)} className="mh-card flex flex-col group cursor-pointer relative">
                   {/* 16:9 Image placeholder container with independent rounded-[18px], border-white/10, and high z-index */}
                   <div className="w-full aspect-video rounded-[18px] border border-white/10 bg-[#2c2c2e] overflow-hidden relative z-10 flex items-center justify-center transition-all duration-300 shadow-md">
                     {(coverUrls[proj.id] || proj.coverUrl) ? (
@@ -931,7 +1001,7 @@ export const HeroSection: React.FC<{
                   </div>
                   
                   {/* Connected Caption info: extends up under the 16:9 card z-axially (z-0, -mt-[18px], h-[58px], pt-[18px]) to hide top square corners but align seamlessly on hover (using a background-friendly prominent highlight bg-white/[0.06]) */}
-                  <div className={`relative z-0 -mt-[18px] h-[58px] pt-[18px] px-4 rounded-b-[18px] flex items-center transition-all duration-300 select-none ${isEditing ? 'bg-white/[0.06]' : 'bg-transparent group-hover:bg-white/[0.06]'}`}>
+                  <div className={`mh-caption relative z-0 -mt-[18px] h-[58px] pt-[18px] px-4 rounded-b-[18px] flex items-center transition-all duration-300 select-none ${isEditing ? 'bg-white/[0.06]' : 'bg-transparent group-hover:bg-white/[0.06]'}`}>
                     <div className="flex items-center w-full">
                       {isEditing ? (
                         <div className="flex items-center w-full" onClick={(e) => e.stopPropagation()}>
@@ -962,7 +1032,7 @@ export const HeroSection: React.FC<{
                               }
                               setEditingProjectId(null);
                             }}
-                            className="w-7 h-7 rounded-full bg-transparent hover:bg-white/10 flex items-center justify-center border-none outline-none cursor-pointer"
+                            className="mh-edit-action w-7 h-7 rounded-full bg-transparent hover:bg-white/10 flex items-center justify-center border-none outline-none cursor-pointer"
                           >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-white/80 hover:text-white transition-colors">
                               <polyline points="20 6 9 17 4 12" />
@@ -975,7 +1045,7 @@ export const HeroSection: React.FC<{
                               e.stopPropagation();
                               setEditingProjectId(null);
                             }}
-                            className="w-7 h-7 rounded-full bg-transparent hover:bg-white/10 flex items-center justify-center border-none outline-none cursor-pointer ml-1"
+                            className="mh-edit-action w-7 h-7 rounded-full bg-transparent hover:bg-white/10 flex items-center justify-center border-none outline-none cursor-pointer ml-1"
                           >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-white/80 hover:text-white transition-colors">
                               <line x1="18" y1="6" x2="6" y2="18" />
@@ -985,53 +1055,55 @@ export const HeroSection: React.FC<{
                         </div>
                       ) : (
                         <>
-                          <span className="text-white font-sans text-[13px] font-medium no-underline decoration-transparent truncate flex-1 min-w-0 mr-2">{proj.name}</span>
-                          
-                          {/* Circle Edit Pencil Icon (only visible on hover, circle appears on button hover) */}
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingProjectId(proj.id);
-                              setEditingValue(proj.name);
-                            }}
-                            className="w-7 h-7 rounded-full bg-transparent hover:bg-white/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 ml-2 border-none outline-none cursor-pointer"
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-white/80 hover:text-white transition-colors">
-                              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                            </svg>
-                          </button>
+                          <span className="mh-name text-white font-sans text-[13px] font-medium no-underline decoration-transparent truncate flex-1 min-w-0 mr-2">{proj.name}</span>
 
-                          {/* Trash Bin Delete Icon (only visible on hover, aligned far right, circle appears on button hover) */}
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
+                          {touch ? (
+                            <button
+                              type="button"
+                              aria-label={`Options for ${proj.name}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openProjectSheet(proj.id);
+                              }}
+                              className="mh-card-more ml-auto -mr-2 w-10 h-10 shrink-0 rounded-full bg-transparent active:bg-white/10 flex items-center justify-center border-none outline-none cursor-pointer text-white/75"
+                            >
+                              <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                                <circle cx="12" cy="5" r="1.8" />
+                                <circle cx="12" cy="12" r="1.8" />
+                                <circle cx="12" cy="19" r="1.8" />
+                              </svg>
+                            </button>
+                          ) : (
+                            <>
+                              {/* Circle Edit Pencil Icon (only visible on hover, circle appears on button hover) */}
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingProjectId(proj.id);
+                                  setEditingValue(proj.name);
+                                }}
+                                className="w-7 h-7 rounded-full bg-transparent hover:bg-white/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 ml-2 border-none outline-none cursor-pointer"
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-white/80 hover:text-white transition-colors">
+                                  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                                </svg>
+                              </button>
 
-                              // Delete disk first. If that fails, keep browser
-                              // data/registry intact so reconciliation cannot
-                              // resurrect an empty shell of the project.
-                              const diskDeleted = await deleteLocalFSProject(proj.id, proj.name);
-                              if (!diskDeleted) {
-                                console.error('Project folder deletion failed; browser data was preserved.');
-                                return;
-                              }
-                              await deleteProjectData(proj.id);
-
-                              // 3. Delete from localStorage and update UI
-                              const list = readProjectRegistry() as any[];
-                              const updated = list.filter((p: any) => p.id !== proj.id);
-                              writeProjectRegistry(updated);
-                              window.dispatchEvent(new Event('willow_projects_updated'));
-
-                              // 4. Update local component state
-                              setProjectsList(prev => prev.filter(p => p.id !== proj.id));
-                            }}
-                            className="w-7 h-7 rounded-full bg-transparent hover:bg-white/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 ml-auto border-none outline-none cursor-pointer"
-                          >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-white/70 hover:text-white transition-colors">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                          </button>
+                              {/* Trash Bin Delete Icon (only visible on hover, aligned far right, circle appears on button hover) */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void deleteProject(proj);
+                                }}
+                                className="w-7 h-7 rounded-full bg-transparent hover:bg-white/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 ml-auto border-none outline-none cursor-pointer"
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-white/70 hover:text-white transition-colors">
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
+                              </button>
+                            </>
+                          )}
                         </>
                       )}
                     </div>
@@ -1043,10 +1115,11 @@ export const HeroSection: React.FC<{
 
           {/* Fixed Bottom Centered + New project Button */}
           <div 
+            className="mh-new"
             style={{
               position: 'fixed',
-              bottom: '32px',
-              left: `calc(50vw + ${isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH / 2 : STUDIO_SIDEBAR_EXPANDED_WIDTH / 2}px)`,
+              bottom: 'calc(32px + var(--willow-frame-bottom, 0px))',
+              left: `calc(50vw + ${isSidebarAway ? 0 : isSidebarCollapsed ? STUDIO_SIDEBAR_COLLAPSED_WIDTH / 2 : STUDIO_SIDEBAR_EXPANDED_WIDTH / 2}px + var(--willow-frame-center-shift, 0px))`,
               transform: 'translateX(-50%)',
               transition: 'left 280ms cubic-bezier(0.32, 0.72, 0, 1)',
               zIndex: 50
@@ -1054,7 +1127,7 @@ export const HeroSection: React.FC<{
           >
             <button
               onClick={handleCreateNewProject}
-              className="w-[180px] h-[115px] bg-[#38383a]/90 backdrop-blur-md hover:bg-[#48484a] active:bg-[#2c2c2e] border border-white/10 rounded-[1.5rem] flex items-center justify-center shadow-[0_15px_35px_rgba(0,0,0,0.6)] transition-all duration-300 hover:scale-[1.03] active:scale-[0.97] group cursor-pointer"
+              className="mh-new-button w-[180px] h-[115px] bg-[#38383a]/90 backdrop-blur-md hover:bg-[#48484a] active:bg-[#2c2c2e] border border-white/10 rounded-[1.5rem] flex items-center justify-center shadow-[0_15px_35px_rgba(0,0,0,0.6)] transition-all duration-300 hover:scale-[1.03] active:scale-[0.97] group cursor-pointer"
             >
               <span className="text-[#cacaca] group-hover:text-white transition-colors duration-300 text-[15px] font-semibold tracking-tight flex items-center gap-2 select-none">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-[#cacaca] group-hover:text-white transition-colors duration-300">
@@ -1065,6 +1138,35 @@ export const HeroSection: React.FC<{
               </span>
             </button>
           </div>
+
+          {/* Outside the cards: a portal still bubbles React clicks, and a card's click opens its project. */}
+          {touch && sheetProject && (
+            <GeminiBottomSheet
+              isOpen={isSheetOpen}
+              onClose={() => setIsSheetOpen(false)}
+              label={`Options for ${sheetProject.name}`}
+            >
+              <GeminiSheetList label={`Options for ${sheetProject.name}`}>
+                <GeminiSheetItem
+                  glyph={<Pencil size={22} strokeWidth={1.75} />}
+                  label="Rename"
+                  onSelect={() => {
+                    setIsSheetOpen(false);
+                    setEditingProjectId(sheetProject.id);
+                    setEditingValue(sheetProject.name);
+                  }}
+                />
+                <GeminiSheetItem
+                  glyph={<Trash2 size={22} strokeWidth={1.75} />}
+                  label="Delete"
+                  onSelect={() => {
+                    setIsSheetOpen(false);
+                    if (window.confirm(`Delete "${sheetProject.name}"? This permanently removes it from this device.`)) void deleteProject(sheetProject);
+                  }}
+                />
+              </GeminiSheetList>
+            </GeminiBottomSheet>
+          )}
         </>
       ) : (
         <>
@@ -1080,7 +1182,7 @@ export const HeroSection: React.FC<{
                   src={logo}
                   alt="Willow"
                   className="w-10 h-10 object-contain drop-shadow-sm mb-3 sm:mb-4 select-none transition-[filter] duration-300"
-                  style={{ filter: getWorkspaceTheme(userProfile?.workspaceColor).logoFilter }}
+                  style={{ filter: getWorkspaceTheme(workspaceColor).logoFilter }}
                 />
               )}
               <ChatZeroStateGreeting
@@ -1126,7 +1228,6 @@ export const HeroSection: React.FC<{
               selectedModelId={selectedModelId}
               setSelectedModelId={setSelectedModelId}
               onAuthRequired={onAuthRequired}
-              isAuthenticated={isAuthenticated}
               chatVariant={initialMode === 'chat'}
               onStartLive={onStartLive}
             />

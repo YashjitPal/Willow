@@ -1526,47 +1526,37 @@ Please analyze the screenshot and perform the necessary actions to test this fea
 }
 
 /**
- * Runs a small task-oriented computer-use loop for Spark's embedded local
- * browser.  It shares the proven screenshot and action execution primitives
- * with the workbench QA runner, while using task-oriented instructions and a
- * smaller turn budget suitable for an in-chat surface.
+ * What a computer-use task needs from the surface it drives.
+ *
+ * `runComputerUseTask` knows nothing about where the page lives. An iframe Willow
+ * can script directly is one driver (`iframeDriver` below, the preview's); Spark's
+ * remote browser, whose pages are deliberately cross-origin and are reached over
+ * postMessage, is another.
  */
-export async function runComputerUseTask(
-  apiKey: string,
-  userPrompt: string,
-  iframe: HTMLIFrameElement,
-  onUpdate: (update: TestUpdate) => void,
-  conversationHistory: ConversationMessage[] = [],
-  shouldCancel?: () => boolean,
-  abortSignal?: AbortSignal,
-): Promise<ComputerUseTaskResult> {
-  const actionsPerformed: string[] = [];
-  const isCancelled = () => Boolean(abortSignal?.aborted || shouldCancel?.());
-  const throwIfCancelled = () => {
-    if (isCancelled()) throw new DOMException('Computer-use task cancelled.', 'AbortError');
-  };
-  const describeAction = (action: ComputerUseAction) => {
-    const args = action.args ?? {};
-    if (action.name === 'click_at') return `Clicking at (${args.x}, ${args.y})`;
-    if (action.name === 'type_text_at') {
-      const value = String(args.text ?? '');
-      return `Typing “${value.slice(0, 36)}${value.length > 36 ? '…' : ''}”`;
-    }
-    if (action.name === 'scroll_at' || action.name === 'scroll_document') {
-      return `Scrolling ${String(args.direction ?? 'the page')}`;
-    }
-    if (action.name === 'navigate') return `Opening ${String(args.url ?? 'a page')}`;
-    if (action.name === 'key_combination') return `Pressing ${String(args.keys ?? 'a key')}`;
-    return getActionType(action.name, args);
-  };
-  const getFrameUrl = () => {
-    try {
-      return iframe.contentWindow?.location?.href || iframe.src || 'about:srcdoc';
-    } catch {
-      return iframe.src || 'about:blank';
-    }
-  };
-  const waitForFrame = async (timeoutMs = 2_500) => {
+export interface ComputerUseDriver {
+  /** Resolves once the page can be looked at. `afterNavigation` when the last action may have changed page. */
+  settle(afterNavigation: boolean): Promise<void>;
+  /** The viewport the model sees next, as base64 image data. Throws when the page cannot be captured. */
+  screenshot(): Promise<{ data: string; mimeType: string }>;
+  /** Runs one model action. Coordinates arrive as the model emits them, normalized to 0-1000. */
+  execute(action: ComputerUseAction): Promise<{ success: boolean; error?: string }>;
+  /** Where the page is now, reported back to the model with every action result. */
+  url(): string;
+}
+
+export interface ComputerUseTaskOptions {
+  /** Replaces the default instructions, which are written for the preview iframe. */
+  systemPrompt?: string;
+  /** How many model turns the task may take. */
+  maxTurns?: number;
+}
+
+const NAVIGATING_ACTIONS = new Set(['navigate', 'search', 'go_back', 'go_forward']);
+
+/** The preview iframe, scripted directly. Same-origin only; see `executeAction`. */
+function iframeDriver(iframe: HTMLIFrameElement): ComputerUseDriver {
+  let dimensions = { width: SCREEN_WIDTH, height: SCREEN_HEIGHT };
+  const waitForFrame = async (timeoutMs: number) => {
     try {
       if (iframe.contentDocument?.readyState === 'complete') return;
     } catch {
@@ -1586,20 +1576,80 @@ export async function runComputerUseTask(
       setTimeout(finish, timeoutMs);
     });
   };
+  return {
+    settle: (afterNavigation) => waitForFrame(afterNavigation ? 3_500 : 900),
+    async screenshot() {
+      const shot = await captureIframeScreenshot(iframe);
+      dimensions = { width: shot.actualWidth, height: shot.actualHeight };
+      return { data: shot.data, mimeType: 'image/png' };
+    },
+    execute: (action) => executeAction(action, iframe, dimensions),
+    url() {
+      try {
+        return iframe.contentWindow?.location?.href || iframe.src || 'about:srcdoc';
+      } catch {
+        return iframe.src || 'about:blank';
+      }
+    },
+  };
+}
+
+/**
+ * Runs a small task-oriented computer-use loop for Spark's embedded local
+ * browser.  It shares the proven screenshot and action execution primitives
+ * with the workbench QA runner, while using task-oriented instructions and a
+ * smaller turn budget suitable for an in-chat surface.
+ *
+ * `target` is the preview iframe, or any `ComputerUseDriver`. Only the iframe
+ * drives the preview's cursor overlay (`testStore`), which no other surface renders.
+ */
+export async function runComputerUseTask(
+  apiKey: string,
+  userPrompt: string,
+  target: HTMLIFrameElement | ComputerUseDriver,
+  onUpdate: (update: TestUpdate) => void,
+  conversationHistory: ConversationMessage[] = [],
+  shouldCancel?: () => boolean,
+  abortSignal?: AbortSignal,
+  options: ComputerUseTaskOptions = {},
+): Promise<ComputerUseTaskResult> {
+  const actionsPerformed: string[] = [];
+  const isFrame = typeof HTMLIFrameElement !== 'undefined' && target instanceof HTMLIFrameElement;
+  const driver = isFrame ? iframeDriver(target) : target as ComputerUseDriver;
+  const previewCursor = {
+    show: () => { if (isFrame) testStore.showCursor(); },
+    hide: () => { if (isFrame) testStore.hideCursor(); },
+    thought: (text: string) => { if (isFrame) testStore.setThought(text); },
+  };
+  const maxTurns = options.maxTurns ?? 16;
+  const isCancelled = () => Boolean(abortSignal?.aborted || shouldCancel?.());
+  const throwIfCancelled = () => {
+    if (isCancelled()) throw new DOMException('Computer-use task cancelled.', 'AbortError');
+  };
+  const describeAction = (action: ComputerUseAction) => {
+    const args = action.args ?? {};
+    if (action.name === 'click_at') return `Clicking at (${args.x}, ${args.y})`;
+    if (action.name === 'type_text_at') {
+      const value = String(args.text ?? '');
+      return `Typing “${value.slice(0, 36)}${value.length > 36 ? '…' : ''}”`;
+    }
+    if (action.name === 'scroll_at' || action.name === 'scroll_document') {
+      return `Scrolling ${String(args.direction ?? 'the page')}`;
+    }
+    if (action.name === 'navigate') return `Opening ${String(args.url ?? 'a page')}`;
+    if (action.name === 'key_combination') return `Pressing ${String(args.keys ?? 'a key')}`;
+    return getActionType(action.name, args);
+  };
 
   try {
     throwIfCancelled();
     const client = getClient(apiKey);
     onUpdate({ type: 'plan', message: 'Opening the local browser and preparing the task.' });
     onUpdate({ type: 'screenshot', message: 'Reading the current browser view…' });
-    testStore.showCursor();
-    testStore.setThought('Reading the page…');
-    await waitForFrame();
-    const firstScreenshot = await captureIframeScreenshot(iframe);
-    let currentDimensions = {
-      width: firstScreenshot.actualWidth,
-      height: firstScreenshot.actualHeight,
-    };
+    previewCursor.show();
+    previewCursor.thought('Reading the page…');
+    await driver.settle(false);
+    const firstScreenshot = await driver.screenshot();
     const historyContext = conversationHistory
       .slice(-8)
       .map((message) => `${message.role === 'user' ? 'User' : 'Assistant'}: ${message.content.slice(0, 600)}`)
@@ -1616,7 +1666,7 @@ export async function runComputerUseTask(
         },
         {
           inlineData: {
-            mimeType: 'image/png',
+            mimeType: firstScreenshot.mimeType,
             data: firstScreenshot.data,
           },
         } as Part,
@@ -1624,14 +1674,14 @@ export async function runComputerUseTask(
     }];
     let finalText = '';
 
-    for (let turn = 1; turn <= 16; turn += 1) {
+    for (let turn = 1; turn <= maxTurns; turn += 1) {
       throwIfCancelled();
       onUpdate({ type: 'thinking', message: turn === 1 ? 'Planning the first action…' : 'Checking the updated page…' });
       const response = await client.models.generateContent({
         model: COMPUTER_USE_MODEL,
         contents,
         config: {
-          systemInstruction: COMPUTER_USE_TASK_SYSTEM_PROMPT,
+          systemInstruction: options.systemPrompt ?? COMPUTER_USE_TASK_SYSTEM_PROMPT,
           // @ts-ignore - supported by the Gemini API even when older SDK types lag behind.
           thinkingConfig: { includeThoughts: true, thinkingLevel: 'low' as any },
           tools: LOCAL_COMPUTER_USE_TOOLS as any,
@@ -1645,7 +1695,7 @@ export async function runComputerUseTask(
       const textResponse = extractText(response).trim();
       const functionCalls = extractFunctionCalls(response);
       if (thought) {
-        testStore.setThought(thought);
+        previewCursor.thought(thought);
         onUpdate({
           type: 'thinking',
           message: thought.length > 120 ? `${thought.slice(0, 120)}…` : thought,
@@ -1663,7 +1713,7 @@ export async function runComputerUseTask(
       if (!functionCalls.length) {
         const explanation = finalText || 'The browser task is complete.';
         onUpdate({ type: 'complete', message: 'Browser task complete' });
-        testStore.hideCursor();
+        previewCursor.hide();
         return { completed: true, explanation, actionsPerformed };
       }
 
@@ -1677,19 +1727,19 @@ export async function runComputerUseTask(
         thought: thought ?? undefined,
         thoughtSignature: thoughtSignature ?? undefined,
       });
-      const actionResult = await executeAction(action, iframe, currentDimensions);
+      const actionResult = await driver.execute(action);
       throwIfCancelled();
-      await waitForFrame(action.name === 'navigate' || action.name === 'search' ? 3_500 : 900);
+      await driver.settle(NAVIGATING_ACTIONS.has(action.name));
 
-      let nextScreenshot: ScreenshotResult;
+      let nextScreenshot: { data: string; mimeType: string };
       try {
-        nextScreenshot = await captureIframeScreenshot(iframe);
+        nextScreenshot = await driver.screenshot();
       } catch (captureError) {
         const explanation = actionResult.success
           ? 'The page opened in Willow’s local browser, but it is cross-origin or blocks embedding, so this frontend-only harness cannot inspect or control it further.'
           : actionResult.error || 'The embedded page could not be controlled.';
         onUpdate({ type: 'error', message: explanation });
-        testStore.hideCursor();
+        previewCursor.hide();
         return {
           completed: false,
           explanation,
@@ -1697,10 +1747,6 @@ export async function runComputerUseTask(
           limited: true,
         };
       }
-      currentDimensions = {
-        width: nextScreenshot.actualWidth,
-        height: nextScreenshot.actualHeight,
-      };
       contents.push({
         role: 'user',
         parts: [
@@ -1710,13 +1756,13 @@ export async function runComputerUseTask(
               response: {
                 success: actionResult.success,
                 error: actionResult.error,
-                url: getFrameUrl(),
+                url: driver.url(),
               },
             },
           } as Part,
           {
             inlineData: {
-              mimeType: 'image/png',
+              mimeType: nextScreenshot.mimeType,
               data: nextScreenshot.data,
             },
           } as Part,
@@ -1726,10 +1772,10 @@ export async function runComputerUseTask(
 
     const explanation = finalText || 'The local browser reached its current action limit before the task was finished.';
     onUpdate({ type: 'error', message: explanation });
-    testStore.hideCursor();
+    previewCursor.hide();
     return { completed: false, explanation, actionsPerformed };
   } catch (error: any) {
-    testStore.hideCursor();
+    previewCursor.hide();
     const cancelled = error?.name === 'AbortError' || isCancelled();
     const explanation = cancelled
       ? 'The browser task was stopped.'

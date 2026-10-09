@@ -63,6 +63,14 @@ export class McpClient {
     private readonly transport: McpTransport,
   ) {
     transport.onMessage((message) => this.receive(message));
+    // A server that ended answers nothing more: what is waiting fails now, with the reason, not at its timeout.
+    transport.onFailure?.((error) => {
+      for (const [id, pending] of this.pending) {
+        clearTimeout(pending.timer);
+        pending.reject(error);
+        this.pending.delete(id);
+      }
+    });
   }
 
   /**
@@ -82,7 +90,7 @@ export class McpClient {
         // do not implement invites a server to use them.
         capabilities: {},
         clientInfo: { name: 'willow-code-agent', version: '1.0.0' },
-      })) as InitializeResult;
+      }, transport.handshakeTimeoutMs)) as InitializeResult;
     } catch (error) {
       await transport.close().catch(() => {});
       throw error;
@@ -173,7 +181,7 @@ export class McpClient {
 
   /* -------------------------------------------------------------------- */
 
-  private request(method: string, params: unknown): Promise<unknown> {
+  private request(method: string, params: unknown, timeoutMs: number = CALL_TIMEOUT_MS): Promise<unknown> {
     if (this.closed) {
       return Promise.reject(new McpError('protocol', 'The connection is closed.'));
     }
@@ -187,10 +195,10 @@ export class McpClient {
         reject(
           new McpError(
             'timeout',
-            `The server did not answer \`${method}\` within ${CALL_TIMEOUT_MS / 1000} seconds.`,
+            `The server did not answer \`${method}\` within ${timeoutMs / 1000} seconds.`,
           ),
         );
-      }, CALL_TIMEOUT_MS);
+      }, timeoutMs);
 
       this.pending.set(id, { resolve, reject, timer });
 

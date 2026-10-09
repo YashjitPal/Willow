@@ -44,7 +44,9 @@
   overflow-y: scroll !important;
 }
 
-.spark-studio-scroll:has(.spark-task-detail) {
+/* Task detail and Pages scroll inside their own panes, so the workspace keeps no track of its own. */
+.spark-studio-scroll:has(.spark-task-detail),
+.spark-studio-scroll:has(.spaces-shell) {
   overflow: hidden !important;
   scrollbar-gutter: auto !important;
 }
@@ -66,6 +68,19 @@
 
 .spark-studio-scroll:hover::-webkit-scrollbar-thumb {
   background-color: rgba(255, 255, 255, 0.24);
+}
+
+/*
+ * At <=960px Gemini's page scroller is a plain `overflow-y: auto` with no scrollbar styling,
+ * so on a touch screen its scrollbar overlays the page and takes no width. Setting
+ * `scrollbar-width` is what makes Chrome drop the `::-webkit-scrollbar` track above, which
+ * otherwise reserves 12px down the right of every Spark page.
+ */
+@media (max-width: 960px) {
+  .spark-studio-scroll {
+    overflow-y: auto !important;
+    scrollbar-width: thin;
+  }
 }
 
 /* All Tasks and task detail share one mounted composer host. The workspace

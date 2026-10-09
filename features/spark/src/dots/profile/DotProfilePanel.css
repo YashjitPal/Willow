@@ -1,0 +1,1077 @@
+/*
+ * A bot's profile panel (DotProfilePanel.tsx), in Material 3's tokens (m3.css) so it follows the theme and wears
+ * the bot's tint. One shape runs through it: connected groups — 20px corners outside, 6px between members, 2px
+ * apart — like the contact buttons under the name. `--dot-panel-gutter` is the distance from the panel's content
+ * to its container's edge, which the pinned bars bleed into.
+ */
+
+.dot-panel {
+  --dot-panel-surface: var(--spark-base-surface, #0f0f0f);
+  --dot-panel-gutter: 12px;
+  --dot-panel-muted: #9a9b9c;
+  --dot-panel-hairline: rgba(255, 255, 255, 0.07);
+  --dot-panel-shimmer: #ffffff;
+  --dot-panel-ease: cubic-bezier(0.2, 0, 0, 1);
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  padding: 0 var(--dot-panel-gutter) 24px;
+  color: var(--md-sys-color-on-surface);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+}
+
+.spark-dots-profile-popover .dot-panel {
+  --dot-panel-surface: #101010;
+  --dot-panel-gutter: 16px;
+  padding: 0 0 4px;
+}
+
+.spark-dots-profile-overlay .dot-panel {
+  --dot-panel-surface: #000000;
+  --dot-panel-gutter: 16px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding-bottom: 32px;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-panel {
+  --dot-panel-muted: #5f6368;
+  --dot-panel-hairline: rgba(0, 0, 0, 0.08);
+  --dot-panel-shimmer: #9aa0a6;
+}
+
+:is(.light-theme, [data-theme="light"]) :is(.spark-dots-profile-popover, .spark-dots-profile-overlay) .dot-panel {
+  --dot-panel-surface: #ffffff;
+}
+
+:where(.dot-panel) :where(p, h3) {
+  margin: 0;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.dot-panel__identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0 16px;
+  text-align: center;
+}
+
+.spark-dots-profile-popover .dot-panel__identity {
+  padding-top: 0;
+}
+
+/* The character stands on the panel itself, larger than Codex's 64px hero, its pencil showing only on hover. */
+.dot-panel__avatar {
+  display: flex;
+  justify-content: center;
+}
+
+.dot-panel .dot-panel__avatar .size-16 {
+  width: 80px;
+  height: 80px;
+}
+
+.dot-panel .dot-panel__avatar .size-7 {
+  opacity: 0;
+  scale: 0.85;
+  transition: opacity 0.18s, scale 0.18s var(--dot-panel-ease);
+}
+
+.dot-panel .dot-panel__avatar :is(button:hover, button:focus-visible, button[data-state="open"]) .size-7 {
+  opacity: 1;
+  scale: 1;
+}
+
+.dot-panel__name {
+  display: flex;
+  max-width: 100%;
+  justify-content: center;
+  margin-top: 8px;
+  color: var(--md-sys-color-on-surface);
+  font-size: 22px;
+  line-height: 28px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
+/*
+ * Status · category, on one line however long the category's name: the status is always a word or two, so the
+ * chip gives way, down to a stub, ending in an ellipsis with the whole name in its tooltip.
+ */
+.dot-panel__meta {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.dot-panel__status {
+  flex: none;
+  white-space: nowrap;
+}
+
+.dot-panel__meta-separator {
+  width: 3px;
+  height: 3px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.dot-panel__category {
+  position: relative;
+  display: inline-flex;
+  min-width: 72px;
+  flex: 0 1 auto;
+}
+
+.dot-panel__category-chip {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  height: 26px;
+  align-items: center;
+  padding: 0 4px 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.dot-panel__category-chip:hover,
+.dot-panel__category-chip[aria-expanded="true"] {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.dot-panel__category-chip:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.dot-panel__category-chip > :last-child {
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-panel__category-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* As wide as its longest category, up to 320px and the screen less 16px a side. A longer name keeps
+ * to its row's one line, cut short as the chip's is, with the whole name on hover. */
+.dot-panel .dot-panel__category-menu {
+  top: calc(100% + 6px);
+  right: auto;
+  left: 50%;
+  width: max-content;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 32px));
+  translate: -50% 0;
+  transform-origin: 50% 0;
+  text-align: left;
+}
+
+.dot-panel__category-menu [role="menuitemradio"] > :last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot-panel__menu-check {
+  display: inline-flex;
+  width: 20px;
+  flex: none;
+  color: var(--md-sys-color-primary);
+}
+
+.dot-panel .dot-panel__contact {
+  width: 100%;
+  max-width: none;
+  margin-top: 16px;
+  padding: 0;
+}
+
+/* Not wired up yet: hoverable for its tooltip, at Material's 38% for disabled content. */
+.dot-panel .dot-panel__contact .spark-dots-profile__action[aria-disabled="true"] {
+  background: var(--md-sys-color-surface-container);
+  cursor: default;
+}
+
+.dot-panel .dot-panel__contact .spark-dots-profile__action[aria-disabled="true"] > * {
+  opacity: 0.38;
+}
+
+/* ── Tabs ───────────────────────────────────────────────────────────────── */
+
+.dot-panel__tabs-bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0 calc(-1 * var(--dot-panel-gutter));
+  padding: 0 var(--dot-panel-gutter);
+  background: var(--dot-panel-surface);
+}
+
+.dot-panel__tabs {
+  position: relative;
+  display: flex;
+  box-shadow: inset 0 -1px 0 var(--dot-panel-hairline);
+}
+
+.dot-panel__tab {
+  height: 48px;
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 0;
+  border: 0;
+  border-radius: 12px 12px 0 0;
+  background: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.dot-panel__tab:hover {
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-panel__tab[aria-selected="true"] {
+  color: var(--md-sys-color-primary);
+}
+
+.dot-panel__tab:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -4px;
+}
+
+.dot-panel__tab-label {
+  position: relative;
+}
+
+.dot-panel__tab-dot {
+  position: absolute;
+  top: 0;
+  right: -9px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+}
+
+.dot-panel__tab-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--md-sys-color-primary);
+  pointer-events: none;
+}
+
+.dot-panel__tab-indicator.is-animated {
+  transition: transform 0.35s var(--dot-panel-ease), width 0.35s var(--dot-panel-ease);
+}
+
+.dot-panel__tabpanel {
+  display: flex;
+  flex-direction: column;
+  padding-top: 14px;
+  animation: dot-panel-rise 0.3s var(--dot-panel-ease);
+}
+
+@keyframes dot-panel-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.dot-panel__label {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 18px 4px 6px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 20px;
+}
+
+.dot-panel__tabpanel > .dot-panel__label:first-child {
+  margin-top: 0;
+}
+
+.dot-panel__label-action {
+  height: 28px;
+  margin-right: -10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--md-sys-color-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dot-panel__label-action:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+}
+
+/* ── Groups and rows ────────────────────────────────────────────────────── */
+
+.dot-panel__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dot-panel__group > * {
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.dot-panel__group > :first-child {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+
+.dot-panel__group > :last-child {
+  border-bottom-right-radius: 20px;
+  border-bottom-left-radius: 20px;
+}
+
+.dot-panel__row {
+  display: flex;
+  width: 100%;
+  min-height: 60px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.dot-panel__segment > .dot-panel__row {
+  background: none;
+}
+
+button.dot-panel__row {
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+button.dot-panel__row:hover {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+button.dot-panel__row:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.dot-panel__row-icon {
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-panel__row-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dot-panel__row-title {
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface);
+  font-size: 15px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot-panel__row-sub {
+  overflow: hidden;
+  color: var(--dot-panel-muted);
+  font-size: 13px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot-panel__row-trail {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--md-sys-color-outline);
+}
+
+/* The bot's computer's screen once it is on, which opens it. */
+.dot-panel__thumb {
+  width: 50px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--md-sys-color-surface-container-highest);
+  background-position: center;
+  background-size: cover;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: transform 0.15s var(--dot-panel-ease), box-shadow 0.15s;
+}
+
+.dot-panel__thumb:hover {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+  transform: scale(1.04);
+}
+
+.dot-panel__thumb:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.dot-panel__segment-note {
+  padding: 0 14px 14px 46px;
+  color: var(--dot-panel-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.dot-panel__segment-note.is-problem {
+  color: var(--md-sys-color-error);
+}
+
+/*
+ * "This computer" is DotConversation's DotComputerAccess, laid out here as the group's rows: the row with its
+ * action, then (in a browser) the path form, problems and the commands approved for good. Its explaining note
+ * stays out of the row, as the other rows' do.
+ */
+.dot-panel__folder-access .spark-dots-profile__computer {
+  min-height: 60px;
+  box-sizing: border-box;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+}
+
+.dot-panel__folder-access .spark-dots-profile__computer-icon {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-panel__folder-access .spark-dots-profile__computer-copy {
+  gap: 2px;
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-panel__folder-access .spark-dots-profile__computer-copy > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot-panel__folder-access .spark-dots-profile__muted {
+  color: var(--dot-panel-muted);
+}
+
+.dot-panel__folder-access .spark-dots-profile__toggle {
+  height: 30px;
+  flex: none;
+  padding: 0 11px;
+  background: var(--md-sys-color-on-surface);
+  color: var(--md-sys-color-surface);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.dot-panel__folder-access .spark-dots-profile__toggle.is-on,
+.dot-panel__folder-access .spark-dots-profile__activity .spark-dots-profile__toggle {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-panel__folder-access :is(.spark-dots-profile__folder-form, .spark-dots-profile__problem) {
+  margin: 0;
+  padding: 0 12px 12px 46px;
+}
+
+.dot-panel__folder-access .spark-dots-profile__activity {
+  padding: 0 12px 10px 46px;
+}
+
+.dot-panel__folder-access .spark-dots-profile__note {
+  display: none;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.dot-panel__button {
+  display: inline-flex;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--md-sys-color-on-surface);
+  color: var(--md-sys-color-surface);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.dot-panel__button:has(> :first-child:not(:only-child)) {
+  padding-left: 10px;
+}
+
+.dot-panel__button:hover {
+  opacity: 0.9;
+}
+
+.dot-panel__button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+/* A row's own action, beside its words. */
+.dot-panel__button.is-small {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.dot-panel__button.is-quiet {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-panel__icon-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.dot-panel__icon-button:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 14%, var(--md-sys-color-surface-container-highest));
+}
+
+:is(.dot-panel__button, .dot-panel__icon-button):focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+/* ── Now ────────────────────────────────────────────────────────────────── */
+
+.dot-panel__now {
+  position: relative;
+  display: flex;
+  min-height: 80px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 14px 16px 18px;
+}
+
+.dot-panel__now.is-stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.dot-panel__now.is-working {
+  padding-bottom: 26px;
+}
+
+.dot-panel__now-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.dot-panel__now.is-stacked .dot-panel__now-copy {
+  width: 100%;
+}
+
+.dot-panel__now-title {
+  color: var(--md-sys-color-on-surface);
+  font-size: 16px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 100, "wght" 450;
+}
+
+.dot-panel__now-sub {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--dot-panel-muted);
+  font-size: 13px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Gemini's in-progress words: a highlight sweeping across them rather than a status badge. */
+.dot-panel__now.is-working .dot-panel__now-title {
+  background: linear-gradient(100deg, var(--md-sys-color-on-surface-variant) 0%, var(--md-sys-color-on-surface-variant) 40%, var(--dot-panel-shimmer) 50%, var(--md-sys-color-on-surface-variant) 60%, var(--md-sys-color-on-surface-variant) 100%) 0 0 / 250% 100%;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: dot-panel-shimmer 2.4s linear infinite;
+}
+
+@keyframes dot-panel-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+
+.dot-panel__progress {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  left: 16px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
+}
+
+.dot-panel__progress::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -40%;
+  width: 40%;
+  border-radius: 3px;
+  background: var(--md-sys-color-primary);
+  content: "";
+  animation: dot-panel-indeterminate 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes dot-panel-indeterminate {
+  to {
+    left: 100%;
+  }
+}
+
+/* ── Settings ───────────────────────────────────────────────────────────── */
+
+.dot-panel__instructions {
+  padding: 12px 16px 16px;
+}
+
+.dot-panel__instructions-head {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  margin-right: -8px;
+}
+
+.dot-panel__instructions-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.dot-panel__instructions-body {
+  display: -webkit-box;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.dot-panel__instructions-body.is-empty {
+  color: var(--dot-panel-muted);
+}
+
+.dot-panel__instructions-field {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  --md-outlined-text-field-container-shape: 12px;
+}
+
+.dot-panel__instructions-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.dot-panel__times-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--md-sys-color-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 17px;
+  cursor: pointer;
+}
+
+.dot-panel__times-toggle:disabled {
+  color: var(--dot-panel-muted);
+  cursor: default;
+}
+
+.dot-panel__times-toggle > :last-child {
+  transition: rotate 0.2s var(--dot-panel-ease);
+}
+
+.dot-panel__times-toggle[aria-expanded="true"] > :last-child {
+  rotate: 180deg;
+}
+
+.dot-panel__times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 12px 14px 46px;
+  animation: dot-panel-rise 0.25s var(--dot-panel-ease);
+}
+
+.dot-panel__times label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--dot-panel-muted);
+  font-size: 12px;
+}
+
+.dot-panel__times input {
+  height: 36px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 10px;
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  font-size: 13.5px;
+  color-scheme: dark;
+  outline: none;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-panel__times input {
+  color-scheme: light;
+}
+
+.dot-panel__times input:focus {
+  border-color: var(--md-sys-color-primary);
+}
+
+.dot-panel__info {
+  display: inline-grid;
+  width: 18px;
+  height: 17px;
+  place-items: center;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--md-sys-color-outline);
+  vertical-align: -4px;
+  cursor: help;
+}
+
+.dot-panel__info:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+}
+
+.dot-panel__footnote {
+  margin: 16px 6px 0;
+  color: var(--dot-panel-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+/* ── Empty states ───────────────────────────────────────────────────────── */
+
+.dot-panel__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 26px 12px 12px;
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container);
+  text-align: center;
+}
+
+.dot-panel__empty-art {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--sync-1f3760, #1f3760);
+  color: var(--sync-d3e3fd, #d3e3fd);
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-panel__empty-art {
+  background: var(--sync-d3e3fd, #d3e3fd);
+  color: var(--sync-041e49, #041e49);
+}
+
+.dot-panel__empty-title {
+  margin-top: 14px;
+  font-size: 16px;
+  line-height: 22px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 100, "wght" 450;
+}
+
+.dot-panel__empty-text {
+  margin-top: 4px;
+  color: var(--dot-panel-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.dot-panel__suggestions {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.dot-panel__suggestion {
+  display: flex;
+  min-height: 40px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.dot-panel__suggestion:hover {
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.dot-panel__suggestion > :first-child {
+  color: var(--md-sys-color-primary);
+}
+
+/* ── Pages ──────────────────────────────────────────────────────────────── */
+
+.dot-panel__page {
+  display: flex;
+  flex-direction: column;
+  animation: dot-panel-page-in 0.32s var(--dot-panel-ease);
+}
+
+@keyframes dot-panel-page-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+.dot-panel__page-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  height: 56px;
+  align-items: center;
+  gap: 4px;
+  margin: 0 calc(-1 * var(--dot-panel-gutter)) 4px;
+  padding: 0 calc(var(--dot-panel-gutter) - 4px);
+  background: var(--dot-panel-surface);
+}
+
+.spark-dots-profile .dot-panel__page-head {
+  margin-top: 8px;
+}
+
+.dot-panel__back {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--md-sys-color-on-surface);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.dot-panel__back:hover {
+  background: var(--md-sys-color-surface-container);
+}
+
+.dot-panel__back:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+}
+
+.dot-panel__page-title {
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The sections a page shows keep their own rows; the page names them, so their headings step aside. */
+.dot-panel__page-card {
+  padding: 6px 10px 12px;
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.dot-panel__page-card .spark-dots-profile__activity {
+  gap: 10px;
+}
+
+.dot-panel__page-card .spark-dots-profile__activity > .spark-dots-profile__muted {
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.dot-panel__page-card .spark-task-detail__progress-panel-header {
+  display: none;
+}
+
+.dot-panel .dot-panel__page-card .spark-task-detail__progress-panel-content {
+  padding: 0;
+}
+
+.dot-panel__page-card .spark-dots-profile__note {
+  margin: 8px 0 2px;
+}
+
+/* ── Rows that open a page and carry a switch of their own: Scheduled ───── */
+
+.dot-panel__row.has-control {
+  padding: 0 12px 0 0;
+  transition: background-color 0.15s;
+}
+
+.dot-panel__row.has-control:has(> .dot-panel__row-main:hover) {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.dot-panel__row-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  gap: 12px;
+  padding: 10px 0 10px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dot-panel__row-main:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.dot-panel__row-sub.is-problem {
+  color: var(--md-sys-color-error);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-panel__tabpanel,
+  .dot-panel__page,
+  .dot-panel__times,
+  .dot-panel__progress::after {
+    animation: none;
+  }
+
+  .dot-panel__now.is-working .dot-panel__now-title {
+    animation: none;
+    background: none;
+    color: var(--md-sys-color-on-surface);
+  }
+
+  .dot-panel__tab-indicator.is-animated {
+    transition: none;
+  }
+}

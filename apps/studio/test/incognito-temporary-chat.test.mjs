@@ -60,14 +60,20 @@ const flat = (source) => source.replace(/\s+/g, ' ');
 
 // ── The glow ────────────────────────────────────────────────────────────────
 
-it('paints the temporary-chat glow with Gemini\'s measured stops', () => {
+it('paints the temporary-chat glow with Gemini\'s measured gray', () => {
   const css = flat(INDEX_HTML());
 
-  // `--lumi-sys-color--surface` #0f0f0f -> `--gem-sys-color--outline-variant` #444746.
+  // `--gem-sys-color--outline-variant` #444746 fills the glow mask in place of the accent,
+  // on the desktop layer and on the narrow host alike.
   assert.match(
     css,
-    /\.willow-gemini-home-glow\.willow-gemini-home-glow-gray::before \{ background: radial-gradient\( ellipse 100% 100% at center 8%, rgb\(15, 15, 15\) 0, rgb\(68, 71, 70\) 50% \); \}/,
-    'the temporary-chat glow no longer uses Gemini\'s measured gradient stops',
+    /\.willow-gemini-home-glow\.willow-gemini-home-glow-gray > \.willow-home-glow-layer::before \{ background: rgb\(68, 71, 70\); \}/,
+    'the desktop temporary-chat glow no longer uses Gemini\'s measured gray',
+  );
+  assert.match(
+    css,
+    /\.willow-gemini-home-glow\.willow-gemini-home-glow-gray::before \{ background: rgb\(68, 71, 70\); \}/,
+    'the narrow temporary-chat glow no longer uses Gemini\'s measured gray',
   );
 });
 
@@ -90,17 +96,26 @@ it('makes the temporary variant a modifier so the grow animation cannot restart'
     'the gray glow is a standalone selector again — every toggle will restart grow',
   );
 
+  assert.match(
+    css,
+    /\.willow-gemini-home-glow\.willow-gemini-home-glow-gray > \.willow-home-glow-layer::before/,
+    'the desktop gray glow is a standalone selector — every toggle will restart grow',
+  );
+
   // The modifier must override `background` and nothing else: any geometry,
   // blur or animation of its own re-creates the restart it exists to avoid.
-  const modifier = css.match(
+  for (const selector of [
     /\.willow-gemini-home-glow\.willow-gemini-home-glow-gray::before \{([^}]*)\}/,
-  );
-  assert.ok(modifier, 'could not locate the temporary-chat glow modifier rule');
-  for (const forbidden of ['animation', 'filter', 'width', 'height', 'transform', 'content']) {
-    assert.ok(
-      !new RegExp(`(^|[;{\\s])${forbidden}\\s*:`).test(modifier[1]),
-      `the glow modifier redeclares "${forbidden}" — it must override background alone`,
-    );
+    /\.willow-gemini-home-glow\.willow-gemini-home-glow-gray > \.willow-home-glow-layer::before \{([^}]*)\}/,
+  ]) {
+    const modifier = css.match(selector);
+    assert.ok(modifier, `could not locate the temporary-chat glow modifier ${selector}`);
+    for (const forbidden of ['animation', 'filter', 'width', 'height', 'transform', 'content']) {
+      assert.ok(
+        !new RegExp(`(^|[;{\\s])${forbidden}\\s*:`).test(modifier[1]),
+        `the glow modifier redeclares "${forbidden}" — it must override background alone`,
+      );
+    }
   }
 });
 

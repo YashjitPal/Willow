@@ -19,8 +19,8 @@ and event sink. Keep the protocol and the visible timeline separate.
    are not Patch rows. If the model did not precede one with visible prose, do not
    fabricate a narration line.
 
-4. **Final-response boundary:** Spark may emit `*** Final Response` after a
-   substantive work batch. The marker is stripped by `ResponseStreamParser`.
+4. **Final-response boundary:** every work batch (a Work Title or any tool use)
+   ends with `*** Final Response`. The marker is stripped by `ResponseStreamParser`.
    Prose before it belongs to the work timeline; prose after it is the complete
    user-facing response. No tool, Patch, or progress update may follow it.
 
@@ -40,6 +40,23 @@ harness. A real provider invocation emits exactly one corresponding tool row
 sentence such as “I'm searching the web for the information this task needs.” If
 the model emits no preamble around a native tool, preserve the truthful tool row
 instead of inventing a status sentence.
+
+## Function-Call Rounds
+
+Declared function tools (goals, collaboration, and the desktop app's terminal and
+files) run inside the provider's own tool loop, so one iteration can hold many
+rounds of calls. Three rules keep such an iteration readable and recoverable:
+
+- Each round's prose is closed as its own paragraph before the round's calls run,
+  so narration from successive rounds never runs together ("…in winget.Inspecting…").
+- Every call the provider ran is written into `raw` the way the text protocol
+  shows a call, and its result (its first 3,000 and last 1,000 characters) leads
+  the observations. A later round of the same turn sees the work already done
+  rather than narration with nothing behind it.
+- Ending with `*** Final Response` is the prompt's job ("Ending a work batch" in
+  `overlay/spark-profile.ts`): the model is never sent an extra round to repair a
+  missing marker. When it is missing anyway, the prose after the last call is the
+  answer, as in Codex, whose answer is simply its last message.
 
 ## Work Logs
 

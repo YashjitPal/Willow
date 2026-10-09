@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { AnimatePresence, LayoutGroup, motion, useAnimationControls } from 'framer-motion';
-import { InputBar, type Attachment as ComposerAttachment } from './composer/Composer';
+import { InputBar, type Attachment as ComposerAttachment, type ComposerHandle } from './composer/Composer';
 import type { ToolId } from './composer/composer-options';
 import {
   $expandedCanvasCards,
@@ -20,15 +20,38 @@ import {
 import { decodeCanvasHistory, encodeCanvasHistory } from './canvas/canvas-diff';
 import { CanvasCard } from './canvas/CanvasCard';
 import { CanvasPanel } from './canvas/CanvasPanel';
-import { CANVAS_INSTRUCTIONS, canvasChatTools, canvasContextBlock } from './canvas/canvas-tools';
+import { CanvasPromptFab } from './canvas/CanvasPrompt';
+import { floatingTurns } from './canvas/canvas-floating';
+import { GeneratedMediaCard } from './media/GeneratedMediaCard';
+import { SentImageViewer } from './media/SentImageViewer';
+import { isThreadImage, newestThreadImage } from './media/previous-image';
+import { shareMedia } from './media/GeneratedImage';
+import { MediaGallery } from './media/MediaGallery';
+import { isGalleryTool, type MediaTemplate } from './media/media-templates';
+import { markVideoDiscoverySeen, VideoDiscoveryCard, videoDiscoverySeen } from './media/VideoDiscoveryCard';
+import { ImagesPage } from './media/ImagesPage';
+import type { ImagesPageTemplate } from './media/images-page-templates';
+import { $chatCreationPage, $chatCreationPageRequest, creationPageTool, type ChatCreationPage } from './chat-page-store';
+import { usePhone } from './composer/ComposerCompanion';
+import { ResearchCard, ResearchPlanCard } from './research/ResearchCards';
+import { ResearchPanel, type ResearchCreateKind } from './research/ResearchPanel';
+import { cancelResearch, researchJob, startResearch, subscribeResearch } from './research/research-runner';
+import { RESEARCH_DONE_REPLY, RESEARCH_STARTED_REPLY, type ResearchRecord } from './research/research-types';
+import { apiKeysForBinding, resolveProviderBinding } from '@willow/ai/providers/profiles';
+import { generatingStatusFor, sanitizeSavedMedia, type GeneratedMedia } from './media/generated-media';
+import { blobToInlineImage, type InlineImage } from './media/media-clients';
+import type { ChatMediaStore } from './media/media-host';
+import type { MediaToolOptions } from './media/media-tools';
 import {
   $chatNotebookId,
   $notebookHandoff,
   consumeNotebookHandoff,
-  getActiveNotebookGrounding,
 } from '@willow/notebooks/notebook-chat-store';
-import { resolveNotebookEmbeddingModel } from '@willow/notebooks/source-retrieval';
 import { notebooksStore } from '@willow/notebooks/notebooks-store';
+import { $chatGemId, gemStartingTool } from '@willow/gems/gem-chat-store';
+import { gemIdForChat, gemsStore, hydrateGems, recordGemChat, resolveGem } from '@willow/gems/gems-store';
+import { GemZeroState } from '@willow/gems/GemZeroState';
+import { gemLogoSpec } from '@willow/gems/GemLogo';
 import { useNotebookDisk } from '@willow/notebooks/useNotebookDisk';
 import { HeroSection, PinnedChatGreeting, useGreetingReady } from '@willow/media/MediaHome';
 import { BottomPanel } from '@willow/media/MediaShowcase';
@@ -39,11 +62,17 @@ import { CodeExecutionPanel } from '@willow/ui/CodeExecutionPanel';
 import { GeminiDialog, GeminiDialogPill } from '@willow/ui/GeminiDialog';
 import { GeminiAttachmentCard } from '@willow/ui/GeminiAttachmentCard';
 import { RichResource, RichResourcePanel } from '@willow/ui/RichResourcePreview';
-import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
-import { useComposerModels } from './composer/use-composer-models';
+import { MobileModelPicker } from './MobileModelPicker';
 import { ResponseActions, ShowCodeToggle, SourcesSidebar, ThinkingStepsSidebar } from './ChatResponseChrome';
 import { GeminiThinkingVisualizer } from './GeminiThinkingVisualizer';
-import { ThoughtSummaryLine, latestThoughtHeading } from './ThoughtSummaryLine';
+import { ThoughtSummaryLine, connectingHeading, latestThoughtHeading } from './ThoughtSummaryLine';
+import { ChatMentions } from './composer/mentions/ChatMentions';
+import { useChatMentionOptions } from './composer/mentions/use-chat-mention-options';
+import { mentionsIn, type MentionOption } from './composer/mentions/mentions';
+import { chatApp } from './composer/mentions/chat-apps';
+import { skillLibrary } from '@willow/core/skill-library';
+import { takeChatSeed } from '@willow/core/shell-request';
+import { ChatCreatedCard } from './library/ChatCreatedCards';
 import { UserMessageBubble } from './UserMessageBubble';
 import { ResponseInfoLine } from './ResponseInfoLine';
 import { streamChat, isAbortError, ChatMessage as AiChatMessage, StreamPhase } from '@willow/ai/chat';
@@ -56,25 +85,21 @@ import {
   playLiveSessionCue,
   primeLiveSessionCues,
 } from '@willow/ai/live';
-import { runWebSearch, webSearchToolDeclaration } from '@willow/ai/web-search-tool';
-import {
-  apiKeysForBinding,
-  defaultApiFormatForProvider,
-  nativeToolFormatForProvider,
-  resolveProviderBinding,
-} from '@willow/ai/providers/profiles';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { chatSelectionEpoch } from '@willow/storage/local-fs/chat-selection-store';
+import { isCodeChat, isCodeChatBody, markCodeChat } from '@willow/storage/code-chat-storage';
+import { requestCodeChatOpen } from '@willow/storage/code-chat-open-store';
 import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-loading-store';
 import { showCopyToast } from '@willow/ui/copy-toast-store';
 import { ChatAttachment, toPersistedChatAttachment } from '@willow/core/attachments';
 import { deriveFallbackTitle, FALLBACK_CHAT_TITLE } from '@willow/core/fallback-title';
 import { useThemeMode } from '@willow/core/theme-mode';
-import { ChatMsg, hasSavedMessageContent, sanitizeSavedAttachment, sanitizeSavedCanvasRefs, sanitizeSavedCitations, sanitizeSavedCodeExecutions, serializeChatMessage } from './chat-message';
+import { ChatMsg, hasSavedMessageContent, restoreSavedChatMessage, sanitizeSavedAttachment, serializeChatMessage } from './chat-message';
 import {
   attachChatTurnListener,
+  chatTurnsVersion,
   countRunningChatTurns,
   detachChatTurnListener,
   getChatTurn,
@@ -87,14 +112,16 @@ import {
   type ChatTurnRecord,
 } from './chat-turn-store';
 import { runChatTurn } from './chat-turn-runner';
+import { buildChatTurnSetup, resolveChatTurnGrounding } from './chat-turn-setup';
+import { startChatTurnJob } from './chat-turn-takeover';
 import { friendlyChatErrorFor } from './chat-errors';
 import { buildAiHistory as buildChatAiHistory } from './chat-history';
-import { chatSystemPromptFor, getShortModelName, resolveChatModel } from './chat-model';
+import { getShortModelName, resolveChatModel } from './chat-model';
 import { voiceAgentSystemPrompt } from './voice-agent-prompt';
 import { useOffscreenMessageSkip } from './offscreen-message-skip';
 import { MARKDOWN_BLOCK_BLEED_PX } from '@willow/ui/streaming-markdown-styles';
-import { personalChatTools } from './personal-tools';
 import { waitForBrowserPaint } from './chat-timing';
+import { useCompactViewport } from './use-compact-viewport';
 import { findDeepBlockAnchor } from './scroll-anchor';
 import { $chatPanelOpen, $voiceModeActive } from './chat-panel-store';
 import { useStore } from '@nanostores/react';
@@ -123,6 +150,12 @@ import {
  * this is the window in which a burst of presses counts as one decision.
  */
 const LIVE_RESTART_DEBOUNCE_MS = 400;
+/**
+ * How long a seeded chat's thinking row shows before its fixed reply reveals. Gemini's is
+ * still thinking 1.2s after the click and done by 3.5s; the chat surface's own arrival
+ * takes the first few hundred milliseconds of it.
+ */
+const SEEDED_REPLY_THINKING_MS = 1600;
 
 /**
  * Ceiling on simultaneous background turns.
@@ -319,91 +352,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   workspaceColor,
 }) => {
   const { isLight } = useThemeMode();
-  const [isMobileModelsOpen, setIsMobileModelsOpen] = useState(false);
-  const [isMobileModelPressed, setIsMobileModelPressed] = useState(false);
-  const [mobileModelRipple, setMobileModelRipple] = useState<{
-    x: number;
-    y: number;
-    size: number;
-    key: number;
-  } | null>(null);
-
-  const handleMobileModelPressStart = (clientX?: number, clientY?: number, currentTarget?: HTMLElement | null) => {
-    setIsMobileModelPressed(true);
-    if (currentTarget && clientX !== undefined && clientY !== undefined) {
-      const rect = currentTarget.getBoundingClientRect();
-      const x = clientX - rect.left;
-      const y = clientY - rect.top;
-      const size = Math.max(rect.width, rect.height) * 2.4;
-      setMobileModelRipple({ x, y, size, key: Date.now() });
-    } else if (currentTarget) {
-      const rect = currentTarget.getBoundingClientRect();
-      const x = rect.width / 2;
-      const y = rect.height / 2;
-      const size = Math.max(rect.width, rect.height) * 2.4;
-      setMobileModelRipple({ x, y, size, key: Date.now() });
-    }
-  };
-
-  const mobileModelButtonRef = useRef<HTMLButtonElement>(null);
-  const { activeModel, getShortName, activeEffortDisplayLabel } = useComposerModels({
-    modelConfig,
-    selectedModelId,
-    setSelectedModelId,
-  });
-  const mobileModelInfo = useMemo(() => {
-    if (!activeModel) {
-      return { primary: 'Willow', secondary: '' };
-    }
-    const fullName = activeModel.name || '';
-    const effort = activeEffortDisplayLabel;
-
-    // Detect provider prefix (e.g. Gemini, Claude, GPT, Grok, Kimi, GLM, DeepSeek, Mistral, Llama, Qwen, etc.)
-    const providerRegex = /^(Gemini|Claude|GPT|OpenAI|Google|Anthropic|DeepSeek|Meta|Mistral|Grok|Kimi|GLM|Llama|Qwen)\b/i;
-    const match = fullName.match(providerRegex);
-    const provider = match ? match[0] : '';
-    const modelWithoutProvider = provider
-      ? fullName.slice(provider.length).trim()
-      : fullName;
-
-    // Case 1: Thinking active (e.g. "High", "Medium", "Low", "Max")
-    // Target format: [Model Without Provider] (White) + [Effort] (Off-white)
-    // e.g. "3.8 Flash" (White) + "High" (Off-white)
-    // e.g. "Opus 5.5" (White) + "High" (Off-white)
-    // e.g. "6 Sol" (White) + "Medium" (Off-white)
-    if (effort && effort.toLowerCase() !== 'none') {
-      return {
-        primary: modelWithoutProvider || fullName,
-        secondary: effort,
-      };
-    }
-
-    // Case 2: Non-thinking
-    // Target format: [Provider] (White) + [Model Without Provider] (Off-white)
-    // e.g. "Gemini" (White) + "3.8 Flash" (Off-white)
-    // e.g. "Claude" (White) + "Opus 5.5" (Off-white)
-    // e.g. "GPT" (White) + "6 Sol" (Off-white)
-    if (provider) {
-      return {
-        primary: provider,
-        secondary: modelWithoutProvider,
-      };
-    }
-
-    // Fallback for models without recognized provider prefix: split first word
-    const parts = fullName.split(' ');
-    if (parts.length > 1) {
-      return {
-        primary: parts[0],
-        secondary: parts.slice(1).join(' '),
-      };
-    }
-
-    return {
-      primary: fullName,
-      secondary: '',
-    };
-  }, [activeModel, activeEffortDisplayLabel]);
+  const isCompact = useCompactViewport();
   const { loading: isAuthResolving } = useAuth();
   const { apiKeys, loading: areKeysLoading } = useUserDataContext();
   const {
@@ -437,6 +386,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   useEffect(() => { saveLocalFSChatRef.current = saveLocalFSChat; }, [saveLocalFSChat]);
   const chatScopeIdRef = useRef(chatScopeId);
   useEffect(() => { chatScopeIdRef.current = chatScopeId; }, [chatScopeId]);
+  // Chat shows a new chat, and the shell opens the Code chat in Code.
+  const handOverCodeChat = useEventCallback((chatId: string) => {
+    selectLocalFSInboxChat(null);
+    requestCodeChatOpen(chatId);
+  });
 
   // Unique session ID for auto-saving chats locally
   const [chatSessionId, setChatSessionId] = useState(() => {
@@ -469,6 +423,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [isChatLoading, setIsChatLoading] = useState(false);
   const selectionEpoch = useStore(chatSelectionEpoch);
   const consumedSelectionEpochRef = useRef(selectionEpoch);
+
+  /*
+   * The Gem this chat is with, if any — set by the `/gem/<id>` route, or restored below
+   * when a chat is reopened. It changes the zero state, the composer's starting tool and
+   * the system prompt; everything else is an ordinary chat.
+   */
+  const activeGemId = useStore($chatGemId);
+  const gemList = useStore(gemsStore);
+  const activeGem = resolveGem(activeGemId, gemList);
+  useEffect(() => { hydrateGems(); }, []);
+
+  /*
+   * A chat the user opens brings its own Gem and notebook back. Keyed on the selection
+   * epoch, which only a real selection moves — renames and temp-id adoption change
+   * `activeChatId` too, and must not clear a context mid-conversation.
+   */
+  const contextSelectionEpochRef = useRef(selectionEpoch);
+  useEffect(() => {
+    if (selectionEpoch === contextSelectionEpochRef.current) return;
+    contextSelectionEpochRef.current = selectionEpoch;
+    if (!activeChatId) return;
+    $chatGemId.set(gemIdForChat(activeChatId));
+    const owner = notebooksStore.get().find((notebook) => notebook.chatIds.includes(activeChatId));
+    $chatNotebookId.set(owner?.id ?? null);
+  }, [selectionEpoch, activeChatId]);
   // The reason string currently held on the shared top-loading store, so it can
   // be released from a `finally`, from a superseded load, and on unmount. The
   // store is module-level and survives ChatView's `key={chatResetKey}` remount:
@@ -507,6 +486,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const hydrateSavedAttachments = useCallback(async (
     values: unknown,
+    chatId?: string | null,
   ): Promise<ChatAttachment[] | undefined> => {
     if (!Array.isArray(values) || values.length === 0) return undefined;
     const metadata = values
@@ -523,14 +503,52 @@ export const ChatView: React.FC<ChatViewProps> = ({
       // through to url-less metadata there is what turned a sent image into a
       // generic file chip the moment a response completed, and it was permanent:
       // nothing re-hydrates an already-rendered tile.
+      // Then the copy kept beside the chat in the folder, for when the browser's is gone.
       const cached = attachmentBlobsRef.current.get(attachment.id);
-      const blob = cached ?? (await loadLocalFSChatAttachment(attachment.id))?.blob;
-      if (!blob) return attachment;
+      const blob = cached ?? (await loadLocalFSChatAttachment(
+        attachment.id,
+        chatId ? { chatId, attachment } : undefined,
+      ))?.blob;
+      // A repository is its link, so it never reads as missing.
+      if (!blob) return attachment.kind === 'github' ? attachment : { ...attachment, unavailable: true };
       attachmentBlobsRef.current.set(attachment.id, blob);
       return { ...attachment, url: createAttachmentObjectUrl(blob) };
     }));
     return hydrated.length > 0 ? hydrated : undefined;
   }, [createAttachmentObjectUrl, loadLocalFSChatAttachment]);
+
+  const hydrateSavedMedia = useCallback(async (
+    values: unknown,
+    chatId?: string | null,
+  ): Promise<GeneratedMedia[] | undefined> => {
+    const media = sanitizeSavedMedia(values);
+    if (!media) return undefined;
+    const hydrateOne = async (attachment: ChatAttachment | undefined) =>
+      attachment ? (await hydrateSavedAttachments([attachment], chatId))?.[0] : undefined;
+    return Promise.all(media.map(async (item) => {
+      const [attachment, cover] = await Promise.all([hydrateOne(item.attachment), hydrateOne(item.cover)]);
+      return { ...item, ...(attachment ? { attachment } : {}), ...(cover ? { cover } : {}) };
+    }));
+  }, [hydrateSavedAttachments]);
+
+  /** Where a generated image, video or track lands: this view's blob cache, and the chat folder. */
+  const keepGeneratedMedia = useCallback<ChatMediaStore['keep']>(async ({ blob, mimeType, name, kind }) => {
+    const id = `att_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const subtype = (mimeType.split('/')[1] || '').split(/[+;]/)[0].toLowerCase();
+    const extension = ({ jpeg: 'jpg', mpeg: 'mp3', 'x-wav': 'wav', wave: 'wav', quicktime: 'mov' } as Record<string, string>)[subtype] ?? subtype;
+    const attachment: ChatAttachment = {
+      id,
+      name: extension ? `${name}.${extension}` : name,
+      mimeType,
+      size: blob.size,
+      kind,
+      extension,
+    };
+    attachmentBlobsRef.current.set(id, blob);
+    if (!isIncognito && isLocalFolderConnected) await saveLocalFSChatAttachment(attachment, blob);
+    return { ...attachment, url: createAttachmentObjectUrl(blob) };
+  }, [createAttachmentObjectUrl, saveLocalFSChatAttachment, isIncognito, isLocalFolderConnected]);
+  const mediaStore = useMemo<ChatMediaStore>(() => ({ keep: keepGeneratedMedia }), [keepGeneratedMedia]);
 
   useEffect(() => () => {
     revokeAllAttachmentObjectUrls();
@@ -549,6 +567,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
     window.addEventListener('willow_chat_body_updated', handleBodyUpdate);
     return () => window.removeEventListener('willow_chat_body_updated', handleBodyUpdate);
   }, [activeChatId]);
+
+  // A turn for this chat that this view did not start: another tab closed
+  // mid-reply and this tab picked it up. Reloading is what attaches to it
+  // (`commitLoadedChat`), in the same commit as the thread.
+  const turnsVersion = useStore(chatTurnsVersion);
+  useEffect(() => {
+    if (!activeChatId || attachedTurnIdRef.current || sendInFlightRef.current) return;
+    if (getChatTurnByChatId(activeChatId)?.status !== 'running') return;
+    forceExternalReloadRef.current = true;
+    setExternalReloadVersion((version) => version + 1);
+  }, [turnsVersion, activeChatId]);
 
   /**
    * Stop mirroring whatever turn this view was showing.
@@ -664,6 +693,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       errorDetail: record.errorDetail,
       wasStopped: record.status === 'settled' ? record.wasStopped : undefined,
       citations: record.status === 'settled' ? record.citations : undefined,
+      // Saved while the user was away, and saved for good: the card is due now, not at the next tick.
+      created: record.created?.length ? record.created : undefined,
     };
     /*
      * Reconcile the record against the saved thread. Neither message is
@@ -754,6 +785,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
       if (!forceReload && (activeChatId === chatTitle || activeChatId === chatSessionId)) {
         return;
       }
+      // Chat cannot show a Code chat, and its next save would strip the Code fields:
+      // however one became the open chat, it opens in Code instead.
+      if (isCodeChat(chatScopeIdRef.current, activeChatId)) {
+        handOverCodeChat(activeChatId);
+        return;
+      }
       // Reaching here with the ids still matching means `forceReload` — a disk
       // sync of the chat already on screen, not an open. Arming the first-scroll
       // jump for it is what produced the send-time teleport: the reload commits
@@ -769,6 +806,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       // and the chat would open at the top.
       const isSameChatReload = activeChatId === chatTitle || activeChatId === chatSessionId;
       if (!isSameChatReload) isFirstScrollRef.current = true;
+      const wasInitialLoad = initialLoadRef.current;
       initialLoadRef.current = true; // Block auto-save on load when switching chats
 
       // Bump on ENTRY only — never in an effect cleanup. This effect's deps
@@ -805,51 +843,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
           // reaching that call revokes the WINNER's object URLs and every image
           // in the freshly-loaded thread goes blank.
           if (!isCurrent()) return;
+          // A Code chat without its marker: one saved before a sign-in or sign-out,
+          // or never marked. Its messages say what it is.
+          if (isCodeChatBody(msgs)) {
+            initialLoadRef.current = wasInitialLoad;
+            markCodeChat(chatScopeIdRef.current, activeChatId);
+            handOverCodeChat(activeChatId);
+            return;
+          }
           if (msgs && msgs.length > 0) {
             revokeAllAttachmentObjectUrls({ keepBlobs: isSameChatReload });
-            // Strip runtime-only flags that should never be persisted.
             // If a save happened mid-generation, the assistant placeholder
             // will have isGenerating:true and empty content — drop those.
-            //
-            // Every flag `serializeChatMessage` writes must be read back here.
-            // This list previously omitted `wasStopped`, so a stopped turn lost
-            // its "You stopped this response" notice on any reload — including
-            // the disk-sync reload that fires after the next turn is saved,
-            // which is why the notice vanished mid-conversation rather than only
-            // on refresh. `chat-message.ts` owns which flags are runtime-only;
-            // the load path has to agree with it.
-            // `decodeCanvasHistory` first, and it has to be first: a canvas
-            // document's older revisions are stored as reverse patches against the
-            // newest one, and `sanitizeSavedCanvasRefs` drops any ref with no
-            // `content` — which every patch-only ref is until this has run.
             const withCanvasHistory = decodeCanvasHistory(msgs);
             const sanitized: ChatMsg[] = (await Promise.all(withCanvasHistory
-              .map(async (m: any) => ({
-                id: m.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
-                role: m.role,
-                content: m.content || '',
-                attachments: await hydrateSavedAttachments(m.attachments),
-                thinkingTime: m.thinkingTime,
-                thinkingText: typeof m.thinkingText === 'string' ? m.thinkingText : undefined,
-                modelSnapshot: m.modelSnapshot,
-                isError: m.isError,
-                // Clear all runtime flags
-                isGenerating: false,
-                isTranscribing: false,
-                isLive: false,
-                wasInterrupted: m.wasInterrupted,
-                wasStopped: m.wasStopped,
-                citations: sanitizeSavedCitations(m.citations),
-                codeExecutions: sanitizeSavedCodeExecutions(m.codeExecutions, (m.content || '').length),
-                canvasRefs: sanitizeSavedCanvasRefs(m.canvasRefs, (m.content || '').length),
-                // Not rendered here — carried so it survives the round trip. This
-                // is a Code chat's only proof on disk that it belongs to the
-                // workbench, and it is what the sidebar's legacy backfill scan
-                // reads. Dropping it meant that opening such a chat in this UI and
-                // sending one message rewrote the file without it, permanently
-                // demoting a Code chat to an ordinary one.
-                willowMode: m.willowMode === 'code' ? 'code' as const : undefined,
-              })))).filter((m: ChatMsg) => hasSavedMessageContent(m));
+              .map(async (m: any) => {
+                const restored = restoreSavedChatMessage(
+                  m,
+                  await hydrateSavedAttachments(m.attachments, activeChatId),
+                );
+                const media = await hydrateSavedMedia(m.media, activeChatId);
+                // A research run still going (or finished) in this session beats its saved snapshot.
+                const live = restored.id ? researchJob(restored.id) : undefined;
+                return {
+                  ...restored,
+                  ...(media ? { media } : {}),
+                  ...(live ? { research: live, ...(live.status === 'done' ? { content: RESEARCH_DONE_REPLY } : {}) } : {}),
+                };
+              }))).filter((m: ChatMsg) => hasSavedMessageContent(m));
 
             // Attachment hydration awaits one IndexedDB read per attachment, so
             // a faster chat can overtake us here. These three setters must
@@ -885,7 +906,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       void loadChat();
 
     }
-  }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId, externalReloadVersion, hydrateSavedAttachments, revokeAllAttachmentObjectUrls, selectionEpoch, releaseChatLoading]);
+  }, [activeChatId, isLocalFolderConnected, loadLocalFSChat, chatTitle, chatSessionId, externalReloadVersion, hydrateSavedAttachments, hydrateSavedMedia, revokeAllAttachmentObjectUrls, selectionEpoch, releaseChatLoading]);
 
   // Handle the case where the currently active chat is deselected/deleted.
   // We must ONLY clear when an EXISTING active chat goes away (a non-null ->
@@ -1087,6 +1108,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // prematurely flip the row to "Thought for Ns".
   const [thinkingPhase, setThinkingPhase] = useState<StreamPhase>('thinking');
   const [thinkSeconds, setThinkSeconds] = useState(0);
+  // The connected app whose tool the attached turn is running: "Connecting to <app>".
+  const [connectingApp, setConnectingApp] = useState<string | null>(null);
+  // The composer's "@" menu (models, apps) and "/" menu (enabled skills).
+  const mentionOptions = useChatMentionOptions({ modelConfig, scopeId: chatScopeId, personalize: !isIncognito });
+  const mentionOptionsRef = useRef(mentionOptions);
+  useEffect(() => { mentionOptionsRef.current = mentionOptions; }, [mentionOptions]);
+  const pickMention = useCallback((option: MentionOption) => {
+    if (option.kind === 'model') setSelectedModelId(option.value);
+  }, [setSelectedModelId]);
 
   const openErrorDialog = useCallback((detail: string) => {
     if (errorDialogCloseTimerRef.current !== null) {
@@ -1277,6 +1307,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * sum of every ref naming its id, so this is also the version history. */
   const canvasDocsInChat = useMemo(() => buildCanvasDocs(messages), [messages]);
   const openCanvasDoc = openCanvas ? canvasDocsInChat.get(openCanvas.docId) : undefined;
+  /* The Deep Research run in the side panel: the id of the message carrying it. */
+  const [openResearchId, setOpenResearchId] = useState<string | null>(null);
+  const openResearch = openResearchId ? messages.find((m) => m.id === openResearchId)?.research : undefined;
   const [isFirstTurnEntranceActive, setIsFirstTurnEntranceActive] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
@@ -1368,7 +1401,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * declared below those effects, which is the same reason the note up there gives for
    * not using `contextSidebarOpen`.
    */
-  const anyRightPanelOpen = panelIsOpen || !!openResource || !!openCanvasDoc;
+  const anyRightPanelOpen = panelIsOpen || !!openResource || !!openCanvasDoc || !!openResearch;
   useEffect(() => {
     $chatPanelOpen.set(anyRightPanelOpen);
     return () => { $chatPanelOpen.set(false); };
@@ -1394,7 +1427,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
    * and correctly animates nothing.
    */
   const prevImmersiveOpenRef = useRef(false);
-  const immersiveOpen = !!openResource || !!openCanvasDoc;
+  const immersiveOpen = !!openResource || !!openCanvasDoc || !!openResearch;
+  /*
+   * A canvas opens FULL WIDTH, not beside the chat: Gemini's `full-width-immersive`.
+   * Its grid holds the panel alone, and the chat column is laid over it with the
+   * thread hidden and the composer replaced by the "Ask Willow" fab. The resource
+   * panel keeps the split layout above.
+   */
+  const canvasFullWidth = !!openCanvasDoc;
+  /* The thread narrows to its split-view column only beside the resource panel; behind a
+     full-width canvas it is hidden at its own width, so collapsing re-lays out nothing. */
+  const splitThread = immersiveOpen && !canvasFullWidth;
+  /* Every question and its answer, for the full-screen fab's floating window. */
+  const canvasFloatingTurns = useMemo(
+    () => (canvasFullWidth ? floatingTurns(messages, streaming, isGenerating) : []),
+    [canvasFullWidth, messages, streaming, isGenerating],
+  );
   useEffect(() => {
     const wasOpen = prevImmersiveOpenRef.current;
     prevImmersiveOpenRef.current = immersiveOpen;
@@ -1724,6 +1772,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // stale-closure round-trip.
   const liveTurnRef = useRef<{ userId: string; assistantId: string; acc: string } | null>(null);
 
+  // The composer's picked tool, mirrored up for the creation galleries, and the template picked from one.
+  const [composerTool, setComposerTool] = useState<ToolId | null>(null);
+  const [mediaTemplate, setMediaTemplate] = useState<MediaTemplate | null>(null);
+  const [videoIntroSeen, setVideoIntroSeen] = useState(videoDiscoverySeen);
+  // The sidebar's creation page (`/images`, `/videos`) this new chat was opened on.
+  const [creationPage, setCreationPage] = useState<ChatCreationPage | null>(null);
+  useEffect(() => { setMediaTemplate(null); }, [composerTool]);
+  const clearMediaTemplate = useCallback(() => setMediaTemplate(null), []);
+  const dismissVideoIntro = useCallback(() => { markVideoDiscoverySeen(); setVideoIntroSeen(true); }, []);
+
   const hasStarted = messages.length > 0 || isGenerating || isLive;
   /*
    * Boot: empty thread, composer docked, until we know whether a chat restores.
@@ -1767,7 +1825,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // direction is a deliberate 0-duration snap, so flipping it would teleport the
   // composer to screen centre and slide it back on every chat open.
   const showBlankThread = isChatLoading || isBootHydrating;
-  const isThreadDocked = hasStarted || showBlankThread;
+  // Images from the sidebar is a page of its own (Gemini's /images): the hero over the centred
+  // composer and the templates under it, rather than the tool's gallery.
+  const imagesPage = !hasStarted && !showBlankThread && !activeGem && creationPage === 'images' && composerTool === 'images';
+  // A creation tool picked on the zero state opens its gallery, the composer docked under it.
+  const galleryTool = !hasStarted && !showBlankThread && !activeGem && !imagesPage && isGalleryTool(composerTool) ? composerTool : null;
+  // A Gem's zero state is its card in the thread, with the composer already docked.
+  const isThreadDocked = hasStarted || showBlankThread || !!activeGem || !!galleryTool;
   /*
    * The disclaimer does NOT ride the boot dock.
    *
@@ -1860,13 +1924,44 @@ export const ChatView: React.FC<ChatViewProps> = ({
     onChatStartedChange?.(hasStarted);
   }, [hasStarted, onChatStartedChange]);
 
+  /*
+   * A chat the shell opened already holding one exchange (`@willow/core/shell-request`):
+   * Spark's Skills page "Create with Gemini". It plays as Gemini's does — the prompt, the
+   * thinking row, then the reply revealing — but no model runs for it, and the user's
+   * answer is the chat's first real turn. The reply is held in a ref rather than the
+   * effect's closure so StrictMode's second run re-arms it instead of losing it.
+   */
+  const [seedRevealId, setSeedRevealId] = useState<string | null>(null);
+  const pendingSeedReplyRef = useRef<{ assistantId: string; reply: string } | null>(null);
+  useEffect(() => {
+    const seed = takeChatSeed();
+    if (seed) {
+      const assistantId = newId();
+      setMessages([
+        { id: newId(), role: 'user', content: seed.prompt },
+        { id: assistantId, role: 'assistant', content: '', isGenerating: true, isNew: true },
+      ]);
+      pendingSeedReplyRef.current = { assistantId, reply: seed.reply };
+    }
+    const pending = pendingSeedReplyRef.current;
+    if (!pending) return undefined;
+    const timer = window.setTimeout(() => {
+      pendingSeedReplyRef.current = null;
+      setMessages((prev) => prev.map((message) => (
+        message.id === pending.assistantId ? { ...message, content: pending.reply, isGenerating: false } : message
+      )));
+      setSeedRevealId(pending.assistantId);
+    }, SEEDED_REPLY_THINKING_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   // ── Scroll-to-top + dynamic response-area sizing (ported from Workbench) ───
   // When you send, your bubble animates to `TARGET_VISUAL_OFFSET` from the top
   // and the assistant block below it is given exactly enough min-height to fill
   // the remaining visible viewport, so you can't scroll into empty space before
   // the reply fills it. The gap below the 👍👎Copy row and the top of the input
   // box matches the Workbench's gap to its suggestions row (both = the 32px gradient).
-  const TARGET_VISUAL_OFFSET = 72; // Gemini's settled first-query top edge
+  const DESKTOP_TARGET_VISUAL_OFFSET = 72; // Gemini's settled first-query top edge
   // Measured off the live Gemini app: `infinite-scroller.chat-history` is a
   // flex column with `row-gap: 52px`, and the same 52px separates a query
   // bubble from its response inside a turn. So every turn boundary is 52 --
@@ -1874,7 +1969,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // inside `model-response` (36px, opacity 0 on non-last turns) rather than in
   // the gap, which is also how our assistant wrapper is built, so the visible
   // blank from response text to the next bubble comes out at 88px on both.
-  const MESSAGE_GAP = 52;          // Any user/assistant turn boundary
+  const DESKTOP_MESSAGE_GAP = 52;  // Any user/assistant turn boundary
+  // At <=960px Gemini's geometry changes, measured at 390 and 800:
+  // - A sent turn settles with its bubble at 112: the latest turn's min-height
+  //   is the scrollport minus 56, which leaves its top 36px under the header's
+  //   68 and the query's own 8px padding on top of that.
+  // - A query sits 44px above its response, because the copy/edit row is in
+  //   the flow there (4 + 36 + 4) rather than hanging off the bubble.
+  // - Turns are 110px apart (the scroller's row-gap) plus that 8px padding,
+  //   counted from the bottom of the 48px action row.
+  const COMPACT_TARGET_VISUAL_OFFSET = 112;
+  const COMPACT_QUERY_GAP = 44;
+  const COMPACT_TURN_GAP = 118;
+  const TARGET_VISUAL_OFFSET = isCompact ? COMPACT_TARGET_VISUAL_OFFSET : DESKTOP_TARGET_VISUAL_OFFSET;
+  const MESSAGE_GAP = isCompact ? COMPACT_QUERY_GAP : DESKTOP_MESSAGE_GAP;
+  const TURN_GAP = isCompact ? COMPACT_TURN_GAP : DESKTOP_MESSAGE_GAP;
+  // Read by the scroll callbacks and observers, whose closures outlive a render.
+  const threadGeometryRef = useRef({ targetOffset: TARGET_VISUAL_OFFSET, messageGap: MESSAGE_GAP });
+  threadGeometryRef.current = { targetOffset: TARGET_VISUAL_OFFSET, messageGap: MESSAGE_GAP };
   const THREAD_GAP = 32;           // The incognito banner only
   // The thread column's own `pb-[20px]`, mirrored here the way
   // TARGET_VISUAL_OFFSET mirrors its `pt-[72px]`. The reserve below fills the
@@ -1977,7 +2089,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // is NOW. Clamping to the live max matters for the same reason — the reserve
     // is still settling while the first tokens arrive.
     const liveTarget = () => Math.max(0, Math.min(
-      anchorEl.offsetTop - TARGET_VISUAL_OFFSET,
+      anchorEl.offsetTop - threadGeometryRef.current.targetOffset,
       container.scrollHeight - container.clientHeight,
     ));
     const total = offset + Math.max(0, liveTarget() - startScrollTop);
@@ -2225,12 +2337,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
         const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
         const msgEl = lastUser ? messageRefs.current[lastUser.id] : null;
         if (!msgEl) return prev;
+        const { targetOffset, messageGap } = threadGeometryRef.current;
         return Math.max(
           0,
           c.clientHeight
-            - TARGET_VISUAL_OFFSET
+            - targetOffset
             - msgEl.offsetHeight
-            - (editingUserId === lastUser?.id ? 0 : MESSAGE_GAP)
+            - (editingUserId === lastUser?.id ? 0 : messageGap)
             - THREAD_BOTTOM_PADDING
         );
       });
@@ -2257,7 +2370,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     const ro = observeHeight(() => flushSync(sync), panelDeferMs);
     ro.observe(c);
     return () => ro.disconnect();
-  }, [hasStarted, editingUserId]);
+  }, [hasStarted, editingUserId, isCompact]);
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   // The elapsed-seconds ticker itself lives on the turn record, driven by the
@@ -2301,8 +2414,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       // Reserve response-area height on the new placeholder BEFORE scrolling so
       // there's enough scrollHeight to reach the target.
       const preMinH =
-        c.clientHeight - TARGET_VISUAL_OFFSET - msgEl.offsetHeight - MESSAGE_GAP
-          - THREAD_BOTTOM_PADDING;
+        c.clientHeight - threadGeometryRef.current.targetOffset - msgEl.offsetHeight
+          - threadGeometryRef.current.messageGap - THREAD_BOTTOM_PADDING;
       flushSync(() => {
         setResponseAreaMinHeight(Math.max(0, preMinH));
         setNeedsScrollPadding(false);
@@ -2343,7 +2456,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
        // effect, and cleared above on the very run it was armed for.
        if (isChatOpen) {
          c.scrollTop = Math.max(0, Math.min(
-           msgEl.offsetTop - TARGET_VISUAL_OFFSET,
+           msgEl.offsetTop - threadGeometryRef.current.targetOffset,
            c.scrollHeight - c.clientHeight,
          ));
          return;
@@ -2393,12 +2506,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
         const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
         const msgEl = lastUser ? messageRefs.current[lastUser.id] : null;
         if (!msgEl) return prev;
+        const { targetOffset, messageGap } = threadGeometryRef.current;
         return Math.max(
           0,
           c.clientHeight
-            - TARGET_VISUAL_OFFSET
+            - targetOffset
             - msgEl.offsetHeight
-            - (editingUserId === lastUser?.id ? 0 : MESSAGE_GAP)
+            - (editingUserId === lastUser?.id ? 0 : messageGap)
             - THREAD_BOTTOM_PADDING
         );
       });
@@ -2424,7 +2538,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (lastUserEl) ro.observe(lastUserEl);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasStarted, lastUserMessageId, editingUserId]);
+  }, [hasStarted, lastUserMessageId, editingUserId, isCompact]);
 
   // ── Keep needsScrollPadding in sync with whether the reply CONTENT fits
   //    above the footer. Bidirectional: flips true when content outgrows the
@@ -2474,6 +2588,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     wasStopped = false,
     citations?: MessageCitations,
     errorDetail?: string,
+    media?: GeneratedMedia[],
+    research?: ResearchRecord,
     codeExecutions?: CodeExecution[],
     /*
      * Passed explicitly rather than left to the mid-stream mirror below.
@@ -2482,13 +2598,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
      * preserve it — `{ ...m, canvasRefs: undefined }` is what an omitted
      * parameter means. That is correct on the error path (the runner clears its
      * own refs there) and it is why the successful path has to hand them back.
+     * The same holds for `media` and `research` above.
      */
     canvasRefs?: CanvasRef[],
   ) => {
+    // `created` is not in this list, so the cards the mid-stream mirror below put on the
+    // message survive settling — on an error too: what a turn saved stays saved.
     setMessages((prev) =>
       prev.map((m) =>
         m.id === id
-          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped, citations, errorDetail, codeExecutions, canvasRefs }
+          ? { ...m, content, thinkingTime, isError, isGenerating: false, wasStopped, citations, errorDetail, media, research, codeExecutions, canvasRefs }
           : m
       )
     );
@@ -2531,6 +2650,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       // Keep the shimmer row live with the right label until real text streams.
       // 'responding' is handled by the onText branch above.
       if (record.phase !== 'responding') setThinkingPhase(record.phase);
+      setConnectingApp(record.connectingApp ?? null);
       if (record.isThinking) {
         thinkSecondsRef.current = record.thinkSeconds;
         setThinkSeconds(record.thinkSeconds);
@@ -2545,6 +2665,33 @@ export const ChatView: React.FC<ChatViewProps> = ({
         setMessages((prev) => (
           prev.some((m) => m.id === record.assistantId && m.codeExecutions !== executions)
             ? prev.map((m) => (m.id === record.assistantId ? { ...m, codeExecutions: executions } : m))
+            : prev
+        ));
+      }
+      // A generated image's placeholder shows the moment its tool call starts.
+      const media = record.media;
+      if (media) {
+        setMessages((prev) => (
+          prev.some((m) => m.id === record.assistantId && m.media !== media)
+            ? prev.map((m) => (m.id === record.assistantId ? { ...m, media } : m))
+            : prev
+        ));
+      }
+      // So does a research plan's card.
+      const research = record.research;
+      if (research) {
+        setMessages((prev) => (
+          prev.some((m) => m.id === record.assistantId && m.research !== research)
+            ? prev.map((m) => (m.id === record.assistantId ? { ...m, research } : m))
+            : prev
+        ));
+      }
+      // And a saved scheduled action's or skill's.
+      const created = record.created;
+      if (created) {
+        setMessages((prev) => (
+          prev.some((m) => m.id === record.assistantId && m.created !== created)
+            ? prev.map((m) => (m.id === record.assistantId ? { ...m, created } : m))
             : prev
         ));
       }
@@ -2588,6 +2735,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
           record.wasStopped,
           record.citations,
           record.errorDetail,
+          record.media,
+          record.research,
           record.codeExecutions,
           record.canvasRefs,
         );
@@ -2601,6 +2750,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         if (generationAbortRef.current === record.abort) generationAbortRef.current = null;
         sendInFlightRef.current = false;
         stopThinking();
+        setConnectingApp(null);
         // Keep the final streaming value alive through the completion commit.
         // The completed message now owns the same text, so clearing next frame
         // is visually lossless and cannot erase the last delta before paint.
@@ -2630,6 +2780,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       historyOverride?: ChatMsg[],
       attachmentSources: Array<ComposerAttachment | ChatAttachment> = [],
       tool?: ToolId | null,
+      toolOptions?: MediaToolOptions,
     ) => {
       const trimmed = text.trim();
       // Re-entrancy is per chat, not per component: a turn may still be running
@@ -2639,7 +2790,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       if (hasRunningTurnForChat(chatTitle || chatSessionId) || sendInFlightRef.current) return;
       if (countRunningChatTurns() >= MAX_CONCURRENT_CHAT_TURNS) return;
 
-      const { provider, model, thinkingLevel, apiKey, apiKeyFallbacks, modelLabel, baseUrl, apiFormat, toolPolicy, profileId, reasoningEffort } = resolveModel();
+      const resolvedModel = resolveModel();
+      const { provider, model, thinkingLevel, apiKey, modelLabel } = resolvedModel;
       sendInFlightRef.current = true;
       // A send lands at the bottom of the thread, so anything still hidden by a
       // mid-flight reveal must be materialised now — otherwise the reply streams
@@ -2698,6 +2850,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           label: modelLabel,
           thinkingLevel,
         },
+        // Marks the turn for the status row ("Generating research plan") until the plan lands.
+        ...(tool === 'research'
+          ? { research: { id: `planning_${assistantId}`, title: '', query: trimmed, steps: [], status: 'planning' as const, thoughts: [], sources: [] } }
+          : {}),
       };
 
       const prevMessages = historyOverride ?? messages;
@@ -2777,147 +2933,283 @@ export const ChatView: React.FC<ChatViewProps> = ({
       registerChatTurn(record);
       attachTurn(record.turnId);
 
-      let history: AiChatMessage[] = [];
+      const notebookId = $chatNotebookId.get();
+      const gemId = $chatGemId.get();
+      // Only a saved turn can carry on in another tab: it resumes from the chat
+      // file, and a temporary chat or an unconnected folder writes none.
+      const job = !isIncognito && isLocalFolderConnected
+        ? startChatTurnJob(record, { selectedModelId, notebookId, gemId, tool: tool ?? null })
+        : null;
       try {
-        history = await buildAiHistory([...prevMessages, userMsg]);
-      } catch {
-        history = [];
-      }
-
-      /*
-       * Notebook grounding, resolved before the turn is built because retrieval is
-       * asynchronous now — it ranks the notebook's passages against THIS question
-       * rather than sending every source in full, and may embed the query first.
-       *
-       * Failures degrade to an empty string rather than aborting the send: a
-       * notebook chat that cannot retrieve should answer ungrounded, not refuse.
-       * `selectChunks` already falls back from embeddings to lexical internally,
-       * so reaching this catch means something further out went wrong.
-       */
-      let notebookGrounding = '';
-      try {
-        notebookGrounding = await getActiveNotebookGrounding(notebooksStore.get(), {
-          query: text,
-          model: resolveNotebookEmbeddingModel(modelConfig, apiKeys),
+        let history: AiChatMessage[] = [];
+        try {
+          history = await buildAiHistory([...prevMessages, userMsg]);
+        } catch {
+          history = [];
+        }
+        const { notebookGrounding, gemPrompt } = await resolveChatTurnGrounding({
+          text,
+          notebookId,
+          gemId,
+          modelConfig,
+          apiKeys,
         });
-      } catch {
-        notebookGrounding = '';
-      }
-
-      // A temporary chat carries nothing personal in and saves nothing out, so
-      // the same flag governs both halves of personalization: the prompt blocks
-      // and the tools. Computed once here so they cannot disagree — the
-      // retrieval guidance tells the model it MUST call a tool, and shipping
-      // that text without the declaration produces a model that keeps trying.
-      const personalTools = personalChatTools({ personalize: !isIncognito });
-
-      /*
-       * Canvas is declared when the user attached the chip — OR when this
-       * conversation already holds a document.
-       *
-       * The second half is not a convenience. "Make it shorter" is the most
-       * common canvas follow-up and nobody re-attaches the chip to send it, so
-       * gating purely on the chip would answer it in the chat and leave the panel
-       * showing the old text. It also makes Retry and Edit-and-resend behave: the
-       * tool selection is per-message and is not stored on a saved message, so a
-       * regenerated canvas turn has no chip to read and would otherwise silently
-       * lose the feature.
-       *
-       * Both halves are safe against unwanted cards because the tools are only
-       * offered, never forced, and the instruction block spends most of its length
-       * on when NOT to call them.
-       */
-      const canvasDocs = buildCanvasDocs(prevMessages);
-      const canvasEnabled = tool === 'canvas' || canvasDocs.size > 0;
-      const canvasTools = canvasChatTools(canvasEnabled);
-      const canvasInventory = [...canvasDocs.values()]
-        .sort((a, b) => a.lastTouchedIndex - b.lastTouchedIndex);
-
-      /*
-       * Willow's own web search, declared as a client tool when this endpoint is
-       * not being sent a server-side one.
-       *
-       * Exactly one search mechanism per turn. `web_search` is also the name of
-       * Anthropic's and OpenAI's built-ins, so declaring ours alongside theirs
-       * would put two tools of the same name in one request — hence the condition
-       * is the exact negation of "a native search tool is going out".
-       * `nativeToolFormatForProvider` is the same predicate `chat.ts` gates its
-       * OpenAI path on, and it is null for Moonshot, which has no verified shape.
-       *
-       * This is what finally makes Tool translation = "Function calling" mean
-       * something: it is the setting for a relay that proxies the wire format but
-       * not the provider's built-ins, and it now buys Willow's own search instead
-       * of silently buying no search at all. Gated on a Gemini key because that is
-       * what answers the call — a declared tool with no executor is worse than no
-       * tool, since the model announces a search it cannot run.
-       */
-      const searchBinding = resolveProviderBinding(modelConfig, 'gemini');
-      const searchBackendKey = apiKeysForBinding(searchBinding, 'gemini', apiKeys)[0];
-      const endpointRunsOwnSearch = toolPolicy !== 'function-calling'
-        && !!nativeToolFormatForProvider(provider, apiFormat ?? defaultApiFormatForProvider(provider));
-      const clientSearchEnabled = toolPolicy !== 'disabled'
-        && !endpointRunsOwnSearch
-        && !!searchBackendKey;
-
-      await runChatTurn(record, {
-        options: {
-          provider,
-          model,
-          apiKey,
-          apiKeyFallbacks,
-          thinkingLevel,
-          baseUrl,
-          apiFormat,
-          toolPolicy,
-          profileId,
-          reasoningEffort,
-        },
-        // Saved Info is the "in" half: the entries survive the session, so
-        // sending them would make a temporary chat quietly personalized.
-        systemPrompt: [
-          chatSystemPromptFor(provider, {
-            personalize: !isIncognito,
-            personalTool: personalTools.length > 0,
-            /* Drops the bento-cards section for this turn — see the flag's note.
-               Two instructions for "how do I present a set of things" is one too
-               many, and the canvas rules are the specific ones. */
-            canvas: canvasEnabled,
+        // Images sent with an image or video request are what it starts from. A message with
+        // no tool may still ask for one ("animate this"), so its images go along too.
+        const mediaInputImages: InlineImage[] = [];
+        if (tool === 'images' || tool === 'video' || !tool) {
+          for (const attachment of preparedAttachments) {
+            const blob = attachment.kind === 'image' ? attachmentBlobsRef.current.get(attachment.id) : undefined;
+            if (blob) mediaInputImages.push(await blobToInlineImage(blob));
+          }
+        }
+        // "Make it cuter" sends no image; the call says it means the newest one in the thread.
+        // An image from the thread sent again (the image card's Edit) is already the one to change.
+        const mediaPreviousImage = async (): Promise<InlineImage | null> => {
+          if (preparedAttachments.some((attachment) => isThreadImage(prevMessages, attachment.id))) return null;
+          const image = newestThreadImage(prevMessages);
+          if (!image) return null;
+          let blob = attachmentBlobsRef.current.get(image.id);
+          if (!blob) {
+            blob = (await loadLocalFSChatAttachment(image.id))?.blob;
+            if (blob) attachmentBlobsRef.current.set(image.id, blob);
+          }
+          return blob ? blobToInlineImage(blob) : null;
+        };
+        // "/skill" brings that skill's instructions to this turn; "@App" points it at that app.
+        const mentioned = mentionsIn(trimmed, mentionOptionsRef.current).map(({ option }) => option);
+        const mentionedSkillIds = new Set(mentioned.filter((option) => option.kind === 'skill').map((option) => option.value));
+        const mentionedSkills = skillLibrary.get().filter((skill) => skill.enabled && mentionedSkillIds.has(skill.id));
+        const mentionedApps = mentioned.filter((option) => option.kind === 'app').map((option) => option.label);
+        await runChatTurn(record, {
+          ...buildChatTurnSetup({
+            model: resolvedModel,
+            apiKey,
+            prevMessages,
+            tool,
+            isIncognito,
+            chatKey,
+            modelConfig,
+            apiKeys,
+            notebookGrounding,
+            gemPrompt,
+            mediaOptions: toolOptions,
+            mediaStore,
+            mediaScopeId: chatScopeIdRef.current ?? '',
+            mediaInputImages,
+            mediaPreviousImage,
+            researchQuery: trimmed,
+            libraryScopeId: chatScopeIdRef.current || 'guest',
+            mentionedSkills,
+            mentionedApps,
           }),
-          (modelConfig.resources || []).length > 0
-            ? `Configured user resources:\n${(modelConfig.resources || []).map((resource: any) => `- ${resource.name}: ${resource.uri || resource.content || ''}`).join('\n')}`
-            : '',
-          /*
-           * Notebook sources, when this chat belongs to a notebook. Resolved above,
-           * because retrieval is async.
-           *
-           * Here and not in the user's message: folding the preamble into the
-           * message text rendered it inside the visible user bubble, and only
-           * grounded the first turn. This array is rebuilt every turn, so a source
-           * added mid-conversation reaches the next one and nothing is displayed.
-           */
-          notebookGrounding,
-          canvasEnabled ? CANVAS_INSTRUCTIONS : '',
-          canvasEnabled ? canvasContextBlock(canvasInventory) : '',
-        ].filter(Boolean).join('\n\n'),
-        personalTools,
-        canvasTools,
-        canvasHost: canvasEnabled ? { chatKey, priorDocs: canvasDocs } : undefined,
-        webSearchTools: clientSearchEnabled ? webSearchToolDeclaration() : undefined,
-        runWebSearch: clientSearchEnabled
-          ? (query: string) => runWebSearch({
-            query,
-            apiKey: searchBackendKey,
-            baseUrl: searchBinding.baseUrl,
-          })
-          : undefined,
-        history,
-        attachmentPersistence,
-        currentScopeId: () => chatScopeIdRef.current,
-        saveChat: saveLocalFSChatRef.current,
-      });
+          history,
+          attachmentPersistence,
+          currentScopeId: () => chatScopeIdRef.current,
+          saveChat: saveLocalFSChatRef.current,
+        });
+      } finally {
+        job?.finish();
+      }
     },
-    [messages, resolveModel, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, chatSessionId, chatTitle, chatScopeId, modelConfig, buildAiHistory, createAttachmentObjectUrl, buildTurnListener, openErrorDialog]
+    [messages, resolveModel, selectedModelId, apiKeys, isIncognito, isLocalFolderConnected, saveLocalFSChat, saveLocalFSChatAttachment, loadLocalFSChatAttachment, chatSessionId, chatTitle, chatScopeId, modelConfig, buildAiHistory, createAttachmentObjectUrl, buildTurnListener, openErrorDialog, mediaStore]
   );
+
+  /*
+   * ── Deep Research ─────────────────────────────────────────────────────────
+   *
+   * Start research is not a model turn. It posts "Start research" and the reply, opens the
+   * panel, and hands the plan to the background runner (research-runner.ts); the runner's
+   * updates land on the reply for as long as this view shows the chat.
+   */
+  const composerHandleRef = useRef<ComposerHandle | null>(null);
+
+  /*
+   * The sidebar's Images and Videos, and an address opened at /images or /videos, ask for a
+   * creation page. Once the chat on show is a new one, this picks the page's tool and keeps the
+   * page; `none` (New chat from a page) clears both. The composer can mount a beat after the
+   * request, so the pick waits for its handle.
+   */
+  const creationPageRequest = useStore($chatCreationPageRequest);
+  useEffect(() => {
+    if (!creationPageRequest || hasStarted || showBlankThread) return undefined;
+    let cancelled = false;
+    let attempts = 0;
+    const pick = () => {
+      if (cancelled) return;
+      const handle = composerHandleRef.current;
+      if (!handle) {
+        attempts += 1;
+        if (attempts < 40) window.setTimeout(pick, 50);
+        return;
+      }
+      if (creationPageRequest === 'none') {
+        handle.selectTool(null);
+        setCreationPage(null);
+      } else {
+        handle.selectTool(creationPageTool(creationPageRequest));
+        setCreationPage(creationPageRequest);
+      }
+      $chatCreationPageRequest.set(null);
+    };
+    pick();
+    return () => { cancelled = true; };
+  }, [creationPageRequest, hasStarted, showBlankThread]);
+
+  // A page lasts while its tool stays picked on the new chat: removing the chip, picking
+  // another tool or sending leaves it, and Gemini's address goes back to /app.
+  // Which page's tool has reached the composer: going from one page to the other, the old
+  // tool is still picked for a render, and that must not read as the chip coming off.
+  const creationToolSeenRef = useRef<ChatCreationPage | null>(null);
+  useEffect(() => {
+    if (!creationPage) {
+      creationToolSeenRef.current = null;
+      return;
+    }
+    if (hasStarted) {
+      setCreationPage(null);
+      return;
+    }
+    if (composerTool === creationPageTool(creationPage)) creationToolSeenRef.current = creationPage;
+    else if (creationToolSeenRef.current === creationPage) setCreationPage(null);
+  }, [creationPage, composerTool, hasStarted]);
+  useEffect(() => { $chatCreationPage.set(creationPage); }, [creationPage]);
+  useEffect(() => () => { $chatCreationPage.set(null); }, []);
+
+  /*
+   * The /images page leaves room for the composer between its hero and its templates, so it
+   * needs the composer's height; and once the page scrolls (the whole set open), the composer
+   * scrolls with it, as Gemini's does, instead of staying pinned over the cards. On a phone
+   * Gemini docks the composer at the bottom, so neither applies there.
+   */
+  const isPhone = usePhone();
+  const composerBoxRef = useRef<HTMLDivElement | null>(null);
+  // The "@" and "/" menus listen on the composer box, so they need it as state.
+  const [composerBox, setComposerBox] = useState<HTMLDivElement | null>(null);
+  const attachComposerBox = useCallback((box: HTMLDivElement | null) => {
+    composerBoxRef.current = box;
+    setComposerBox(box);
+  }, []);
+  const composerLayerRef = useRef<HTMLDivElement | null>(null);
+  const [composerBoxHeight, setComposerBoxHeight] = useState(150);
+  useEffect(() => {
+    const box = composerBoxRef.current;
+    if (!imagesPage || !box) return undefined;
+    const measure = () => setComposerBoxHeight(box.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [imagesPage]);
+  useEffect(() => {
+    const scroller = chatScrollRef.current;
+    const layer = composerLayerRef.current;
+    if (!imagesPage || isPhone || !scroller || !layer) return undefined;
+    const follow = () => {
+      layer.style.top = `${-scroller.scrollTop}px`;
+      layer.style.bottom = `${scroller.scrollTop}px`;
+    };
+    follow();
+    scroller.addEventListener('scroll', follow, { passive: true });
+    return () => {
+      scroller.removeEventListener('scroll', follow);
+      layer.style.top = '';
+      layer.style.bottom = '';
+    };
+  }, [imagesPage, isPhone]);
+  // The page centres in the scroller's content box, which leaves out the gutter it keeps for
+  // its scrollbar (`.gm-images-scroller`); this layer spans that gutter, so it gives the same
+  // width back on its right, and the composer stays on the page's centre line as Gemini's does.
+  useLayoutEffect(() => {
+    const scroller = chatScrollRef.current;
+    const layer = composerLayerRef.current;
+    if (!imagesPage || !scroller || !layer) return undefined;
+    const align = () => {
+      layer.style.paddingRight = '';
+      const inset = parseFloat(getComputedStyle(layer).paddingRight) || 0;
+      layer.style.paddingRight = `${inset + scroller.offsetWidth - scroller.clientWidth}px`;
+    };
+    align();
+    const observer = new ResizeObserver(align);
+    observer.observe(scroller);
+    return () => {
+      observer.disconnect();
+      layer.style.paddingRight = '';
+    };
+  }, [imagesPage]);
+  // "Choose photo": the template's prompt and the photo, sent with Images picked.
+  const chooseImagesTemplatePhoto = useCallback((template: ImagesPageTemplate, file: File) => {
+    composerHandleRef.current?.sendWith(template.prompt, [file]);
+  }, []);
+
+  const startResearchFor = useCallback((planMessageId: string) => {
+    const plan = messages.find((m) => m.id === planMessageId)?.research;
+    if (!plan || plan.status !== 'plan' || plan.started) return;
+    const binding = resolveProviderBinding(modelConfig, 'gemini');
+    const geminiKey = apiKeysForBinding(binding, 'gemini', apiKeys)[0];
+    if (!geminiKey) {
+      showCopyToast('Add a Gemini API key in Settings to run Deep Research');
+      return;
+    }
+    const resolved = resolveModel();
+    const replyId = newId();
+    const run: ResearchRecord = {
+      ...plan,
+      id: newId(),
+      status: 'running',
+      phase: 'starting',
+      started: undefined,
+      thoughts: [],
+      sources: [],
+      report: undefined,
+      startedAt: Date.now(),
+    };
+    setMessages((prev) => [
+      ...prev.map((m) => (m.id === planMessageId && m.research ? { ...m, research: { ...m.research, started: true } } : m)),
+      { id: newId(), role: 'user', content: 'Start research', isNew: true },
+      { id: replyId, role: 'assistant', content: RESEARCH_STARTED_REPLY, isNew: true, research: run },
+    ]);
+    setOpenResource(null);
+    $openCanvas.set(null);
+    setOpenResearchId(replyId);
+    startResearch(replyId, run, {
+      apiKey: geminiKey,
+      model: resolved.provider === 'gemini' ? resolved.model : 'gemini-3.5-flash-lite',
+      baseUrl: binding.baseUrl,
+    });
+  }, [messages, modelConfig, apiKeys, resolveModel]);
+
+  const editResearchPlan = useCallback(() => {
+    composerHandleRef.current?.setPrompt('Change the research plan: ');
+  }, []);
+
+  const createFromResearch = useCallback((record: ResearchRecord, kind: ResearchCreateKind) => {
+    const what = { web: 'a web page', infographic: 'an infographic', quiz: 'a quiz', flashcards: 'flashcards' }[kind];
+    setOpenResearchId(null);
+    void handleSend(`Create ${what} from my research report "${record.title}".`, undefined, [], 'canvas');
+  }, [handleSend]);
+
+  const runningResearchIds = useMemo(
+    () => messages.filter((m) => m.research?.status === 'running').map((m) => m.id).join(' '),
+    [messages],
+  );
+  const researchRunning = runningResearchIds.length > 0;
+  useEffect(() => {
+    if (!runningResearchIds) return undefined;
+    const offs = runningResearchIds.split(' ').map((id) => subscribeResearch(id, (record) => {
+      setMessages((prev) => prev.map((m) => (m.id === id
+        ? { ...m, research: record, ...(record.status === 'done' ? { content: RESEARCH_DONE_REPLY } : {}) }
+        : m)));
+    }));
+    return () => offs.forEach((off) => off());
+  }, [runningResearchIds]);
+  const stopResearch = useCallback(() => {
+    runningResearchIds.split(' ').filter(Boolean).forEach(cancelResearch);
+  }, [runningResearchIds]);
+
+  // The panel belongs to the chat it was opened in, and gives way to the other panels.
+  useEffect(() => { setOpenResearchId(null); }, [activeChatId]);
+  useEffect(() => { if (openResource || openCanvasDoc) setOpenResearchId(null); }, [openResource, openCanvasDoc]);
 
   /*
    * ── Notebook hand-off ─────────────────────────────────────────────────────
@@ -2934,7 +3226,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
    *    read-then-clear duplicates the turn in dev only — exactly the class of bug
    *    that survives to production unnoticed.
    *  - Only the user's prompt is sent. The notebook's sources go into the per-turn
-   *    system prompt (see `getActiveNotebookGrounding` above), which keeps them out
+   *    system prompt (see `resolveChatTurnGrounding`), which keeps them out
    *    of the visible bubble and keeps every later turn grounded too.
    */
   const pendingNotebookHandoff = useStore($notebookHandoff);
@@ -2977,6 +3269,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (!notebookId || !id) return;
     void fileChat(id, notebookId);
   }, [chatTitle, chatSessionId, fileChat]);
+
+  /*
+   * Remember the Gem under every id the chat is saved as — the temporary one, then the
+   * generated title — so reopening it from Recents brings the Gem back. Only once there
+   * is a message: an untouched Gem chat is never saved, so it has nothing to remember.
+   */
+  useEffect(() => {
+    const gemId = $chatGemId.get();
+    if (!gemId || !hasStarted) return;
+    if (chatSessionId) recordGemChat(chatSessionId, gemId);
+    if (chatTitle) recordGemChat(chatTitle, gemId);
+  }, [chatTitle, chatSessionId, hasStarted]);
 
   // ── Live mode ──────────────────────────────────────────────────────────────
   // A live "turn" maps onto the exact same message shape as a typed turn:
@@ -3148,6 +3452,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
      * The fallback covers the window inside `handleSend` before the record is
      * registered, where there is no attached turn to find yet.
      */
+    // With no turn running, the button belongs to a Deep Research run (it shows for one).
+    if (!isGeneratingRef.current && runningResearchIds) {
+      stopResearch();
+      return;
+    }
     const attachedTurnId = attachedTurnIdRef.current;
     const attached = attachedTurnId ? getChatTurn(attachedTurnId) : undefined;
     if (attached) attached.abort.abort();
@@ -3156,7 +3465,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       handleStopLive();
     }
     setIsGenerating(false);
-  }, [handleStopLive]);
+  }, [handleStopLive, runningResearchIds, stopResearch]);
 
   /**
    * Opens a live session against the current voice/language selection.
@@ -3427,6 +3736,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // Tear down the socket + mic if the component unmounts mid-session.
   useEffect(() => () => { liveSessionRef.current?.stop(); }, []);
 
+  const [sentImagePreview, setSentImagePreview] = useState<{ id: string; url: string; name: string } | null>(null);
+  // Its image belongs to the chat it was opened from, whose object URLs go when another loads.
+  // `chatSessionId`, not `activeChatId`: a new chat's id moves when it is named, mid-preview.
+  useEffect(() => { setSentImagePreview(null); }, [chatSessionId]);
   const handleOpenAttachment = useCallback(async (attachment: ChatAttachment) => {
     if (attachment.kind === 'github' && attachment.sourceUrl) {
       const sourceLink = document.createElement('a');
@@ -3441,7 +3754,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (!url) {
       let blob = attachmentBlobsRef.current.get(attachment.id);
       if (!blob) {
-        const stored = await loadLocalFSChatAttachment(attachment.id);
+        const stored = await loadLocalFSChatAttachment(
+          attachment.id,
+          activeChatId ? { chatId: activeChatId, attachment } : undefined,
+        );
         blob = stored?.blob;
       }
       if (!blob) return;
@@ -3451,13 +3767,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setMessages((current) => current.map((message) => ({
         ...message,
         attachments: message.attachments?.map((item) => (
-          item.id === attachment.id ? { ...item, url: hydratedUrl } : item
+          item.id === attachment.id ? { ...item, url: hydratedUrl, unavailable: undefined } : item
         )),
       })));
     }
 
-    const opensInline = attachment.kind === 'image'
-      || attachment.kind === 'pdf'
+    // A sent image opens in Gemini's lightbox, over the chat; the rest open as they did.
+    if (attachment.kind === 'image') {
+      setSentImagePreview({ id: attachment.id, url, name: attachment.name });
+      return;
+    }
+
+    const opensInline = attachment.kind === 'pdf'
       || attachment.kind === 'audio'
       || attachment.kind === 'video'
       || attachment.kind === 'text'
@@ -3468,7 +3789,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (opensInline) link.target = '_blank';
     else link.download = attachment.name;
     link.click();
-  }, [createAttachmentObjectUrl, loadLocalFSChatAttachment]);
+  }, [activeChatId, createAttachmentObjectUrl, loadLocalFSChatAttachment]);
 
   /*
    * Gemini's feedback for a copy is the bottom-left snackbar and nothing else.
@@ -3555,9 +3876,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const nextReserve = Math.max(
         0,
         container.clientHeight
-          - TARGET_VISUAL_OFFSET
+          - threadGeometryRef.current.targetOffset
           - messageElement.offsetHeight
-          - MESSAGE_GAP
+          - threadGeometryRef.current.messageGap
           - THREAD_BOTTOM_PADDING
       );
 
@@ -3670,9 +3991,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
        * have fixed it, because the problem was that text reflow was being animated.
        */
       className={`relative grid h-full min-h-0 w-full overflow-hidden grid-cols-[minmax(0,1fr)] ${
-        immersiveOpen
-          ? 'min-[960px]:grid-cols-[minmax(0,1.03fr)_minmax(0,1.97fr)] min-[960px]:gap-x-6'
-          : 'min-[960px]:grid-cols-[minmax(0,1fr)_0fr] min-[960px]:gap-x-0'
+        canvasFullWidth
+          /* One track: the panel and the chat column share it (see `canvasFullWidth`). */
+          ? 'min-[960px]:grid-cols-[minmax(0,1fr)] min-[960px]:gap-x-0'
+          : immersiveOpen
+            ? 'min-[960px]:grid-cols-[minmax(0,1.03fr)_minmax(0,1.97fr)] min-[960px]:gap-x-6'
+            : 'min-[960px]:grid-cols-[minmax(0,1fr)_0fr] min-[960px]:gap-x-0'
       }`}
     >
       {/*
@@ -3687,134 +4011,48 @@ export const ChatView: React.FC<ChatViewProps> = ({
           contextSidebarOpen ? 'min-[1024px]:w-[calc(100%_-_428px)]' : ''
         } flex-col transition-[margin-right,width] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${
           contextSidebarOpen ? 'min-[1024px]:mr-[428px]' : 'mr-0'
+        } ${
+          /* Gemini's `.full-width-immersive .chat-container`: laid over the panel in the
+             same grid cell, inert, at the width it already had — so nothing re-wraps. */
+          canvasFullWidth ? 'min-[960px]:z-[2] min-[960px]:pointer-events-none min-[960px]:[grid-area:1/1]' : ''
         }`}
       >
-        {/* Mobile/tablet top-bar model switcher (Exact Gemini specs: 16px-18px Google Sans Flex, vertically centered at y:32px) */}
-        <div className="min-[961px]:hidden absolute top-[14px] left-[56px] z-30 flex items-center" style={{ zIndex: 40 }}>
-          <button
-            ref={mobileModelButtonRef}
-            type="button"
-            onClick={() => setIsMobileModelsOpen((prev) => !prev)}
-            onPointerDown={(e) => handleMobileModelPressStart(e.clientX, e.clientY, e.currentTarget)}
-            onPointerUp={() => setIsMobileModelPressed(false)}
-            onPointerLeave={() => setIsMobileModelPressed(false)}
-            onPointerCancel={() => setIsMobileModelPressed(false)}
-            onTouchStart={(e) => {
-              const t = e.touches[0];
-              if (t) handleMobileModelPressStart(t.clientX, t.clientY, e.currentTarget);
-            }}
-            onTouchEnd={() => setIsMobileModelPressed(false)}
-            className={`studio-mobile-model-button relative flex items-center gap-2.5 h-[44px] -mt-[4px] pl-4 pr-[18px] rounded-full text-[16px] min-[640px]:text-[17px] min-[769px]:text-[18px] leading-6 select-none pointer-events-auto overflow-hidden bg-transparent ${
-              (isMobileModelPressed || isMobileModelsOpen)
-                ? 'is-active is-open'
-                : ''
-            }`}
-            style={{
-              position: 'relative',
-              zIndex: 40,
-              touchAction: 'manipulation',
-              fontFamily: '"Google Sans Flex", "Google Sans", "Google Sans Text", sans-serif',
-            }}
-            aria-label={`Select model, currently ${mobileModelInfo.primary} ${mobileModelInfo.secondary}`.trim()}
-            aria-expanded={isMobileModelsOpen}
-          >
-            {/* Material 3 Expanding Ink Ripple */}
-            {mobileModelRipple && (isMobileModelPressed || isMobileModelsOpen) && (
-              <span
-                key={mobileModelRipple.key}
-                className={`studio-m3-ripple pointer-events-none ${isLight ? 'bg-[#d3e3fd]' : 'bg-[#151d29]'}`}
-                style={{
-                  left: mobileModelRipple.x,
-                  top: mobileModelRipple.y,
-                  width: mobileModelRipple.size,
-                  height: mobileModelRipple.size,
-                }}
-              />
-            )}
-            {/* Material 3 Full Pill State Layer */}
-            <span
-              className={`studio-mobile-model-pill pointer-events-none ${
-                isLight ? 'bg-[#d3e3fd]' : 'bg-[#151d29]'
-              } ${
-                (isMobileModelPressed || isMobileModelsOpen)
-                  ? 'is-active is-open opacity-100 scale-100'
-                  : 'opacity-0 scale-[0.92]'
-              }`}
-            />
-            {/* Text and Chevron content sitting on relative z-10 */}
-            <span
-              className="relative z-10 flex items-center gap-1"
-              style={{
-                fontFamily: '"Google Sans Flex", "Google Sans", "Google Sans Text", sans-serif',
-              }}
-            >
-              <span
-                className="font-medium"
-                style={{
-                  color: isLight ? '#1f1f1f' : '#e3e3e3',
-                  fontFamily: '"Google Sans Flex", "Google Sans", "Google Sans Text", sans-serif',
-                  fontVariationSettings: '"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470',
-                  letterSpacing: '-0.3px',
-                }}
-              >
-                {mobileModelInfo.primary}
-              </span>
-              {mobileModelInfo.secondary && (
-                <span
-                  className="font-normal"
-                  style={{
-                    color: isLight ? '#70757a' : '#8c8c8c',
-                    fontFamily: '"Google Sans Flex", "Google Sans", "Google Sans Text", sans-serif',
-                    fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
-                    letterSpacing: 'normal',
-                  }}
-                >
-                  {mobileModelInfo.secondary}
-                </span>
-              )}
-            </span>
-            <MaterialSymbol
-              name="expand_more"
-              family="luminous"
-              size={20}
-              weight={320}
-              roundness={100}
-              opticalSize={20}
-              className={`relative z-10 text-[#062e6f] transition-transform duration-250 ease-[cubic-bezier(0.2,0,0,1)] ${isMobileModelsOpen ? 'rotate-180' : ''}`}
-              style={{
-                color: (isMobileModelPressed || isMobileModelsOpen)
-                  ? (isLight ? '#041e49' : '#062e6f')
-                  : (isLight ? '#1a73e8' : '#1d68a8'),
-              }}
-            />
-          </button>
-          {isMobileModelsOpen && (
-            <ModelsMenu
-              triggerRef={mobileModelButtonRef}
-              onClose={() => setIsMobileModelsOpen(false)}
-              modelConfig={modelConfig}
-              selectedId={selectedModelId}
-              onSelect={(id) => {
-                setSelectedModelId(id);
-                setIsMobileModelsOpen(false);
-              }}
-              onAuthRequired={onAuthRequired}
-              geminiStyle
-              align="left"
-            />
-          )}
-        </div>
+        {/* Mobile/tablet top-bar model picker; a notebook page mounts the same one. */}
+        <MobileModelPicker
+          modelConfig={modelConfig}
+          selectedModelId={selectedModelId}
+          setSelectedModelId={setSelectedModelId}
+          onAuthRequired={onAuthRequired}
+        />
       {/* Scrollable message thread
           scrollbar-gutter:stable keeps the mx-auto column from nudging left
           the moment streamed content grows tall enough to spawn a scrollbar. */}
       <div
         ref={chatScrollRef}
         className={`gemini-chat-scrollbar min-h-0 flex-1 ${
-          !hasStarted && !showBlankThread
+          !hasStarted && !showBlankThread && !galleryTool && !imagesPage
             ? 'overflow-y-hidden min-[961px]:overflow-y-auto'
             : 'overflow-y-auto'
+        } ${imagesPage ? 'gm-images-scroller' : ''} ${
+          /* Hidden, not unmounted or `display:none`: either would lose the scroll
+             position the thread comes back to when the canvas collapses. */
+          canvasFullWidth ? 'min-[960px]:invisible' : ''
         }`}
-        style={{ scrollbarGutter: hasStarted || showBlankThread ? 'stable' : 'auto' }}
+        style={{
+          // A Gem's zero state sits in Gemini's scrolling thread, gutter and all.
+          scrollbarGutter: hasStarted || showBlankThread || activeGem ? 'stable' : 'auto',
+          // Gemini's gallery scrolls with no bar, so it centres on the composer.
+          ...(galleryTool ? { scrollbarWidth: 'none' as const } : {}),
+          // Gemini's <=960px `.chat-history-scroll-container` mask: the thread fades
+          // in over 40px under the 68px header instead of sliding beneath it. This
+          // scroller starts at the top of the screen, so the fade starts at 68.
+          ...(isCompact && isThreadDocked
+            ? {
+                maskImage: 'linear-gradient(to bottom, transparent 68px, #000 108px)',
+                WebkitMaskImage: 'linear-gradient(to bottom, transparent 68px, #000 108px)',
+              }
+            : {}),
+        }}
         {...voiceFocusSurfaceAttributes}
       >
         {/* Zero state lives in the same scroller as the thread, so the two
@@ -3826,7 +4064,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
             `h-full` gives the hero exactly one chat-area's worth of height, so
             recent chats begin right below the fold as before. It resolves
             because this scroller has a definite height (`flex-1` + `min-h-0`). */}
-        {!hasStarted && !showBlankThread && (
+        {!hasStarted && !showBlankThread && activeGem && (
+          <GemZeroState
+            logo={gemLogoSpec(activeGem, isLight)}
+            name={activeGem.gem.name}
+            description={activeGem.gem.description}
+            experiment={activeGem.kind === 'premade' && !!activeGem.gem.experiment}
+            starters={activeGem.kind === 'premade' ? activeGem.gem.starters : undefined}
+            onStarter={(prompt) => { void handleSend(prompt); }}
+          />
+        )}
+        {galleryTool && (
+          <>
+            <MediaGallery tool={galleryTool} onPick={setMediaTemplate} />
+            {galleryTool === 'video' && !videoIntroSeen && <VideoDiscoveryCard onDismiss={dismissVideoIntro} />}
+          </>
+        )}
+        {imagesPage && (
+          <ImagesPage composerSpace={isPhone ? 32 : 52 + composerBoxHeight + 32} onChoosePhoto={chooseImagesTemplatePhoto} />
+        )}
+        {!hasStarted && !showBlankThread && !activeGem && (galleryTool || imagesPage ? null : (
           <>
             <div className="h-full w-full">
               <HeroSection
@@ -3842,20 +4099,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 isIncognito={isIncognito}
               />
             </div>
-            {isAuthenticated && (
-              // On mobile viewports (<= 960px), recents live in the sidebar drawer
-              // matching Gemini mobile; suppressing BottomPanel here guarantees
-              // the zero state height matches the viewport with no stray overflow.
-              <div className="hidden min-[961px]:block pb-20 empty:pb-0">
-                <BottomPanel onOpenDriveSettings={onOpenDriveSettings} />
-              </div>
-            )}
+            {/* On mobile viewports (<= 960px), recents live in the sidebar drawer
+                matching Gemini mobile; suppressing BottomPanel here guarantees
+                the zero state height matches the viewport with no stray overflow. */}
+            <div className="hidden min-[961px]:block pb-20 empty:pb-0">
+              <BottomPanel onOpenDriveSettings={onOpenDriveSettings} />
+            </div>
           </>
-        )}
+        ))}
         {hasStarted && !showBlankThread && (
         <motion.div
-          initial={shouldAnimateFirstPromptEntrance ? { y: 200 } : false}
-          animate={{ y: 0 }}
+          // At <=960px Gemini's first turn also fades in, on the curve it rises on.
+          initial={shouldAnimateFirstPromptEntrance ? { y: 200, ...(isCompact ? { opacity: 0 } : {}) } : false}
+          animate={{ y: 0, opacity: 1 }}
           transition={shouldAnimateFirstPromptEntrance
             ? { duration: 0.5, ease: [0.2, 0, 0, 1] }
             : undefined}
@@ -3908,8 +4164,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
            * work either (margin fights `mx-auto`, transform makes this a containing
            * block for any fixed-position descendant).
            */
-          className={`mx-auto flex w-full max-w-[760px] flex-col border-l-transparent px-3.5 sm:px-7 pt-[56px] sm:pt-[72px] pb-[20px] ${
-            immersiveOpen
+          /*
+           * At <=960px Gemini insets the thread by max(24px, (width - 708px) / 2):
+           * 24 on a phone, a centred 708 column on a tablet. A 756 cap with 24px of
+           * padding is that formula. The first bubble lands at 92: header 68, its
+           * scroller's 16px padding and the query's own 8.
+           */
+          className={`mx-auto flex w-full max-w-[760px] max-[960px]:max-w-[756px] flex-col border-l-transparent px-6 min-[961px]:px-7 pt-[92px] min-[961px]:pt-[72px] pb-[20px] ${
+            splitThread
               ? 'min-[960px]:border-l-[24px]'
               : 'transition-[padding-left] duration-300 ease-[cubic-bezier(0.2,0,0,1)]'
           } ${contextSidebarOpen ? 'min-[1024px]:pl-9' : ''}`}
@@ -3929,11 +4191,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // (a split/live turn, or a reload where the contentless message
             // between two turns was dropped by hasSavedMessageContent), so they
             // have to match. THREAD_GAP now covers the incognito banner only.
+            // On desktop TURN_GAP is that same 52; at <=960px it is Gemini's wider
+            // gap between turns (see the geometry constants).
             const gapBefore = messageIndex === 0
               ? (isIncognito ? THREAD_GAP : 0)
               : previousMessage?.role === 'user' && msg.role === 'assistant'
                 ? (editingUserId === previousMessage.id ? 0 : MESSAGE_GAP)
-                : MESSAGE_GAP;
+                : TURN_GAP;
 
             if (msg.role === 'user') {
               const isLastUser = msg.id === lastUserMessageId;
@@ -3959,6 +4223,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               key={attachment.id}
                               attachment={attachment}
                               variant="message"
+                              previewing={sentImagePreview?.id === attachment.id}
                               onOpen={() => { void handleOpenAttachment(attachment); }}
                             />
                           ))}
@@ -3968,7 +4233,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         <div
                           aria-hidden="true"
                           className={`pointer-events-none absolute inset-0 rounded-[40px] border-[0.8px] ${
-                            isLight ? 'border-[#0b57d0]' : 'border-[#1f3b9b]'
+                            isLight ? 'border-[color:var(--sync-0b57d0,#0b57d0)]' : 'border-[color:var(--sync-1f3b9b,#1f3b9b)]'
                           }`}
                         />
                         <textarea
@@ -3980,7 +4245,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           maxLength={1000000}
                           enterKeyHint="send"
                           className={`relative z-10 block min-h-6 max-h-72 w-full resize-none overflow-y-auto bg-transparent p-0 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] text-[17px] font-normal leading-6 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
-                            isLight ? 'text-[#1f1f1f] caret-[#0b57d0]' : 'text-[#e6e6e6] caret-[#e6e6e6]'
+                            isLight ? 'text-[#1f1f1f] caret-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-[#e6e6e6] caret-[#e6e6e6]'
                           }`}
                           style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
                           aria-label="Edit prompt"
@@ -4003,8 +4268,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           disabled={!editDraft.trim() || editDraft === msg.content || isGenerating}
                           className={`relative ml-1 flex h-12 items-center justify-center overflow-hidden rounded-full px-4 text-[14px] font-medium ${
                             isLight
-                              ? 'bg-[#0b57d0] text-white hover:bg-[#0842a0] before:bg-white focus-visible:ring-black/25 disabled:bg-[rgba(31,31,31,0.12)] disabled:text-[rgba(31,31,31,0.38)]'
-                              : 'bg-[#1f3b9b] text-[#e6e6e6] before:bg-[#e6e6e6] focus-visible:ring-white/25 disabled:bg-[rgba(230,230,230,0.12)] disabled:text-[rgba(230,230,230,0.38)]'
+                              ? 'bg-[color:var(--sync-0b57d0,#0b57d0)] text-white hover:bg-[color:var(--sync-0842a0,#0842a0)] before:bg-white focus-visible:ring-black/25 disabled:bg-[rgba(31,31,31,0.12)] disabled:text-[rgba(31,31,31,0.38)]'
+                              : 'bg-[color:var(--sync-1f3b9b,#1f3b9b)] text-[#e6e6e6] before:bg-[#e6e6e6] focus-visible:ring-white/25 disabled:bg-[rgba(230,230,230,0.12)] disabled:text-[rgba(230,230,230,0.38)]'
                           } before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:opacity-0 before:transition-opacity hover:before:opacity-[0.08] focus-visible:outline-none focus-visible:ring-2 disabled:cursor-default disabled:before:opacity-0`}
                         >
                           <span className="relative z-10">Update</span>
@@ -4012,7 +4277,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </div>
                     </form>
                   ) : (
-                    <div className="flex min-w-0 w-full sm:w-auto sm:max-w-[516px] flex-col items-end">
+                    /*
+                     * <=960px: Gemini's `.query-content` keeps the bubble 52px off the
+                     * column's left edge and 8px off its right, so the bubble (508px at
+                     * most) grows with the screen until that cap.
+                     */
+                    <div className="flex min-w-0 w-full max-[960px]:pl-[52px] max-[960px]:pr-2 min-[961px]:w-auto min-[961px]:max-w-[516px] flex-col items-end">
                       {!!msg.attachments?.length && (
                         <div className={`flex w-full max-w-[516px] flex-nowrap justify-end gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${msg.content || msg.isTranscribing ? 'mb-2' : ''}`}>
                           {msg.attachments.map((attachment) => (
@@ -4020,6 +4290,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               key={attachment.id}
                               attachment={attachment}
                               variant="message"
+                              previewing={sentImagePreview?.id === attachment.id}
                               onOpen={() => { void handleOpenAttachment(attachment); }}
                             />
                           ))}
@@ -4061,7 +4332,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             * rules there, and keyboard reveal must not depend on
                             * the CDN JIT emitting a `:has()` selector.
                             */}
-                          <div className="gemini-user-actions pointer-events-none absolute right-3 top-full z-10 mt-1 flex h-9 items-start opacity-0 transition-opacity duration-[250ms] group-hover:pointer-events-auto group-hover:opacity-100">
+                          <div className="gemini-user-actions pointer-events-none absolute right-3 max-[960px]:right-5 top-full z-10 mt-1 flex h-9 items-start opacity-0 transition-opacity duration-[250ms] group-hover:pointer-events-auto group-hover:opacity-100">
                             <button
                               type="button"
                               onClick={() => handleCopyPrompt(msg)}
@@ -4124,6 +4395,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // the old fallback to `streaming` here made such a turn mirror the
             // NEXT turn's text as soon as that began streaming.
             const bodyText = generating ? streaming : msg.content;
+            // A seeded chat's reply reveals as a streamed one does (see `seedRevealId`).
+            const playsSeed = seedRevealId === msg.id && !!msg.isNew;
             const responseRevealPending = revealingResponseId === msg.id;
             const actionsReady =
               !generating &&
@@ -4131,11 +4404,48 @@ export const ChatView: React.FC<ChatViewProps> = ({
               (!msg.isNew || !bodyText || responseRevealComplete[msg.id] === true);
             // Live turns: no "Thinking" shimmer, no "Thought for Xs" — the
             // voice starts near-instantly so the row is noise.
+            // A finished image or track stands in for the row while the model
+            // closes the turn, as Gemini's does — not bare dots above it.
+            const mediaSettled = !!msg.media?.length && msg.media.every((item) => item.status !== 'generating');
             const showThinkingRow =
               !msg.isError &&
               !msg.isLive &&
               generating &&
+              !mediaSettled &&
               bodyText.trim().length === 0;
+            /*
+             * A generated image sits where its call happened, as a Canvas card does: what the
+             * model wrote before the call is above it, what it wrote after is under it.
+             * `index` is the reply's length when the call ran, snapped forward to a line
+             * break. An image with nothing written after it, and every video and track, stay
+             * after the text — Gemini's "Your video is ready!" and a track's introduction
+             * sit above their players.
+             */
+            const inlineMedia: { at: number; items: GeneratedMedia[] }[] = [];
+            for (const item of msg.media ?? []) {
+              if (item.kind !== 'image' || !bodyText) continue;
+              const at = canvasSplitOffset(bodyText, item.index);
+              if (!bodyText.slice(at).trim()) continue;
+              const group = inlineMedia.find((candidate) => candidate.at === at);
+              if (group) group.items.push(item);
+              else inlineMedia.push({ at, items: [item] });
+            }
+            const trailingMedia = (msg.media ?? []).filter((item) => !inlineMedia.some((group) => group.items.includes(item)));
+            const mediaCard = (item: GeneratedMedia) => (
+              <GeneratedMediaCard
+                key={item.id}
+                item={item}
+                onEditImage={(image, instruction) => {
+                  void handleSend(
+                    instruction,
+                    undefined,
+                    image.attachment ? [image.attachment] : [],
+                    'images',
+                    image.aspectRatio ? { aspectRatio: image.aspectRatio } : undefined,
+                  );
+                }}
+              />
+            );
             const isLastAssistant = msg.id === lastAssistantId;
             const isLatestCompletedTurn = !generating && msg.id === latestConversationMessageId;
 
@@ -4239,7 +4549,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     else if (lastAssistantContentRef.current === el) lastAssistantContentRef.current = null;
                     measureMessageRef(msg.id)(el);
                   }}
-                  className={`w-full space-y-3 ${immersiveOpen ? 'ml-auto max-w-[476px]' : ''}`}
+                  className={`w-full space-y-3 ${splitThread ? 'ml-auto max-w-[476px]' : ''}`}
                 >
                 {/* Code-execution toggle. Gemini puts this in the response
                     header, right-aligned above the body, and it appears only
@@ -4269,11 +4579,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
                      app-written label — claiming "Running code" for a document
                      write is simply false, and Gemini's own label for a custom
                      tool was never captured. */
-                  const statusHeading = active
+                  const mediaStatus = generatingStatusFor(msg.media)
+                    ?? (msg.research?.status === 'planning' ? 'Generating research plan' : null);
+                  // A connected app's tool running: Gemini's "Connecting to <logo> <app>".
+                  const app = active && isLastAssistant ? chatApp(connectingApp) : null;
+                  const statusHeading = mediaStatus ?? (app ? connectingHeading(app.label) : null) ?? (active
                     ? thinkingPhase === 'searching' ? 'Searching the web'
                       : thinkingPhase === 'executing' ? 'Running code'
                       : null
-                    : null;
+                    : null);
                   /* `tooling` reads the heading too, so the row holds the last
                      thought heading while the tool runs rather than falling back
                      to bare dots for the seconds a document takes to write. */
@@ -4302,7 +4616,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ duration: 0.16, ease: [0.2, 0, 0, 1] }}
-                      className="flex items-center"
+                      // The video status runs to two lines; Gemini keeps the dots on the first.
+                      className={`flex ${mediaStatus ? 'items-start' : 'items-center'}`}
                       style={{
                         color: '#81888f',
                         // Gemini's row: 12px (--gem-sys-spacing--m) after the
@@ -4313,6 +4628,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         // Held for the whole Gemini row, not just once a heading
                         // exists, so the dots do not shift when one arrives.
                         minHeight: summaryHeading || suppressLabel ? 24 : undefined,
+                        // On a desktop Gemini's row drops 4px once it carries a
+                        // heading (192 against the bare dots' 188, under the same
+                        // bubble). At 960 and below this row already lands where
+                        // Gemini's heading row does.
+                        marginTop: summaryHeading && !isCompact ? 4 : undefined,
                       }}
                     >
                       <GeminiThinkingVisualizer />
@@ -4324,6 +4644,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           // lets the latest thought resume immediately when
                           // the tool finishes.
                           key={statusHeading ? `status:${statusHeading}` : 'thought-summary'}
+                          app={app ?? undefined}
                           heading={summaryHeading}
                         />
                       ) : suppressLabel ? null : active ? (
@@ -4454,11 +4775,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         onEditContent={
                           canvasEdit ? (content: string) => canvasEdit(ref.docId, content) : undefined
                         }
+                        onPrompt={(text: string) => { void handleSend(text, undefined, [], 'canvas'); }}
                         /* The overhang is only safe in a full-width thread. With a
                          * panel open the column is 476px, so a 949px card would switch
                          * on horizontal scrolling across the shell — the exact failure
                          * that broke the grid twice. */
-                        bleed={!immersiveOpen}
+                        bleed={!splitThread}
                       />
                     );
                   };
@@ -4489,11 +4811,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
                    * `onRevealComplete` lives on that instance, and it is what clears
                    * `revealingResponseId` and lets `actionsReady` ever become true.
                    */
+                  /* An image with text after it is a cut too (`inlineMedia`); one at the end of
+                     the reply is drawn after it, below. */
+                  type Cut =
+                    | { at: number; entry: { ref: CanvasRef; refIndex: number }; media?: undefined }
+                    | { at: number; media: GeneratedMedia[]; entry?: undefined };
                   const cuts = bodyText
-                    ? visible
-                      .map((entry) => ({ entry, at: canvasSplitOffset(bodyText, entry.ref.index) }))
-                      .filter(({ at }) => actionsReady || bodyText.slice(at).trim().length > 0)
-                      .sort((a, b) => a.at - b.at)
+                    ? [
+                      ...visible
+                        .map((entry): Cut => ({ entry, at: canvasSplitOffset(bodyText, entry.ref.index) }))
+                        .filter(({ at }) => actionsReady || bodyText.slice(at).trim().length > 0),
+                      ...inlineMedia.map((group): Cut => ({ media: group.items, at: group.at })),
+                    ].sort((a, b) => a.at - b.at)
                     : [];
 
                   if (!cuts.length) {
@@ -4503,8 +4832,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           <StreamingMarkdown
                             text={bodyText}
                             isStreaming={generating}
-                            animate={generating || (!!msg.isError && !!msg.isNew)}
-                            reveal={generating || (!!msg.isError && !!msg.isNew)}
+                            animate={generating || playsSeed || (!!msg.isError && !!msg.isNew)}
+                            reveal={generating || playsSeed || (!!msg.isError && !!msg.isNew)}
                             revealAsSingleChunk={!!msg.isError && !!msg.isNew}
                             onRevealComplete={() => {
                               setResponseRevealComplete((current) => (
@@ -4534,6 +4863,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                      present, and the reveal/entrance code above reads that tree. */
                   const blocks: React.ReactNode[] = [];
                   let cursor = 0;
+                  let afterMedia = false;
                   /*
                    * `live` marks the one slice that is still being written — the tail.
                    * It carries every streaming prop the unsplit branch above uses,
@@ -4545,7 +4875,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     const text = bodyText.slice(start, end);
                     if (!text.trim()) return;
                     const streaming = live && generating;
-                    blocks.push(
+                    // Text under an image keeps the 16px an image keeps under text.
+                    const underImage = afterMedia;
+                    afterMedia = false;
+                    const push = (body: React.ReactElement) => blocks.push(
+                      underImage ? <div key={`body-${start}`} style={{ marginTop: 16 }}>{body}</div> : body,
+                    );
+                    push(
                       <StreamingMarkdown
                         key={`body-${start}`}
                         text={text}
@@ -4568,11 +4904,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       />,
                     );
                   };
-                  cuts.forEach(({ entry, at }) => {
-                    const end = Math.max(cursor, Math.min(at, bodyText.length));
+                  cuts.forEach((cut) => {
+                    const end = Math.max(cursor, Math.min(cut.at, bodyText.length));
                     slice(cursor, end, false);
                     cursor = end;
-                    blocks.push(renderCard(entry));
+                    if (cut.media !== undefined) {
+                      // 16px under the text or the status row above it, as after the body.
+                      blocks.push(
+                        <div
+                          key={`media-${cut.media[0]!.id}`}
+                          className="flex flex-col gap-2"
+                          style={{ marginTop: blocks.length || showThinkingRow ? 16 : 0 }}
+                        >
+                          {cut.media.map(mediaCard)}
+                        </div>,
+                      );
+                      afterMedia = true;
+                    } else {
+                      blocks.push(renderCard(cut.entry));
+                      afterMedia = false;
+                    }
                   });
                   slice(cursor, bodyText.length, true);
                   /* A card whose cut was held back — the snap has not found a line
@@ -4584,6 +4935,63 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     .forEach((entry) => blocks.push(renderCard(entry)));
                   return <div className="space-y-3">{blocks}</div>;
                 })()}
+
+                {/* Generated media, after the text the way Gemini lays it out
+                    ("Your video is ready!" above the player). Measured: 16px under
+                    the status row or the text, not the turn's 12; and the action
+                    row's glyphs 12px under an image or a video, 6px closer than
+                    after prose. */}
+                {trailingMedia.length > 0 && (
+                  <div
+                    className="flex flex-col gap-2"
+                    style={{ marginBottom: -6, ...(showThinkingRow || bodyText.trim() ? { marginTop: 16 } : {}) }}
+                  >
+                    {trailingMedia.map(mediaCard)}
+                  </div>
+                )}
+
+                {/* Deep Research: the plan card 16px under its sentence, or the run's
+                    card 12px under "I'm on it" — Gemini's measured margins. */}
+                {msg.research && msg.research.status !== 'planning' && (
+                  <div style={{ marginTop: msg.research.status === 'plan' ? 16 : 12 }}>
+                    {msg.research.status === 'plan' ? (
+                      <ResearchPlanCard
+                        record={msg.research}
+                        busy={isGenerating || researchRunning}
+                        onStart={() => startResearchFor(msg.id)}
+                        onEdit={editResearchPlan}
+                      />
+                    ) : (
+                      <ResearchCard
+                        record={msg.research}
+                        selected={openResearchId === msg.id}
+                        onOpen={() => {
+                          setOpenResource(null);
+                          $openCanvas.set(null);
+                          setOpenResearchId((id) => (id === msg.id ? null : msg.id));
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {/* A saved scheduled action or skill, under the sentence about it. Measured on
+                    Gemini: a scheduled action's card 16px under the text and 20px over the
+                    action row's glyphs, a skill's 24px and 28px. Inline, as the research
+                    card's is, to beat the turn's own `space-y-3`. */}
+                {!!msg.created?.length && (
+                  <div
+                    className="chat-created-items"
+                    style={{
+                      marginTop: msg.created[0]!.kind === 'skill' ? 24 : 16,
+                      paddingBottom: msg.created[msg.created.length - 1]!.kind === 'skill' ? 16 : 8,
+                    }}
+                  >
+                    {msg.created.map((item) => (
+                      <ChatCreatedCard key={item.id} item={item} scopeId={chatScopeId || 'guest'} />
+                    ))}
+                  </div>
+                )}
 
                 {/* Stopped turn: Gemini inserts the notice between the body and
                     the action row. Measured on both stopped turns in the live
@@ -4607,8 +5015,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   }}
                   transition={{ duration: 0.15, ease: [0.2, 0, 0, 1] }}
                   // Gemini leaves 4px between the notice and the button row,
-                  // replacing the wrapper's 12px rhythm for this one case.
-                  style={msg.wasStopped ? { marginTop: 4 } : undefined}
+                  // replacing the wrapper's 12px rhythm for this one case. At
+                  // <=960px it leaves the same 4px under every response.
+                  style={msg.wasStopped || isCompact ? { marginTop: 4 } : undefined}
                   /*
                    * Keep a mouse click off the focus ring.
                    *
@@ -4648,11 +5057,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     }))}
                     onRedo={() => handleRegenerate(msg.id)}
                     onCopy={() => handleCopy(msg)}
+                    media={(() => {
+                      const shared = msg.media?.find((item) => item.status === 'done' && item.attachment?.url);
+                      const file = shared?.attachment;
+                      return shared && file?.url
+                        ? { kind: shared.kind, onShare: () => { void shareMedia(file.url!, file.name, file.mimeType); } }
+                        : undefined;
+                    })()}
                     onListen={() => handleListen(msg)}
                     onShowThinking={() => handleOpenThinking(msg.id)}
                     onShowSources={() => handleOpenSources(msg.id)}
+                    compact={isCompact}
                   />
                 </motion.div>
+                {/* <=768px Gemini moves "…can make mistakes" from under the composer
+                    to 12px under the latest finished response (the wrapper's
+                    space-y-3), and drops it from that turn when the next starts. */}
+                {isLatestCompletedTurn && actionsReady && (
+                  <p
+                    className={`hidden max-[768px]:block text-[13px] font-normal leading-[17px] ${isLight ? 'text-[#444746]' : 'text-[#c4c7c5]'} font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+                    style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                  >
+                    Willow is AI and can make mistakes.
+                  </p>
+                )}
                 </div>
               </div>
             );
@@ -4675,11 +5103,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
         className={`${isThreadDocked ? 'relative' : ''} z-30 flex shrink-0 flex-col items-center`}
       >
         {/* Gemini's native 28px fading gradient overlay that covers the bottom edge of the scroller */}
-        {isThreadDocked && (
+        {isThreadDocked && !canvasFullWidth && (
           <div
             className="pointer-events-none absolute bottom-full left-0 right-0 h-[28px] w-full"
             style={{
-              background: isLight
+              // At <=960px the page behind the thread is black, not desktop's
+              // #0f0f0f, and a #0f0f0f fade showed there as a grey band. The
+              // surface variable is whichever of the two is painted.
+              background: isCompact
+                ? 'linear-gradient(to bottom, transparent 0px, color-mix(in srgb, var(--studio-surface) 50%, transparent) 50%, color-mix(in srgb, var(--studio-surface) 85%, transparent) 75%, color-mix(in srgb, var(--studio-surface) 99%, transparent) 95%, var(--studio-surface) 100%)'
+                : isLight
                 ? 'linear-gradient(to bottom, transparent 0px, rgba(250,249,249, 0.5) 50%, rgba(250,249,249, 0.85) 75%, rgba(250,249,249, 0.99) 95%, rgba(250,249,249, 1) 100%)'
                 : 'linear-gradient(to bottom, transparent 0px, rgba(15,15,15, 0.5) 50%, rgba(15,15,15, 0.85) 75%, rgba(15,15,15, 0.99) 95%, rgba(15,15,15, 1) 100%)',
             }}
@@ -4723,6 +5156,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
             />
           </>
         )}
+        {/* Full screen's "Ask Willow" fab. Desktop only: below 960px Gemini's panel covers
+            the app and offers no prompt, the back arrow returns to the chat. */}
+        {canvasFullWidth && !isCompact && (
+          <CanvasPromptFab
+            onSend={(text) => { void handleSend(text, undefined, [], 'canvas'); }}
+            isGenerating={isGenerating}
+            turns={canvasFloatingTurns}
+          />
+        )}
         {/* The lift. This wrapper owns POSITION ONLY and never a transform:
             Framer's projection writes `transform` on the node below, so putting
             our own translate there would have the two fight and the animation
@@ -4736,11 +5178,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
             of depending on a frozen half-height. `pointer-events-none` lets the
             recent-chats list underneath stay clickable through the gap. */}
         <div
+          ref={composerLayerRef}
           className={isThreadDocked
-            ? `w-full flex justify-center px-4 pb-[12px] min-[769px]:pb-[16px] min-[961px]:pb-[49px] pointer-events-auto ${isLight ? 'bg-[#faf9f9]' : 'bg-[var(--studio-surface,#0f0f0f)]'}`
-            : 'absolute inset-0 flex max-[960px]:items-end items-center justify-center px-4 pb-[12px] min-[769px]:pb-[16px] min-[961px]:pb-0 pointer-events-none'}
+            ? `w-full flex justify-center px-4 max-[960px]:pt-3 pb-[12px] min-[769px]:pb-[49px] pointer-events-auto ${isLight ? 'bg-[#faf9f9]' : 'bg-[var(--studio-surface,#0f0f0f)]'} transition-[opacity,visibility] duration-500 ease-[cubic-bezier(0.2,0,0,1)] ${
+              /* Full screen fades the composer out over 500ms on the fab's own curve
+                 (Gemini's `.input-area-container.hide-input`), and back in on collapse. */
+              canvasFullWidth ? 'min-[960px]:pointer-events-none min-[960px]:invisible min-[960px]:opacity-0 min-[960px]:!bg-transparent' : ''
+            }`
+            /* /images: the composer's top is Gemini's — 379 under its 215px hero, 447 on a
+               tablet under the 68px bar — and a phone docks it, as the zero state does. */
+            : imagesPage
+              ? 'absolute inset-0 flex items-start justify-center px-4 pt-[379px] max-[960px]:pt-[447px] max-[600px]:items-end max-[600px]:pt-0 max-[600px]:pb-[12px] pointer-events-none'
+              : 'absolute inset-0 flex max-[960px]:items-end items-center justify-center px-4 pb-[12px] min-[769px]:pb-[16px] min-[961px]:pb-0 pointer-events-none'}
         >
           <motion.div
+            ref={attachComposerBox}
             layout
             // One node now, so this is `layout` rather than a `layoutId` pair.
             // The old shared-element morph existed only to fake continuity
@@ -4813,7 +5265,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 It is `absolute`, so it stays out of the measured box and the
                 centre-to-dock projection remains a pure translate. */}
-            {!isThreadDocked && (
+            {!isThreadDocked && !imagesPage && (
               <PinnedChatGreeting isIncognito={isIncognito} isAuthenticated={isAuthenticated} />
             )}
             <InputBar
@@ -4823,29 +5275,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
               // own in the bottom bar and out of the centred composer. It costs
               // no layout either way — the line is `absolute top-full`.
               showDisclaimer={showComposerDisclaimer}
+              docked={isThreadDocked}
+              conversation={hasStarted || showBlankThread}
               currentMode="chat"
               onModeChange={() => {}}
-              onSubmit={(prompt, _mode, attachments, tool) => {
+              onSubmit={(prompt, _mode, attachments, tool, toolOptions) => {
                 // Typing + Enter while live implicitly ends the voice session and
                 // falls back to the regular typed path.
                 if (isLive) handleStopLive();
-                handleSend(prompt, undefined, attachments, tool);
+                handleSend(prompt, undefined, attachments, tool, toolOptions);
               }}
               liveActive={isLive}
               onStartLive={handleStartLive}
               onStopLive={handleStopLive}
               liveMicMuted={isMicMuted}
               onToggleLiveMicMute={handleToggleMicMute}
-              isGenerating={isGenerating}
+              // A research run holds the stop button, as Gemini's does, and stops it.
+              isGenerating={isGenerating || researchRunning}
               isResponseRevealing={isResponseRevealing}
               onStopGenerating={handleStopGenerating}
               modelConfig={modelConfig}
               selectedModelId={selectedModelId}
               setSelectedModelId={setSelectedModelId}
               onAuthRequired={onAuthRequired}
-              isAuthenticated={isAuthenticated}
               liveAvailable={liveAvailable}
+              // A Gem's default tool, selected as a chat with it starts.
+              defaultTool={hasStarted ? undefined : gemStartingTool(activeGem)}
+              template={mediaTemplate}
+              onTemplateClear={clearMediaTemplate}
+              onSelectedToolChange={setComposerTool}
+              composerRef={composerHandleRef}
             />
+            <ChatMentions host={composerBox} options={mentionOptions} onPick={pickMention} disabled={isLive} />
           </motion.div>
         </div>
       </div>
@@ -4894,6 +5355,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
             resource={openResource}
             onClose={() => setOpenResource(null)}
           />
+        ) : openResearch && openResearchId ? (
+          <ResearchPanel
+            key={`research-${openResearchId}`}
+            record={openResearch}
+            onClose={() => setOpenResearchId(null)}
+            onCreate={(kind) => createFromResearch(openResearch, kind)}
+          />
         ) : openCanvasDoc && openCanvas ? (
           /* Keyed by document, so opening a SECOND canvas replays the enter
              animation instead of silently swapping the contents — the same reason
@@ -4913,13 +5381,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               else $openCanvas.set(null);
             }}
             onPrompt={(text) => { void handleSend(text, undefined, [], 'canvas'); }}
-            /* The cross: dismiss and leave the thread holding CHIPS, not an expanded
-               card. `collapseCanvasCardsFor` is what makes that true — without it the
-               flag a previous collapse set would still be there. */
-            onClose={() => {
-              collapseCanvasCardsFor(openCanvasDoc.docId);
-              $openCanvas.set(null);
-            }}
             onEditContent={
               canvasEdit ? (content) => canvasEdit(openCanvasDoc.docId, content) : undefined
             }
@@ -4958,6 +5419,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
             {errorDialog.detail}
           </p>
         </GeminiDialog>
+      )}
+      {sentImagePreview && (
+        <SentImageViewer
+          url={sentImagePreview.url}
+          name={sentImagePreview.name}
+          onClose={() => setSentImagePreview(null)}
+        />
       )}
     </div>
     </LayoutGroup>

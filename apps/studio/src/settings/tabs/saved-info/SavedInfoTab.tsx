@@ -14,6 +14,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '@nanostores/react';
 import { useThemeMode } from '@willow/core/theme-mode';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { GeminiBottomSheet, GeminiSheetItem, GeminiSheetList } from '@willow/ui/GeminiBottomSheet';
 import {
   savedInfoStore,
   setSavedInfoEnabled,
@@ -36,6 +38,7 @@ declare global {
 
 export const SavedInfoTab: React.FC = () => {
   const { isLight } = useThemeMode();
+  const isCompact = useCompactViewport();
   const { enabled: isEnabled, instructions } = useStore(savedInfoStore);
 
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
@@ -99,6 +102,16 @@ export const SavedInfoTab: React.FC = () => {
       setModalAnimateState('closed');
     }, 75); // Exactly 75ms exit fade duration
   };
+
+  // Gemini's dialog closes on Escape, as every Material dialog does.
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') handleCloseModal();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [isModalOpen]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,7 +278,7 @@ export const SavedInfoTab: React.FC = () => {
                         </button>
 
                         {/* Dropdown Popover Menu */}
-                        {activeMenuId === inst.id && (
+                        {activeMenuId === inst.id && !isCompact && (
                           <div
                             ref={menuRef}
                             className={`mat-mdc-menu-panel cdk-overlay-pane absolute right-4 top-12 z-50 rounded-lg py-1 w-32 ${
@@ -307,6 +320,32 @@ export const SavedInfoTab: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* At 960px and below Gemini lists an instruction's actions in a bottom sheet. */}
+      <GeminiBottomSheet
+        isOpen={isCompact && activeMenuId !== null}
+        onClose={() => setActiveMenuId(null)}
+        label="Instruction actions"
+        isLight={isLight}
+      >
+        <GeminiSheetList label="Instruction actions">
+          <GeminiSheetItem
+            icon="edit"
+            label="Edit"
+            onSelect={() => {
+              const entry = instructions.find((inst) => inst.id === activeMenuId);
+              if (entry) handleOpenEditModal(entry.id, entry.text);
+            }}
+          />
+          <GeminiSheetItem
+            icon="delete"
+            label="Delete"
+            onSelect={() => {
+              if (activeMenuId !== null) handleDelete(activeMenuId);
+            }}
+          />
+        </GeminiSheetList>
+      </GeminiBottomSheet>
 
       {/* Modal Dialog for Add / Edit */}
       {isModalOpen && (

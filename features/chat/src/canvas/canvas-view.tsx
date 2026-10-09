@@ -1,39 +1,37 @@
 /**
- * Shared Canvas chrome — the parts the full-bleed panel and the inline thread
- * card both render.
+ * Shared Canvas chrome — the parts the full-screen panel and the inline thread card
+ * both render.
  *
  * ## Where the numbers come from
  *
- * Every dimension here was measured off the live Gemini app over CDP at
- * 1536x826 CSS px / DPR 1.25, dark theme, sidebar collapsed to its 76px rail. The
- * measurements are repeated in comments beside the values they justify, because
- * the capture tree they came from (`tools/ui-research/captures/canvas-transition/`)
- * is gitignored: it has already been destroyed once by a history rewrite, and the
- * spec had to be rebuilt by replaying a session transcript. Source comments are
- * the only copy that survives a cleanup.
+ * Gemini's Canvas, re-measured over CDP in October 2026 (1536x826 / DPR 1.25, plus
+ * 390x844 and 800x1280 under device emulation). The values live in `canvas.css`
+ * beside the measurement that justifies each one, because the capture tree
+ * (`tools/ui-research/captures/gemini/canvas-2026/`) is gitignored.
  *
- * ## Icon families
+ * ## Icon faces
  *
- * `luminous` and `google-symbols` are SUBSET faces declared in
- * `apps/studio/index.html` (194 ligatures for the latter), and a ligature the face
- * lacks renders as the letters of its own name — the browser never falls through,
- * because those letters are present. So anything not already named somewhere in
- * the app uses `material-rounded`, the full Material Symbols Rounded family:
- * `cloud_done`, `undo`, `redo`, `collapse_content`, `code_blocks`. `close`,
- * `expand_content`, `download` and `content_copy` are in the subsets already and
- * keep Gemini's own faces.
+ * Each icon names the face Gemini draws it from: Luminous Symbols (`luminous`) for
+ * undo/redo, chevrons, share_2, expand/collapse_content, close, docs, article and
+ * arrow_upward; Google Symbols for cloud_done, file_export, share, description,
+ * arrow_drop_down, more_vert, the format_* set, function(s), check, terminal,
+ * drag_indicator, button_magic and ink_selection. Both are SUBSET faces declared in
+ * apps/studio/index.html, and a ligature a face lacks renders as its own name in
+ * words — the Google Symbols subset was regenerated to add the ones this needed.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import {
-  StreamingMarkdown,
   copyToClipboard,
   downloadText,
   highlightedCode,
 } from '@willow/ui/StreamingMarkdown';
 import { useInjectStyles } from '@willow/ui/streaming-markdown-styles';
 import { showCopyToast } from '@willow/ui/copy-toast-store';
+import { tokenSource } from '@willow/personal';
 import { codeExtension, isPreviewable, type CanvasDoc } from './canvas-store';
+import { CANVAS_BLOCK_LABELS, type CanvasBlockKind } from './canvas-markdown';
+import './canvas.css';
 
 export type CanvasTab = 'code' | 'preview';
 
@@ -74,6 +72,58 @@ export const copyCanvas = async (content: string): Promise<void> => {
   showCopyToast('Copied to clipboard');
 };
 
+const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+/**
+ * "Export to Docs": the document as a new Google Doc in the user's Drive.
+ *
+ * Drive converts an uploaded `text/markdown` body into a Doc when the metadata asks
+ * for the Docs MIME type, so headings, lists and emphasis arrive as Docs formatting
+ * rather than as asterisks. `drive.file` is enough — it grants access only to files
+ * Willow creates — and the token comes from the same Google token source the
+ * Connected Apps use, so the consent popup is Google's own and only ever opens from
+ * this press.
+ *
+ * The new tab is opened after the upload, which is no longer inside the gesture once
+ * a consent popup has been shown; when the browser blocks it the snackbar carries an
+ * Open button instead, which is a gesture of its own.
+ */
+export const exportCanvasToDocs = async (doc: CanvasDoc, content: string): Promise<void> => {
+  try {
+    const source = tokenSource('google');
+    const token = (await source.get([DRIVE_FILE_SCOPE])) ?? (await source.request([DRIVE_FILE_SCOPE]));
+    if (!token) throw new Error('Google Docs is not connected');
+    const boundary = `willow-${Math.random().toString(36).slice(2)}`;
+    const metadata = { name: doc.title || 'Untitled document', mimeType: 'application/vnd.google-apps.document' };
+    const body = [
+      `--${boundary}`,
+      'Content-Type: application/json; charset=UTF-8',
+      '',
+      JSON.stringify(metadata),
+      `--${boundary}`,
+      'Content-Type: text/markdown; charset=UTF-8',
+      '',
+      content,
+      `--${boundary}--`,
+      '',
+    ].join('\r\n');
+    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    if (response.status === 401) source.invalidate([DRIVE_FILE_SCOPE]);
+    if (!response.ok) throw new Error(`Drive answered ${response.status}`);
+    const file = (await response.json()) as { id: string; webViewLink?: string };
+    const url = file.webViewLink || `https://docs.google.com/document/d/${file.id}/edit`;
+    const opened = window.open(url, '_blank', 'noopener');
+    if (!opened) showCopyToast('Exported to Docs', { label: 'Open', onClick: () => { window.open(url, '_blank', 'noopener'); } });
+  } catch (error) {
+    console.warn('[canvas] export to Docs failed', error);
+    showCopyToast('Couldn\u2019t export to Docs');
+  }
+};
+
 /**
  * The script every preview document runs FIRST, before any of the model's own.
  *
@@ -84,37 +134,45 @@ export const copyCanvas = async (content: string): Promise<void> => {
  * not on write, on property access — and a model asked for a game writes
  * `localStorage.getItem('highScore')` in its init path more often than not. The
  * throw aborts init, so the listeners are never attached and every button in the
- * document is inert. Reported exactly that way: "if I press 'Play game'… it doesn't
- * response at all."
+ * document is inert. So storage is replaced with an in-memory stand-in when the
+ * real one is unreachable. A high score does not survive a reload; the game runs.
  *
- * So storage is replaced with an in-memory stand-in when the real one is
- * unreachable. A high score does not survive a reload; the game runs.
+ * ## What it reports
  *
- * ## And why it reports errors
+ * Uncaught errors and every `console` call are relayed to the embedder: errors are
+ * logged there, and the console lines are what the code panel's Console shows (it
+ * is Gemini's `console` pane, fed the only way an opaque frame allows).
  *
- * A sandboxed frame that throws does so into its own console with no indication in
- * the app, which is what made the above look like a dead button rather than a
- * crash. Anything uncaught is relayed to the embedder, which logs it — so the next
- * one of these is a message instead of a mystery.
+ * ## What it answers
+ *
+ * Select-and-ask draws a rectangle over the preview and asks the frame what is in
+ * it; the frame replies with the elements whose boxes the rectangle covers. That is
+ * what the model is told the user selected, since an opaque frame cannot be
+ * screenshotted from outside.
  */
 export const CANVAS_PREVIEW_SHIM = `<script>(function(){
-var post=function(kind,detail){try{parent.postMessage({source:'willow-canvas-preview',kind:kind,detail:String(detail)},'*');}catch(e){}};
+var post=function(kind,detail,level){try{parent.postMessage({source:'willow-canvas-preview',kind:kind,detail:String(detail),level:level},'*');}catch(e){}};
 var memory=function(){var m=Object.create(null);return{getItem:function(k){k=String(k);return k in m?m[k]:null;},setItem:function(k,v){m[String(k)]=String(v);},removeItem:function(k){delete m[String(k)];},clear:function(){m=Object.create(null);},key:function(i){var keys=Object.keys(m);return i<keys.length?keys[i]:null;},get length(){return Object.keys(m).length;}};};
 ['localStorage','sessionStorage'].forEach(function(name){var ok=false;try{var store=window[name];if(store){store.setItem('__willow_probe','1');store.removeItem('__willow_probe');ok=true;}}catch(e){}
 if(!ok){try{Object.defineProperty(window,name,{configurable:true,value:memory()});post('shim',name);}catch(e){}}});
 try{void document.cookie;}catch(e){try{Object.defineProperty(Document.prototype,'cookie',{configurable:true,get:function(){return '';},set:function(){}});post('shim','cookie');}catch(_){}}
+var show=function(v){if(typeof v==='string')return v;try{return JSON.stringify(v);}catch(e){return String(v);}};
+['log','info','warn','error','debug'].forEach(function(level){var original=console[level];console[level]=function(){try{post('console',Array.prototype.map.call(arguments,show).join(' '),level);}catch(e){}if(original)return original.apply(console,arguments);};});
 window.addEventListener('error',function(event){post('error',(event.message||'Script error')+' ('+(event.filename||'inline')+':'+(event.lineno||0)+')');});
 window.addEventListener('unhandledrejection',function(event){var reason=event.reason;post('error','Unhandled rejection: '+((reason&&reason.message)||reason));});
+window.addEventListener('message',function(event){var data=event.data;if(!data||data.source!=='willow-canvas-host'||data.kind!=='region')return;var r=data.rect,found=[];var all=document.body?document.body.querySelectorAll('*'):[];
+for(var i=0;i<all.length&&found.length<24;i++){var el=all[i],b=el.getBoundingClientRect();if(!b.width||!b.height)continue;if(b.left>=r.x-2&&b.top>=r.y-2&&b.right<=r.x+r.w+2&&b.bottom<=r.y+r.h+2){var p=el.parentElement,pb=p&&p.getBoundingClientRect();if(pb&&pb.left>=r.x-2&&pb.top>=r.y-2&&pb.right<=r.x+r.w+2&&pb.bottom<=r.y+r.h+2)continue;
+var label=el.tagName.toLowerCase()+(el.id?'#'+el.id:'')+(typeof el.className==='string'&&el.className.trim()?'.'+el.className.trim().split(/\\s+/).slice(0,3).join('.'):'');var text=(el.innerText||el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,80);found.push(label+(text?' "'+text+'"':''));}}
+post('region',found.join('\\n'));});
 })();</script>`;
 
 /**
  * Put the shim in front of the document's own scripts.
  *
- * A pass-through document is edited rather than rewrapped, for the reason above:
- * nesting `<html>` inside `<html>` makes the browser drop the inner `<head>`. The
- * insertion point is after `<head>` where there is one, and after `<html>` or at
- * the very front where there is not — all three leave the model's markup intact,
- * and Chrome hoists a leading script into the head it synthesises anyway.
+ * A pass-through document is edited rather than rewrapped: nesting `<html>` inside
+ * `<html>` makes the browser drop the inner `<head>`. The insertion point is after
+ * `<head>` where there is one, and after `<html>` or at the very front where there
+ * is not — all three leave the model's markup intact.
  */
 const withPreviewShim = (document_: string): string => {
   const head = /<head[^>]*>/i.exec(document_);
@@ -133,10 +191,8 @@ const withPreviewShim = (document_: string): string => {
 /**
  * The document the Preview tab runs.
  *
- * A model asked for a web app writes a whole document, so anything that already
- * declares `<html>` or a doctype is passed through untouched — rewrapping it would
- * nest one document inside another and silently drop its `<head>`. A bare fragment
- * gets the minimum wrapper needed for it to lay out at all.
+ * Anything that already declares `<html>` or a doctype is passed through untouched;
+ * a bare fragment gets the minimum wrapper needed for it to lay out at all.
  */
 export const canvasPreviewDocument = (content: string): string => {
   if (/<!doctype/i.test(content) || /<html[\s>]/i.test(content)) return withPreviewShim(content);
@@ -156,10 +212,9 @@ export const canvasPreviewDocument = (content: string): string => {
 /**
  * The sandbox the preview iframe runs under.
  *
- * A DELIBERATE DEPARTURE from Gemini, which adds `allow-same-origin`. It can:
- * its preview is served from a per-conversation `*.scf.usercontent.goog` origin, so
- * same-origin there means same-origin with a throwaway sandbox host. Willow renders
- * the document with `srcDoc`, and `allow-scripts` + `allow-same-origin` on a
+ * A DELIBERATE DEPARTURE from Gemini, which adds `allow-same-origin`. It can: its
+ * preview is served from a per-conversation `*.scf.usercontent.goog` origin. Willow
+ * renders the document with `srcDoc`, and `allow-scripts` + `allow-same-origin` on a
  * srcdoc frame resolves to *Willow's own origin* — model-authored script would then
  * read the app's `localStorage`, its IndexedDB and its auth tokens. Omitting it
  * gives the frame an opaque origin, which costs the document nothing it needs.
@@ -174,179 +229,105 @@ export const CANVAS_PREVIEW_SANDBOX = [
   'allow-pointer-lock',
 ].join(' ');
 
-/*
- * The hover tint is a STATE LAYER, not a background.
- *
- * Measured on every icon button in the app's Gemini-derived chrome: the button's
- * own `background-color` stays `rgba(0,0,0,0)` in both states, and what changes is
- * the opacity of a `::before` filled with `rgb(196,199,197)` — Material's
- * persistent ripple. 0.08 for hover, 0.12 for focus, which is MDC's own pair.
- * Setting a background here instead reads as a slightly different grey rather than
- * a tint over whatever is behind it.
- */
-const ICON_BUTTON_CLASS =
-  'relative flex shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 '
-  + 'text-[#e3e3e3] outline-none disabled:pointer-events-none disabled:opacity-[0.38] '
-  + "before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 "
-  + "before:transition-opacity before:content-[''] hover:before:opacity-[0.08] focus-visible:before:opacity-[0.12]";
+/* ------------------------------------------------------------------ buttons */
+
+/** A glyph in the face Gemini draws it from. */
+export const CanvasIcon: React.FC<{
+  name: string;
+  family?: CanvasIconFamily;
+  size?: number;
+  weight?: number;
+  className?: string;
+}> = ({ name, family = 'google-symbols', size = 24, weight = 300, className = '' }) => (
+  <MaterialSymbol
+    name={name}
+    family={family}
+    size={size}
+    weight={weight}
+    roundness={100}
+    opticalSize={size}
+    className={`relative ${className}`}
+  />
+);
+
+export type CanvasButtonSize = 24 | 36 | 40 | 56;
+
+/** Glyph size per button size: 24 in 36 and 56, 20 in the toolbar's 40, 16 in the xsmall 24. */
+const GLYPH: Record<CanvasButtonSize, number> = { 24: 16, 36: 24, 40: 20, 56: 24 };
+const GLYPH_WEIGHT: Record<CanvasButtonSize, number> = { 24: 330, 36: 300, 40: 400, 56: 300 };
 
 export const CanvasIconButton: React.FC<{
   icon: string;
   family?: CanvasIconFamily;
+  /** The accessible name. Gemini shows a tooltip on only some of these — see `tooltip`. */
   label: string;
-  onClick?: () => void;
+  /** The hover tooltip, when Gemini shows one (Willow's GlobalTooltips reads `title`). */
+  tooltip?: string;
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
-  /** 36 in the card's title row, 40 in the panel toolbar, 56 for its Collapse. */
-  box?: number;
-  iconSize?: number;
-  fill?: boolean;
+  size?: CanvasButtonSize;
+  expanded?: boolean;
+  pressed?: boolean;
   className?: string;
-  style?: React.CSSProperties;
-}> = ({
-  icon,
-  family = 'material-rounded',
-  label,
-  onClick,
-  disabled,
-  box = 36,
-  iconSize = 24,
-  fill,
-  className = '',
-  style,
-}) => (
+}> = ({ icon, family = 'google-symbols', label, tooltip, onClick, disabled, size = 36, expanded, pressed, className = '' }) => (
   <button
     type="button"
     aria-label={label}
-    title={label}
+    title={tooltip}
+    aria-expanded={expanded}
+    aria-pressed={pressed}
     onClick={onClick}
     disabled={disabled}
-    style={{ width: box, height: box, ...style }}
-    className={`${ICON_BUTTON_CLASS} ${className}`}
+    className={`cv-icon-btn cv-icon-btn--${size} ${className}`}
   >
-    <MaterialSymbol
-      name={icon}
-      family={family}
-      size={iconSize}
-      weight={300}
-      roundness={100}
-      opticalSize={iconSize}
-      fill={fill}
-      className="relative"
-    />
+    <CanvasIcon name={icon} family={family} size={GLYPH[size]} weight={GLYPH_WEIGHT[size]} />
   </button>
 );
 
-/*
- * The primary pill: `Export` on a prose canvas, `Download` on a code one.
- *
- * Measured `128.45 x 36` (Export) and `120.15 x 36` (Download), both
- * `background: rgb(23,23,23)` / `border-radius: 9999px`, with a 24px icon 8px in
- * and a `.gds-body-m` 15px/20px w400 label 40px in. Those two widths are NOT
- * label-driven — "Download" is the longer word and the narrower button — so they
- * are set as minimums rather than derived from padding, and Export's extra 8px is
- * where its menu affordance lives.
- */
-const PILL_CLASS =
-  'relative flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full border-0 '
-  + 'bg-[rgb(23,23,23)] pl-2 pr-4 text-[15px] font-normal leading-5 text-[#e3e3e3] outline-none '
-  + "before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 "
-  + "before:transition-opacity before:content-[''] hover:before:opacity-[0.08] focus-visible:before:opacity-[0.12]";
-
-export const CanvasPill: React.FC<{
+/** Export / Download: 36px tonal pill, icon + label (+ the Export chevron). */
+export const CanvasPill = React.forwardRef<HTMLButtonElement, {
   icon: string;
   family?: CanvasIconFamily;
   label: string;
-  minWidth: number;
   onClick?: () => void;
   expanded?: boolean;
-}> = ({ icon, family = 'google-symbols', label, minWidth, onClick, expanded }) => (
+  chevron?: boolean;
+  disabled?: boolean;
+}>(({ icon, family = 'google-symbols', label, onClick, expanded, chevron, disabled }, ref) => (
   <button
+    ref={ref}
     type="button"
+    aria-label={label}
+    aria-haspopup={chevron ? 'menu' : undefined}
+    aria-expanded={chevron ? !!expanded : undefined}
     onClick={onClick}
-    style={{ minWidth }}
-    aria-haspopup={expanded === undefined ? undefined : 'menu'}
-    aria-expanded={expanded}
-    className={PILL_CLASS}
+    disabled={disabled}
+    className="cv-pill"
   >
-    <MaterialSymbol name={icon} family={family} size={24} weight={300} roundness={100} className="relative" />
-    <span className="relative">{label}</span>
+    <CanvasIcon name={icon} family={family} size={24} />
+    <span>{label}</span>
+    {chevron && <CanvasIcon name="keyboard_arrow_down" family="luminous" size={24} />}
   </button>
-);
+));
+CanvasPill.displayName = 'CanvasPill';
 
-export interface CanvasMenuItem {
-  id: string;
-  label: string;
-  icon: string;
-  family?: CanvasIconFamily;
-  onSelect: () => void;
-}
+/* ------------------------------------------------------------------ menus */
 
-/*
- * Menu pane, matching the shell's own (ConversationActionsMenu): 20px radius,
- * `#1f1f1f`, 8px padding, `0 0 20px rgba(0,0,0,0.28)`; rows 36px tall with a 20px
- * icon slot and a 13px/17px label. Gemini's Export and quick-action menus were
- * never captured open, so their contents are Willow's choice — the chrome is not.
- */
-const MENU_ROW_CLASS =
-  'flex h-9 w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl border-0 bg-transparent p-2 '
-  + 'text-left text-[13px] font-normal leading-[17px] text-[#e6e6e6] transition-colors '
-  + 'hover:bg-[rgba(230,230,230,0.08)]';
-
-/** A menu anchored under (or over) its trigger. The trigger owns the open state. */
-const CanvasMenuPane: React.FC<{
-  items: CanvasMenuItem[];
-  onClose: () => void;
-  align?: 'left' | 'right';
-  side?: 'below' | 'left';
-}> = ({ items, onClose, align = 'right', side = 'below' }) => (
-  <div
-    role="menu"
-    onClick={(event) => event.stopPropagation()}
-    className={`absolute z-30 flex min-w-[180px] flex-col rounded-[20px] bg-[#1f1f1f] p-2 shadow-[0_0_20px_rgba(0,0,0,0.28)] ${
-      side === 'below'
-        ? `top-[calc(100%+4px)] ${align === 'right' ? 'right-0' : 'left-0'}`
-        : 'right-[calc(100%+8px)] top-0'
-    }`}
-  >
-    {items.map((item) => (
-      <button
-        key={item.id}
-        type="button"
-        role="menuitem"
-        className={MENU_ROW_CLASS}
-        onClick={() => { onClose(); item.onSelect(); }}
-      >
-        <span className="flex h-5 w-5 shrink-0 items-center">
-          <MaterialSymbol
-            name={item.icon}
-            family={item.family ?? 'material-rounded'}
-            size={20}
-            weight={320}
-            roundness={100}
-            opticalSize={20}
-          />
-        </span>
-        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{item.label}</span>
-      </button>
-    ))}
-  </div>
-);
-
-/** Closes on an outside pointer-down or Escape — the two ways every menu in the
- *  shell closes, so a Canvas menu does not need its own habit. */
+/** Closes on an outside pointer-down or Escape, the two ways every menu in the shell closes. */
 const useDismissable = (open: boolean, onClose: () => void) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) onClose();
+      if (!rootRef.current?.contains(event.target as Node)) onCloseRef.current();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      // Stopped here so the panel's own Escape-to-collapse does not also fire:
-      // one Escape should close one thing.
+      // One Escape closes one thing: the panel's own Escape-to-collapse must not also fire.
       event.stopPropagation();
-      onClose();
+      onCloseRef.current();
     };
     window.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('keydown', onKeyDown, true);
@@ -354,141 +335,251 @@ const useDismissable = (open: boolean, onClose: () => void) => {
       window.removeEventListener('pointerdown', onPointerDown, true);
       window.removeEventListener('keydown', onKeyDown, true);
     };
-  }, [open, onClose]);
+  }, [open]);
   return rootRef;
 };
 
-export const CanvasMenuPill: React.FC<{
+export interface CanvasMenuItem {
+  id: string;
+  label: string;
+  ariaLabel: string;
   icon: string;
   family?: CanvasIconFamily;
-  label: string;
-  minWidth: number;
-  items: CanvasMenuItem[];
-}> = ({ icon, family, label, minWidth, items }) => {
-  const [open, setOpen] = useState(false);
-  const rootRef = useDismissable(open, () => setOpen(false));
-  return (
-    <div ref={rootRef} className="relative shrink-0">
-      <CanvasPill
-        icon={icon}
-        family={family}
-        label={label}
-        minWidth={minWidth}
-        expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      />
-      {open && <CanvasMenuPane items={items} onClose={() => setOpen(false)} />}
-    </div>
-  );
-};
-
-const CanvasMenuFab: React.FC<{
-  icon: string;
-  label: string;
-  items: CanvasMenuItem[];
-}> = ({ icon, label, items }) => {
-  const [open, setOpen] = useState(false);
-  const rootRef = useDismissable(open, () => setOpen(false));
-  return (
-    <div ref={rootRef} className="relative">
-      <CanvasIconButton
-        icon={icon}
-        label={label}
-        box={40}
-        onClick={() => setOpen((current) => !current)}
-        // `rgb(19,19,20)` is the fab's own fill, measured — it matches the rail it
-        // sits in, so the group reads as one pill with three pressable thirds.
-        // Inline, not a class: `ICON_BUTTON_CLASS` already sets `bg-transparent`,
-        // and two Tailwind background utilities on one element resolve by
-        // stylesheet order rather than by attribute order.
-        style={{ backgroundColor: 'rgb(19,19,20)' }}
-      />
-      {open && <CanvasMenuPane items={items} onClose={() => setOpen(false)} side="left" />}
-    </div>
-  );
-};
+  onSelect: () => void;
+}
 
 /**
- * `cloud_done` · `undo` · `redo` — the versioning trio.
+ * Export: Docs and .md, Gemini's two. The menu is a gem-menu that opens and closes
+ * with no animation, 4px under the pill with the right edges aligned.
+ */
+export const CanvasExportMenu: React.FC<{ items: CanvasMenuItem[]; disabled?: boolean }> = ({ items, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const rootRef = useDismissable(open, () => setOpen(false));
+  return (
+    <div ref={rootRef} className="cv-anchor">
+      <CanvasPill
+        icon="file_export"
+        label="Export"
+        chevron
+        expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+      />
+      {open && (
+        <div role="menu" className="cv-gem-menu">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="menuitem"
+              aria-label={item.ariaLabel}
+              className="cv-gem-menu__item"
+              onClick={() => { setOpen(false); item.onSelect(); }}
+            >
+              <CanvasIcon name={item.icon} family={item.family} size={20} weight={320} />
+              <span className="cv-gem-menu__label">{item.label}</span>
+              <span className="cv-gem-menu__trailing" aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** Export and Download share one builder so the panel and the card cannot drift apart. */
+export const canvasExportItems = (doc: CanvasDoc, content: string): CanvasMenuItem[] => [
+  {
+    id: 'docs',
+    label: 'Docs',
+    ariaLabel: 'Export to Docs',
+    icon: 'docs',
+    family: 'luminous',
+    onSelect: () => { void exportCanvasToDocs(doc, content); },
+  },
+  {
+    id: 'md',
+    label: '.md',
+    ariaLabel: 'Download .md',
+    icon: 'description',
+    family: 'google-symbols',
+    onSelect: () => downloadCanvas(doc, content),
+  },
+];
+
+const BLOCK_KINDS: CanvasBlockKind[] = ['p', 'h1', 'h2', 'h3'];
+const MAT_MENU_EXIT_MS = 125;
+
+/**
+ * Styles: "Normal text / Heading 1 / Heading 2 / Heading 3", each item set in the
+ * style it applies, the current one checked. Material's mat-menu, with its own
+ * enter (scale .8 -> 1, 120ms) and exit (fade, 100ms after 25ms).
+ */
+export const CanvasStylesMenu: React.FC<{
+  current: CanvasBlockKind;
+  onSelect: (kind: CanvasBlockKind) => void;
+  disabled?: boolean;
+}> = ({ current, onSelect, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const close = () => {
+    if (!open || leaving) return;
+    setLeaving(true);
+    window.setTimeout(() => { setOpen(false); setLeaving(false); }, MAT_MENU_EXIT_MS);
+  };
+  const rootRef = useDismissable(open && !leaving, close);
+  return (
+    <div ref={rootRef} className="cv-anchor">
+      <button
+        type="button"
+        title="Styles"
+        aria-label={`Styles, ${CANVAS_BLOCK_LABELS[current]}`}
+        aria-haspopup="menu"
+        aria-expanded={open && !leaving}
+        disabled={disabled}
+        className="cv-styles-btn"
+        /* The editor's selection must survive the press, so the button never takes focus. */
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => (open ? close() : setOpen(true))}
+      >
+        <span className="cv-styles-btn__label">{CANVAS_BLOCK_LABELS[current]}</span>
+        <CanvasIcon name="arrow_drop_down" size={18} weight={400} className="cv-styles-btn__icon" />
+      </button>
+      {open && (
+        <div role="menu" className={`cv-mat-menu${leaving ? ' cv-mat-menu--leaving' : ''}`}>
+          <div className="cv-mat-menu__list">
+            {BLOCK_KINDS.map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                role="menuitemradio"
+                aria-checked={kind === current}
+                className="cv-mat-menu__item"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => { onSelect(kind); close(); }}
+              >
+                <span className={`cv-mat-menu__text cv-format-${kind}`}>{CANVAS_BLOCK_LABELS[kind]}</span>
+                {kind === current && (
+                  <CanvasIcon name="check" size={20} weight={400} className="cv-mat-menu__check" />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** The formatting row: Bold, Italic, the two lists, inline and block equations. */
+export interface CanvasFormatActions {
+  bold: () => void;
+  italic: () => void;
+  bulletedList: () => void;
+  numberedList: () => void;
+  inlineEquation: () => void;
+  blockEquation: () => void;
+}
+
+const FORMAT_BUTTONS: { key: keyof CanvasFormatActions; icon: string; label: string }[] = [
+  { key: 'bold', icon: 'format_bold', label: 'Bold' },
+  { key: 'italic', icon: 'format_italic', label: 'Italic' },
+  { key: 'bulletedList', icon: 'format_list_bulleted', label: 'Bulleted list' },
+  { key: 'numberedList', icon: 'format_list_numbered', label: 'Numbered list' },
+  { key: 'inlineEquation', icon: 'function', label: 'Insert Equation' },
+  { key: 'blockEquation', icon: 'functions', label: 'Insert block equation' },
+];
+
+export const CanvasFormatButtons: React.FC<{ actions: CanvasFormatActions; disabled?: boolean }> = ({ actions, disabled }) => (
+  <>
+    {FORMAT_BUTTONS.map((button) => (
+      <button
+        key={button.key}
+        type="button"
+        aria-label={button.label}
+        title={button.label}
+        disabled={disabled}
+        className="cv-icon-btn cv-icon-btn--40"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => actions[button.key]()}
+      >
+        <CanvasIcon name={button.icon} size={20} weight={400} />
+      </button>
+    ))}
+  </>
+);
+
+/**
+ * `cloud_done` · undo · redo — the versioning trio.
  *
- * Measured 120x40 in the panel toolbar (three 40x40 buttons at +0/+40/+80, i.e. no
- * gap) and 36x36 on a 44px pitch in the card's title row (8px gap). `cloud_done` is
- * a button in Gemini too, and it does nothing: it is the "Changes saved" status,
- * and it is here rather than as a text label because that is what the app shows.
+ * 36px on an 8px gap in the card's title row (24px glyphs, cloud_done from Google
+ * Symbols, the arrows from Luminous); 40px with no gap in the panel toolbar (20px
+ * Google Symbols glyphs). `cloud_done` does nothing: it is the "Changes saved"
+ * status, shown as a button because that is what the app shows.
  *
- * Undo/Redo are version history, NOT text editing. Willow's canvas is not an
- * editable ProseMirror document, so there is nothing else they could mean — they
- * step `CanvasDoc.versions`, which is the fold of every turn that touched this
- * document (see canvas-store.ts).
+ * Undo/Redo are version history, NOT text editing — they step `CanvasDoc.versions`,
+ * the fold of every turn that touched this document (see canvas-store.ts).
  */
 export const CanvasVersionNav: React.FC<{
   versionCount: number;
   version: number;
   onVersionChange: (version: number) => void;
-  box?: number;
-}> = ({ versionCount, version, onVersionChange, box = 40 }) => (
-  <div className={`flex shrink-0 items-center ${box === 40 ? 'gap-0' : 'gap-2'}`}>
-    <CanvasIconButton
-      icon="cloud_done"
-      label={version === versionCount - 1 ? 'Changes saved' : `Version ${version + 1} of ${versionCount}`}
-      box={box}
-    />
-    <CanvasIconButton
-      icon="undo"
-      label="Previous version"
-      box={box}
-      disabled={version <= 0}
-      onClick={() => onVersionChange(version - 1)}
-    />
-    <CanvasIconButton
-      icon="redo"
-      label="Next version"
-      box={box}
-      disabled={version >= versionCount - 1}
-      onClick={() => onVersionChange(version + 1)}
-    />
-  </div>
-);
+  variant: 'card' | 'panel';
+}> = ({ versionCount, version, onVersionChange, variant }) => {
+  const size: CanvasButtonSize = variant === 'card' ? 36 : 40;
+  const arrows: CanvasIconFamily = variant === 'card' ? 'luminous' : 'google-symbols';
+  const saved = version === versionCount - 1;
+  return (
+    <div className={`cv-toolbar__group${variant === 'card' ? ' gap-2' : ''}`}>
+      <CanvasIconButton
+        icon="cloud_done"
+        label={saved ? 'Changes saved' : `Version ${version + 1} of ${versionCount}`}
+        tooltip={variant === 'panel' ? (saved ? 'Changes saved' : `Version ${version + 1} of ${versionCount}`) : undefined}
+        size={size}
+      />
+      <CanvasIconButton
+        icon="undo"
+        family={arrows}
+        label="Previous version"
+        tooltip={variant === 'panel' ? 'Previous version' : undefined}
+        size={size}
+        disabled={version <= 0}
+        onClick={() => onVersionChange(version - 1)}
+      />
+      <CanvasIconButton
+        icon="redo"
+        family={arrows}
+        label="Next version"
+        tooltip={variant === 'panel' ? 'Next version' : undefined}
+        size={size}
+        disabled={version >= versionCount - 1}
+        onClick={() => onVersionChange(version + 1)}
+      />
+    </div>
+  );
+};
 
 /**
- * Code / Preview.
- *
- * Gemini ships this concept as two different components — the panel's
- * `gem-segmented-button-row` (`130.25x28` outer, `126.25x24` track, a `63.13x24`
- * slider that moves to the selected tab) and the card's `mat-button-toggle-group`
- * (`127.19x28` track, `background: rgba(255,255,255,0.12)`). One component covers
- * both here, at the card's measured colours, because the panel's tonal track was
- * never read.
- *
- * The selected state is DARKER than the track — `rgb(15,15,15)` on
- * `rgba(255,255,255,0.12)`. That looks like an inversion of the usual segmented
- * control and is the measured value; the checked cell reads as a hole, not a raised
- * chip.
+ * Code / Preview — Gemini's `mat-button-toggle-group` (a radiogroup labelled "Tab
+ * Selection"): a 36px track, 4px in, 2px between, cells sized to their labels with
+ * 12px sides. The checked cell is DARKER than the track and switches in one frame;
+ * nothing slides.
  */
-export const CanvasTabSwitch: React.FC<{
+export const CanvasTabToggle: React.FC<{
   tab: CanvasTab;
   onChange: (tab: CanvasTab) => void;
 }> = ({ tab, onChange }) => (
-  <div
-    role="tablist"
-    aria-label="Canvas view"
-    className="relative flex h-7 w-[130px] shrink-0 items-center rounded-full bg-[rgba(255,255,255,0.12)] p-0.5"
-  >
-    <span
-      aria-hidden="true"
-      className="pointer-events-none absolute left-0.5 top-0.5 h-6 w-[63px] rounded-full bg-[rgb(15,15,15)] transition-transform duration-200 ease-[cubic-bezier(0.2,0,0,1)]"
-      style={{ transform: `translateX(${tab === 'code' ? 0 : 63}px)` }}
-    />
+  <div role="radiogroup" aria-label="Tab Selection" className="cv-toggle">
     {(['code', 'preview'] as CanvasTab[]).map((value) => (
       <button
         key={value}
         type="button"
-        role="tab"
-        aria-selected={tab === value}
+        role="radio"
+        aria-checked={tab === value}
+        className="cv-toggle__cell"
         onClick={() => onChange(value)}
-        className="relative z-[1] flex h-6 w-[63px] cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-[13px] font-normal leading-[17px] text-[#e3e3e3] outline-none"
       >
-        {value === 'code' ? 'Code' : 'Preview'}
+        <span>{value === 'code' ? 'Code' : 'Preview'}</span>
       </button>
     ))}
   </div>
@@ -497,21 +588,12 @@ export const CanvasTabSwitch: React.FC<{
 /**
  * A document the user is typing into, held locally and committed on a timer.
  *
- * Two problems, one hook:
- *
- *  - **The store round-trip is not per keystroke.** `content` comes out of the
- *    message-log fold, and rewriting a `CanvasRef` re-renders the whole thread,
- *    so committing on every character would put a full ChatView render between
- *    the key and the glyph. The draft is what the editor shows.
- *  - **The commit ECHOES BACK.** A moment later `content` arrives as the value we
- *    just sent, and naively syncing on it clobbers whatever was typed in the
- *    meantime — measured as characters vanishing while typing fast. So an
- *    incoming value is only adopted when it differs from what we last sent,
- *    which is exactly "someone else changed the document" (the model rewriting
- *    it, or an undo to another version).
- *
- * The pending edit is flushed on unmount so closing the panel mid-word cannot
- * lose the word.
+ * Two problems, one hook: the store round-trip is not per keystroke (committing on
+ * every character would put a full ChatView render between the key and the glyph),
+ * and the commit ECHOES BACK — `content` arrives a moment later as the value just
+ * sent, and syncing on it would clobber whatever was typed in the meantime. So an
+ * incoming value is only adopted when it differs from what was last sent. The
+ * pending edit is flushed on unmount so closing mid-word cannot lose the word.
  */
 const CANVAS_EDIT_COMMIT_MS = 400;
 
@@ -559,170 +641,15 @@ export const useCanvasDraft = (
   return [draft, edit];
 };
 
-/**
- * Prose body.
- *
- * `StreamingMarkdown` needs no canvas-specific type scale, and that is not a
- * coincidence: its headings are already 28/36 w350 and 24/28 w380 on a 17/24 body
- * (streaming-markdown-styles.ts), which is exactly what the canvas measured, because
- * both were read off the same Gemini markdown renderer.
- *
- * Always settled — never `isStreaming`. A canvas document arrives whole, in one tool
- * call, so there is no partial state to pace; the turn's own text is what streams.
- *
- * ## Editing has NO BUTTON
- *
- * It used to: a pencil that swapped the rendered document for its Markdown. The
- * user asked for it gone — "there shouldn't be an edit button to edit inside a
- * document canvas... the user can freely edit and it will be saved automatically" —
- * so the document is editable by putting a caret in it, exactly like the code view,
- * and every keystroke rides the same 400ms autosave.
- *
- * What is unavoidable, and is a real trade rather than an oversight: while the caret
- * is in the document you are editing its MARKDOWN. Willow renders canvas prose with
- * the thread's own Markdown renderer, and rendered HTML cannot be typed back into
- * Markdown without a rich-text editor and a serialiser to match it (Gemini runs
- * one; that is a build, not a flag). So focus swaps to the source and blur swaps
- * back — no mode to remember, no button to find, and what you type is what is
- * saved.
- *
- * The scroller keeps its position across the swap: `preserveScroll` snapshots the
- * nearest scrollable ancestor and puts it back after the exchanged node lays out,
- * because the source is a different height from the document it replaces and the
- * default is a jump to the top.
- */
-const preserveScroll = (node: HTMLElement | null): (() => void) => {
-  let scroller: HTMLElement | null = node;
-  while (scroller && scroller.scrollHeight <= scroller.clientHeight) {
-    scroller = scroller.parentElement;
-  }
-  if (!scroller) return () => {};
-  const top = scroller.scrollTop;
-  return () => { scroller.scrollTop = top; };
-};
-
-export const CanvasProseView: React.FC<{
-  content: string;
-  className?: string;
-  /** Absent = read-only. Called on a debounce, not per keystroke. */
-  onContentChange?: (next: string) => void;
-}> = ({ content, className = '', onContentChange }) => {
-  const [draft, setDraft] = useCanvasDraft(content, onContentChange);
-  const [editing, setEditing] = useState(false);
-  const restoreRef = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    const restore = restoreRef.current;
-    restoreRef.current = null;
-    if (restore) restore();
-  }, [editing]);
-
-  if (!onContentChange) {
-    return (
-      <StreamingMarkdown
-        text={content}
-        isStreaming={false}
-        animate={false}
-        reveal={false}
-        className={className}
-      />
-    );
-  }
-
-  if (editing) {
-    return (
-      <textarea
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={(event) => {
-          restoreRef.current = preserveScroll(event.currentTarget);
-          setEditing(false);
-        }}
-        autoFocus
-        spellCheck
-        aria-label="Document"
-        className={
-          'gemini-chat-scrollbar block min-h-[320px] w-full resize-none border-0 bg-transparent '
-          + 'p-0 text-[17px] font-normal leading-6 text-[#e3e3e3] outline-none '
-          + `[field-sizing:content] ${className}`
-        }
-      />
-    );
-  }
-
-  /*
-   * `tabIndex` and a click handler rather than a `contenteditable`: the rendered
-   * document is React's, and making it directly writable would let the browser
-   * mutate a tree React owns — the edit would be reverted by the next render and
-   * saved nowhere. Focus is the affordance; the swap is what makes it writable.
-   */
-  return (
-    <div
-      role="textbox"
-      aria-label="Document"
-      aria-multiline="true"
-      tabIndex={0}
-      onFocus={(event) => {
-        restoreRef.current = preserveScroll(event.currentTarget);
-        setEditing(true);
-      }}
-      onMouseDown={(event) => {
-        /* A drag is a selection, not an edit: only a plain click enters the source.
-           `detail === 0` is a keyboard-driven click, which focus already handled. */
-        if (event.button !== 0 || event.detail === 0) return;
-        restoreRef.current = preserveScroll(event.currentTarget);
-        setEditing(true);
-      }}
-      className="outline-none focus-visible:outline-none"
-    >
-      <StreamingMarkdown
-        text={content}
-        isStreaming={false}
-        animate={false}
-        reveal={false}
-        className={className}
-      />
-    </div>
-  );
-};
+/* ------------------------------------------------------------------ code body */
 
 /**
- * Code body: the editor and the preview as SIBLINGS, switched by a `hidden` class.
- *
- * Measured, and the single most worthwhile thing to copy from the code panel:
- * Gemini's `div.container` holds `web-preview`, `xap-code-editor` and `console` at
- * once and toggles `.hidden` between them. Nothing is mounted or unmounted, so a
- * running app SURVIVES a trip to the Code tab — the iframe is never torn down and
- * never re-executes. Rendering `tab === 'code' ? <pre/> : <iframe/>` instead
- * restarts the document on every tab press, which for anything with state (a game,
- * a form, a timer) reads as the preview being broken.
- *
- * `display: none` is safe for that: unlike moving an iframe in the DOM, hiding it
- * does not reload its document.
- *
- * Editor geometry: `div.monaco-editor` at `124,60,1340,765` inside a panel at x=76,
- * i.e. a 48px inset on each side, first line at y=108 (48px down); `.view-line` is
- * 14px/19px w400 "Google Sans Code" `#ffffff` on `rgb(20,20,20)`, and
- * `.margin-view-overlays` measures 0 wide — LINE NUMBERS ARE OFF.
- *
- * ## Typing
- *
- * Gemini runs Monaco. Willow does not, and pulling one in for this would be a
- * megabyte of editor to get a caret — so `onContentChange` turns the body into a
- * transparent `<textarea>` sitting exactly on top of the highlighted `<pre>`, the
- * two sharing one box (see the note at the pair below). Highlighting is recomputed
- * synchronously on every keystroke for a reason that is not performance: the text
- * the user sees IS the `<pre>`, so a deferred re-highlight means typing into a
- * document that does not visibly change.
- */
-/**
- * The editor's measured text metrics, shared by the `<pre>` that paints the
- * tokens and the `<textarea>` that takes the keystrokes.
+ * The editor's measured text metrics, shared by the `<pre>` that paints the tokens
+ * and the `<textarea>` that takes the keystrokes: Monaco's 14px/19px Google Sans Code.
  *
  * ONE constant, deliberately: the transparent-textarea-over-highlighted-pre
  * technique only works while the two agree to the pixel on family, size,
- * line-height and tab width. Two class strings drift, and the failure mode is
- * a caret that walks away from the glyphs as the line gets longer.
+ * line-height and tab width.
  */
 const CANVAS_CODE_FONT_CLASS =
   "block bg-transparent font-['Google_Sans_Code',ui-monospace,SFMono-Regular,Consolas,monospace] "
@@ -730,52 +657,95 @@ const CANVAS_CODE_FONT_CLASS =
 
 /**
  * A textarea whose value ends in a newline shows an empty last line and lets the
- * caret sit on it. A `<pre>` does not reliably generate that line box, so the
- * highlighted layer ends up one line SHORTER than the textarea it has to cover —
- * and the caret on that last line falls outside the scroll extent. A zero-width
- * space pins the line box without adding a visible character.
+ * caret sit on it; a `<pre>` does not reliably generate that line box. A zero-width
+ * space pins it without adding a visible character.
  */
 const withTrailingLineBox = (value: string): string => (
   value.endsWith('\n') ? `${value}\u200b` : value
 );
 
+/**
+ * Monaco's bracket-pair colours over hljs output: `(`, `[` and `{` take the colour
+ * of their depth (gold, orchid, blue, repeating) and their partner matches. Brackets
+ * inside strings, comments and markup tags are text, and stay uncoloured.
+ */
+export const colorBrackets = (html: string): string => {
+  let depth = 0;
+  let skip = 0;
+  const spans: boolean[] = [];
+  return html.replace(/<span class="([^"]*)">|<\/span>|([()[\]{}])/g, (match, cls: string | undefined, bracket: string | undefined) => {
+    if (cls !== undefined) {
+      const text = /\bhljs-(string|comment|regexp|meta|tag|attr|template-tag)\b/.test(cls);
+      spans.push(text);
+      if (text) skip += 1;
+      return match;
+    }
+    if (match === '</span>') {
+      if (spans.pop()) skip -= 1;
+      return match;
+    }
+    if (skip > 0 || !bracket) return match;
+    if (bracket === '(' || bracket === '[' || bracket === '{') {
+      const colored = `<span class="cv-bracket-${depth % 3}">${bracket}</span>`;
+      depth += 1;
+      return colored;
+    }
+    depth = Math.max(0, depth - 1);
+    return `<span class="cv-bracket-${depth % 3}">${bracket}</span>`;
+  });
+};
+
+export interface CanvasConsoleLine {
+  id: number;
+  level: string;
+  text: string;
+}
+
+/**
+ * Code body: the editor and the preview as SIBLINGS, switched by a `hidden` class.
+ *
+ * Gemini's `div.container` holds `web-preview`, `xap-code-editor` and `console` at
+ * once and toggles `.hidden` between them, so a running app SURVIVES a trip to the
+ * Code tab — the iframe is never torn down and never re-executes. `display: none`
+ * is safe for that: unlike moving an iframe in the DOM, hiding it does not reload
+ * its document.
+ *
+ * Editor geometry: Monaco at a 48px inset each side, first line 48px down, 14px/19px
+ * Google Sans Code on rgb(20,20,20), no line numbers. Willow runs no Monaco: with
+ * `onContentChange` the body is a transparent `<textarea>` exactly on top of the
+ * highlighted `<pre>`, so selection, undo and IME are the browser's own.
+ */
 export const CanvasCodeView: React.FC<{
   doc: CanvasDoc;
   content: string;
   tab: CanvasTab;
-  /** 48 in the panel, 0 in the card, where the body is already inset. */
+  /** 48 in the panel, 0 in the card. */
   inset?: number;
-  /**
-   * Hold the iframe out of the DOM until the container has finished animating.
-   * A hidden iframe still parses and RUNS its document, so mounting it during the
-   * 500ms scale puts the model's script on the same main thread as the transition.
-   * Once true it must stay true, or the sibling trick above is undone.
-   */
+  /** Hold the iframe out of the DOM until the container has finished animating. */
   previewMounted?: boolean;
   /** Absent = read-only. Called on a debounce, not per keystroke. */
   onContentChange?: (next: string) => void;
-}> = ({ doc, content, tab, inset = 48, previewMounted = true, onContentChange }) => {
+  /** Every `console.*` line the running document writes. */
+  onConsole?: (line: Omit<CanvasConsoleLine, 'id'>) => void;
+  /** The frame, for select-and-ask's region query. */
+  frameRef?: React.MutableRefObject<HTMLIFrameElement | null>;
+  /** Drawn over the running preview (select-and-ask, the floating tools). */
+  overlay?: React.ReactNode;
+}> = ({ doc, content, tab, inset = 48, previewMounted = true, onContentChange, onConsole, frameRef: externalFrameRef, overlay }) => {
   useInjectStyles();
   const previewable = isPreviewable(doc);
   /*
    * `wantPreview` is the TAB; `showPreview` is the tab and a frame to show for it.
-   *
-   * The gap between them is the panel's 500ms scale, and what fills it used to be
-   * the CODE — on the theory that a blank panel reads as a bug. Reported as worse
-   * than blank: "the codebase appears in the place of the preview… before the
-   * flash". So the code body is hidden for the tab, not for the frame, and the
-   * shell's own `rgb(20,20,20)` is what the deferral shows.
+   * The gap between them is the panel's 500ms scale, and the code body stays hidden
+   * through it — "the codebase appears in the place of the preview… before the
+   * flash" was worse than a moment of the shell's own dark fill.
    */
   const wantPreview = previewable && tab === 'preview';
   const showPreview = wantPreview && previewMounted;
   /*
-   * The white flash. A sub-frame paints its own base background — white — as soon
-   * as it has a box, and the document's own background only lands once its style
-   * has been parsed. So the frame is transparent until `load`, which is after that.
-   *
-   * A ONE-WAY LATCH, never reset: `srcDoc` changes on every committed edit, and
-   * blinking the preview out at each one would be a worse artifact than the flash.
-   * The timer is the fallback for a document whose `load` never arrives.
+   * The white flash: a sub-frame paints white as soon as it has a box, before the
+   * document's own background is parsed. So the frame is transparent until `load`.
+   * A ONE-WAY LATCH, never reset — `srcDoc` changes on every committed edit.
    */
   const [previewPainted, setPreviewPainted] = useState(false);
   useEffect(() => {
@@ -785,18 +755,11 @@ export const CanvasCodeView: React.FC<{
   }, [showPreview, previewPainted]);
   const [draft, setDraft] = useCanvasDraft(content, onContentChange);
   const editable = !!onContentChange;
-  /* The DRAFT is highlighted, not `content`, and synchronously — the caret sits
-     over transparent text, so a debounced or deferred re-highlight is invisible
-     typing. hljs on a canvas-sized document is sub-millisecond; the guard is for
-     a pathological paste, where plain text beats a frozen tab. */
   const source = editable ? withTrailingLineBox(draft) : content;
   const html = useMemo(
     () => (source.length > 200_000
-      /* `'text'` short-circuits inside `highlightedCode` to a plain HTML escape,
-         which is the right answer for a document big enough that tokenising it
-         per keystroke would drop frames. */
       ? highlightedCode(source, 'text')
-      : highlightedCode(source, doc.language || 'html')),
+      : colorBrackets(highlightedCode(source, doc.language || 'html'))),
     [source, doc.language],
   );
   const previewSource = useMemo(
@@ -805,46 +768,51 @@ export const CanvasCodeView: React.FC<{
   );
 
   /*
-   * What the shim relays, logged where the developer can see it. `event.origin` is
-   * `"null"` for an opaque frame and cannot be checked, so the frame's own
-   * `contentWindow` is the identity test — otherwise any page in any tab could
-   * write into this console line.
+   * What the shim relays. `event.origin` is "null" for an opaque frame and cannot be
+   * checked, so the frame's own `contentWindow` is the identity test — otherwise any
+   * page in any tab could write into this console.
    */
-  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const ownFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const onConsoleRef = useRef(onConsole);
+  onConsoleRef.current = onConsole;
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      const frame = frameRef.current;
+      const frame = ownFrameRef.current;
       if (!frame || event.source !== frame.contentWindow) return;
       const data = event.data;
       if (!data || data.source !== 'willow-canvas-preview') return;
-      if (data.kind === 'error') console.warn(`[canvas preview] ${doc.title}: ${data.detail}`);
+      if (data.kind === 'error') {
+        console.warn(`[canvas preview] ${doc.title}: ${data.detail}`);
+        onConsoleRef.current?.({ level: 'error', text: String(data.detail) });
+      } else if (data.kind === 'console') {
+        onConsoleRef.current?.({ level: String(data.level || 'log'), text: String(data.detail) });
+      }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [doc.title]);
 
+  /*
+   * Inset > 0 is the panel: Monaco's box sits `inset` in from each side of the body
+   * (`.xap-monaco-container` is padded 0 48px), dark only inside it, with the panel's
+   * own surface in the margins, and its first line `inset` down. Inset 0 is the card,
+   * edge to edge.
+   */
+  const pad = inset > 0 ? `${inset}px 0` : 0;
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col bg-[rgb(20,20,20)]">
+    <div className={`relative flex min-h-0 flex-1 flex-col ${inset > 0 ? '' : 'bg-[rgb(20,20,20)]'}`}>
       {previewable && previewMounted && (
         <iframe
-          ref={frameRef}
-          /* `aria-label`, NOT `title`: an iframe's title doubles as a native
-             tooltip, so hovering anywhere in a running preview popped up the
-             document's name — the panel already shows that name in its header. */
+          ref={(node) => {
+            ownFrameRef.current = node;
+            if (externalFrameRef) externalFrameRef.current = node;
+          }}
+          /* `aria-label`, NOT `title`: an iframe's title doubles as a native tooltip,
+             so hovering anywhere in a running preview popped up the document's name. */
           aria-label={`${doc.title} preview`}
-          /* NO `bg-white` HERE, AND THAT IS THE FIX FOR A WHITE HAIRLINE.
-             A sub-frame rasterises on whole device pixels, but this card's edges do
-             not sit on one: the bleeding card is `calc(100% + 245.6px)` wide and
-             centred by `translateX(-50%)`, so its inner edge lands mid-pixel (the
-             same snapping asymmetry as the Spark timeline connector). The frame's
-             own raster starts at the next whole pixel, and whatever the ELEMENT's
-             background is paints in the ~1px it left over — reported as a white
-             vertical line down the left of a running preview.
-             Removing it is safe rather than a trade: a document's white base
-             background is painted by the sub-frame itself, not by this element, so
-             a document that declares no background of its own still comes up white.
-             This background was only ever visible in the seam, and in the seam the
-             shell's `rgb(20,20,20)` is what should show. */
+          /* No background of its own: a sub-frame rasterises on whole device pixels,
+             and the element's background would paint in the sub-pixel seam the
+             bleeding card leaves — a white hairline down the preview's left edge. */
           className={
             showPreview
               ? `h-full w-full border-0 transition-opacity duration-200 ${
@@ -858,31 +826,21 @@ export const CanvasCodeView: React.FC<{
           srcDoc={previewSource}
         />
       )}
-      {/* `.smd-code-tokens` is the hljs PALETTE and nothing else. This used to say
-          `.smd-code-block`, which carried the palette and the whole markdown block
-          with it: `overflow: clip` (so neither axis could be scrolled, by wheel or
-          by script — the reported "I still cant scroll down vertically or
-          horizontally"), `margin: 16px -16px 0`, a 40px radius, `rgb(23,23,23)` and
-          32px of padding fighting `inset`. The metrics here are the canvas's own
-          14/19, not the markdown block's 14/21. */}
+      {showPreview && overlay}
+      {/* `.cv-code-tokens` is the Monaco palette and nothing else — the scroller owns
+          its own overflow in both axes. */}
       <div
         className={
           wantPreview
             ? 'hidden'
-            : 'smd-code-tokens gemini-chat-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain'
+            : 'cv-code-tokens gemini-chat-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain bg-[rgb(20,20,20)]'
         }
+        style={wantPreview || inset === 0 ? undefined : { marginLeft: inset, marginRight: inset }}
       >
-        {/* Editing is a TEXTAREA UNDER THE HIGHLIGHTING, not a contenteditable.
-            The two share one box: the `<pre>` sizes it and paints the tokens, the
-            textarea sits on top with transparent text and a visible caret, so
-            selection, undo, IME, autoscroll-to-caret and every keyboard habit are
-            the browser's own rather than reimplemented. `w-max` on the wrapper is
-            what makes the pair scroll horizontally as one thing — the textarea is
-            `inset-0` of the widest line, not of the viewport. */}
         <div className={`relative ${editable ? 'w-max min-w-full' : ''}`}>
           <pre
             className="m-0 w-max min-w-full bg-transparent"
-            style={{ padding: inset }}
+            style={{ padding: pad }}
             aria-hidden={editable || undefined}
           >
             <code
@@ -902,7 +860,7 @@ export const CanvasCodeView: React.FC<{
                 + 'text-transparent caret-white selection:bg-[rgba(255,255,255,0.22)] '
                 + CANVAS_CODE_FONT_CLASS
               }
-              style={{ padding: inset }}
+              style={{ padding: pad }}
             />
           )}
         </div>
@@ -910,84 +868,3 @@ export const CanvasCodeView: React.FC<{
     </div>
   );
 };
-
-/**
- * The prose panel's quick-actions rail.
- *
- * `immersive-editor-side-panel` `1432,64,84,582.79` — `position: sticky; top: 0`,
- * `padding-left: 24px`, `min-width: 64px` — holding
- * `div.immersive-editor-quick-actions.gds-elevation-3` `1456,64,40,136`:
- * `border-radius: 9999px`, `background: rgb(19,19,20)`, and the elevation-3 triple
- * shadow spelled out below. Inside it, `div.action-buttons-container` is `40x128`
- * with `padding: 4px 0` and `gap: 4px`, holding three 40x40 fabs — `Length` at
- * y=68, `Tone` at 112, `Suggest` at 156, i.e. a 44px pitch. 40*3 + 4*2 + 4 + 4 = 136.
- *
- * Two departures, both deliberate:
- *
- *  - Gemini's container is `overflow: hidden`, which clips its fabs' ripples. It
- *    would also clip a menu opening out of it, so it is dropped here.
- *  - The glyphs and the menu contents are Willow's. The rail was captured as three
- *    labelled buttons; neither the icon ligatures nor the menus behind them were
- *    read, so these are plain Material Symbols and the items are the edits the
- *    labels promise. Each one sends an ordinary follow-up prompt, which is what
- *    makes them work at all: the canvas tool already handles "make it shorter" as a
- *    targeted update to the current document.
- */
-export const CanvasQuickActions: React.FC<{ onPrompt: (text: string) => void }> = ({ onPrompt }) => (
-  <div className="sticky top-0 flex shrink-0 justify-end self-start pl-6">
-    <div
-      className="flex w-10 flex-col items-center rounded-full bg-[rgb(19,19,20)] py-1"
-      style={{
-        boxShadow:
-          'rgba(0,0,0,.2) 0 3px 5px -1px, rgba(0,0,0,.14) 0 6px 10px 0, rgba(0,0,0,.12) 0 1px 18px 0',
-      }}
-    >
-      <div className="flex flex-col gap-1">
-        <CanvasMenuFab
-          icon="format_line_spacing"
-          label="Length"
-          items={[
-            { id: 'shorter', label: 'Shorter', icon: 'compress', onSelect: () => onPrompt('Make the canvas shorter, keeping every key point.') },
-            { id: 'longer', label: 'Longer', icon: 'expand', onSelect: () => onPrompt('Make the canvas longer, adding useful detail rather than filler.') },
-          ]}
-        />
-        <CanvasMenuFab
-          icon="mood"
-          label="Tone"
-          items={[
-            { id: 'professional', label: 'More professional', icon: 'work', onSelect: () => onPrompt('Rewrite the canvas in a more professional tone.') },
-            { id: 'casual', label: 'More casual', icon: 'chat_bubble', onSelect: () => onPrompt('Rewrite the canvas in a more casual, conversational tone.') },
-            { id: 'simpler', label: 'Simpler language', icon: 'school', onSelect: () => onPrompt('Rewrite the canvas in simpler language, without losing accuracy.') },
-          ]}
-        />
-        <CanvasMenuFab
-          icon="edit_note"
-          label="Suggest"
-          items={[
-            { id: 'suggest', label: 'Suggest edits', icon: 'lightbulb', onSelect: () => onPrompt('Suggest specific edits that would improve the canvas, then apply the ones you are confident about.') },
-            { id: 'proofread', label: 'Proofread', icon: 'spellcheck', onSelect: () => onPrompt('Proofread the canvas and fix any spelling, grammar or consistency problems.') },
-          ]}
-        />
-      </div>
-    </div>
-  </div>
-);
-
-/** Export (prose) and Download (code) share one builder so the panel and the card
- *  cannot drift apart on what those buttons do. */
-export const canvasExportItems = (doc: CanvasDoc, content: string): CanvasMenuItem[] => [
-  {
-    id: 'copy',
-    label: doc.kind === 'code' ? 'Copy code' : 'Copy as Markdown',
-    icon: 'content_copy',
-    family: 'google-symbols',
-    onSelect: () => { void copyCanvas(content); },
-  },
-  {
-    id: 'download',
-    label: `Download ${canvasFileName(doc)}`,
-    icon: 'download',
-    family: 'google-symbols',
-    onSelect: () => downloadCanvas(doc, content),
-  },
-];

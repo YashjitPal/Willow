@@ -157,11 +157,13 @@ describe('anthropic search tools', () => {
 
   it('degrades to a plain turn rather than an error when search is off', () => {
     const chat = CHAT();
-    // The spread is what makes this a degrade: no `tools` key at all, rather than
-    // an empty array, which some endpoints also reject.
+    // `tools` is rebuilt on every attempt, since the degrade ladder can drop
+    // search mid-turn, and is spread in only when non-empty. That is what makes
+    // this a degrade: no `tools` key at all, rather than an empty array, which
+    // some endpoints also reject.
     assert.match(
       chat,
-      /\.\.\.\(anthropicTools\.length \? \{ tools: anthropicTools as any \} : \{\}\),/,
+      /const tools = buildAnthropicTools\(\);\s*return tools\.length \? \{ tools: tools as any \} : \{\};/,
       'an empty `tools: []` is not the same request as no `tools` key',
     );
     assert.ok(

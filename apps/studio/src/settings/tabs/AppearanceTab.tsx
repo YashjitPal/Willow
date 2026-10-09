@@ -8,7 +8,7 @@ import { useBackground } from '../../shell/BackgroundContext';
 const THEME_STORAGE_KEY = 'willow_theme';
 
 export const AppearanceTab: React.FC = () => {
-  const { userProfile, updateUserProfile } = useAuth();
+  const { workspaceColor, setWorkspaceColor } = useAuth();
   const { background, setBackground } = useBackground();
   const { themeChoice, isLight, setThemeChoice } = useThemeMode();
 
@@ -22,11 +22,11 @@ export const AppearanceTab: React.FC = () => {
   };
 
   // 2. Accent Color State
-  const activeColorId = userProfile?.workspaceColor || 'green';
+  const activeColorId = workspaceColor;
 
   const handleColorSelect = (colorId: string) => {
-    void updateUserProfile({ workspaceColor: colorId as any }).catch(() => {
-      /* guest mode fallback */
+    void setWorkspaceColor(colorId as typeof workspaceColor).catch(() => {
+      /* offline: this device keeps the colour regardless */
     });
   };
 
@@ -249,7 +249,7 @@ export const AppearanceTab: React.FC = () => {
                   : (isLight ? 'border-black/10 hover:border-black/20 hover:bg-black/[0.02]' : 'border-white/10 hover:border-white/20 hover:bg-white/[0.03]')
               }`}
             >
-              <div className={`h-20 w-full rounded-xl overflow-hidden mb-3.5 border ${isLight ? 'border-black/10' : 'border-white/10'} bg-gradient-to-tr from-[#D94080]/60 via-[#4099FF]/60 to-[#1f1f1f] flex items-center justify-center`}>
+              <div className={`h-20 w-full rounded-xl overflow-hidden mb-3.5 border ${isLight ? 'border-black/10' : 'border-white/10'} bg-gradient-to-tr from-[#D94080]/60 via-[color:var(--sync-4099ff,#4099FF)]/60 to-[#1f1f1f] flex items-center justify-center`}>
                 <Waves size={24} className="text-white/80" />
               </div>
               <div className="flex items-center justify-between">

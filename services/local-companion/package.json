@@ -10,7 +10,9 @@
   "scripts": {
     "start": "node src/index.mjs",
     "dev": "node --watch src/index.mjs",
-    "test": "node test/smoke.mjs"
+    "test": "node test/smoke.mjs",
+    "spark": "node --test test/spark-runtime.test.mjs",
+    "computers": "node test/computers-smoke.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.55.0",

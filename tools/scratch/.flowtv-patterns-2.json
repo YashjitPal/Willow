@@ -1,0 +1,1 @@
+["\\(0,[A-Za-z]\\.[A-Za-z]\\)\\(\"(Arrow[A-Za-z]+|Key[A-Z]|Space| |Escape|Enter)\"", "videoHasControls|hasControls", "showCaptions", "goToNextChannelGeneration=|goToPreviousChannelGeneration", "random", "\"shuffle-all\"|Shuffle All"]

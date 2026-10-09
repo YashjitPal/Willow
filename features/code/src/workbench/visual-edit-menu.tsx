@@ -45,7 +45,7 @@ import {
 } from '../visual-editing/engine/index';
 import { ColorPickerMenu } from '@willow/design/ColorPickerMenu';
 import { VisualEditorSelectMenu } from '../visual-editing/VisualEditorSelectMenu';
-import { sandpackStore } from '../runtime/sandpack/sandpack-store';
+import { useCodeSession } from '../session/code-session';
 import {
   VisualEditsIcon,
   MarginLeftIcon,
@@ -135,7 +135,7 @@ const VisualEditMenu = ({ onBack, isCompact = false }: { onBack: () => void; isC
   const isReady = useStore(inspectorReady);
   const scanning = useStore(isScanning);
   const saving = useStore(isSaving);
-  const files = useStore(sandpackStore.files);
+  const files = useStore(useCodeSession().workbench.files);
   const selection = useStore(selectedElement);
   const selectedEls = useStore(selectedElements);
   const isEditing = useStore(isVisualEditing); // Track visual edit state

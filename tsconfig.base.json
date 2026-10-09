@@ -32,6 +32,7 @@
       "@willow/media/*": ["features/media/src/*"],
       "@willow/agent-builder/*": ["features/agent-builder/src/*"],
       "@willow/spark/*": ["features/spark/src/*"],
+      "@willow/harness/*": ["features/harness/src/*"],
       "@willow/design/*": ["features/design/src/*"],
       "@willow/figma/*": ["features/figma/src/*"],
       "@willow/onboarding/*": ["features/onboarding/src/*"],

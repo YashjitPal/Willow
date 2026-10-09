@@ -26,7 +26,7 @@ export const useProviderSettings = (setModelConfig: React.Dispatch<React.SetStat
   const providerState = useStore($providerState);
   const uid = user?.uid ?? null;
 
-  // Clear the previous account's keys before the browser paints the new account.
+  // Re-point the store before the browser paints the new account.
   React.useLayoutEffect(() => {
     resetProviderScope(uid);
   }, [uid]);

@@ -165,7 +165,9 @@ it('Gems registers itself by importing its register module, and round-trips', as
     name: 'Research Helper',
     description: 'Finds sources',
     instructions: 'Be rigorous.',
-    defaultTool: 'No default tool',
+    defaultTool: 'research',
+    knowledge: [{ id: 'k1', name: 'notes.md', mimeType: 'text/markdown', size: 12, content: '# Notes', addedAt: 3 }],
+    hideCitations: true,
     createdAt: 1,
     updatedAt: 2,
   };
@@ -178,6 +180,19 @@ it('Gems registers itself by importing its register module, and round-trips', as
   gemsModule.gemsStore.set([]);
   await gems.applyRemote(local, { scopeId: 'test' });
   assert.deepEqual(gemsModule.gemsStore.get(), [gem], 'a disk round trip must not lose fields');
+});
+
+it('Gems still reads a file written before default tools and knowledge existed', async () => {
+  const gems = await loadGemsDescriptor();
+  gemsModule.gemsStore.set([]);
+  await gems.applyRemote([{
+    id: 'Old',
+    contents: JSON.stringify({ name: 'Old', description: '', instructions: 'Hi', defaultTool: 'No default tool', createdAt: 1, updatedAt: 1 }),
+  }], { scopeId: 'test' });
+  const [old] = gemsModule.gemsStore.get();
+  assert.equal(old.defaultTool, 'none', 'the old menu label means no default tool');
+  assert.deepEqual(old.knowledge, []);
+  assert.equal(old.hideCitations, false);
 });
 
 it('Gems skips a malformed file instead of throwing the whole pass', async () => {

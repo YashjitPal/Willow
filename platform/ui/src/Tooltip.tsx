@@ -124,7 +124,7 @@ function getOverlayContainer(): HTMLElement {
 
 type Phase = 'hidden' | 'shown' | 'hiding';
 
-interface TooltipOverlayProps {
+export interface TooltipOverlayProps {
   anchor: HTMLElement | null;
   content: React.ReactNode;
   position: TooltipPosition;
@@ -137,9 +137,10 @@ interface TooltipOverlayProps {
 /**
  * The floating half: portal, placement, and the show/hide animation. Shared by
  * `Tooltip` and `GlobalTooltips` so there is exactly one implementation of the
- * measured geometry.
+ * measured geometry, and exported for anything that decides on its own when a
+ * tooltip shows (the desktop app's rail and window strip).
  */
-function TooltipOverlay({
+export function TooltipOverlay({
   anchor,
   content,
   position,
@@ -389,8 +390,6 @@ export function Tooltip({
     }
   }, []);
 
-  if (!active) return children;
-
   const chain = (existing: unknown, ours: () => void) => (event: React.SyntheticEvent) => {
     (existing as ((e: React.SyntheticEvent) => void) | undefined)?.(event);
     ours();
@@ -398,7 +397,10 @@ export function Tooltip({
 
   const describedBy = [child.props['aria-describedby'], descriptionId].filter(Boolean).join(' ');
 
-  const trigger = React.cloneElement(child, {
+  // Inactive, the child renders untouched but in the same tree position, so toggling `disabled`
+  // neither remounts it nor cuts the tooltip off mid-show: MatTooltip plays its hide animation
+  // when disabled while open, and so does this.
+  const trigger = !active ? children : React.cloneElement(child, {
     ref: attachAnchor,
     'aria-describedby': describedBy,
     onMouseEnter: chain(child.props.onMouseEnter, () => setOpen(true)),
@@ -420,9 +422,9 @@ export function Tooltip({
         anchor={anchor}
         content={content}
         position={position}
-        open={open}
+        open={open && active}
         className={className}
-        descriptionId={descriptionId}
+        descriptionId={active ? descriptionId : undefined}
       />
     </>
   );

@@ -208,6 +208,7 @@ it('matches the measured typography of Gemini\'s summary line', () => {
   assert.match(base, /font-size:\s*17px/);
   assert.match(base, /line-height:\s*24px/);
   assert.match(base, /font-weight:\s*400/);
+  assert.match(base, /font-variation-settings:\s*'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400/);
   assert.match(base, /letter-spacing:\s*normal/);
   assert.match(base, /color:\s*rgb\(227,\s*227,\s*227\)/);
   assert.match(base, /display:\s*inline-flex/);

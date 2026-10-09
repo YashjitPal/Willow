@@ -34,7 +34,7 @@
   position: absolute;
   inset: 0;
   z-index: 10;
-  border-radius: 18px;
+  border-radius: 16px;
 }
 
 /*
@@ -49,7 +49,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 18px;
+  border-radius: 16px;
   pointer-events: none;
   backdrop-filter: blur(80px);
 }
@@ -167,6 +167,117 @@
 @keyframes gallery-tile-chrome-out {
   from { opacity: 1; }
   to   { opacity: 0; }
+}
+
+/* ------------------------------------------------------------------ *
+ * A finished tile's chrome (flow-image-tile / flow-video-tile), measured off the live grid:
+ * the badges at rest fade out as the hotbar and the footer fade in, both over 0.2s. The hotbar
+ * itself is the shared Flow hotbar (`sb-hotbar`, scenes/scene-tile.css).
+ * ------------------------------------------------------------------ */
+
+.gt-pre,
+.gt-hover {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.gt-pre {
+  z-index: 20;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear 0s;
+}
+
+.gt-hover {
+  z-index: 30;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear 0.2s;
+}
+
+.group:hover .gt-pre {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear 0.2s;
+}
+
+.group:hover .gt-hover,
+.gt-hover.is-menu-open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear 0s;
+}
+
+/* A touch screen's lasting three dots (media-responsive.css shows them under `hover: none`). */
+.gt-touch-more {
+  display: none;
+}
+
+/* A video's type badge, top left; filled play_circle at 22px. */
+.gt-type {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px;
+  color: rgb(241, 243, 244);
+  filter: drop-shadow(rgba(0, 0, 0, 0.5) 0 0 2px);
+}
+
+/* Status, top right: `stacks` while the tile has edit history. */
+.gt-status {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px;
+  color: rgb(241, 243, 244);
+  filter: drop-shadow(rgba(0, 0, 0, 0.25) 0 1px 4px);
+}
+
+/* flow-tile-hover-footer: the kind and the name, over a gradient that only shows on hover. */
+.gt-footer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  box-sizing: border-box;
+  height: 70px;
+  padding: 40px 12px 12px;
+  isolation: isolate;
+}
+
+.gt-footer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.04) 20%, rgba(0, 0, 0, 0.12) 40%, rgba(0, 0, 0, 0.25) 60%, rgba(0, 0, 0, 0.4) 80%, rgba(0, 0, 0, 0.5));
+}
+
+.gt-footer__left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: rgb(241, 243, 244);
+}
+
+.gt-footer__title {
+  overflow: hidden;
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 @media (prefers-reduced-motion: reduce) {

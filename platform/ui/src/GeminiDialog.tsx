@@ -34,6 +34,11 @@ export interface GeminiDialogProps {
   actions?: React.ReactNode;
   /** Measured 512 for Rename, 600 for Delete. */
   width?: number;
+  /**
+   * Gemini's `message-dialog`, a confirmation. Below 961px it narrows to its mobile
+   * panel: at most 332px wide, with equal-width 48px pills (see GeminiDialog.css).
+   */
+  message?: boolean;
   closing?: boolean;
   onDismiss: () => void;
 }
@@ -44,6 +49,7 @@ export const GeminiDialog: React.FC<GeminiDialogProps> = ({
   children,
   actions,
   width = 512,
+  message = false,
   closing = false,
   onDismiss,
 }) => {
@@ -76,7 +82,7 @@ export const GeminiDialog: React.FC<GeminiDialogProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`willow-gdlg-surface${shown && !closing ? ' willow-gdlg-surface--shown' : ''}${closing ? ' willow-gdlg-surface--closing' : ''}`}
+        className={`willow-gdlg-surface${shown && !closing ? ' willow-gdlg-surface--shown' : ''}${closing ? ' willow-gdlg-surface--closing' : ''}${message ? ' willow-gdlg-surface--message' : ''}`}
         style={{ maxWidth: width }}
         onClick={(e) => e.stopPropagation()}
       >

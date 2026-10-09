@@ -907,8 +907,14 @@ it('keeps the deferred blocks as comments rather than losing them', async () => 
   // into. The source they came from was never committed, so if these go, the
   // text is gone; that is what this test is really protecting.
   const chatModel = fs.readFileSync(chatSrc('chat-model.ts'), 'utf8');
-  const mediaView = fs.readFileSync(
-    path.join(repoRoot, 'features', 'media', 'src', 'MediaView.tsx'),
+  // The media agent's prompt is built in agent-tools.ts and its turns run in
+  // agent-session.ts; both moved out of MediaView.tsx with the agent rewrite.
+  const mediaPrompt = fs.readFileSync(
+    path.join(repoRoot, 'features', 'media', 'src', 'agent', 'agent-tools.ts'),
+    'utf8',
+  );
+  const mediaSession = fs.readFileSync(
+    path.join(repoRoot, 'features', 'media', 'src', 'agent', 'agent-session.ts'),
     'utf8',
   );
 
@@ -919,8 +925,8 @@ it('keeps the deferred blocks as comments rather than losing them', async () => 
   // The media block lives at the media agent's prompt instead, because that is
   // the one surface with `enableMediaTools` on — a chat turn carrying it would
   // announce a render that never lands, which is the whole reason for the split.
-  assert.match(mediaView, /music_generation/, 'the deferred media block went missing');
-  assert.match(mediaView, /enableMediaTools: true/, 'the media block lost its executor');
+  assert.match(mediaPrompt, /music_generation/, 'the deferred media block went missing');
+  assert.match(mediaSession, /enableMediaTools: true/, 'the media block lost its executor');
 
   // Comments, not code. `codeOnly` strips block comments, so if a block ever
   // becomes a live string constant it shows up here — which matters because a
@@ -930,14 +936,14 @@ it('keeps the deferred blocks as comments rather than losing them', async () => 
     assert.ok(!block.test(chatCode), `a deferred block became live code: ${block}`);
   }
   assert.ok(
-    !/music_generation/.test(codeOnly(mediaView)),
+    !/music_generation/.test(codeOnly(mediaPrompt)),
     'the deferred media block became live code',
   );
 
   // Stored already converted, so pasting one back cannot silently reintroduce
   // the source's plan tiers into a shipped prompt.
   for (const dead of [/\bAI Plus\b/, /\bUltra\b/, /subscriber/i, /\bQuota:/]) {
-    for (const [name, source] of [['chat-model.ts', chatModel], ['MediaView.tsx', mediaView]]) {
+    for (const [name, source] of [['chat-model.ts', chatModel], ['agent-tools.ts', mediaPrompt]]) {
       assert.ok(!dead.test(source), `${name} still carries tier language: ${dead}`);
     }
   }

@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import './SparkScheduleEditor.css';
 
 export const SPARK_SCHEDULE_WEEKDAYS = [
@@ -70,13 +71,37 @@ const TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
  * because `spark-store` parses it when computing the next run — only the label is
  * localised.
  */
-export const formatSparkScheduleTime = (value: string): string => {
+/**
+ * A select's trailing arrow. At 960px and below Gemini's `mat-select` draws Material's
+ * 24px drop-down triangle (an SVG — the glyph is not in Willow's Luminous subset).
+ */
+const SelectArrow: React.FC<{ compact: boolean }> = ({ compact }) => (compact ? (
+  <svg className="spark-schedule-editor__select-arrow" viewBox="0 0 24 24" width={24} height={24} aria-hidden="true" focusable="false">
+    <path d="M7 10l5 5 5-5z" fill="currentColor" />
+  </svg>
+) : (
+  <MaterialSymbol family="luminous" name="expand_more" size={20} weight={320} roundness={100} opticalSize={20} />
+));
+
+/** `compact` is Gemini's <=960px list, which writes the en-US "8:00 AM". */
+export const formatSparkScheduleTime = (value: string, compact = false): string => {
   const [rawHour, rawMinute] = value.split(':');
   const hour = Number(rawHour);
   if (!Number.isFinite(hour)) return value;
-  const suffix = hour < 12 ? 'am' : 'pm';
+  const suffix = compact ? (hour < 12 ? 'AM' : 'PM') : (hour < 12 ? 'am' : 'pm');
   const displayHour = hour % 12 === 0 ? 12 : hour % 12;
   return `${displayHour}:${rawMinute ?? '00'} ${suffix}`;
+};
+
+/** A schedule's one-line trigger, e.g. "Daily around 8:00 AM" or "Weekly on Mon, Fri around 9:00 am". */
+export const formatSparkScheduleTrigger = (
+  schedule: { frequency: string; weekdays: readonly string[]; time: string },
+  compact = false,
+): string => {
+  const days = schedule.frequency === 'Weekly' && schedule.weekdays.length
+    ? ` on ${schedule.weekdays.join(', ')}`
+    : '';
+  return `${schedule.frequency}${days} around ${formatSparkScheduleTime(schedule.time, compact)}`;
 };
 
 const createInitialDraft = (
@@ -115,6 +140,7 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
   onSubmit,
 }) => {
   const [draft, setDraft] = useState<SparkScheduleDraft>(() => createInitialDraft(initialDraft));
+  const isCompact = useCompactViewport();
   const headingId = useId();
   const titleId = useId();
   const whenId = useId();
@@ -406,14 +432,7 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
                   <option value="Daily">Daily</option>
                   <option value="Weekly">Weekly</option>
                 </select>
-                <MaterialSymbol
-                  family="luminous"
-                  name="expand_more"
-                  size={20}
-                  weight={320}
-                  roundness={100}
-                  opticalSize={20}
-                />
+                <SelectArrow compact={isCompact} />
               </label>
 
               {/* Gemini spells the row out: "Weekly on S M T W T F S around 9:00 am". */}
@@ -455,17 +474,10 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
                   }))}
                 >
                   {TIME_OPTIONS.map((time) => (
-                    <option key={time} value={time}>{formatSparkScheduleTime(time)}</option>
+                    <option key={time} value={time}>{formatSparkScheduleTime(time, isCompact)}</option>
                   ))}
                 </select>
-                <MaterialSymbol
-                  family="luminous"
-                  name="expand_more"
-                  size={20}
-                  weight={320}
-                  roundness={100}
-                  opticalSize={20}
-                />
+                <SelectArrow compact={isCompact} />
               </label>
             </div>
 

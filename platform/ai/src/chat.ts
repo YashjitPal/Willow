@@ -85,18 +85,18 @@ export interface AiOptions {
   signal?: AbortSignal;
   maxToolIterations?: number;
   /**
-   * Opt in to the media-agent harness: the generate_image / generate_video tool
-   * suite and its system instruction. Off by default, and it must stay that way.
-   * Normal chat has no executor for these tools, so offering them just makes the
-   * model announce generations that never happen. Only the media agent, which
-   * passes a real `onToolCall`, may turn this on.
+   * Marks a Media agent turn, and keeps it on the GenerateContent stream: the
+   * Interactions path returns no history, and the agent's next turn continues
+   * from the history this one returns. It declares nothing by itself. The
+   * agent's tools arrive through `toolDeclarations`, each with an executor in
+   * `features/media/src/agent/`. Off for every other caller.
    */
   enableMediaTools?: boolean;
   /**
    * Declare the personalization tools: `retrieve_personal_data`, plus the action
    * tools for whichever Google products are connected.
    *
-   * Same rule as `enableMediaTools` and for the same reason — a declared tool
+   * Same rule as the Media agent's tools and for the same reason — a declared tool
    * with no executor behind it produces a model that announces work it never
    * did. The caller passes the already-built declarations rather than a boolean
    * so this file keeps knowing nothing about profiles, connectors or OAuth;
@@ -551,232 +551,37 @@ async function resolveGeminiFilePart(
   }
 }
 
-// ============ MAIN STREAM CHAT FUNCTION ============
-// ============ AGENT HARNESS MOCK EXECUTION LAYER ============
-export const mockExecuteTool = (name: string, args: any): any => {
-  console.log(`[Agent Harness] Executing tool: ${name}`, args);
-  switch (name) {
-    case "generate_image":
-      return {
-        media_id: `img_gen_${Math.random().toString(16).substring(2, 10)}`,
-        status: "success",
-        url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600",
-        aspect_ratio: args.aspect_ratio || "16:9",
-        generator: args.model === "gemini-3-pro-image-preview" ? "Nano Banana Pro" :
-                   args.model === "gemini-3.1-flash-lite-image" ? "Nano Banana Lite" : "Nano Banana 2",
-        batch_size: args.batch_size || "1x",
-        credits_spent: args.model === "gemini-3-pro-image-preview" ? 2 : 1,
-        lineage: args.references && args.references.length > 0 ? "forked_from_reference" : "original"
-      };
+/**
+ * A message's attachments as Gemini parts, in order. Uploads run concurrently: each one is a
+ * Files API round trip, and a turn carrying several images used to wait on them in series.
+ * An image that names its canvas ID is preceded by that label, which the Media agent relies
+ * on to tell gallery images apart.
+ */
+async function geminiAttachmentParts(
+  apiKey: string,
+  attachments: Attachment[],
+  signal: AbortSignal | undefined,
+  filesOrigin: string,
+): Promise<any[]> {
+  const resolved = await Promise.all(attachments.map((att) => resolveGeminiFilePart(apiKey, att, signal, filesOrigin)));
+  return attachments.flatMap((att: any, index) => {
+    const label = att.type === 'image' && (att.id || att.name)
+      ? [{ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` }]
+      : [];
+    return [...label, resolved[index]];
+  });
+}
 
-    case "generate_video_from_text":
-      return {
-        media_id: `vid_gen_${Math.random().toString(16).substring(2, 10)}`,
-        status: "pending",
-        duration: args.duration || "10s",
-        aspect_ratio: args.aspect_ratio || "16:9",
-        generator: args.model || "Omni Flash",
-        credits_spent: args.model === "omni-flash" ? 15 : 10,
-        camera_movement: args.camera_movement || "none",
-        audio_attached: args.audio_track_id ? "yes" : "no"
-      };
-
-    case "generate_video_with_first_frame":
-      return {
-        media_id: `vid_i2v_${Math.random().toString(16).substring(2, 10)}`,
-        status: "pending",
-        first_frame_id: args.first_frame_id,
-        generator: args.model || "Omni Flash",
-        credits_spent: 12,
-        prompt_influence: args.prompt || "default motion"
-      };
-
-    case "generate_video_with_interpolation":
-      return {
-        media_id: `vid_interp_${Math.random().toString(16).substring(2, 10)}`,
-        status: "pending",
-        start_frame_id: args.start_frame_id,
-        end_frame_id: args.end_frame_id,
-        generator: "Veo 3.1",
-        credits_spent: 18,
-        interpolation_guidance: args.prompt || "smooth morphing"
-      };
-
-    case "generate_video_with_references":
-      return {
-        media_id: `vid_ref_${Math.random().toString(16).substring(2, 10)}`,
-        status: "pending",
-        visual_references_used: args.visual_references?.length || 0,
-        audio_references_used: args.audio_references?.length || 0,
-        generator: "Omni Flash",
-        credits_spent: 20
-      };
-
-    case "generate_video_edit_video":
-      return {
-        media_id: `vid_v2v_${Math.random().toString(16).substring(2, 10)}`,
-        status: "pending",
-        source_video_id: args.video_id,
-        generator: "Omni Flash",
-        credits_spent: 15,
-        instruction_applied: args.prompt
-      };
-
-    case "check_video_generation_status":
-      return {
-        media_id: args.media_id,
-        status: "completed",
-        url: "https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4",
-        duration_actual: "10.0s",
-        resolution: "1080p",
-        aspect_ratio: "16:9",
-        message: "Video generated successfully after 1 step polling."
-      };
-
-    case "storyboard_writer": {
-      const scenesCount = args.num_scenes || 2;
-      const concept = args.concept || "Unknown Theme";
-      const scenes = [];
-      for (let i = 1; i <= scenesCount; i++) {
-        scenes.push({
-          scene_number: i,
-          visual_description: `Detailed scene ${i} rendering the concept: ${concept}`,
-          camera_movement: i % 2 === 0 ? "Slow pan left to right with slight tilt" : "Macro zoom-in focus onto key focal elements",
-          estimated_duration: `${4 + i}s`,
-          prompt_directive: `cinematic photorealistic masterpiece, concept of ${concept}, scene ${i}, 8k resolution`
-        });
-      }
-      return {
-        concept_summary: `Storyboard Plan: ${concept}`,
-        total_scenes: scenesCount,
-        scenes
-      };
-    }
-
-    case "analyze_artifact":
-      return {
-        media_id: args.media_id,
-        query_processed: args.query,
-        dimensions: "1024x576 (16:9)",
-        dominant_color_palette: ["deep indigo", "vibrant magenta", "neon teal"],
-        visual_elements_detected: [
-          { label: "mystical atmospheric dust", confidence: 0.95 },
-          { label: "high fidelity volumetric light ray", confidence: 0.92 }
-        ],
-        composition_analysis: "Stunning modern visual composition showcasing strong contrasts and beautiful cinematic grading. Highly detailed textures."
-      };
-
-    case "list_project_artifacts":
-      return {
-        project_id: "proj_willow_dashboard",
-        total_assets: 4,
-        assets: [
-          { id: "img_kai_ref", type: "image", aspect_ratio: "16:9", source: "user_upload", created_at: "2026-06-29" },
-          { id: "img_luna_ref", type: "image", aspect_ratio: "16:9", source: "user_upload", created_at: "2026-06-29" },
-          { id: "img_neon_forest", type: "image", aspect_ratio: "16:9", source: "generated", created_at: "2026-06-29" },
-          { id: "vid_cyberpunk_street", type: "video", duration: "10s", source: "generated", created_at: "2026-06-29" }
-        ],
-        collections: [
-          { id: "coll_concept_art", name: "Concept Art", item_count: 2 }
-        ]
-      };
-
-    case "list_character_entities":
-      return {
-        characters: [
-          { id: "char_kai_shadow", name: "Kai Shadow", description: "Cyberpunk protagonist with glowing blue scars and black trench coat.", visual_ref_id: "img_kai_ref", voice_ref_id: "voice_kai_deep" },
-          { id: "char_luna_star", name: "Luna", description: "Ethereal astronaut with a helmet reflecting distant nebulae.", visual_ref_id: "img_luna_ref", voice_ref_id: "voice_luna_soft" }
-        ]
-      };
-
-    case "list_voice_ingredients":
-      return {
-        voices: [
-          { id: "voice_kai_deep", name: "Kai Deep", gender: "male", tone: "gravelly, stoic, slow-paced" },
-          { id: "voice_luna_soft", name: "Luna Soft", gender: "female", tone: "whispery, calm, melodious" }
-        ]
-      };
-
-    case "list_likeness_avatars":
-      return {
-        regional_eligibility: "eligible",
-        country: "US",
-        avatars: [
-          { id: "avatar_yashjit_cyber", name: "Yashjit Cyber", registered_at: "2026-06-28", status: "active" }
-        ]
-      };
-
-    case "get_geo_grounding_image":
-      return {
-        location: args.location,
-        streetview_id: `sv_ground_${Math.floor(Math.random() * 9000 + 1000)}`,
-        image_url: "https://images.unsplash.com/photo-1518391846015-55a9cc003b25?q=80&w=600",
-        attribution_required: "Street View imagery © 2026 Google",
-        grounding_status: "grounded_successfully"
-      };
-
-    case "update_collection_membership":
-      return {
-        collection_id: args.collection_id || "coll_concept_art",
-        action: args.action || "add",
-        items_affected: args.item_ids?.length || 0,
-        status: "success",
-        message: "Successfully synchronized collection memberships. Items are organized properly."
-      };
-
-    case "rename_workflow":
-      return {
-        workflow_id: args.workflow_id,
-        new_name: args.new_name,
-        status: "success"
-      };
-
-    case "rename_collection":
-      return {
-        collection_id: args.collection_id,
-        new_name: args.new_name,
-        status: "success"
-      };
-
-    case "get_help_center_article":
-      return {
-        query: args.topic,
-        articles: [
-          {
-            title: `Understanding ${args.topic}`,
-            content: `The ${args.topic} feature is fully integrated with the creative co-pilot. For advanced capabilities, select the premium tiers (Pro/Ultra).`
-          }
-        ]
-      };
-
-    case "get_changelog_updates":
-      return {
-        version: "v2.5.0",
-        release_date: "2026-06-29",
-        updates: [
-          "Seamless client-side Agent Harness with custom tool-calling fully operational.",
-          "Enhanced sandbox execution environment for storyboard outputs and grounding imagery."
-        ]
-      };
-
-    case "open_chat_panel":
-      return {
-        panel_triggered: "chat_panel",
-        status: "opened"
-      };
-
-    default:
-      return {
-        status: "unknown_tool",
-        message: `Tool ${name} called but is not registered in mock harness.`
-      };
-  }
-};
 
 // Separate generator caller helper to stop the tsc flow-type analyzer from walking and overflowing on the loop body
 export const runStreamCall = async (modelInstance: any, history: any[], signal?: AbortSignal): Promise<any> => {
   throwIfAborted(signal);
-  return await modelInstance.generateContentStream({ contents: history }, signal ? { signal } : undefined);
+  const result = await modelInstance.generateContentStream({ contents: history }, signal ? { signal } : undefined);
+  // A stopped or broken stream rejects `response` as well as the stream. The loop reading the
+  // stream reports that error, and `response` is never awaited once it does, so this copy would
+  // otherwise surface as an unhandled rejection on every Stop.
+  result?.response?.catch?.(() => {});
+  return result;
 };
 
 class GeminiInteractionsUnsupportedError extends Error {
@@ -1614,286 +1419,9 @@ const streamChatImpl: any = async (
       }
     }
 
-    // The media-agent harness tools, offered only when the caller can execute
-    // them. Chat mode leaves this off so the model reaches for search instead of
-    // announcing an image generation nothing is wired to perform.
-    const mediaToolsEnabled = toolsAllowed && options.enableMediaTools === true;
-    if (mediaToolsEnabled) tools.push({
-      functionDeclarations: [
-        {
-          name: "generate_image",
-          description: "Handles text-to-image (T2I), image-to-image (I2I/editing), and reference-to-image (R2I/style transfer) workflows.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              prompt: { type: "STRING", description: "The descriptive text prompt for generating the image." },
-              aspect_ratio: { type: "STRING", description: "The aspect ratio for the image, e.g., '16:9', '1:1', '9:16', '4:3', '3:4'. Defaults to '16:9'." },
-              model: { type: "STRING", description: "Which model to use ('gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', or 'gemini-3.1-flash-lite-image')." },
-              batch_size: { type: "STRING", description: "Number of assets to generate: '1x', 'x2', 'x3', 'x4'." },
-              references: {
-                type: "ARRAY",
-                description: "List of style, character, or composition reference image IDs.",
-                items: { type: "STRING" }
-              }
-            },
-            required: ["prompt"]
-          }
-        },
-        {
-          name: "generate_video_from_text",
-          description: "Text-to-video (T2V) generation with style, camera, and audio conditioning.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              prompt: { type: "STRING", description: "Text description of the video." },
-              aspect_ratio: { type: "STRING", description: "Target aspect ratio: '16:9', '9:16'." },
-              model: { type: "STRING", description: "Video model to use: 'veo-3.1-fast', 'veo-3.1', 'veo-3.1-lite', 'omni-flash'." },
-              duration: { type: "STRING", description: "Video duration: '5s', '8s', '10s'." },
-              camera_movement: { type: "STRING", description: "Dynamic camera movement directives (e.g., pan, zoom, tilt, orbit)." },
-              audio_track_id: { type: "STRING", description: "Optional background audio or voice reference ID." }
-            },
-            required: ["prompt"]
-          }
-        },
-        {
-          name: "generate_video_with_first_frame",
-          description: "Image-to-video (I2V) animation using a starting frame image.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              first_frame_id: { type: "STRING", description: "The media ID of the starting image frame." },
-              prompt: { type: "STRING", description: "A detailed motion directive or text prompt for the animation." },
-              model: { type: "STRING", description: "Video model to use." }
-            },
-            required: ["first_frame_id"]
-          }
-        },
-        {
-          name: "generate_video_with_interpolation",
-          description: "Veo-only tool to interpolate/morph between a defined start and end frame.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              start_frame_id: { type: "STRING", description: "The media ID of the starting frame image." },
-              end_frame_id: { type: "STRING", description: "The media ID of the ending frame image." },
-              prompt: { type: "STRING", description: "Text directive guiding the transition interpolation." }
-            },
-            required: ["start_frame_id", "end_frame_id"]
-          }
-        },
-        {
-          name: "generate_video_with_references",
-          description: "Reference-to-video (R2V) for subject/character consistency and style transfer using images or audio.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              prompt: { type: "STRING", description: "Text instructions guiding the motion/scene." },
-              visual_references: {
-                type: "ARRAY",
-                description: "Array of image/video IDs to keep subject or style consistent.",
-                items: { type: "STRING" }
-              },
-              audio_references: {
-                type: "ARRAY",
-                description: "Array of audio track/voice IDs to keep speech or audio consistent.",
-                items: { type: "STRING" }
-              }
-            },
-            required: ["prompt"]
-          }
-        },
-        {
-          name: "generate_video_edit_video",
-          description: "Omni Flash exclusive: Video-to-video (V2V) transformation based on text descriptions.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              video_id: { type: "STRING", description: "The source video media ID to edit." },
-              prompt: { type: "STRING", description: "Text description of the styling/editing changes to make." }
-            },
-            required: ["video_id", "prompt"]
-          }
-        },
-        {
-          name: "check_video_generation_status",
-          description: "Polls the status of asynchronous video generation tasks.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              media_id: { type: "STRING", description: "The unique ID of the pending video asset." }
-            },
-            required: ["media_id"]
-          }
-        },
-        {
-          name: "storyboard_writer",
-          description: "Generates structured markdown and JSON scene plans for cinematic or informational content.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              concept: { type: "STRING", description: "Main theme, script concept, or video outline." },
-              num_scenes: { type: "INTEGER", description: "Number of scenes to write." }
-            },
-            required: ["concept"]
-          }
-        },
-        {
-          name: "analyze_artifact",
-          description: "Performs visual analysis or answers specific queries about image/video artifacts via media ID.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              media_id: { type: "STRING", description: "The media ID of the asset to analyze." },
-              query: { type: "STRING", description: "Specific question or analysis request about the asset." }
-            },
-            required: ["media_id", "query"]
-          }
-        },
-        {
-          name: "list_project_artifacts",
-          description: "Fetches inventory of all assets, workflows, and collections in the current project.",
-          parameters: { type: "OBJECT", properties: {} }
-        },
-        {
-          name: "list_character_entities",
-          description: "Retrieves defined character entities including visual and voice reference IDs.",
-          parameters: { type: "OBJECT", properties: {} }
-        },
-        {
-          name: "list_voice_ingredients",
-          description: "Lists available audio references for speech characteristics.",
-          parameters: { type: "OBJECT", properties: {} }
-        },
-        {
-          name: "list_likeness_avatars",
-          description: "Checks regional eligibility and lists registered user avatars.",
-          parameters: { type: "OBJECT", properties: {} }
-        },
-        {
-          name: "get_geo_grounding_image",
-          description: "Fetches US-based StreetView imagery for location-specific scene grounding.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              location: { type: "STRING", description: "US location name, street address, or landmark." }
-            },
-            required: ["location"]
-          }
-        },
-        {
-          name: "update_collection_membership",
-          description: "Batch operation for moving, adding, or deleting media and entities within collections.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              item_ids: { type: "ARRAY", items: { type: "STRING" }, description: "Array of media/entity IDs to modify." },
-              action: { type: "STRING", description: "Action to perform: 'add', 'remove', 'move'." },
-              collection_id: { type: "STRING", description: "Target collection ID." }
-            },
-            required: ["item_ids", "action"]
-          }
-        },
-        {
-          name: "rename_workflow",
-          description: "Modifies display names for workflows/assets.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              workflow_id: { type: "STRING", description: "ID of the workflow." },
-              new_name: { type: "STRING", description: "New display name." }
-            },
-            required: ["workflow_id", "new_name"]
-          }
-        },
-        {
-          name: "rename_collection",
-          description: "Modifies display names for collections.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              collection_id: { type: "STRING", description: "ID of the collection." },
-              new_name: { type: "STRING", description: "New display name." }
-            },
-            required: ["collection_id", "new_name"]
-          }
-        },
-        {
-          name: "get_help_center_article",
-          description: "Fetches product documentation or feature specifications.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              topic: { type: "STRING", description: "Help topic or feature keyword (e.g., 'veo', 'credits', 'v2v')." }
-            },
-            required: ["topic"]
-          }
-        },
-        {
-          name: "get_changelog_updates",
-          description: "Fetches recent build updates and product changelogs.",
-          parameters: { type: "OBJECT", properties: {} }
-        },
-        {
-          name: "open_chat_panel",
-          description: "Triggers the visibility of the primary chat interface.",
-          parameters: { type: "OBJECT", properties: {} }
-        }
-      ]
-    });
-
-    const harnessSystemInstruction = `
-=== AGENT HARNESS SYSTEM INSTRUCTIONS ===
-You are equipped with a state-of-the-art multimedia generation tool suite. You have direct access to image generation, video animation, and metadata management tools.
-Adhere to the following rules and guidelines:
-
-1. TONALITY & STYLE (CRITICAL):
-   - You must output clean, concise, premium, and professional text.
-   - Do NOT use emojis under any circumstances. Emojis are strictly prohibited.
-   - Keep outputs short, structured, and highly relevant. Avoid wordy, verbose explanations. Use standard bullet points or bold markers.
-   - NEVER print or output raw asset, media, or image IDs (e.g., "item-xxxx" or similar string keys) anywhere in your visible text response. These IDs are strictly for backend tool calling and must remain completely invisible to the user. Always refer to images or videos descriptively (e.g., "the 16:9 landscape", "the second 1:1 illustration") instead.
-
-2. MODEL CAPABILITIES & CONSTRAINTS:
-   - "omni-flash": Premium video engine. Exclusive capability for Video-to-Video (V2V) editing (generate_video_edit_video). Supports durations up to 10 seconds. Supports high-fidelity reference-to-video (R2V) with up to 7 image and 5 audio references.
-   - "veo-3.1-fast" / "veo-3.1" / "veo-3.1-lite": Specialized for interpolation (first + last frame) and consistent 8s reference-to-video generations. "veo-3.1" (Quality tier) does NOT support reference-based workflows.
-   - "gemini-3-pro-image-preview" (Nano Banana Pro), "gemini-3.1-flash-image-preview" (Nano Banana 2), & "gemini-3.1-flash-lite-image" (Nano Banana Lite): Image generation backbone. Nano Banana Pro supports up to 10 style/composition references. Nano Banana 2 and Nano Banana Lite are faster.
-
-3. ASSET STATE & LINEAGE:
-   - Lineage Tracking: When editing an image or video, use a ":base" suffix on the ID to maintain version history (media stack) or ":reference" suffix to fork into a new creation.
-   - Collection Membership: Move items between root project and nested collections using update_collection_membership. Ensure no item exists in two collections at once.
-   - Character Entities: When @character is mentioned, resolve character names to their defined visual and voice reference IDs by calling list_character_entities.
-
-4. EXECUTION WORKFLOWS:
-   - Foundation-First: Prioritize building a "creative foundation" (story text, character designs, location references) before triggering expensive media generation tools.
-   - Grounding Logic: For specific US locations, first call get_geo_grounding_image, then use its output image as a scene anchor, deblurring and inpainting it.
-   - Async Polling: Video generation is asynchronous. Call the tool, retrieve the temporary media_id, and instruct the user that you will check the status or call check_video_generation_status to poll.
-
-5. CREDIT & SUBSCRIPTION TIERS:
-   - Free: 50 credits/day, basic model access.
-   - Pro/Plus: 200-1000 credits/month, premium models.
-   - Ultra: Up to 25,000 credits/month, access to 0-credit lower priority generation queue and 4K upscaling.
-
-6. TOOL CALLING PROTOCOLS:
-   - Call tools whenever the user requests image/video generation, edits, storyboards, character lists, grounding, or collection organization.
-   - Always announce tool calls clearly or invoke them automatically. Ensure parameters strictly match the schemas.
-   - When generating media, inform the user universally when you start the process (e.g., "I am generating..."), and confirm when the generation is complete (e.g., "I have completed generation..."). Do NOT use these exact phrases repetitively; vary your wording naturally each time.
-   - Prioritize explicit quantities or counts mentioned in the user's prompt (e.g., "generate one image", "make 2 of them") over the "Active Workspace Generation Settings" default batch size. Only use the default workspace settings if the user does not specify a desired quantity.
-   - When the user asks you to edit or modify existing images, you MUST invoke the "generate_image" tool SEPARATELY for each image they want to edit. Each tool call must reference a single specific image ID in the "references" array parameter. If the user asks to edit a specific image (e.g. "the second one", "the one with the red car"), ONLY edit that specific image. If the user asks for a general edit without specifying which image, edit ALL relevant recently generated images by creating a separate tool call for each. The "prompt" argument for each edit call MUST be a highly focused edit instruction describing ONLY the specific changes relative to the referenced image.
-   - You HAVE direct visual access to the active images on the canvas via hidden image attachments sent in the user's prompt. Each image attachment is preceded by its Media ID (e.g., "[Visual Context for Canvas Image ID: <id>]"). When the user asks you to edit or describe a specific image (e.g., "edit the one with the orange car"), you can simply look at the images in your context to identify the correct Media ID and proceed. You do not need to use the analyze_artifact tool for images that are already on the canvas.
-=========================================
-`;
-
-    // With the harness on, it prefixes the caller's prompt and overrides its
-    // style rules. With it off, the caller's prompt stands alone — chat mode's
-    // own instructions are not something the media harness should be rewriting.
-    const combinedSystemPrompt = mediaToolsEnabled
-      ? (systemPrompt
-          ? `${harnessSystemInstruction}\n\n[USER SYSTEM PROMPT (Note: You MUST enforce our professional emoji-free, concise tonality and override any verbose style patterns defined below)]:\n${systemPrompt}`
-          : harnessSystemInstruction)
-      : systemPrompt;
-
     const geminiModel: any = genAI.getGenerativeModel({
       model,
-      ...(combinedSystemPrompt ? { systemInstruction: combinedSystemPrompt } : {}),
+      ...(systemPrompt ? { systemInstruction: systemPrompt } : {}),
       ...(tools.length > 0 ? { tools } : {}),
       toolConfig: {
         functionCallingConfig: {
@@ -1939,17 +1467,10 @@ Adhere to the following rules and guidelines:
         if (m.role === 'assistant' || m.role === 'model') {
           cleanContent = cleanContent.replace(/!\[.*?\]\([^)]+\)/g, '').trim();
         }
-        const partsList: any[] = [{ text: cleanContent }];
-        if (m.attachments) {
-          for (const att of m.attachments) {
-            if (att.type === 'image') {
-              if (att.id || att.name) {
-                partsList.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
-              }
-            }
-            partsList.push(await resolveGeminiFilePart(apiKey, att as any, signal, filesOrigin));
-          }
-        }
+        const partsList: any[] = [
+          { text: cleanContent },
+          ...(m.attachments ? await geminiAttachmentParts(apiKey, m.attachments, signal, filesOrigin) : []),
+        ];
         historyContents.push({
           role: m.role === 'user' ? 'user' : 'model',
           parts: partsList,
@@ -1962,17 +1483,10 @@ Adhere to the following rules and guidelines:
     if (lastMessage.parts && lastMessage.parts.length > 0) {
       initialParts = lastMessage.parts;
     } else {
-      initialParts = [{ text: lastMessage.content }];
-      if (lastMessage.attachments) {
-        for (const att of lastMessage.attachments) {
-          if (att.type === 'image') {
-            if (att.id || att.name) {
-              initialParts.push({ text: `\n\n[Visual Context for Canvas Image ID: ${att.id || att.name.replace('media-id: ', '')}]\n` });
-            }
-          }
-          initialParts.push(await resolveGeminiFilePart(apiKey, att, signal, filesOrigin));
-        }
-      }
+      initialParts = [
+        { text: lastMessage.content },
+        ...(lastMessage.attachments ? await geminiAttachmentParts(apiKey, lastMessage.attachments, signal, filesOrigin) : []),
+      ];
     }
 
     // Push the active prompt as the latest turn of conversation
@@ -2026,7 +1540,7 @@ Adhere to the following rules and guidelines:
         await streamGeminiInteractions({
           apiKey,
           model,
-          systemInstruction: combinedSystemPrompt,
+          systemInstruction: systemPrompt,
           history: historyContents,
           enableSearch: searchEnabled,
           enableCodeExecution: codeExecEnabled,
@@ -2258,9 +1772,8 @@ Adhere to the following rules and guidelines:
             if (onToolCall) {
               toolResult = await onToolCall(call.name, call.args);
             } else {
-              // No executor. Say so rather than falling back to mockExecuteTool,
-              // whose canned success payloads let the model report media it never
-              // produced. A caller that wants the mock passes it in explicitly.
+              // No executor. Say so rather than inventing a result: canned success
+              // payloads are how the model came to report media it never produced.
               toolResult = {
                 status: 'error',
                 error: `The tool "${call.name}" is not available in this context. Do not claim it ran; use another approach or tell the user plainly.`,

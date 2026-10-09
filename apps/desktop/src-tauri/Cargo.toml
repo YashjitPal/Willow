@@ -1,0 +1,58 @@
+[package]
+name = "willow-desktop"
+version = "0.1.0"
+description = "Willow as a desktop app"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `unstable`: several webviews in one window — the tab strip and one per tab.
+# `macos-private-api`: the pet's transparent window on macOS.
+tauri = { version = "2", features = ["tray-icon", "unstable", "macos-private-api"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+base64 = "0.22"
+# The agents' window captures (snapshots.rs): the version Tauri already uses.
+png = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Wdk_System_SystemServices",
+  "Win32_Foundation",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_Storage_Xps",
+  "Win32_System_JobObjects",
+  "Win32_System_LibraryLoader",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_UI_Accessibility",
+  "Win32_UI_Controls",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
+# Answering Willow's pages inside the app (pages.rs): the versions wry already uses.
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Accessibility", "Win32_UI_Shell"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Switching on getUserMedia in each tab (tabs.rs): the version wry already uses.
+webkit2gtk = { version = "2.0", features = ["v2_4"] }
+
+[profile.release]
+strip = true

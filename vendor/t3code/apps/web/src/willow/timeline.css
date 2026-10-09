@@ -1,0 +1,256 @@
+/*
+ * A turn's work in Spark's processing timeline (features/spark/src/SparkTaskDetail.css,
+ * `spark-task-detail__processing-*`): a 32px pill naming the work over a rail of 24px nodes,
+ * 13px/17px at 55%, 16px between rows, the rail a 1px line through the nodes' centres.
+ */
+:root {
+  --willow-processing-text: rgb(0 0 0 / 55%);
+  --willow-processing-hover: #1f1f1f;
+  --willow-processing-icon: #747775;
+  --willow-processing-rail: rgb(122 122 122);
+  --willow-processing-gap: 16px;
+}
+
+:root.dark {
+  --willow-processing-text: rgb(255 255 255 / 55%);
+  --willow-processing-hover: #e6e6e6;
+  --willow-processing-icon: rgb(255 255 255 / 55%);
+}
+
+/* "Worked for 6.0s": Spark's trigger, without T3's rule under it. */
+[data-timeline-row-kind="turn-fold"] {
+  padding-bottom: 2px;
+}
+
+[data-timeline-row-kind="turn-fold"] > div {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-width: 0;
+}
+
+[data-timeline-row-kind="turn-fold"] button[aria-expanded] {
+  height: 32px;
+  gap: 8px;
+  margin-left: -8px;
+  padding: 0 8px;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--willow-processing-text);
+  font-size: 13px;
+  line-height: 17px;
+  transition: color 200ms ease-out;
+}
+
+[data-timeline-row-kind="turn-fold"] button[aria-expanded]:hover {
+  background: transparent;
+  color: var(--willow-processing-hover);
+}
+
+[data-timeline-row-kind="turn-fold"] button[aria-expanded] > svg {
+  display: none;
+}
+
+/* Spark's chevron: Luminous `expand_more`, turned to point right while folded. */
+[data-timeline-row-kind="turn-fold"] button[aria-expanded]::after {
+  content: "expand_more";
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  font-family: "Luminous Symbols";
+  font-size: 20px;
+  font-style: normal;
+  font-weight: 320;
+  line-height: 20px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "opsz" 20, "wght" 320, "ROND" 100;
+  font-feature-settings: "liga";
+  transform: rotate(-90deg);
+  transition: transform 200ms ease-out;
+}
+
+[data-timeline-row-kind="turn-fold"] button[aria-expanded="true"]::after {
+  transform: rotate(0deg);
+}
+
+/* The rows: a group's summary, then its calls. */
+:is([data-timeline-row-kind="work-toggle"], [data-timeline-row-kind="work"])
+  [class~="group/timeline-row"] {
+  padding-inline: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+:is([data-timeline-row-kind="work-toggle"], [data-timeline-row-kind="work"])
+  [class~="group/timeline-row"]
+  > div:first-child {
+  min-height: 24px;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--willow-processing-text);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+:is([data-timeline-row-kind="work-toggle"], [data-timeline-row-kind="work"])
+  [class~="group/timeline-row"]
+  > div:first-child
+  > span:first-child {
+  width: 24px;
+  height: 24px;
+  margin-left: 1px;
+}
+
+:is([data-timeline-row-kind="work-toggle"], [data-timeline-row-kind="work"])
+  [class~="group/timeline-row"]
+  > div:first-child
+  > span:first-child
+  :is(svg, span) {
+  width: 20px;
+  height: 20px;
+  color: var(--willow-processing-icon);
+  opacity: 1;
+  filter: none;
+}
+
+:is([data-timeline-row-kind="work-toggle"], [data-timeline-row-kind="work"])
+  [class~="group/timeline-row"]
+  > div:first-child
+  > div {
+  padding-top: 3px;
+  color: inherit;
+}
+
+:is([data-timeline-row-kind="work-toggle"], [data-timeline-row-kind="work"])
+  [class~="group/timeline-row"]
+  > div:first-child
+  :is(p, span, .text-secondary-label) {
+  color: inherit;
+  font-size: 13px;
+  line-height: 17px;
+}
+
+:is([data-timeline-row-kind="work-toggle"], [data-timeline-row-kind="work"])
+  [class~="group/timeline-row"]:hover
+  > div:first-child {
+  color: var(--willow-processing-hover);
+}
+
+/* The row's own chevron, on the right: Spark's rows have none, so only while hovered or open. */
+[data-timeline-row-kind="work"] [class~="group/timeline-row"] > div:first-child > span[aria-hidden="true"]:last-child {
+  align-self: center;
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+
+[data-timeline-row-kind="work"] [class~="group/timeline-row"]:is(:hover, :focus-visible, [aria-expanded="true"])
+  > div:first-child
+  > span[aria-hidden="true"]:last-child {
+  opacity: 1;
+}
+
+/* The rail: from under one node to the next, past the 16px between them. */
+[data-timeline-row-kind="work-toggle"] > div {
+  padding-bottom: 0;
+}
+
+[data-timeline-row-kind="work-toggle"] [class~="group/timeline-row"][aria-expanded="true"] {
+  margin-bottom: var(--willow-processing-gap);
+}
+
+[data-timeline-row-kind="work-toggle"] [class~="group/timeline-row"],
+[data-timeline-row-kind="work"] [class~="group/timeline-row"] {
+  position: relative;
+}
+
+[data-timeline-row-kind="work-toggle"] [class~="group/timeline-row"][aria-expanded="true"]::after,
+[data-timeline-row-kind="work"] [data-tool-group-scroll] .legend-list-content-container > div > div:not(:last-child) [class~="group/timeline-row"]::after {
+  position: absolute;
+  top: 24px;
+  bottom: calc(-1 * var(--willow-processing-gap));
+  left: 13px;
+  width: 0;
+  border-left: 1px solid var(--willow-processing-rail);
+  content: "";
+  pointer-events: none;
+}
+
+[data-timeline-row-kind="work"] [data-tool-group-scroll] .legend-list-content-container > div > div:not(:last-child) {
+  padding-bottom: var(--willow-processing-gap);
+}
+
+/* "Working for 12s": the trigger's type, without T3's rule under it. */
+[data-timeline-row-kind="working"] > div {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-width: 0;
+}
+
+[data-timeline-row-kind="working"] > div > div {
+  height: 32px;
+  align-items: center;
+  padding-inline: 0;
+  color: var(--willow-processing-text);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+/*
+ * A proposed plan: Willow's plan card (features/chat/src/research/research.css, `.dr-plan`),
+ * the code surface at radius 28 with 24px in, a 17px title.
+ */
+[data-timeline-row-kind="proposed-plan"] > div {
+  padding-inline: 0;
+}
+
+[data-timeline-row-kind="proposed-plan"] > div > div[class~="rounded-3xl"] {
+  padding: 24px;
+  border-width: 0;
+  border-radius: 28px;
+  background: var(--willow-md-code-surface);
+  color: var(--willow-md-text);
+}
+
+[data-timeline-row-kind="proposed-plan"] [data-slot="badge"] {
+  height: auto;
+  padding: 0;
+  border-width: 0;
+  background: transparent;
+  color: var(--willow-processing-text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+[data-timeline-row-kind="proposed-plan"] h3 {
+  color: var(--willow-md-text);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+[data-timeline-row-kind="proposed-plan"] [data-slot="menu-trigger"] {
+  width: 32px;
+  height: 32px;
+  border-color: transparent;
+}
+
+[data-timeline-row-kind="proposed-plan"] .chat-markdown {
+  color: var(--willow-md-text);
+  font-size: 15px;
+  line-height: 24px;
+}
+
+/* A call's output, opened: on the code surface, under its label, the rail running beside it. */
+[data-timeline-row-kind="work"] [class~="group/timeline-row"] > div.cursor-auto {
+  margin: 8px 0 0 33px;
+}
+
+[data-timeline-row-kind="work"] [class~="group/timeline-row"] > div.cursor-auto pre {
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--willow-md-code-surface);
+  color: var(--willow-md-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 20px;
+}

@@ -1,0 +1,435 @@
+/*
+ * Every ask a bot makes of the user, in one shape (DotAskCard.tsx), in Material 3 and the bot's colour: a 40px glyph
+ * tile, a label over a title, the bot's reason set in as its own words, the details, and the choice at the end — the
+ * go-ahead a filled button, the alternative a text button. A card waiting on the user wears a wash of the bot's colour,
+ * arrives softly and draws the eye once; settled, it goes quiet.
+ */
+
+.dot-ask {
+  --dot-ask-mono: var(--font-mono, ui-monospace, "Cascadia Code", SFMono-Regular, Menlo, Consolas, monospace);
+  --md-circular-progress-size: 24px;
+  --md-circular-progress-active-indicator-width: 12;
+  --md-circular-progress-active-indicator-color: var(--md-sys-color-primary);
+  position: relative;
+  box-sizing: border-box;
+  container-type: inline-size;
+  width: min(480px, 100%);
+  padding: 16px 16px 14px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 24px;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-ref-typeface-plain);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* Waiting on the user, or in force: the bot's colour washes in from the glyph's corner. */
+.dot-ask:is(.is-ask, .is-live, .is-busy) {
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 30%, var(--md-sys-color-outline-variant));
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--md-sys-color-primary) 15%, transparent) 0%, color-mix(in srgb, var(--md-sys-color-primary) 4%, transparent) 55%, transparent 100%),
+    var(--md-sys-color-surface-container-high);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--md-sys-color-shadow) 18%, transparent),
+    0 10px 28px -14px color-mix(in srgb, var(--md-sys-color-primary) 45%, transparent);
+}
+
+.dot-ask.is-ask {
+  animation: dot-ask-arrive 420ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes dot-ask-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+/* ── Heading ──────────────────────────────────────────────────────────── */
+
+.dot-ask__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dot-ask__glyph {
+  display: inline-flex;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-ask:is(.is-ask, .is-live, .is-busy) .dot-ask__glyph {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.dot-ask.is-busy .dot-ask__glyph {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent);
+}
+
+.dot-ask.is-error .dot-ask__glyph {
+  background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
+  color: var(--md-sys-color-error);
+}
+
+/* The ask catches the eye once as it arrives: a ring of the bot's colour spreads from the glyph and fades. */
+.dot-ask.is-ask .dot-ask__glyph {
+  animation: dot-ask-beckon 1.6s cubic-bezier(0.2, 0, 0, 1) 360ms 2 both;
+}
+
+@keyframes dot-ask-beckon {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--md-sys-color-primary) 45%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--md-sys-color-primary) 0%, transparent);
+  }
+}
+
+.dot-ask__heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dot-ask__kicker {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  line-height: 16px;
+}
+
+.dot-ask:is(.is-ask, .is-live, .is-busy) .dot-ask__kicker {
+  color: var(--md-sys-color-primary);
+}
+
+.dot-ask.is-error .dot-ask__kicker {
+  color: var(--md-sys-color-error);
+}
+
+.dot-ask__title {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+.dot-ask:is(.is-done, .is-off) .dot-ask__title {
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.dot-ask__time {
+  flex: none;
+  align-self: flex-start;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+/* ── The bot's reason: its own words, set in like a line it said ──────── */
+
+.dot-ask__reason {
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  border-radius: 6px 18px 18px 18px;
+  background: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 78%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.dot-ask:is(.is-done, .is-off, .is-error) .dot-ask__reason {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ── What it would do, and where ─────────────────────────────────────── */
+
+.dot-ask__facts {
+  display: grid;
+  gap: 8px;
+  margin: 14px 2px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dot-ask__fact {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.dot-ask__fact-icon {
+  color: var(--md-sys-color-primary);
+}
+
+.dot-ask__meta {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 2px 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.dot-ask__meta > span:last-child {
+  min-width: 0;
+}
+
+.dot-ask__note {
+  margin: 12px 2px 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.dot-ask__note.is-error {
+  color: var(--md-sys-color-error);
+}
+
+/* A command, or anything else to read exactly as it is. */
+.dot-ask__code {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--dot-ask-mono);
+  font-size: 13px;
+  line-height: 19px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dot-ask__code::before {
+  content: "$";
+  margin-inline-end: 10px;
+  color: var(--md-sys-color-on-surface-variant);
+  user-select: none;
+}
+
+/* ── How it went ──────────────────────────────────────────────────────── */
+
+.dot-ask__outcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 12px 0 0;
+  padding: 4px 4px 4px 14px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.dot-ask.is-error .dot-ask__outcome {
+  background: color-mix(in srgb, var(--md-sys-color-error) 10%, transparent);
+  color: var(--md-sys-color-error);
+}
+
+.dot-ask__outcome > span {
+  min-width: 0;
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+.dot-ask__output {
+  max-height: 240px;
+  margin: 8px 0 0;
+  padding: 10px 14px;
+  overflow: auto;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--dot-ask-mono);
+  font-size: 12px;
+  line-height: 17px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── The choice ───────────────────────────────────────────────────────── */
+
+.dot-ask__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 16px -2px 0 0;
+}
+
+.dot-ask__footer md-filled-button md-icon,
+.dot-ask__footer md-filled-button .material-symbols-rounded {
+  margin-inline-start: -4px;
+}
+
+/* A small button inside a heading or an outcome: Stop, Open, Show output. */
+.dot-ask__chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+  color: var(--md-sys-color-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 150ms ease;
+}
+
+.dot-ask__chip:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent);
+}
+
+.dot-ask__chip:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.dot-ask__chip.is-stop {
+  background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
+  color: var(--md-sys-color-error);
+}
+
+.dot-ask__chip.is-stop:hover {
+  background: color-mix(in srgb, var(--md-sys-color-error) 24%, transparent);
+}
+
+.dot-ask__chip.is-stop::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+/* "Always allow …": a checkbox in Material's shape, left of the buttons. */
+.dot-ask__always {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 40px;
+  margin-inline-end: auto;
+  padding: 0 2px;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 18px;
+  user-select: none;
+}
+
+.dot-ask__always input {
+  display: grid;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  place-content: center;
+  border: 2px solid var(--md-sys-color-on-surface-variant);
+  border-radius: 4px;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.dot-ask__always input::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: var(--md-sys-color-on-primary);
+  clip-path: polygon(12% 50%, 0 64%, 38% 100%, 100% 22%, 86% 8%, 38% 72%);
+  transform: scale(0);
+  transition: transform 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.dot-ask__always input:checked {
+  border-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-primary);
+}
+
+.dot-ask__always input:checked::after {
+  transform: scale(1);
+}
+
+.dot-ask__always input:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.dot-ask__always:hover {
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-ask__always code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--dot-ask-mono);
+  font-size: 12px;
+}
+
+/* In a narrow card the choice gets a row of its own beneath "Always allow". */
+@container (max-width: 420px) {
+  .dot-ask__always {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .dot-ask {
+    padding: 14px 14px 12px;
+    border-radius: 22px;
+  }
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-ask:is(.is-ask, .is-live, .is-busy) {
+  box-shadow:
+    0 1px 2px rgba(60, 64, 67, 0.12),
+    0 10px 28px -14px color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-ask__code,
+:is(.light-theme, [data-theme="light"]) .dot-ask__output {
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-ask.is-ask,
+  .dot-ask.is-ask .dot-ask__glyph {
+    animation: none;
+  }
+}

@@ -1,0 +1,868 @@
+/*
+ * Flow's Characters (flow.google.com/project/…/character…): the characters grid
+ * (flow-custom-tile, flow-character-tile), the "New character" page
+ * (flow-character-page, flow-character-preset-carousel/-card, flow-create-character-footer,
+ * flow-character-prompt-box, flow-format-prompt-button), the edit page (flow-character-edit-page,
+ * flow-character-form, flow-character-preview-panel, flow-slot-chip-button) and the voice dialog
+ * (flow-add-menu-popover-content with flow-voice-preview-pane). Captured with
+ * tools/ui-research/scrapers/flow/media/05-characters.cjs; values are the computed ones.
+ */
+
+/* ---------------- grid ---------------- */
+
+/* Tiles are sized by the gallery's rows (gallery-layout.ts) like All media's; these are their looks. */
+
+/* flow-custom-tile: New character. The border is 2px authored; Chrome snaps it to whole device
+ * pixels, which is the 1.6px a 1.25x display computes. */
+.cg-custom {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 1px 6px;
+  overflow: hidden;
+  border: 2px solid var(--sb-fg-50);
+  border-radius: 16px;
+  background: transparent;
+  color: #fff;
+  font-family: var(--sb-font);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.2s ease-in-out, background 0.2s ease-in-out;
+}
+
+.cg-custom:hover,
+.cg-custom:focus-visible { background: var(--sb-fg-05); border-color: var(--sb-fg-90); }
+.cg-custom__icon { color: var(--sb-fg-90); }
+.cg-custom__label { position: absolute; left: 0; right: 0; bottom: 10px; overflow: hidden; color: var(--sb-fg-90); font-size: 14px; font-weight: 500; line-height: 20px; text-align: center; white-space: nowrap; text-overflow: ellipsis; }
+
+/* flow-character-tile. */
+.cg-tile {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--sb-bg-100);
+  color: #e3e3e3;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cg-tile__thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; -webkit-user-drag: none; }
+
+.cg-tile__name {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  padding: 12px 16px;
+  overflow: hidden;
+  background-image: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.5));
+  font-family: 'Google Sans', var(--sb-font);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 28px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cg-tile__type {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  padding: 12px;
+  color: var(--sb-fg-100);
+  filter: drop-shadow(rgba(0, 0, 0, 0.5) 0 0 2px);
+  pointer-events: none;
+}
+
+/* The favorite mark, at rest only: Flow's pre-hover overlay fades out as the hotbar fades in. */
+.cg-tile__pre-hover {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear 0s;
+}
+
+.cg-tile:hover .cg-tile__pre-hover { opacity: 0; visibility: hidden; transition: opacity 0.2s ease-in-out, visibility 0s linear 0.2s; }
+
+.cg-tile__status {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px;
+  color: var(--sb-fg-100);
+  filter: drop-shadow(rgba(0, 0, 0, 0.25) 0 1px 4px);
+}
+
+.cg-tile__hover {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease-in-out, visibility linear 0.2s;
+}
+
+.cg-tile:hover .cg-tile__hover,
+.cg-tile:has([aria-expanded='true']) .cg-tile__hover { opacity: 1; visibility: visible; transition: opacity 0.2s ease-in-out, visibility linear; }
+
+.cg-tile .sb-step__pending { position: absolute; inset: 0; }
+
+/* ---------------- shared page shell ---------------- */
+
+.cp-page {
+  position: fixed;
+  /* The whole window, or in the desktop app's frame its page (shell/rail/AppRail.css). */
+  inset: var(--willow-frame-inset, 0);
+  border-radius: var(--willow-frame-page-radius, 0);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding-right: 8px;
+  background-color: var(--sb-bg-000);
+  color: var(--sb-fg-000);
+  color-scheme: dark;
+  font-family: var(--sb-font);
+  font-size: 16px;
+  line-height: 24px;
+  user-select: none;
+}
+
+/* flow-character-header / .character-edit-header: 20px in from the left, 24px from the right. */
+.cp-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 76px;
+  padding: 0 24px 0 20px;
+}
+
+.cp-header__left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 0%; }
+.cp-header__right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+.cp-header__title { color: var(--sb-fg-000); font-size: 16px; font-weight: 400; line-height: 24px; white-space: nowrap; }
+.cp-back.sb-icon-btn { color: #e3e3e3; }
+
+/* ---------------- New character ---------------- */
+
+.cn-body {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+
+.cn-carousel-wrapper {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 64px;
+  width: 100%;
+  min-height: 0;
+}
+
+.cn-hero {
+  color: var(--sb-fg-50);
+  font-family: 'Google Sans', var(--sb-font);
+  font-size: 36px;
+  font-weight: 400;
+  line-height: 46.8px;
+  text-align: center;
+}
+
+.cn-hero__line { display: block; }
+
+.cn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%; max-width: 880px; }
+
+.cn-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: auto;
+  box-sizing: border-box;
+  padding: 12px;
+  border: none;
+  border-radius: 16px;
+  background-color: var(--sb-fg-05);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.cn-card:hover { background-color: var(--sb-fg-10); }
+.cn-card:focus-visible { outline: 2px solid #a8c7fa; outline-offset: 2px; }
+.cn-card.is-disabled { opacity: 0.5; pointer-events: none; }
+.cn-card.is-loading { box-shadow: inset 0 0 0 1px var(--sb-fg-50); }
+.cn-card__thumb { flex-shrink: 0; width: 96px; height: 96px; object-fit: cover; border-radius: 12px; -webkit-user-drag: none; }
+.cn-card__text { display: flex; flex: 1 1 0%; flex-direction: column; gap: 2px; min-width: 0; }
+.cn-card__title { overflow: hidden; color: var(--sb-fg-000); font-size: 14px; font-weight: 500; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; }
+.cn-card__desc { color: var(--sb-fg-75); font-size: 12px; font-weight: 400; line-height: 16px; }
+
+/* "Generating..." under the description: body-small text with a light sweeping through it. */
+.cn-card__generating {
+  padding-top: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  background-image: linear-gradient(90deg, var(--sb-fg-50) 0%, var(--sb-fg-000) 50%, var(--sb-fg-50) 100%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: cn-shimmer 2s ease-in-out infinite;
+}
+
+@keyframes cn-shimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+
+.cn-footer { display: flex; flex-shrink: 0; flex-direction: column; align-items: center; gap: 16px; width: 100%; padding-bottom: 16px; }
+.cn-footer__wrapper { width: 100%; max-width: 576px; }
+.cn-footer__wrapper .sb-prompt-wrapper,
+.cn-footer__wrapper .sb-prompt-box { max-width: none; }
+
+.cn-mode-row { display: flex; gap: 8px; width: 100%; max-width: 576px; }
+
+.cn-mode-btn {
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  border: 0;
+  border-radius: 12px;
+  /* Authored as --background-state-90, which is undefined there: Material's 10% fill renders. */
+  background-color: var(--sb-fg-10);
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 24px;
+  cursor: default;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.cn-mode-btn:hover { background-color: var(--sb-fg-15); }
+/* Material puts 4px after a button's icon, on top of the row's 8px gap. */
+.cn-mode-btn__icon { margin-right: 4px; color: var(--sb-fg-90); height: 24px; line-height: 24px; }
+
+/* flow-format-prompt-button and the model family picker in the prompt box's bottom row. */
+.cp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  min-width: 64px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background-color: var(--sb-fg-05);
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-75);
+  font-family: var(--sb-font);
+  font-size: 0.688rem;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: 0.096px;
+  white-space: nowrap;
+  cursor: default;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.cp-chip:hover:not(:disabled) { background-color: var(--sb-fg-10); }
+.cp-chip:disabled { background-color: transparent; color: var(--sb-fg-50); pointer-events: none; }
+.cp-chip.is-glowing { animation: cp-glow-pulse 1s ease-out 1; }
+.cp-chip--model { border-radius: 15px; backdrop-filter: none; }
+
+@keyframes cp-glow-pulse {
+  0% { box-shadow: transparent 0 0 0 0; }
+  40% { box-shadow: 0 0 8px 4px var(--sb-fg-25); }
+  100% { box-shadow: transparent 0 0 0 0; }
+}
+
+/* flow-ingredient-bar in the character prompt box: 50px chips 4px apart, Clear prompt beside them.
+ * A chip is removed by pressing it; hovering shows the cancel glyph over a dimmed image. */
+.cp-ingredients { display: flex; flex: 1 1 0%; flex-wrap: wrap; gap: 4px; min-width: 0; padding: 0 8px 4px; }
+
+.cp-ingredient {
+  position: relative;
+  flex-shrink: 0;
+  width: 50px;
+  height: 50px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cp-ingredient img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 12px; -webkit-user-drag: none; }
+
+.cp-ingredient__hover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--sb-bg-50);
+  color: var(--sb-fg-000);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.cp-ingredient:hover .cp-ingredient__hover { opacity: 1; }
+
+/* flow-character-ingredient-preview: a character ingredient's hover card. */
+.cp-ingredient-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px;
+  overflow: hidden;
+  border-radius: 12px;
+  background-color: var(--sb-bg-200);
+}
+
+.cp-ingredient-card__image-box { position: relative; width: 200px; height: 200px; overflow: hidden; border-radius: 12px; }
+.cp-ingredient-card__image { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+
+.cp-ingredient-card__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background-color: var(--sb-bg-100);
+  color: var(--sb-fg-300);
+}
+
+.cp-ingredient-card__counts {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 6px;
+  background: var(--sb-fg-25);
+  backdrop-filter: blur(4px) brightness(0.7);
+}
+
+.cp-ingredient-card__count { display: flex; align-items: center; gap: 2px; padding: 2px 5px; color: var(--sb-fg-000); }
+.cp-ingredient-card__count-text { font-family: var(--sb-font); font-size: 14px; font-weight: 500; line-height: 1; letter-spacing: 0.1px; }
+
+/* ---------------- character edit page ---------------- */
+
+/* flow-character-edit-page: the body — form and preview in a 1280px-wide grid that fills the height
+ * left over, the prompt under the preview — beside the history column. Under 640px tall or 960px
+ * wide it stacks preview, slots, form and prompt in one scrolling column; on a tablet or smaller
+ * (.is-tablet-or-smaller) the history opens over the page instead of beside it. */
+
+.ce-content { position: relative; display: flex; flex: 1 1 0%; align-items: stretch; min-height: 0; overflow: hidden; }
+
+.ce-body {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  min-height: 0;
+  padding: 64px 24px 24px;
+  overflow-y: auto;
+}
+
+.ce-layout {
+  display: grid;
+  flex: 1 1 0%;
+  grid-template-columns: 400px 1fr;
+  grid-template-rows: 1fr auto;
+  gap: 16px 24px;
+  width: 100%;
+  max-width: 1280px;
+  min-height: 0;
+}
+
+.ce-form-column { display: flex; flex-direction: column; grid-column: 1; grid-row: 1; min-height: 0; }
+
+/* flow-character-form. */
+.ce-form {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 400px;
+  min-height: 0;
+  padding: 24px 24px 0;
+  backdrop-filter: blur(40px);
+}
+
+.ce-form-section { display: flex; flex-direction: column; gap: 8px; }
+
+.ce-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sb-fg-000);
+  font-family: 'Google Sans', var(--sb-font);
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 40px;
+}
+
+.ce-name {
+  flex: 1 1 0%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+}
+
+.ce-name::placeholder { color: var(--sb-fg-000); opacity: 1; }
+.ce-edit-name.sb-icon-btn { color: var(--sb-fg-50); }
+
+/* flow-character-voice-button with no voice: Select a voice. */
+.ce-voice-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 20px;
+  background-color: var(--sb-bg-90);
+  box-shadow: var(--sb-fg-05) 0 0 0 1px inset;
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: 0.096px;
+  cursor: pointer;
+  transition: background-color 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
+}
+
+.ce-voice-btn:hover { background-color: var(--sb-bg-75); box-shadow: var(--sb-fg-10) 0 0 0 1px inset; }
+.ce-voice-btn__icon { margin-right: 4px; color: var(--sb-fg-90); }
+.ce-voice-btn__label { color: var(--sb-fg-90); font-size: 14px; line-height: 20px; }
+
+/* ...and with one: the voice as a card that plays its sample. */
+.ce-voice-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 56px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 20px;
+  background-color: var(--sb-bg-90);
+  box-shadow: var(--sb-fg-05) 0 0 0 1px inset;
+  backdrop-filter: blur(40px);
+  transition: box-shadow 0.15s ease;
+}
+
+.ce-voice-card__start {
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.ce-voice-chip { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; color: var(--sb-fg-000); }
+.ce-voice-card__info { display: flex; flex-direction: column; min-width: 0; }
+.ce-voice-card__name,
+.ce-voice-card__description { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; font-family: var(--sb-font); }
+.ce-voice-card__name { color: var(--sb-fg-90); font-size: 12px; font-weight: 400; line-height: 16px; letter-spacing: 0.096px; }
+.ce-voice-card__description { color: var(--sb-fg-000); font-size: 11.008px; font-weight: 500; line-height: 16px; letter-spacing: 0.096px; }
+.ce-voice-card__end { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
+
+.ce-voice-play {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: var(--sb-fg-15);
+  color: var(--sb-fg-000);
+  cursor: pointer;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.ce-voice-play:hover { background-color: var(--sb-fg-25); }
+
+.ce-voice-remove {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background-color: var(--sb-fg-10);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.ce-voice-remove:hover { background-color: var(--sb-fg-15); }
+
+.ce-personality { display: flex; flex: 1 1 0%; flex-direction: column; gap: 8px; }
+.ce-label-row { display: flex; align-items: center; justify-content: space-between; }
+.ce-field-label { color: var(--sb-fg-75); font-size: 12px; font-weight: 500; line-height: 16px; }
+
+.ce-textarea {
+  flex: 1 1 0%;
+  min-height: 192px;
+  padding: 16px;
+  border: 0;
+  outline: 0;
+  border-radius: 16px;
+  background-color: var(--sb-bg-50);
+  box-shadow: var(--sb-fg-15) 0 0 0 1px inset;
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  white-space: pre-wrap;
+  resize: none;
+  user-select: text;
+}
+
+.ce-textarea::placeholder { color: var(--sb-fg-50); }
+.ce-textarea:focus { outline: none; box-shadow: var(--sb-fg-100) 0 0 0 1px inset; }
+
+/* The note hangs under the field without taking height, so the field reaches the row's end. */
+.ce-disclaimer-overflow { height: 0; overflow: visible; }
+.ce-disclaimer { display: block; padding-top: 8px; color: var(--sb-fg-75); font-size: 12px; font-weight: 400; line-height: 16px; }
+
+/* flow-character-preview-panel: the image in the grid's second column, the slots under it. */
+.ce-preview { grid-column: 2; grid-row: 1; min-width: 0; }
+
+/* flow-character-image-preview: the frame takes the image's own shape, as large as the area allows. */
+.ce-image-area { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 192px; container-type: size; }
+
+.ce-frame {
+  position: relative;
+  width: min(100cqw, 100cqh * var(--ce-aspect, 1));
+  height: min(100cqh, 100cqw / var(--ce-aspect, 1));
+  aspect-ratio: var(--ce-aspect, 1);
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 16px;
+  box-shadow: var(--sb-fg-15) 0 0 0 1px;
+}
+
+.ce-frame__img { display: block; width: 100%; height: 100%; object-fit: cover; -webkit-user-drag: none; }
+
+/* .top-actions and .image-actions: shown while the image is hovered, faded 0.15s either way. */
+.ce-frame__top { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; transition: opacity 0.15s ease-in-out; }
+.ce-frame__actions { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; gap: 8px; width: fit-content; margin-inline: auto; transition: opacity 0.15s ease-in-out; }
+.ce-frame__top.is-hidden,
+.ce-frame__actions.is-hidden { opacity: 0; pointer-events: none; }
+
+/* .top-action-button: Download image, Delete image. */
+.ce-frame-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background-color: var(--sb-bg-50);
+  box-shadow: rgba(0, 0, 0, 0.5) 0 2px 4px 0;
+  color: var(--sb-fg-000);
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.ce-frame-icon:hover { background-color: var(--sb-bg-75); box-shadow: rgba(0, 0, 0, 0.5) 0 4px 8px 0; }
+
+/* .action-button: Reroll, Try again — 16px sides, the glyph 4px out from the 6px gap. */
+.sb-btn.ce-frame-btn {
+  gap: 6px;
+  padding: 0 16px;
+  background-color: var(--sb-bg-25);
+  font-weight: 400;
+  line-height: 16px;
+  --sb-layer-hover: 0.1;
+}
+
+.ce-frame-btn > .google-symbols { margin-right: 4px; }
+.sb-btn.ce-frame-btn:hover { background-color: var(--sb-bg-75); }
+
+/* .empty-container: a slot with no image. */
+.ce-empty {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  min-height: 192px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--sb-fg-10);
+  box-shadow: var(--sb-fg-15) 0 0 0 1px;
+}
+
+/* White, as Flow draws it: its rule asks for --foreground-state-60, a token Flow's theme doesn't
+ * define, so the text inherits the page's white. The voice card's description is the same. */
+.ce-empty__text { padding: 16px 32px 0; color: var(--sb-fg-000); font-family: 'Google Sans', var(--sb-font); font-size: 22px; font-weight: 400; line-height: 28px; text-align: center; }
+.ce-empty__actions { display: flex; justify-content: center; gap: 24px; }
+.sb-btn.ce-empty__btn { border-radius: 32px; }
+
+/* flow-slot-chip-button. */
+.ce-slots { display: flex; align-items: center; justify-content: center; gap: 8px; grid-column: 2; grid-row: 2; }
+
+.ce-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background-color: var(--sb-fg-10);
+  color: var(--sb-fg-90);
+  font-family: var(--sb-font);
+  cursor: pointer;
+  transition: opacity 0.2s ease, background-color 0.15s ease-in-out;
+}
+
+.ce-slot:not(:disabled):hover { background-color: var(--sb-fg-15); }
+.ce-slot.is-active { background-color: var(--sb-fg-90); color: var(--sb-bg-000); cursor: default; }
+.ce-slot.is-active:not(:disabled):hover { background-color: var(--sb-fg-75); }
+.ce-slot.is-disabled { cursor: not-allowed; filter: grayscale(1); }
+
+.ce-slot__thumb {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 8px;
+  background-color: var(--sb-fg-15);
+}
+
+.ce-slot__thumb.is-active { background-color: var(--sb-bg-15); }
+.ce-slot__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ce-slot__label { font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; }
+
+/* The prompt sits under the preview, centred on it: the footer starts past the form's 400px + 24px. */
+.ce-footer { width: 100%; max-width: 1280px; padding-left: 424px; }
+.ce-footer__inner { display: flex; flex-direction: column; align-items: center; width: 100%; }
+.ce-footer .sb-prompt-wrapper { width: 100%; max-width: 576px; }
+.ce-footer .sb-prompt-box { max-width: 576px; }
+
+/* .editor-history-wrapper: 16.8rem, 64px from the header and 112px off the bottom, closed by
+ * animating its width to 0 while the list slides out (the panel's own transform). */
+.ce-history {
+  position: relative;
+  flex-shrink: 0;
+  width: 268.8px;
+  padding-block: 64px 112px;
+  overflow: hidden;
+  transition: width 0.35s ease-in-out;
+}
+
+.ce-history.is-hidden { width: 0; }
+.ce-history .ie-history,
+.ce-history .ie-history.is-hidden { width: auto; height: 100%; max-height: none; transition: none; }
+
+.ce-page.is-tablet-or-smaller .ce-body { opacity: 1; transition: visibility 0.35s ease-in-out, opacity 0.35s ease-in-out; }
+.ce-page.is-tablet-or-smaller .ce-body.is-hidden { visibility: hidden; opacity: 0; }
+.ce-page.is-tablet-or-smaller .ce-history { position: absolute; inset: 0; width: 100%; padding: 4px; }
+.ce-page.is-tablet-or-smaller .ce-history.is-hidden { width: 0; padding: 0; }
+.ce-page.is-tablet-or-smaller .ce-history .ie-history__scroll { width: 100%; }
+
+@media (max-height: 40rem), (max-width: 60rem) {
+  .ce-page .cp-header { min-height: 60px; padding: 0 12px; }
+  .ce-page .cp-header__right { gap: 4px; }
+  .ce-body { gap: 16px; padding: 16px 16px 32px; }
+  .ce-layout { display: flex; flex: none; flex-direction: column; gap: 16px; min-height: auto; }
+  .ce-form-column { order: 3; flex: none; width: 100%; min-height: auto; }
+  .ce-form { flex: none; max-width: 100%; min-height: auto; padding: 16px 16px 24px; }
+  .ce-textarea { flex: none; min-height: 128px; }
+  .ce-disclaimer-overflow { height: auto; }
+  .ce-preview { order: 1; width: 100%; height: 256px; }
+  .ce-slots { order: 2; width: 100%; }
+  .ce-footer { flex: none; padding-left: 0; }
+}
+
+/* ---------------- voice dialog ---------------- */
+
+.cv-dialog { width: 780px; height: 580px; padding: 12px; border-radius: 24px; box-sizing: border-box; }
+.cv-header { display: flex; align-items: center; justify-content: space-between; height: 42px; padding: 0 4px 0 12px; }
+.cv-title { margin: 0; color: #e3e3e3; font-size: 16px; font-weight: 400; line-height: 24px; }
+.cv-panels { display: flex; flex-direction: column; gap: 5px; height: 514px; }
+.cv-search-row { display: flex; gap: 4px; height: 36px; }
+
+.cv-project {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 240px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border-radius: 12px;
+  background-color: var(--sb-fg-10);
+  color: var(--sb-fg-75);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.cv-project__arrow { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid #c4c7c5; }
+
+.cv-search {
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px 0 14px;
+  border-radius: 12px;
+  background-color: var(--sb-fg-10);
+  color: var(--sb-fg-90);
+}
+
+.cv-search input { flex: 1 1 0%; height: 22px; padding: 0; border: 0; outline: 0; background: transparent; color: #e3e3e3; font-family: var(--sb-font); font-size: 14px; font-weight: 500; line-height: 20px; user-select: text; }
+.cv-search input::placeholder { color: var(--sb-fg-50); }
+.cv-search:focus-within { box-shadow: inset 0 0 0 1.5px #a8c7fa; }
+
+.cv-content { display: flex; gap: 6px; height: 473px; }
+.cv-list { width: 240px; height: 473px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--sb-fg-15) transparent; }
+
+.cv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 232px;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cv-row:hover { background-color: var(--sb-fg-08); }
+.cv-row.is-selected { background-color: var(--sb-fg-15); }
+
+.cv-avatar { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 12px; color: rgba(22, 23, 24, 0.9); }
+.cv-row__text { display: flex; flex-direction: column; min-width: 0; }
+.cv-row__name { overflow: hidden; font-size: 14px; font-weight: 500; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; }
+.cv-row__desc { overflow: hidden; color: var(--sb-fg-75); font-size: 0.688rem; font-weight: 500; line-height: 16px; white-space: nowrap; text-overflow: ellipsis; }
+
+.cv-detail { display: flex; flex: 1 1 0%; flex-direction: column; justify-content: space-between; padding: 8px; border-radius: 16px; background-color: var(--sb-fg-05); box-sizing: border-box; }
+.cv-preview-pane { display: flex; flex-direction: column; gap: 8px; }
+
+.cv-audio-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 135.7px;
+  border: 0;
+  border-radius: 16px;
+  color: var(--sb-fg-000);
+  cursor: pointer;
+}
+
+.cv-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px 0 6px;
+  border-radius: 12px;
+  color: var(--sb-fg-000);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.cv-play__icon { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 8px; background-color: rgba(255, 255, 255, 0.25); }
+
+.cv-field { display: flex; flex-direction: column; gap: 4px; height: 131.7px; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; background-color: var(--sb-fg-05); }
+.cv-field__head { display: flex; justify-content: space-between; color: var(--sb-fg-90); font-size: 0.688rem; font-weight: 500; line-height: 16px; }
+.cv-field textarea { flex: 1 1 0%; padding: 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--sb-fg-000); font-family: var(--sb-font); font-size: 12px; line-height: 18px; user-select: text; }
+.cv-field textarea::placeholder { color: var(--sb-fg-50); }
+
+.cv-actions { display: flex; align-items: flex-end; height: 42px; }
+
+.cv-add {
+  width: 100%;
+  height: 34px;
+  border: 0;
+  border-radius: 12px;
+  background-color: var(--sb-fg-000);
+  backdrop-filter: blur(40px);
+  color: #000;
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 24px;
+  cursor: default;
+}

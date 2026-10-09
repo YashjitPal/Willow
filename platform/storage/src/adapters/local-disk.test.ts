@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFilesRecursively, writeFileRecursively } from './local-disk';
+import { readFilesRecursively, verifyPermission, writeFileRecursively } from './local-disk';
 
 test('local project traversal represents binary files without decoding them as text', async () => {
   const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0xff]);
@@ -37,4 +37,25 @@ test('local recursive writes decode the binary representation back to bytes', as
   await writeFileRecursively(directory, 'fonts/app.woff2', content);
   assert.ok(written instanceof Blob);
   assert.deepEqual(new Uint8Array(await written.arrayBuffer()), bytes);
+});
+
+test('a restored folder is asked for again without a gesture only in the desktop app', async () => {
+  const requests: string[] = [];
+  const folder = {
+    queryPermission: async () => 'prompt',
+    requestPermission: async ({ mode }: { mode: string }) => { requests.push(mode); return 'granted'; },
+  } as unknown as FileSystemDirectoryHandle;
+
+  assert.equal(await verifyPermission(folder, false, false), false);
+  assert.deepEqual(requests, []);
+
+  const scope = globalThis as { window?: unknown };
+  scope.window = { __TAURI_INTERNALS__: { invoke: async () => undefined } };
+  try {
+    assert.equal(await verifyPermission(folder, false, false), true);
+    assert.equal(await verifyPermission(folder, true, false), true);
+    assert.deepEqual(requests, ['read', 'readwrite']);
+  } finally {
+    delete scope.window;
+  }
 });

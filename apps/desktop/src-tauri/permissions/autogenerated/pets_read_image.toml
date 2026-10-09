@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pets-read-image"
+description = "Enables the pets_read_image command without any pre-configured scope."
+commands.allow = ["pets_read_image"]
+
+[[permission]]
+identifier = "deny-pets-read-image"
+description = "Denies the pets_read_image command without any pre-configured scope."
+commands.deny = ["pets_read_image"]

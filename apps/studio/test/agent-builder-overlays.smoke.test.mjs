@@ -82,6 +82,12 @@ before(async () => {
             loader: 'tsx',
             contents: `const apiKeys = Object.freeze({ gemini: Object.freeze([]), openai: Object.freeze([]), anthropic: Object.freeze([]) }); const value = Object.freeze({ apiKeys }); export const useUserDataContext = () => value;`,
           }));
+          // The real hook throws outside AuthProvider, which the app always renders the Agents surfaces inside.
+          buildApi.onResolve({ filter: /\/AuthContext$/ }, () => ({ path: 'auth-context', namespace: 'smoke-auth' }));
+          buildApi.onLoad({ filter: /.*/, namespace: 'smoke-auth' }, () => ({
+            loader: 'tsx',
+            contents: `const value = Object.freeze({ user: null, userProfile: null, loading: false, workspaceColor: 'green' }); export const useAuth = () => value;`,
+          }));
           buildApi.onResolve({ filter: /\.css$/ }, () => ({ path: 'empty.css', namespace: 'smoke-css' }));
           buildApi.onLoad({ filter: /.*/, namespace: 'smoke-css' }, () => ({ loader: 'css', contents: '' }));
         },
@@ -112,7 +118,7 @@ it('renders the Agent Builder canvas shell without a browser or Vite', () => {
   assert.match(surfaces.builder, /data-testid="agent-builder-initializing"/);
 });
 
-it('renders the Agents home with an inert prompt and workflow entry points', () => {
+it('renders the Agents home with a prompt that opens a new agent, and workflow entry points', () => {
   const surfaces = smoke.renderSmokeSurfaces();
   const agentsWorkspaceSource = fs.readFileSync(SOURCE.feature('AgentsWorkspace.tsx'), 'utf8');
   const backendHookSource = fs.readFileSync(SOURCE.feature('use-agent-builder-backend.ts'), 'utf8');
@@ -124,7 +130,9 @@ it('renders the Agents home with an inert prompt and workflow entry points', () 
   // an Agents/Drafts/Templates tablist. Assert the tablist, not the old heading.
   assert.match(surfaces.agentsHome, /role="tablist"/);
   assert.match(surfaces.agentsHome, /role="tab" aria-selected="true"[^>]*>Agents</);
-  assert.match(agentsWorkspaceSource, /onSubmit=\{\(event\) => event\.preventDefault\(\)\}/);
+  // Submitting opens a new agent, only with text in the prompt and nothing loading,
+  // and never as a native form submission.
+  assert.match(agentsWorkspaceSource, /onSubmit=\{\(event\) => \{\s*event\.preventDefault\(\);\s*if \(prompt\.trim\(\) && !loading\) onCreate\(\);/);
   assert.match(agentsWorkspaceSource, /event\.key === 'Enter' && !event\.shiftKey/);
   assert.match(agentsWorkspaceSource, /requestedWorkflowId\.set\(NEW_WORKFLOW\)/);
   assert.match(agentsWorkspaceSource, /requestedWorkflowId\.set\(workflowId\)/);
@@ -191,7 +199,7 @@ it('keeps Agent Builder reachable from app navigation and a direct route', () =>
   assert.match(sidebarSource, /onViewChange\('agents'\)/);
   assert.match(appSource, /path="\/agents"/);
   assert.match(appSource, /<AgentBuilderContent/);
-  assert.match(appSource, /user \? <Navigate to="\/\?view=agents" replace \/> : <Navigate to="\/login" replace \/>/);
+  assert.match(appSource, /<Route path="\/agents" element=\{<Navigate to="\/\?view=agents" replace \/>\} \/>/, 'signed out reaches Agents too');
   assert.match(appSource, /const sequence = \+\+viewChangeSequenceRef\.current/);
   assert.match(appSource, /if \(sequence !== viewChangeSequenceRef\.current\) return/);
   assert.match(appSource, /sequence === viewChangeSequenceRef\.current/);

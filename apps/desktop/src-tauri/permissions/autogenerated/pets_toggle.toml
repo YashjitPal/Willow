@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pets-toggle"
+description = "Enables the pets_toggle command without any pre-configured scope."
+commands.allow = ["pets_toggle"]
+
+[[permission]]
+identifier = "deny-pets-toggle"
+description = "Denies the pets_toggle command without any pre-configured scope."
+commands.deny = ["pets_toggle"]

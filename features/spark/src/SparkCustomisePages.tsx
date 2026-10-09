@@ -8,19 +8,20 @@ import type {
   SparkSkill,
 } from './spark-types';
 import { formatSparkRelativeTime } from './spark-types';
-import { formatSparkScheduleTime } from './SparkScheduleEditor';
+import { formatSparkScheduleTrigger } from './SparkScheduleEditor';
 import { useSparkNow } from './useSparkNow';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import { useSparkAccentVars } from './spark-accent';
 import type { RecommendedSkill } from './spark-recommended-skills';
 import { SparkMcpSection } from './SparkMcpSection';
 import './SparkCustomisePages.css';
 
-const formatScheduleRunLabel = (schedule: SparkSchedule, now: number): string | undefined => {
+const formatScheduleRunLabel = (schedule: SparkSchedule, now: number, compact: boolean): string | undefined => {
   if (schedule.lastRunLabel === 'Running...' || schedule.lastRunLabel === 'Waiting for approval') {
     return schedule.lastRunLabel;
   }
   if (!schedule.lastRunAt) return schedule.lastRunLabel;
-  const relativeTime = formatSparkRelativeTime(schedule.lastRunAt, now);
+  const relativeTime = formatSparkRelativeTime(schedule.lastRunAt, now, compact);
   if (schedule.lastRunLabel === 'Failed' || schedule.lastRunLabel === 'Skipped') {
     return `${schedule.lastRunLabel} \u00b7 ${relativeTime}`;
   }
@@ -515,6 +516,7 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
   const headingId = useId();
   const ongoingHeadingId = useId();
   const now = useSparkNow();
+  const isCompact = useCompactViewport();
   const accentVars = useSparkAccentVars();
   const [scheduleToDelete, setScheduleToDelete] = useState<SparkSchedule | null>(null);
   const [visibleScheduleCount, scheduleListRef, scheduleSentinelRef] = useIncrementalRows(schedules.length, 88);
@@ -549,7 +551,7 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
               <h2 id={ongoingHeadingId}>Ongoing</h2>
               <div ref={scheduleListRef} className="spark-schedule-list">
                 {schedules.slice(0, visibleScheduleCount).map((schedule) => {
-                  const runLabel = formatScheduleRunLabel(schedule, now);
+                  const runLabel = formatScheduleRunLabel(schedule, now, isCompact);
                   return (
                     <div key={schedule.id} className="spark-schedule-row">
                       <button
@@ -573,9 +575,7 @@ export const SchedulesPage: React.FC<SchedulesPageProps> = ({
                           {/* The stored time stays 24-hour because `spark-store` parses it to
                             * work out the next run; only the label is localised. */}
                           <span className="spark-schedule-card__detail">
-                            {schedule.frequency}{schedule.frequency === 'Weekly' && schedule.weekdays.length
-                              ? ` on ${schedule.weekdays.join(', ')}`
-                              : ''}{` around ${formatSparkScheduleTime(schedule.time)}`}
+                            {formatSparkScheduleTrigger(schedule, isCompact)}
                           </span>
                         </span>
                         {runLabel && <span className="spark-schedule-card__last-run">{runLabel}</span>}
@@ -798,6 +798,10 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
   const uploadInFlightRef = useRef(false);
   const activeSkills = skills.filter((skill) => skill.enabled !== false);
   const [visibleSkillCount, skillListRef, skillSentinelRef] = useIncrementalRows(activeSkills.length, 73);
+  // A recommendation the user has added leaves the list, as in Gemini.
+  const unaddedRecommendations = (recommendedSkills ?? []).filter(
+    (recommended) => !skills.some((skill) => skill.name.toLowerCase() === recommended.name.toLowerCase()),
+  );
 
   useEffect(() => {
     let current = true;
@@ -1007,10 +1011,10 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
         </section>
       )}
 
-      {recommendedSkills && <section className="spark-recommended-skills" aria-labelledby={recommendedHeadingId}>
+      {recommendedSkills && unaddedRecommendations.length > 0 && <section className="spark-recommended-skills" aria-labelledby={recommendedHeadingId}>
           <h2 id={recommendedHeadingId}>Recommended</h2>
           <div className="spark-recommended-skills__grid">
-            {recommendedSkills.slice(0, showAllRecommendations ? undefined : 4).map((skill) => (
+            {unaddedRecommendations.slice(0, showAllRecommendations ? undefined : 4).map((skill) => (
               <button
                 key={skill.title}
                 type="button"
@@ -1025,7 +1029,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
               </button>
             ))}
           </div>
-          <button
+          {unaddedRecommendations.length > 4 && <button
             type="button"
             className="spark-show-more"
             aria-expanded={showAllRecommendations}
@@ -1040,7 +1044,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
             roundness={100}
             opticalSize={28}
             />
-          </button>
+          </button>}
       </section>}
       {skillToDelete && (
         <SparkDeleteDialog

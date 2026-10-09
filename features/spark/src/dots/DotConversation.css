@@ -1,0 +1,283 @@
+/*
+ * What the bot harness adds to an open bot around its conversation (chat/DotChat.css draws the conversation): the
+ * error banner, linked activity rows, request cards and the profile's controls. Values follow SparkDots.css —
+ * Gemini's dark theme: #e3e3e3 / #c4c7c5 text, #1f1f1f panels, 8% state layers, pill shapes.
+ */
+
+.spark-dots-detail__error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 auto 8px;
+  max-width: 580px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: #3c0202;
+  color: #ffdad6;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.spark-dots-detail__error span {
+  flex: 1;
+  min-width: 0;
+}
+
+.spark-dots-detail__error button {
+  flex: none;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 218, 214, 0.12);
+  color: #ffdad6;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.spark-dots-detail__error button:hover {
+  background: rgba(255, 218, 214, 0.2);
+}
+
+.spark-dots-profile__activity--link {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: background-color 0.15s;
+}
+
+.spark-dots-profile__activity--link:hover {
+  background: rgba(230, 230, 230, 0.08);
+}
+
+/* A command the bot asks to run on the user's computer. */
+
+.spark-dots-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 580px;
+  margin: 4px 0 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  background: #1f1f1f;
+  color: #e3e3e3;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.spark-dots-approval.is-pending {
+  border-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.45);
+}
+
+.spark-dots-approval__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #c4c7c5;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.spark-dots-approval.is-pending .spark-dots-approval__heading {
+  color: var(--sync-a8c7fa, #a8c7fa);
+}
+
+.spark-dots-approval__reason,
+.spark-dots-approval__where {
+  margin: 0;
+}
+
+.spark-dots-approval__command,
+.spark-dots-approval__output {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 12px;
+  background: #131314;
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.spark-dots-approval__command {
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.spark-dots-approval__output {
+  max-height: 320px;
+  color: #c4c7c5;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.spark-dots-approval__where {
+  overflow: hidden;
+  color: #9a9b9c;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-dots-approval__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.spark-dots-approval__actions button {
+  height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.spark-dots-approval__deny {
+  background: transparent;
+  color: #e3e3e3;
+}
+
+.spark-dots-approval__deny:hover {
+  background: rgba(230, 230, 230, 0.08);
+}
+
+.spark-dots-approval__approve {
+  background: var(--sync-a8c7fa, #a8c7fa);
+  color: var(--sync-062e6f, #062e6f);
+}
+
+.spark-dots-approval__approve:hover {
+  background: var(--sync-bcd4fb, #bcd4fb);
+}
+
+.spark-dots-approval__outcome {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #c4c7c5;
+  font-size: 13px;
+}
+
+.spark-dots-approval.is-failed .spark-dots-approval__outcome {
+  color: #f2b8b5;
+}
+
+.spark-dots-approval__outcome span {
+  flex: 1;
+  min-width: 0;
+}
+
+.spark-dots-approval__toggle {
+  flex: none;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sync-a8c7fa, #a8c7fa);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.spark-dots-approval__toggle:hover {
+  background: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
+}
+
+.spark-dots-approval__stop {
+  margin-inline-start: auto;
+}
+
+.spark-dots-approval__spinner {
+  animation: spark-dots-spin 1s linear infinite;
+}
+
+@keyframes spark-dots-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-dots-approval__spinner {
+    animation: none;
+  }
+}
+
+/* Computer access and notifications in the profile. */
+
+.spark-dots-profile__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-dots-profile__note {
+  margin: 4px 0 0;
+}
+
+.spark-dots-profile__problem {
+  margin: 6px 0 0;
+  color: #f2b8b5;
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.spark-dots-profile__folder-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.spark-dots-profile__folder-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 13px;
+  outline: none;
+}
+
+.spark-dots-profile__folder-input:focus {
+  border-color: var(--sync-a8c7fa, #a8c7fa);
+}
+
+.spark-dots-profile__toggle:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+/*
+ * At 960px and below an open bot is a task's full-screen chat (SparkTaskDetail.css): the back chevron leads the
+ * header and the Beta label sits among its actions, as a task's does. The page's corner badge
+ * (`.spark-top-controls`) would sit on those actions and take their taps, so it gives way while a bot is open,
+ * as it does under Spaces' own header (spaces-shell.css).
+ */
+.spark-dots-detail__beta-pill {
+  display: none;
+}
+
+@media (max-width: 960px) {
+  /* Only the bot on show: one kept behind another tab (`inert`) leaves that tab's label alone. */
+  body:has(.spark-dots-detail:not([inert] *)) .spark-top-controls {
+    display: none;
+  }
+
+  .spark-dots-detail .spark-dots-detail__beta-pill {
+    display: inline-flex;
+  }
+}

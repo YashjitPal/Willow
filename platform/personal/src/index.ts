@@ -113,6 +113,8 @@ export {
  *  the only ones that must be called from a click. */
 export {
   authorizeWrites,
+  authorizeWritesFor,
+  writesAuthorized,
   connectProduct,
   connectProducts,
   disconnectProduct,
@@ -124,6 +126,12 @@ export {
   initBrowserTokenSource,
   type GisOptions,
 } from './connectors/gis-token-source';
+
+/** OAuth client ids the user supplies, for builds (the desktop app) that ship without them. */
+export { clientIdProblem, setUserClientId, userClientId, userClientIds, type ClientIdProvider } from './connectors/client-ids';
+
+/** What the user let Willow do beyond a product's basic access (email contents). */
+export { connectorOptions, gmailContentsAllowed, setGmailContentsAllowed, type ConnectorOptions } from './connectors/connector-options';
 
 /**
  * Spotify's half of the same job.
@@ -219,6 +227,22 @@ export {
   type PersonalReads,
   type ToolCallResult,
 } from './tools/executor';
+
+/** Structured reads for work that runs by itself (a bot's triggers), never prompting for a sign-in. */
+export {
+  mailExcerpt,
+  watchableApps,
+  watchCalendar,
+  watchGithub,
+  watchMail,
+  type Watched,
+  type WatchedMail,
+  type WatchedMailLook,
+} from './tools/watch';
+
+/** Email beyond headers: sending one approved message, and what the user allowed. */
+export { canSendMail, mailAccess, mailAddress, mailReplyContext, sendApprovedMail, type MailAccess } from './tools/mail';
+export { mailMatches, parseMailSearch, type MailFilter, type OutgoingMail, type ReplyContext } from './connectors/google/gmail';
 
 // ---------------------------------------------------------------------------
 // Retrieval and the builder's own types, for callers that drive them directly.

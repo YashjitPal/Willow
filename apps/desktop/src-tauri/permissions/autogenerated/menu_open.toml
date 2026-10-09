@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-menu-open"
+description = "Enables the menu_open command without any pre-configured scope."
+commands.allow = ["menu_open"]
+
+[[permission]]
+identifier = "deny-menu-open"
+description = "Denies the menu_open command without any pre-configured scope."
+commands.deny = ["menu_open"]

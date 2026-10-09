@@ -1,0 +1,269 @@
+/*
+ * T3's own pages in the agent tabs, drawn as Willow's.
+ *
+ * Pull requests is Spark's All tasks list (features/spark SparkAllTasks.css): one 660px column,
+ * the Search threads page's 64px pill (search.css) for its search, Gemini's 32px filter
+ * triggers (15px/20px at 540, no fill), 64px rows on 16px corners over a half-alpha surface
+ * that brightens under the pointer, group names as Search's "Recent", and Gemini's empty card
+ * (a 1px rim, 28px corners, muted 17px/14px copy, the outlined accent pill).
+ */
+
+/* ── Pull requests ────────────────────────────────────────────────────────── */
+
+[data-willow-page="pull-requests"] {
+  --willow-pr-row: rgb(250 249 249 / 50%);
+  --willow-pr-row-hover: #ffffff;
+  --willow-pr-row-selected: #ffffff;
+  --willow-pr-row-shadow: 0 0 20px 0 rgb(0 0 0 / 8%);
+  --willow-pr-text: #1f1f1f;
+  --willow-pr-muted: rgb(0 0 0 / 55%);
+  --willow-pr-search: #f0f4f9;
+  --willow-pr-search-icon: #444746;
+  --willow-pr-placeholder: #747775;
+  --willow-pr-rim: rgb(0 0 0 / 12%);
+  --willow-pr-empty: #ffffff;
+  --willow-pr-accent: #0b57d0;
+  --willow-pr-accent-rim: #0b57d0;
+  --willow-pr-hover: rgb(0 0 0 / 6%);
+}
+
+.dark [data-willow-page="pull-requests"] {
+  --willow-pr-row: rgb(15 15 15 / 50%);
+  --willow-pr-row-hover: #1f1f1f;
+  --willow-pr-row-selected: #282a2c;
+  --willow-pr-row-shadow: none;
+  --willow-pr-text: #e6e6e6;
+  --willow-pr-muted: rgb(255 255 255 / 55%);
+  --willow-pr-search: #1f1f1f;
+  --willow-pr-search-icon: #e6e6e6;
+  --willow-pr-placeholder: rgb(255 255 255 / 55%);
+  --willow-pr-rim: rgb(255 255 255 / 12%);
+  --willow-pr-empty: linear-gradient(0deg, rgb(230 230 230 / 1%), rgb(230 230 230 / 1%)), #0f0f0f;
+  --willow-pr-accent: #a8c7fa;
+  --willow-pr-accent-rim: rgb(168 199 250 / 50%);
+  --willow-pr-hover: rgb(230 230 230 / 8%);
+}
+
+[data-pr-list-column] {
+  width: min(660px, calc(100% - 32px));
+  max-width: none;
+  gap: 16px;
+  margin: 0 auto;
+  padding: 24px 0 48px;
+}
+
+/* The search on its own line, Search threads' pill. */
+[data-pr-search] {
+  flex-basis: 100%;
+}
+
+[data-pr-search] [data-slot="input-group"] {
+  height: 64px;
+  gap: 8px;
+  padding: 12px 20px 12px 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--willow-pr-search);
+}
+
+[data-pr-search] [data-slot="input-group-addon"] {
+  display: flex;
+  width: 36px;
+  height: 24px;
+  flex: 0 0 36px;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  color: var(--willow-pr-search-icon);
+}
+
+[data-pr-search] [data-slot="input-group-addon"] svg {
+  width: 24px;
+  height: 24px;
+  opacity: 1;
+}
+
+[data-pr-search] input {
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--willow-pr-text);
+  font: 400 16px/24px var(--font-sans);
+}
+
+[data-pr-search] input::placeholder {
+  color: var(--willow-pr-placeholder);
+}
+
+/* The filters are Gemini's filter triggers: 32px pills of 15px/20px text at 540, no fill. */
+[data-pr-toolbar] > :is(button, a)[data-variant][data-size]:not([data-size^="icon"]) {
+  height: 32px;
+  gap: 8px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--willow-pr-text);
+  font-size: 15px;
+  font-weight: 540;
+  line-height: 20px;
+  font-variation-settings: var(--willow-text-axes);
+}
+
+[data-pr-toolbar] > :is(button, a)[data-variant][data-size]::before {
+  display: none;
+}
+
+[data-pr-toolbar] > :is(button, a)[data-variant][data-size] svg {
+  width: 20px;
+  height: 20px;
+  color: currentColor;
+  opacity: 1;
+}
+
+/* Refresh is the toolbar's 36px round icon button, at the end of the line. */
+[data-pr-toolbar] > :is(button, a)[data-variant][data-size^="icon"] {
+  width: 36px;
+  height: 36px;
+  margin-inline-start: auto;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--willow-pr-text);
+}
+
+[data-pr-toolbar] > :is(button, a)[data-variant][data-size^="icon"]:hover {
+  background: var(--willow-pr-hover);
+}
+
+[data-pr-toolbar] > :is(button, a)[data-variant][data-size^="icon"]::before {
+  display: none;
+}
+
+/* A group's name reads as Search's "Recent": 17px at 55%, without the rule after it. */
+[data-pr-group-header] {
+  min-height: 48px;
+  gap: 8px;
+  padding: 8px 6px;
+  color: var(--willow-pr-muted);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+[data-pr-group-header] svg {
+  width: 20px;
+  height: 20px;
+}
+
+[data-pr-group-header] [data-slot="separator"] {
+  display: none;
+}
+
+/* The rows: 64px on 16px corners, half-alpha at rest, the surface's bright under the pointer. */
+[data-willow-page="pull-requests"] [data-pull-request-key] {
+  min-height: 64px;
+  border-radius: 16px;
+  background: var(--willow-pr-row);
+  color: var(--willow-pr-text);
+  transition: background-color 150ms ease;
+}
+
+[data-willow-page="pull-requests"] [data-pull-request-key]:is(:hover, :focus-within) {
+  background: var(--willow-pr-row-hover);
+  box-shadow: var(--willow-pr-row-shadow);
+}
+
+[data-willow-page="pull-requests"] [data-pull-request-key]:has(> button[aria-current="true"]) {
+  background: var(--willow-pr-row-selected);
+}
+
+[data-willow-page="pull-requests"] [data-pull-request-key] > button {
+  min-height: 64px;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 16px;
+}
+
+[data-willow-page="pull-requests"] [data-pull-request-key] > button .text-sm {
+  color: var(--willow-pr-text);
+  font-size: 15px;
+  line-height: 20px;
+}
+
+[data-willow-page="pull-requests"] [data-pull-request-key] > button .text-2xs {
+  font-size: 13px;
+  line-height: 17px;
+}
+
+[data-willow-page="pull-requests"] [data-pull-request-key] > button .text-muted-foreground {
+  color: var(--willow-pr-muted);
+}
+
+[data-willow-page="pull-requests"] [data-pr-ghost-row] {
+  min-height: 64px;
+  margin-bottom: 4px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 16px;
+  background: var(--willow-pr-row);
+}
+
+/* Nothing to list: Gemini's empty card, iconless, its copy muted and its action the accent's
+   outlined pill. */
+[data-willow-page="pull-requests"] [data-slot="empty"] {
+  min-height: 0;
+  gap: 0;
+  margin-block-start: 36px;
+  padding: 136px 24px;
+  border: 1px solid var(--willow-pr-rim);
+  border-radius: 28px;
+  background: var(--willow-pr-empty);
+  color: var(--willow-pr-muted);
+}
+
+[data-willow-page="pull-requests"] [data-slot="empty"] > svg {
+  display: none;
+}
+
+[data-willow-page="pull-requests"] [data-slot="empty-title"] {
+  margin: 0 0 8px;
+  color: var(--willow-pr-muted);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+[data-willow-page="pull-requests"] [data-slot="empty-description"] {
+  max-width: 360px;
+  margin: 0;
+  color: var(--willow-pr-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+[data-willow-page="pull-requests"] [data-slot="empty"] :is(button, a)[data-variant][data-size] {
+  height: 36px;
+  margin-top: 16px;
+  padding: 0 16px;
+  border: 1px solid var(--willow-pr-accent-rim);
+  border-radius: 18px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--willow-pr-accent);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+[data-willow-page="pull-requests"]
+  [data-slot="empty"]
+  :is(button, a)[data-variant][data-size]::before {
+  display: block;
+  background: var(--willow-pr-accent);
+}
+
+[data-willow-page="pull-requests"] [data-slot="empty"] :is(button, a)[data-variant][data-size] svg {
+  width: 18px;
+  height: 18px;
+  color: currentColor;
+}

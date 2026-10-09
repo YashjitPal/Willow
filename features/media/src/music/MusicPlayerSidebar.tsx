@@ -163,10 +163,12 @@ export const MusicPlayerSidebar: React.FC<MusicPlayerSidebarProps> = ({
 
   return (
     <div 
-      className="fixed right-2 w-[348px] bg-[#171719] rounded-[18px] shadow-2xl z-[70] flex flex-col overflow-hidden"
+      className="music-player-sidebar fixed w-[348px] bg-[#171719] rounded-[18px] shadow-2xl z-[70] flex flex-col overflow-hidden"
       style={{
-        top: isHeaderVisible ? '76px' : '14px',
-        bottom: '8px',
+        // From the window's edges, or the page's in the desktop app's frame.
+        top: `calc(${isHeaderVisible ? '76px' : '14px'} + var(--willow-frame-top, 0px))`,
+        right: 'calc(8px + var(--willow-frame-right, 0px))',
+        bottom: 'calc(8px + var(--willow-frame-bottom, 0px))',
         transform: isOpen ? 'translateX(0)' : 'translateX(calc(100% + 24px))',
         transition: `transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), top ${sidebarTransition}, visibility 0.5s`,
         visibility: isOpen ? 'visible' : 'hidden'

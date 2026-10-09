@@ -1,0 +1,287 @@
+/*
+ * What the bot's computer pane adds to Spark's remote browser
+ * (SparkRemoteBrowserPane.css): the machine's own picture — its whole desktop,
+ * or a page in the Chrome frame — and the panel shown while it is off, drawn as
+ * Spark draws a missing step.
+ */
+
+.dot-computer__page {
+  background: #1e1f20;
+}
+
+/* The desktop fills the 1280×1024 display, where a page sits under the Chrome frame. */
+.dot-computer__desktop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/*
+ * Codex's agent cursor (DotAgentCursor), placed by its tip: the arrow's point is 4.5px in and 3px down in the
+ * 23x24 image, so the margin puts it on the translated point and the scale turns around it. Moves as Spark's
+ * remote-browser cursor does.
+ */
+.dot-computer__agent-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: block;
+  margin: -3px 0 0 -4.5px;
+  transform-origin: 4.5px 3px;
+  pointer-events: none;
+  transition: transform 320ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.dot-computer__agent-cursor img {
+  display: block;
+}
+
+/*
+ * Turn off and Reset: outlined Material buttons at the close button's 36px, with
+ * its 8% state layer. Scoped under the pane, as its other buttons are, to outrank
+ * `.spark-task-detail button { font: inherit }`.
+ */
+.spark-remote-browser .dot-computer__header-button {
+  position: relative;
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  overflow: hidden;
+  border: 1px solid #444746;
+  border-radius: 9999px;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 14px;
+  font-weight: 500;
+  font-stretch: 100%;
+  line-height: 17.6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.spark-remote-browser .dot-computer__header-button::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  content: "";
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.spark-remote-browser .dot-computer__header-button:hover:not(:disabled)::before,
+.spark-remote-browser .dot-computer__header-button:focus-visible::before {
+  opacity: 0.08;
+}
+
+.spark-remote-browser .dot-computer__header-button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.spark-remote-browser .dot-computer__header-button.is-destructive {
+  border-color: transparent;
+  background: #f2b8b5;
+  color: #601410;
+}
+
+.dot-computer__confirm {
+  color: #c4c7c5;
+  font-size: 13px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.dot-computer__page.is-interactive {
+  cursor: default;
+  outline: none;
+  touch-action: none;
+}
+
+.dot-computer__frame {
+  display: block;
+  width: 1280px;
+  height: 937px;
+  object-fit: fill;
+  user-select: none;
+  pointer-events: none;
+}
+
+.dot-computer__frame.is-desktop {
+  height: 1024px;
+}
+
+.dot-computer__off {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  border-radius: 16px;
+  background: #1e1f20;
+  text-align: center;
+}
+
+.dot-computer__off-body {
+  display: flex;
+  max-width: 360px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.dot-computer__off-icon {
+  display: flex;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 8px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #282a2c;
+  color: #c4c7c5;
+}
+
+.dot-computer__off-title {
+  color: #e3e3e3;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 500;
+}
+
+.dot-computer__off-text,
+.dot-computer__off-problem {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.dot-computer__off-text {
+  color: #c4c7c5;
+}
+
+.dot-computer__off-problem {
+  margin-top: 4px;
+  color: #f2b8b5;
+}
+
+.dot-computer__off-action {
+  height: 32px;
+  margin-top: 12px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--spark-tonal-bg, #004a77);
+  color: var(--spark-tonal-text, #c2e7ff);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dot-computer__off-action:hover {
+  filter: brightness(1.08);
+}
+
+/*
+ * Spark's pane header holds a title and its close button; a bot's also holds
+ * Turn off and Reset, and a bot's name can be long. The title gives way with an
+ * ellipsis, as "Go back to <name>" does in Take over, so neither pushes the
+ * buttons off a phone's screen.
+ */
+.dot-computer-pane .spark-remote-browser__header,
+.dot-computer-takeover .spark-remote-browser-takeover__header {
+  gap: 8px;
+}
+
+.dot-computer-pane .spark-remote-browser__header-actions {
+  flex: 0 0 auto;
+}
+
+.dot-computer-pane .spark-remote-browser__title,
+.dot-computer-takeover .spark-remote-browser-takeover__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot-computer-takeover .spark-remote-browser-takeover__header-left {
+  min-width: 0;
+}
+
+.dot-computer-takeover .spark-remote-browser-takeover__give-back {
+  display: inline-block;
+  min-width: 0;
+  max-width: 60%;
+  flex: 0 1 auto;
+  overflow: hidden;
+  line-height: 40px;
+  text-overflow: ellipsis;
+}
+
+/* On a phone, asking before a reset takes the title's place, and the question wraps to a second line if it must. */
+@media (max-width: 520px) {
+  .dot-computer-pane .spark-remote-browser__header:has(.dot-computer__confirm) .spark-remote-browser__title-wrapper {
+    display: none;
+  }
+
+  .dot-computer-pane .spark-remote-browser__header:has(.dot-computer__confirm) .spark-remote-browser__header-actions {
+    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+  }
+
+  .dot-computer__confirm {
+    display: -webkit-box;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__page,
+:is(.light-theme, [data-theme="light"]) .dot-computer__off {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser .dot-computer__header-button {
+  border-color: #c4c7c5;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser .dot-computer__header-button.is-destructive {
+  border-color: transparent;
+  background: #b3261e;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__confirm {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__off-icon {
+  background: #dde3ea;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__off-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__off-text {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__off-problem {
+  color: #b3261e;
+}

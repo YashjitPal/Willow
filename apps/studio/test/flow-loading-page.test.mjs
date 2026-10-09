@@ -54,15 +54,31 @@ test('MediaView integrates FlowLoadingPage for project loading lifecycle', async
   assert.match(mediaView, /<FlowLoadingPage/);
 });
 
-test('App.tsx uses a black Suspense fallback for /media/* and routes through MediaRouteHost', async () => {
+test('App.tsx uses a plain Suspense fallback for the Media editor, kept above the routes', async () => {
   const app = await readSource('apps/studio/src/app/App.tsx');
 
-  // Suspense fallback is a plain black div — no FlowLoadingPage instance, so
-  // MediaView's own FlowLoadingPage is the single animation source with no restart.
+  // Suspense fallback is a plain div, black (white in the light theme, as the
+  // loading page is) — no FlowLoadingPage instance, so MediaView's own
+  // FlowLoadingPage is the single animation source with no restart.
   assert.doesNotMatch(app, /import \{ FlowLoadingPage \}/);
-  assert.match(app, /<Route path="\/media\/\*" element=\{[\s\S]*?<Suspense fallback=\{<div className="h-screen w-screen bg-\[#000000\]"/);
-  assert.match(app, /const MediaRouteHost/);
-  assert.match(app, /<MediaView key=\{projectId \|\| 'empty'\}/);
+  const keeper = app.slice(app.indexOf('const MediaKeepAlive'), app.indexOf('/** Make projects created on another device'));
+  assert.doesNotMatch(keeper, /TabLoading|FlowLoadingPage/, "the editor's own loading page is the only one there");
+  assert.match(keeper, /<Suspense fallback=\{<div className=\{`h-screen w-screen \$\{isLight \? 'bg-white' : 'bg-\[#000000\]'\}`\} \/>\}>/);
+  assert.match(keeper, /<MediaView key=\{projectId \|\| 'empty'\}/);
+  // The route keeps the redirect to the first project; the editor itself is the keeper.
+  assert.match(app, /<Route path="\/media\/\*" element=\{[\s\S]*?<MediaRouteRedirect \/>/);
+});
+
+test("every other tab loads behind the same loading page, and the agents' tabs start behind it", async () => {
+  const app = await readSource('apps/studio/src/app/App.tsx');
+  assert.doesNotMatch(app, /Loading (Media|Spark|Agents)\.\.\./);
+  for (const reason of ['media-suspense', 'spark-suspense', 'agents-suspense', 'design-suspense']) {
+    assert.match(app, new RegExp(`reason="${reason}"[^>]*>\\s*<TabLoading />`), reason);
+  }
+  assert.match(app, /<Suspense fallback=\{<TabLoading className="h-screen w-screen" \/>\}>\s*<Routes location=\{shown\}>\s*<Route\s+path="\/project1"/);
+  assert.match(await readSource('apps/studio/src/app/TabLoading.tsx'), /<FlowLoadingPage \/>/);
+  const harness = await readSource('features/harness/src/HarnessView.tsx');
+  assert.match(harness, /if \(status\.kind !== 'failed'\) return <FlowLoadingPage disclaimer="Starting the agents\. The first time takes a little longer\." \/>;/);
 });
 
 test('MediaView suppresses empty canvas flash and preloads gallery images', async () => {

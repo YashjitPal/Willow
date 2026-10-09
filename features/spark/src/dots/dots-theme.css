@@ -1,0 +1,198 @@
+/*
+ * Willow's look for the Codex bot components. codex-dots.css keeps Codex's layout
+ * and reads Codex's design tokens; this sets those tokens to the Gemini values
+ * Spark uses (SparkTaskDetail.css, SparkTaskDialogs.css): #e3e3e3 / #c4c7c5 text,
+ * #1f1f1f panels, #a8c7fa primary pills with #062e6f labels, #444746 outlines and
+ * 8% state layers, then the light theme's equivalents.
+ */
+
+.willow-dots {
+  color-scheme: dark;
+  --lightningcss-light: ;
+  --lightningcss-dark: initial;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  color: var(--color-text);
+
+  --font-weight-semibold: 500;
+  --codex-corner-shape: round;
+  --message-bubble-radius: 22px;
+  --secondary-soft: rgba(227, 227, 227, 0.05);
+  --shadow-color: 0 0 0;
+
+  --color-text: #e3e3e3;
+  --color-text-primary: #e3e3e3;
+  --color-text-emphasis: #e3e3e3;
+  --color-text-user-message: #e3e3e3;
+  --color-text-secondary: #c4c7c5;
+  --color-codex-description: #c4c7c5;
+  --color-text-toolbar-action: #c4c7c5;
+  --color-text-activity-control: #c4c7c5;
+  --color-text-activity-control-active: #e3e3e3;
+  --color-text-tertiary: #8e918f;
+  --color-text-inverse: #1f1f1f;
+  --color-text-primary-solid: var(--sync-062e6f, #062e6f);
+  --color-text-composer-primary: var(--sync-062e6f, #062e6f);
+  --color-text-info: var(--sync-a8c7fa, #a8c7fa);
+  --color-text-info-ghost: var(--sync-a8c7fa, #a8c7fa);
+  --color-text-info-solid: var(--sync-062e6f, #062e6f);
+  --color-text-button-outline: var(--sync-a8c7fa, #a8c7fa);
+  --color-text-danger: #f2b8b5;
+  --color-text-danger-solid: #601410;
+  --color-text-success-solid: #0a3818;
+
+  --color-surface: var(--spark-base-surface, var(--studio-surface, #0f0f0f));
+  --color-surface-secondary: #1e1f20;
+  --color-surface-tertiary: #282a2c;
+  --color-surface-card: #1f1f1f;
+  --color-surface-elevated: #1f1f1f;
+  --color-surface-elevated-secondary: #282a2c;
+  --color-background-secondary: #1e1f20;
+  --color-background-secondary-soft: #1e1f20;
+  --color-background-tertiary: #282a2c;
+  --color-background-primary-solid: var(--sync-a8c7fa, #a8c7fa);
+  --color-background-primary-solid-hover: color-mix(in srgb, var(--sync-a8c7fa, #a8c7fa) 92%, var(--sync-062e6f, #062e6f));
+  --color-background-composer-primary: var(--sync-a8c7fa, #a8c7fa);
+  --color-background-primary-soft: rgba(227, 227, 227, 0.08);
+  --color-background-primary-soft-alpha: rgba(227, 227, 227, 0.08);
+  --color-background-primary-soft-active: rgba(227, 227, 227, 0.12);
+  --color-background-primary-ghost-hover: rgba(227, 227, 227, 0.08);
+  --color-background-button-outline-hover: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
+  --color-background-activity-control: rgba(227, 227, 227, 0.08);
+  --color-background-activity-control-hover: rgba(227, 227, 227, 0.12);
+  --color-background-activity-stop-hover: rgba(227, 227, 227, 0.12);
+  --color-background-info-solid: var(--sync-a8c7fa, #a8c7fa);
+  --color-background-info-ghost-hover: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
+  --color-background-danger-solid: #f2b8b5;
+  --color-background-success-solid: #6dd58c;
+  --color-background-success-solid-hover: color-mix(in srgb, #6dd58c 92%, #0a3818);
+  --color-background-segmented-selected: #333537;
+  --color-background-segmented-selected-hover: #3c3f41;
+
+  --color-border: #444746;
+  --color-border-secondary: #444746;
+  --color-border-subtle: rgba(227, 227, 227, 0.08);
+  --color-border-strong: #8e918f;
+  --color-border-button-outline: #8e918f;
+  --color-border-primary-outline: var(--sync-a8c7fa, #a8c7fa);
+  --color-ring: var(--sync-a8c7fa, #a8c7fa);
+
+  --color-blue: var(--sync-a8c7fa, #a8c7fa);
+  --color-red: #f2b8b5;
+  --color-orange: #ffb4a1;
+  --color-white: #ffffff;
+  --color-chart-blue: var(--sync-a8c7fa, #a8c7fa);
+  --color-chart-red: #f2b8b5;
+  --color-brand-logo-background: #ffffff;
+  --color-brand-logo-foreground: #1f1f1f;
+  --color-control-thumb-on-accent: var(--sync-062e6f, #062e6f);
+  --color-media-background: #0f0f0f;
+  --color-media-foreground: #e3e3e3;
+  --color-media-control-background: rgba(31, 31, 31, 0.8);
+  --color-media-control-hover: rgba(51, 53, 55, 0.9);
+  --color-dialog-overlay: rgba(0, 0, 0, 0.32);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-dots {
+  color-scheme: light;
+  --lightningcss-light: initial;
+  --lightningcss-dark: ;
+  --secondary-soft: rgba(31, 31, 31, 0.05);
+
+  --color-text: #1f1f1f;
+  --color-text-primary: #1f1f1f;
+  --color-text-emphasis: #1f1f1f;
+  --color-text-user-message: #1f1f1f;
+  --color-text-secondary: #444746;
+  --color-codex-description: #444746;
+  --color-text-toolbar-action: #444746;
+  --color-text-activity-control: #444746;
+  --color-text-activity-control-active: #1f1f1f;
+  --color-text-tertiary: #747775;
+  --color-text-inverse: #ffffff;
+  --color-text-primary-solid: #ffffff;
+  --color-text-composer-primary: #ffffff;
+  --color-text-info: var(--sync-0b57d0, #0b57d0);
+  --color-text-info-ghost: var(--sync-0b57d0, #0b57d0);
+  --color-text-info-solid: #ffffff;
+  --color-text-button-outline: var(--sync-0b57d0, #0b57d0);
+  --color-text-danger: #b3261e;
+  --color-text-danger-solid: #ffffff;
+  --color-text-success-solid: #ffffff;
+
+  --color-surface: var(--spark-base-surface, var(--studio-surface, #faf9f9));
+  --color-surface-secondary: #f0f4f9;
+  --color-surface-tertiary: #e9eef6;
+  --color-surface-card: #ffffff;
+  --color-surface-elevated: #ffffff;
+  --color-surface-elevated-secondary: #f0f4f9;
+  --color-background-secondary: #f0f4f9;
+  --color-background-secondary-soft: #f0f4f9;
+  --color-background-tertiary: #e9eef6;
+  --color-background-primary-solid: var(--sync-0b57d0, #0b57d0);
+  --color-background-primary-solid-hover: color-mix(in srgb, var(--sync-0b57d0, #0b57d0) 92%, #ffffff);
+  --color-background-composer-primary: var(--sync-0b57d0, #0b57d0);
+  --color-background-primary-soft: rgba(31, 31, 31, 0.06);
+  --color-background-primary-soft-alpha: rgba(31, 31, 31, 0.06);
+  --color-background-primary-soft-active: rgba(31, 31, 31, 0.1);
+  --color-background-primary-ghost-hover: rgba(31, 31, 31, 0.08);
+  --color-background-button-outline-hover: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
+  --color-background-activity-control: rgba(31, 31, 31, 0.06);
+  --color-background-activity-control-hover: rgba(31, 31, 31, 0.1);
+  --color-background-activity-stop-hover: rgba(31, 31, 31, 0.1);
+  --color-background-info-solid: var(--sync-0b57d0, #0b57d0);
+  --color-background-info-ghost-hover: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
+  --color-background-danger-solid: #b3261e;
+  --color-background-success-solid: #146c2e;
+  --color-background-success-solid-hover: color-mix(in srgb, #146c2e 92%, #ffffff);
+  --color-background-segmented-selected: #ffffff;
+  --color-background-segmented-selected-hover: #f8fafd;
+
+  --color-border: #c4c7c5;
+  --color-border-secondary: #c4c7c5;
+  --color-border-subtle: rgba(31, 31, 31, 0.08);
+  --color-border-strong: #747775;
+  --color-border-button-outline: #747775;
+  --color-border-primary-outline: var(--sync-0b57d0, #0b57d0);
+  --color-ring: var(--sync-0b57d0, #0b57d0);
+
+  --color-blue: var(--sync-0b57d0, #0b57d0);
+  --color-red: #b3261e;
+  --color-orange: #b3261e;
+  --color-chart-blue: var(--sync-0b57d0, #0b57d0);
+  --color-chart-red: #b3261e;
+  --color-brand-logo-background: #ffffff;
+  --color-brand-logo-foreground: #1f1f1f;
+  --color-control-thumb-on-accent: #ffffff;
+  --color-media-background: #faf9f9;
+  --color-media-foreground: #1f1f1f;
+  --color-media-control-background: rgba(255, 255, 255, 0.85);
+  --color-media-control-hover: rgba(240, 244, 249, 0.95);
+}
+
+/* Willow's primary pill takes an 8% state layer on hover, not Codex's lightened fill. */
+.willow-dots .bg-primary-solid.bg-primary-solid:not(:disabled):not([aria-disabled="true"]):hover {
+  background-color: var(--color-background-primary-solid-hover);
+}
+
+/* ── Dialogs: Gemini's dialog surface (SparkTaskDialogs.css) ────────────── */
+
+.willow-dots-dialog-root {
+  position: relative;
+  z-index: 1000;
+}
+
+.willow-dots .willow-dots-dialog {
+  --color-surface: #1f1f1f;
+  border-radius: 32px;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  font-stretch: 92%;
+}
+
+.willow-dots .willow-dots-dialog :is(button, input, textarea) {
+  font-stretch: inherit;
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-dots .willow-dots-dialog {
+  --color-surface: #ffffff;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}

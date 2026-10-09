@@ -73,7 +73,7 @@ export const SidebarItem: React.FC<{
         </div>
       ) : null}
       {!isCollapsed && (
-        <span className={`sidebar-item-label whitespace-nowrap text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white max-[960px]:!font-normal max-[960px]:!text-[#e0e0e0]' : 'font-normal text-[#e6e6e6] max-[960px]:!text-[#e0e0e0]'} ${isLight ? '!text-[#000000]' : ''} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
+        <span className={`sidebar-item-label whitespace-nowrap text-[13px] leading-[17px] max-[960px]:!text-[17px] max-[960px]:!leading-6 transition-opacity duration-200 ease-linear ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} max-[960px]:!text-[#e0e0e0]${active ? ' max-[960px]:!font-[540]' : ''} ${isLight ? '!text-[#000000]' : ''} opacity-100 flex-1 min-w-0 overflow-hidden text-ellipsis`}>
           {customLabel || label}
         </span>
       )}
@@ -108,7 +108,7 @@ export const SidebarItem: React.FC<{
       )}
 
       {actions && !isCollapsed && (
-        <div className={`ml-auto pr-0.5 max-[960px]:pr-1.5 flex items-center justify-center shrink-0 ${
+        <div className={`ml-auto pr-0.5 max-[960px]:-ml-[7px] max-[960px]:-mr-[9px] max-[960px]:pr-0 flex items-center justify-center shrink-0 ${
           keepActionsVisible ? 'opacity-100' : 'max-w-0 overflow-hidden opacity-0 group-hover/item:max-w-none group-hover/item:overflow-visible group-hover/item:opacity-100 max-[960px]:opacity-100 max-[960px]:max-w-none max-[960px]:overflow-visible'
         }`}>
           {actions}
@@ -154,7 +154,7 @@ export const SectionHeader: React.FC<{
       aria-expanded={isExpanded}
       aria-controls={controlsId}
       onClick={onToggle}
-      className={`sidebar-section-header group/section mt-3 flex h-8 w-[calc(100%-12px)] max-[960px]:w-[calc(100%-16px)] items-center overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal ${
+      className={`sidebar-section-header group/section mt-3 flex h-8 w-[calc(100%-12px)] max-[960px]:ml-2 items-center overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal ${
         isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'
       } outline-none`}
     >

@@ -1,5 +1,7 @@
 import { atom, computed } from 'nanostores';
 import { publishSkills } from '@willow/core/skill-library';
+import { publishSchedules, type LibrarySchedule } from '@willow/core/spark-library';
+import { readLiveBackgroundJob } from '@willow/core/background-jobs';
 import type {
   SparkConnectedAppId,
   SparkCustomApp,
@@ -11,6 +13,7 @@ import type {
   SparkActivityPhase,
   SparkTaskAttachment,
   SparkGeneratedFile,
+  SparkCreatedItem,
   SparkTaskStatus,
   SparkTaskTurn,
   SparkActivityEntry,
@@ -19,9 +22,15 @@ import type {
   SparkPendingQuestion,
   SparkQuestion,
   SparkQuestionDraft,
+  SparkBrowserRequest,
+  SparkBrowserDecision,
 } from './spark-types';
 
 export type {
+  SparkCreatedItem,
+  SparkBrowserRequest,
+  SparkBrowserDecision,
+  SparkRemoteBrowserPage,
   SparkConnectedAppId,
   SparkCustomApp,
   SparkLocation,
@@ -76,6 +85,8 @@ export interface AppendSparkTaskTurnInput {
   activityPhase?: SparkActivityPhase;
   attachments?: SparkTaskAttachment[];
   generatedFiles?: SparkGeneratedFile[];
+  createdItems?: SparkCreatedItem[];
+  browserDecision?: SparkBrowserDecision;
   createdAt?: string;
 }
 
@@ -144,6 +155,18 @@ const createInitialState = (): SparkState => ({
 
 export const sparkState = atom<SparkState>(createInitialState());
 
+/** A schedule as other surfaces see it (`@willow/core/spark-library`). */
+export const toLibrarySchedule = (schedule: SparkSchedule): LibrarySchedule => ({
+  id: schedule.id,
+  title: schedule.title,
+  frequency: schedule.frequency,
+  weekdays: [...schedule.weekdays],
+  time: schedule.time,
+  instructions: schedule.instructions,
+  enabled: schedule.enabled,
+  nextRunAt: schedule.nextRunAt,
+});
+
 /*
  * Mirror the skill collection into the shared library.
  *
@@ -169,6 +192,8 @@ sparkState.subscribe((state) => {
       enabled: skill.enabled,
     })),
   );
+  // So a chat's schedule card shows its schedule as it is now (`@willow/core/spark-library`).
+  publishSchedules(state.schedules.map(toLibrarySchedule));
 });
 
 // Set only after the persisted Spark snapshot has been read and published.
@@ -239,7 +264,7 @@ const initialDrafts = (questions: SparkQuestion[]): SparkQuestionDraft[] =>
  *
  * Two layers, and the first is the one that always works:
  *
- * 1. **The unread marker.** `hasUnreadCompletion` already paints a dot on the
+ * 1. **The unread marker.** `hasUnreadCompletion` already paints a bot on the
  *    task row, and it needs no permission. It is set explicitly here because
  *    `updateSparkTask` only derives it for `complete`.
  * 2. **An OS notification**, when the user has already granted permission.
@@ -413,6 +438,9 @@ const getSparkStorageKey = (scopeId: string) =>
 const getSparkTaskStorageKey = (scopeId: string, taskId: string) =>
   `willow:spark:task:v1:${encodeURIComponent(scopeId || 'guest')}:${encodeURIComponent(taskId)}`;
 
+/** The background job a run holds while it runs (`SparkWorkspace`'s `beginSparkRun`). */
+export const sparkRunJobId = (scopeId: string, taskId: string) => `spark:${scopeId}:${taskId}`;
+
 const createSparkTaskSummary = (task: SparkTask): SparkTask => ({
   id: task.id,
   title: task.title,
@@ -425,8 +453,9 @@ const createSparkTaskSummary = (task: SparkTask): SparkTask => ({
   attachments: [],
   tools: task.tools ? [...task.tools] : [],
   usedTools: task.usedTools ? [...task.usedTools] : undefined,
-  approval: task.approval,
-  approvalDecision: task.approvalDecision,
+  browserRequest: task.browserRequest ? { ...task.browserRequest } : undefined,
+  browserPermission: task.browserPermission,
+  remoteBrowser: task.remoteBrowser ? { ...task.remoteBrowser } : undefined,
   progressLabel: task.progressLabel,
   scheduledLabel: task.scheduledLabel,
   scheduledTime: task.scheduledTime,
@@ -447,8 +476,8 @@ const mergeSparkTaskSummary = (summary: SparkTask, body: SparkTask): SparkTask =
   status: summary.status,
   tools: summary.tools,
   usedTools: summary.usedTools,
-  approval: summary.approval,
-  approvalDecision: summary.approvalDecision,
+  browserPermission: summary.browserPermission ?? body.browserPermission,
+  remoteBrowser: summary.remoteBrowser ?? body.remoteBrowser,
   progressLabel: summary.progressLabel,
   scheduledLabel: summary.scheduledLabel,
   scheduledTime: summary.scheduledTime,
@@ -958,7 +987,7 @@ const publishSparkState = (state: SparkState): void => {
   }
 };
 
-const isSparkLocation = (value: unknown): value is SparkLocation => {
+export const isSparkLocation = (value: unknown): value is SparkLocation => {
   if (!value || typeof value !== 'object' || !('page' in value)) return false;
   const candidate = value as Record<string, unknown>;
   switch (candidate.page) {
@@ -967,6 +996,7 @@ const isSparkLocation = (value: unknown): value is SparkLocation => {
     case 'schedules':
     case 'skills':
     case 'apps':
+    case 'pets':
       return true;
     case 'task':
       return typeof candidate.taskId === 'string' && Boolean(candidate.taskId);
@@ -976,6 +1006,10 @@ const isSparkLocation = (value: unknown): value is SparkLocation => {
       return ['manual', 'gemini', 'upload', 'recommended'].includes(String(candidate.mode))
         && (candidate.skillId === undefined || typeof candidate.skillId === 'string')
         && (candidate.template === undefined || typeof candidate.template === 'string');
+    case 'dots':
+      return candidate.dotId === undefined || typeof candidate.dotId === 'string';
+    case 'pages':
+      return typeof candidate.path === 'string' && candidate.path.startsWith('/');
     default:
       return false;
   }
@@ -1115,6 +1149,60 @@ const normalizeGeneratedFile = (value: unknown): SparkGeneratedFile | null => {
   };
 };
 
+const normalizeCreatedItem = (value: unknown): SparkCreatedItem | null => {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.recordId !== 'string') return null;
+  const createdAt = asString(value.createdAt, new Date().toISOString());
+  if (value.kind === 'schedule' && typeof value.title === 'string' && typeof value.time === 'string') {
+    return {
+      kind: 'schedule',
+      id: value.id,
+      recordId: value.recordId,
+      title: value.title,
+      frequency: value.frequency === 'Weekly' ? 'Weekly' : 'Daily',
+      weekdays: Array.isArray(value.weekdays) ? value.weekdays.filter((day): day is string => typeof day === 'string') : [],
+      time: value.time,
+      instructions: asString(value.instructions),
+      createdAt,
+    };
+  }
+  if (value.kind === 'skill' && typeof value.name === 'string') {
+    return {
+      kind: 'skill',
+      id: value.id,
+      recordId: value.recordId,
+      name: value.name,
+      description: asString(value.description),
+      instructions: asString(value.instructions),
+      createdAt,
+    };
+  }
+  return null;
+};
+
+const normalizeCreatedItems = (value: unknown): SparkCreatedItem[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.map(normalizeCreatedItem).filter((item): item is SparkCreatedItem => Boolean(item));
+  return items.length ? items : undefined;
+};
+
+const normalizeBrowserRequest = (value: unknown): SparkBrowserRequest | undefined => {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.task !== 'string' || !value.task.trim()) return undefined;
+  return {
+    id: value.id,
+    title: asString(value.title) || value.task.slice(0, 80),
+    task: value.task,
+    url: asString(value.url) || undefined,
+    status: value.status === 'allowed' || value.status === 'denied' ? value.status : 'pending',
+    createdAt: asString(value.createdAt, new Date().toISOString()),
+  };
+};
+
+const normalizeBrowserDecision = (value: unknown): SparkBrowserDecision | undefined => (
+  isRecord(value) && typeof value.requestId === 'string' && typeof value.allowed === 'boolean'
+    ? { requestId: value.requestId, allowed: value.allowed }
+    : undefined
+);
+
 const normalizeTurn = (value: unknown): SparkTaskTurn | null => {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.prompt !== 'string') return null;
   return {
@@ -1139,7 +1227,10 @@ const normalizeTurn = (value: unknown): SparkTaskTurn | null => {
     generatedFiles: Array.isArray(value.generatedFiles)
       ? value.generatedFiles.map(normalizeGeneratedFile).filter((item): item is SparkGeneratedFile => Boolean(item))
       : [],
+    createdItems: normalizeCreatedItems(value.createdItems),
     reaction: asReaction(value.reaction),
+    browserRequest: normalizeBrowserRequest(value.browserRequest),
+    browserDecision: normalizeBrowserDecision(value.browserDecision),
     createdAt: asString(value.createdAt, new Date().toISOString()),
   };
 };
@@ -1153,11 +1244,23 @@ const TASK_STATUSES = new Set<SparkTaskStatus>([
   'cancelled',
 ]);
 
-const normalizeTask = (value: unknown): SparkTask | null => {
+const normalizeTask = (value: unknown): SparkTask | null => normalizeTaskRecord(value, true);
+
+/*
+ * `recoverInterrupted` turns a task saved mid-run into an interrupted one, and
+ * only when no tab is still running it. A file read back from disk never does:
+ * disk lags this tab's own record, so a run that has just finished can still
+ * read as "running" there, and rewriting that as interrupted in every open tab
+ * replaced the finished answer with the interrupted notice.
+ */
+const normalizeTaskRecord = (value: unknown, recoverInterrupted: boolean): SparkTask | null => {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.prompt !== 'string') return null;
   const now = new Date().toISOString();
   const bodyLoaded = value.bodyLoaded !== false;
-  const wasInterrupted = bodyLoaded && (value.status === 'running' || value.status === 'queued');
+  const wasInterrupted = recoverInterrupted
+    && bodyLoaded
+    && (value.status === 'running' || value.status === 'queued')
+    && !readLiveBackgroundJob(sparkRunJobId(activeSparkStorageScope, value.id));
   const turns = Array.isArray(value.turns)
     ? value.turns.map(normalizeTurn).filter((item): item is SparkTaskTurn => Boolean(item))
     : [];
@@ -1166,12 +1269,28 @@ const normalizeTask = (value: unknown): SparkTask | null => {
       ? { ...turn, response: 'This follow-up was interrupted when Willow closed. Retry it to continue.' }
       : turn)
     : turns;
-  const approvalValue = isRecord(value.approval) && value.approval.kind === 'browser'
+  /*
+   * A task saved before the `computer` tool carries its browser question as a
+   * task-level `approval`. It becomes the root turn's request, so its card renders
+   * — and answers — like any other.
+   */
+  const legacyApproval = isRecord(value.approval) && value.approval.kind === 'browser'
+    ? asString(value.approval.prompt, value.prompt)
+    : '';
+  const browserRequest = normalizeBrowserRequest(value.browserRequest) ?? (legacyApproval
     ? {
-        kind: 'browser' as const,
-        title: asString(value.approval.title, 'Let Gemini interact with websites for you?'),
-        description: asString(value.approval.description, 'To work on your tasks, Gemini will need to use a browser:'),
-        prompt: asString(value.approval.prompt, value.prompt),
+        id: `legacy-${value.id}`,
+        title: 'Use a browser for this task',
+        task: legacyApproval,
+        status: value.approvalDecision === 'allowed' ? 'allowed' as const : value.approvalDecision === 'denied' ? 'denied' as const : 'pending' as const,
+        createdAt: asString(value.createdAt, now),
+      }
+    : undefined);
+  const remoteBrowser = isRecord(value.remoteBrowser) && typeof value.remoteBrowser.url === 'string' && value.remoteBrowser.url
+    ? {
+        url: value.remoteBrowser.url,
+        title: asString(value.remoteBrowser.title),
+        favicon: asString(value.remoteBrowser.favicon) || undefined,
       }
     : undefined;
 
@@ -1202,6 +1321,7 @@ const normalizeTask = (value: unknown): SparkTask | null => {
     generatedFiles: Array.isArray(value.generatedFiles)
       ? value.generatedFiles.map(normalizeGeneratedFile).filter((item): item is SparkGeneratedFile => Boolean(item))
       : [],
+    createdItems: normalizeCreatedItems(value.createdItems),
     goal: isRecord(value.goal) && typeof value.goal.objective === 'string'
       ? {
           threadId: asString(value.goal.threadId),
@@ -1222,10 +1342,11 @@ const normalizeTask = (value: unknown): SparkTask | null => {
       ? value.usedTools.filter((tool): tool is string => typeof tool === 'string')
       : undefined,
     reaction: asReaction(value.reaction),
-    approval: approvalValue,
-    approvalDecision: value.approvalDecision === 'allowed' || value.approvalDecision === 'denied'
-      ? value.approvalDecision
+    browserRequest,
+    browserPermission: value.browserPermission === 'allowed' || (legacyApproval && value.approvalDecision === 'allowed')
+      ? 'allowed'
       : undefined,
+    remoteBrowser,
     progressLabel: wasInterrupted ? 'Interrupted' : asString(value.progressLabel) || undefined,
     scheduledLabel: asString(value.scheduledLabel) || undefined,
     scheduledTime: asString(value.scheduledTime) || undefined,
@@ -1282,7 +1403,7 @@ const normalizeSkill = (value: unknown): SparkSkill | null => {
 export const parseSparkTask = (contents: string, id: string): SparkTask | null => {
   try {
     const value = JSON.parse(contents) as unknown;
-    return normalizeTask({ ...(isRecord(value) ? value : {}), id });
+    return normalizeTaskRecord({ ...(isRecord(value) ? value : {}), id }, false);
   } catch {
     return null;
   }
@@ -1561,6 +1682,19 @@ export const goToSparkSkillEditor = (
   options: { skillId?: string; template?: string } = {},
 ): void => navigateSpark({ page: 'skill-editor', mode, ...options });
 export const goToSparkApps = (): void => navigateSpark({ page: 'apps' });
+export const goToSparkPets = (): void => navigateSpark({ page: 'pets' });
+export const goToSparkDots = (): void => navigateSpark({ page: 'dots' });
+export const goToSparkDot = (dotId: string): void => navigateSpark({ page: 'dots', dotId });
+export const goToSparkPages = (path = '/space'): void => navigateSpark({ page: 'pages', path });
+
+/** A draft waiting for the home composer, like Codex's `prefillPrompt` navigation state. */
+export const sparkComposerPrefill = atom<string | null>(null);
+
+/** Spark's home with `text` already in its composer: a Page's "New chat". */
+export const goToSparkHomeWithPrompt = (text: string): void => {
+  sparkComposerPrefill.set(text);
+  goToSparkHome();
+};
 
 /** Creates the record and opens it in one store publication. */
 export const createSparkTask = (
@@ -1600,12 +1734,14 @@ export const createSparkTask = (
     })) ?? [],
     attachments: options.attachments?.map((attachment) => ({ ...attachment })) ?? [],
     generatedFiles: options.generatedFiles?.map((file) => ({ ...file })) ?? [],
+    createdItems: options.createdItems?.map((item) => ({ ...item })),
     goal: options.goal ? { ...options.goal } : undefined,
     tools: options.tools ? [...options.tools] : [],
     usedTools: options.usedTools ? [...options.usedTools] : [],
     reaction: options.reaction,
-    approval: options.approval ? { ...options.approval } : undefined,
-    approvalDecision: options.approvalDecision,
+    browserRequest: options.browserRequest ? { ...options.browserRequest } : undefined,
+    browserPermission: options.browserPermission,
+    remoteBrowser: options.remoteBrowser ? { ...options.remoteBrowser } : undefined,
     progressLabel: options.progressLabel ?? 'Working',
     scheduledLabel: options.scheduledLabel,
     scheduledTime: options.scheduledTime,
@@ -1829,7 +1965,9 @@ export const appendSparkTaskTurn = (
     tools: input.tools ? [...input.tools] : [],
     attachments: input.attachments?.map((attachment) => ({ ...attachment })),
     generatedFiles: input.generatedFiles?.map((file) => ({ ...file })),
+    createdItems: input.createdItems?.map((item) => ({ ...item })),
     reaction: undefined,
+    browserDecision: input.browserDecision ? { ...input.browserDecision } : undefined,
     createdAt: now,
   };
   const updated: SparkTask = {

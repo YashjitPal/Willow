@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, createContext, useContext } from 'react';
-import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useThemeMode } from '@willow/core/theme-mode';
+import { useCompactViewport } from '../use-compact-viewport';
 import { TOOL_SYMBOLS, TOOL_TOOLTIPS, type ToolId } from './composer-options';
 import {
   CodexGoalIcon,
@@ -310,115 +310,217 @@ const LikenessAvatarIcon: React.FC<{ size?: number; className?: string }> = ({ s
 );
 
 /**
- * Gemini's square squircle upload button used in compact tablet card & mobile bottom sheet.
+ * THE TOUCH LAYOUT, at 960px and below. Gemini keeps the same menu there but draws it as
+ * `gem-menu.is-mobile`, measured at 390x844 and 800x1280 in both Chat and Spark, opened by
+ * a real touch:
+ *
+ *   panel      #1c1c1c, radius 20px, `padding-inline: 8px` + `border-block: 8px solid
+ *              transparent`, `min-width: 16.25rem`, `width: max-content`,
+ *              `max-height: min(440px, 42vh)`, scrolling inside
+ *   rows       48px, padding 12px, gap 8px, radius 12px; label 17px/24px #e0e0e0;
+ *              glyph 24px Luminous Symbols `"opsz" 24, "wght" 300` in #e3e3e3
+ *   placement  4px left of the plus; 8px below it, or 16px above it when opening upward
+ *
+ * Submenus are separate cards with a header row (title + close) rather than flyouts. Each
+ * ends 8px above the main card's bottom edge and starts at the trigger row's right edge,
+ * pushed left to stay 24px inside the viewport. The labels are Gemini's short mobile ones —
+ * Files, Drive, Google Photos, Import code, Guided Learning — and an outside tap closes
+ * everything with no leave animation and no backdrop.
  */
+const TOUCH_SURFACE = '#1c1c1c';
+const TOUCH_ON_SURFACE = '#e0e0e0';
+const TOUCH_HOVER_LAYER = 'rgba(224,224,224,0.08)';
+const TOUCH_LABEL_CLASS =
+  "text-[17px] leading-6 font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]";
+const TOUCH_SUBMENU_INSET = 24;
+/** Height of the panel's fixed part: both 8px borders, three upload rows and the divider. */
+const TOUCH_UPLOADS_HEIGHT = 16 + 3 * 48 + 16.8;
+
 /**
- * Gemini's square squircle upload button used in compact tablet card & mobile bottom sheet.
- * Measured off live Gemini over CDP:
- *   width: 95.575px (~96px), height: 95.575px, min-width: 95.575px
- *   border-radius: 40px
- *   background-color: rgb(20, 20, 20) in dark theme, #f2f2f2 in light theme
- *   gap: 4px between buttons, row horizontal padding: 0 16px (px-4)
- *   label: 14px "Google Sans Flex", multiline wrapping (e.g. "Google Photos" on 2 lines)
+ * How many tool rows Gemini shows before folding the rest into "More tools". It sizes the
+ * list to the panel's `42vh` budget — measured three tools at 844px tall, four at 920px — and
+ * shows every tool flat from 1000px up, scrolling inside the 440px cap.
  */
-const SquircleUploadButton: React.FC<{
-  label: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-}> = ({ label, icon, onClick }) => {
+const touchInlineToolCount = (total: number) => {
+  if (typeof window === 'undefined' || window.innerHeight >= 1000) return total;
+  const budget = Math.min(440, window.innerHeight * 0.42) - TOUCH_UPLOADS_HEIGHT;
+  return Math.min(total, Math.max(1, Math.floor(budget / 48)));
+};
+
+const TouchGlyph: React.FC<{ name: string; family?: IconFamily }> = ({ name, family = 'luminous' }) => {
   const { isLight } = usePlusMenuTheme();
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group flex min-w-[95.6px] w-[95.6px] h-[95.6px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-[40px] transition-all outline-none select-none ${
-        isLight
-          ? 'bg-[#f2f2f2] hover:bg-[#e8e8e8] text-[#1f1f1f] active:scale-[0.96]'
-          : 'bg-[#141414] hover:bg-[#252525] text-[#e6e6e6] active:scale-[0.96]'
-      }`}
-    >
-      <span className="flex h-8 w-8 items-center justify-center text-current">
-        {icon}
-      </span>
-      <span
-        className="text-[13px] sm:text-[14px] font-normal leading-[16px] text-center px-1.5 line-clamp-2 max-w-[84px]"
-        style={{
-          fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-          fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
-          color: isLight ? '#1f1f1f' : '#e0e0e0',
-        }}
-      >
-        {label}
-      </span>
-    </button>
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+      <MaterialSymbol
+        name={name}
+        family={family}
+        size={24}
+        weight={300}
+        variationSettings={family === 'luminous' ? '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300' : undefined}
+        className={isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}
+      />
+    </span>
   );
 };
 
-/**
- * Gemini's compact tool row for reduced-width / tablet card and mobile bottom sheet.
- * Measured live on Gemini:
- *   height: 64px, min-height: 48px, padding: 12px 8px
- *   border-radius: 16px
- *   font-size: 16px, line-height: 24px, color: #e3e3e3
- *   icon: 28px in 40x40 container
- */
-const CompactToolRow: React.FC<{
+/** A Lucide icon at the touch glyph's size and stroke. */
+const TouchSvgIcon: React.FC<{ icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = ({ icon: Icon }) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}>
+      <Icon size={24} strokeWidth={1.5} />
+    </span>
+  );
+};
+
+const MaskGlyph: React.FC<{ size: number }> = ({ size }) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <span
+      aria-hidden="true"
+      className="relative block shrink-0"
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: isLight ? '#1f1f1f' : TOUCH_ON_SURFACE,
+        maskImage: PERSONAL_RECOMMENDATIONS_MASK,
+        WebkitMaskImage: PERSONAL_RECOMMENDATIONS_MASK,
+        maskSize: 'contain',
+        WebkitMaskSize: 'contain',
+        maskRepeat: 'no-repeat',
+        WebkitMaskRepeat: 'no-repeat',
+        maskPosition: 'center',
+        WebkitMaskPosition: 'center',
+      }}
+    />
+  );
+};
+
+const TouchHoverLayer: React.FC = () => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
+      style={{ backgroundColor: isLight ? 'rgba(0, 0, 0, 0.08)' : TOUCH_HOVER_LAYER }}
+    />
+  );
+};
+
+const TouchLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <span
+      className={`relative min-w-0 flex-1 overflow-hidden whitespace-nowrap ${TOUCH_LABEL_CLASS} ${isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}`}
+      style={LABEL_STYLE}
+    >
+      {children}
+    </span>
+  );
+};
+
+/** One 48px row. The trailing 24px slot is always there, as in Gemini's template. */
+const TouchRow: React.FC<{
   glyph?: string;
   family?: IconFamily;
   icon?: React.ReactNode;
   label: string;
-  tooltip?: string;
+  trailingChevron?: boolean;
   selected?: boolean;
   onClick?: () => void;
-}> = ({ glyph, family, icon, label, tooltip, selected, onClick }) => {
+  ariaHasPopup?: boolean;
+  expanded?: boolean;
+}> = ({ glyph, family, icon, label, trailingChevron, selected, onClick, ariaHasPopup, expanded }) => {
   const { isLight } = usePlusMenuTheme();
   return (
     <button
       type="button"
-      role="menuitem"
-      title={tooltip}
+      role={ariaHasPopup ? undefined : 'menuitem'}
+      aria-haspopup={ariaHasPopup ? 'menu' : undefined}
+      aria-expanded={ariaHasPopup ? !!expanded : undefined}
       onClick={onClick}
-      className="group/row relative flex h-16 w-full items-center rounded-2xl px-2 text-left transition-colors outline-none"
+      className="group/row relative flex h-12 w-full items-center gap-2 rounded-xl p-3 text-left"
       style={selected ? { backgroundColor: isLight ? '#f2f0f0' : '#171717' } : undefined}
     >
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
-        style={{ backgroundColor: isLight ? 'rgba(0, 0, 0, 0.06)' : HOVER_LAYER }}
-      />
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center">
-        {icon ?? (
-          glyph ? (
-            <MaterialSymbol
-              name={glyph}
-              family={family ?? 'luminous'}
-              size={28}
-              weight={family === 'google-symbols' ? 330 : 260}
-              variationSettings={
-                family === 'google-symbols'
-                  ? undefined
-                  : '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260'
-              }
-              className={isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}
-            />
-          ) : null
-        )}
-      </span>
-      <span
-        className={`relative ml-2 text-[16px] leading-6 font-normal ${
-          isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'
-        } font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
-        style={{
-          fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
-        }}
-      >
-        {label}
-      </span>
+      <TouchHoverLayer />
+      <span className="relative flex shrink-0">{icon ?? (glyph ? <TouchGlyph name={glyph} family={family} /> : null)}</span>
+      <TouchLabel>{label}</TouchLabel>
+      <span className="relative flex h-6 w-6 shrink-0">{trailingChevron ? <TouchGlyph name="chevron_right" /> : null}</span>
     </button>
   );
 };
 
-const CompactPersonalIntelligenceRow: React.FC<{
+/** A submenu's title row: `padding: 16px 12px 8px`, no leading icon, a close glyph trailing. */
+const TouchSubmenuHeader: React.FC<{ title: string; onClose: () => void }> = ({ title, onClose }) => (
+  <button
+    type="button"
+    aria-label={`Close ${title}`}
+    onClick={onClose}
+    className="group/row relative flex h-12 w-full items-center gap-2 rounded-xl px-3 pb-2 pt-4 text-left"
+  >
+    <TouchHoverLayer />
+    <TouchLabel>{title}</TouchLabel>
+    <span className="relative flex shrink-0"><TouchGlyph name="close" /></span>
+  </button>
+);
+
+/** Full content width, unlike the desktop divider's 8px inset. */
+const TouchDivider: React.FC = () => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <div
+      role="separator"
+      className="my-2"
+      style={{ height: 0, borderTop: `0.8px solid ${isLight ? 'rgba(0, 0, 0, 0.08)' : DIVIDER}` }}
+    />
+  );
+};
+
+const TouchMenuCard = React.forwardRef<HTMLDivElement, {
+  origin: string;
+  label: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}>(({ origin, label, style, children }, ref) => {
+  const { isLight } = usePlusMenuTheme();
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      aria-label={label}
+      className="willow-gem-menu-in"
+      style={{
+        minWidth: 260,
+        width: 'max-content',
+        maxWidth: 'calc(100vw - 16px)',
+        maxHeight: 'min(440px, 42vh)',
+        overflowX: 'hidden',
+        overflowY: 'auto',
+        scrollbarWidth: 'thin',
+        scrollbarColor: 'transparent transparent',
+        backgroundColor: isLight ? '#ffffff' : TOUCH_SURFACE,
+        borderRadius: 20,
+        padding: '0 8px',
+        borderTop: '8px solid transparent',
+        borderBottom: '8px solid transparent',
+        boxShadow: isLight ? '0 0 20px rgba(0,0,0,0.04)' : MENU_SHADOW,
+        transformOrigin: origin,
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+});
+TouchMenuCard.displayName = 'TouchMenuCard';
+
+/**
+ * The touch Personal Intelligence switch: 52px, a 28px icon, the title (#e3e3e3, unlike the
+ * other labels) with an inline "Labs" pill stretched to the title's 24px line
+ * (`padding-inline: 8px`, `rgba(255,255,255,0.12)`), and the same MDC switch. Its width is
+ * what makes Gemini's More tools card measure 353.4px instead of 260.
+ */
+const TouchPersonalIntelligenceRow: React.FC<{
   checked: boolean;
   onChange: (next: boolean) => void;
 }> = ({ checked, onChange }) => {
@@ -429,102 +531,37 @@ const CompactPersonalIntelligenceRow: React.FC<{
       role="menuitemcheckbox"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="group/row relative flex h-16 w-full items-center rounded-2xl px-2 text-left transition-colors outline-none"
+      className="group/row relative block h-[52px] w-full text-left"
     >
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100"
-        style={{ backgroundColor: isLight ? 'rgba(0, 0, 0, 0.06)' : HOVER_LAYER }}
-      />
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center">
-        <span
-          aria-hidden="true"
-          className="block h-7 w-7 shrink-0"
-          style={{
-            backgroundColor: isLight ? '#1f1f1f' : '#e0e0e0',
-            maskImage: PERSONAL_RECOMMENDATIONS_MASK,
-            WebkitMaskImage: PERSONAL_RECOMMENDATIONS_MASK,
-            maskSize: 'contain',
-            WebkitMaskSize: 'contain',
-            maskRepeat: 'no-repeat',
-            WebkitMaskRepeat: 'no-repeat',
-            maskPosition: 'center',
-            WebkitMaskPosition: 'center',
-          }}
-        />
-      </span>
-      <span className="relative ml-2 flex flex-col">
-        <span
-          className={`text-[16px] leading-tight font-normal ${
-            isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'
-          } font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
-          style={{
-            fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
-          }}
-        >
-          Personal Intelligence
+      <span className="relative mt-3 flex h-10 items-center gap-4 px-3">
+        <TouchHoverLayer />
+        <MaskGlyph size={28} />
+        <span className="relative flex min-w-0 flex-1 items-center gap-1">
+          <span
+            className={`whitespace-nowrap ${TOUCH_LABEL_CLASS} ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
+            style={LABEL_STYLE}
+          >
+            Personal Intelligence
+          </span>
+          <span
+            className="flex h-6 shrink-0 items-center rounded-full px-2"
+            style={{ backgroundColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)' }}
+          >
+            <span
+              className="text-[13px] leading-[17px] font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+              style={{ ...LABEL_STYLE, color: isLight ? '#1f1f1f' : TOUCH_ON_SURFACE }}
+            >
+              Labs
+            </span>
+          </span>
         </span>
-        <span
-          className="text-[13px] leading-tight font-normal font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
-          style={{
-            fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400',
-            color: isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)',
-          }}
-        >
-          Labs
+        <span className="relative shrink-0" aria-hidden="true">
+          <GeminiSwitch checked={checked} />
         </span>
-      </span>
-      <span className="relative ml-auto" aria-hidden="true">
-        <GeminiSwitch checked={checked} />
       </span>
     </button>
   );
 };
-
-type DeviceMode = 'desktop' | 'compact' | 'mobile';
-
-function useDeviceMode(): DeviceMode {
-  const [deviceMode, setDeviceMode] = useState<DeviceMode>(() => {
-    if (typeof window === 'undefined') return 'desktop';
-    const width = window.innerWidth;
-    const isCoarse = window.matchMedia('(pointer: coarse)').matches;
-    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const hasForceMobile = typeof window !== 'undefined' && (
-      window.location.search.includes('mode=mobile') ||
-      window.location.search.includes('view=mobile')
-    );
-    const isTouch = isCoarse || isMobileUA || hasForceMobile;
-    if (isTouch && width <= 768) return 'mobile';
-    if (width <= 960) return 'compact';
-    return 'desktop';
-  });
-
-  useEffect(() => {
-    const compute = () => {
-      const width = window.innerWidth;
-      const isCoarse = window.matchMedia('(pointer: coarse)').matches;
-      const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      const hasForceMobile = typeof window !== 'undefined' && (
-        window.location.search.includes('mode=mobile') ||
-        window.location.search.includes('view=mobile')
-      );
-      const isTouch = isCoarse || isMobileUA || hasForceMobile;
-      if (isTouch && width <= 768) {
-        setDeviceMode('mobile');
-      } else if (width <= 960) {
-        setDeviceMode('compact');
-      } else {
-        setDeviceMode('desktop');
-      }
-    };
-
-    compute();
-    window.addEventListener('resize', compute);
-    return () => window.removeEventListener('resize', compute);
-  }, []);
-
-  return deviceMode;
-}
 
 export const PlusDropdownMenu: React.FC<{
   isOpen: boolean;
@@ -577,74 +614,60 @@ export const PlusDropdownMenu: React.FC<{
   const [side, setSide] = useState<'bottom' | 'top'>('bottom');
   const [isSubPositionReady, setIsSubPositionReady] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
+  const touchCardRef = useRef<HTMLDivElement>(null);
   const uploadsRef = useRef<HTMLDivElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const deviceMode = useDeviceMode();
-  const [cardLeftOffset, setCardLeftOffset] = useState(0);
-  const [dragOffset, setDragOffset] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const startYRef = useRef(0);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    startYRef.current = e.touches[0].clientY;
-    setIsDragging(true);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    const currentY = e.touches[0].clientY;
-    const delta = currentY - startYRef.current;
-    if (delta > 0) {
-      setDragOffset(delta);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    setIsDragging(false);
-    if (dragOffset > 75) {
-      onClose();
-    }
-    setDragOffset(0);
-  };
-
-  useLayoutEffect(() => {
-    if (!isOpen || deviceMode !== 'compact') return;
-    const btn = buttonRef.current;
-    if (!btn) return;
-    const btnRect = btn.getBoundingClientRect();
-    const cardWidth = Math.min(375, typeof window !== 'undefined' ? window.innerWidth - 32 : 375);
-
-    // In Gemini tablet & reduced view, the card aligns with the plus button cluster (-4px offset to match simplified-input-menu-container).
-    // The positioning parent is .willow-composer-leading-actions (where buttonRef is at left: 0).
-    let targetOffset = -4;
-    const cardLeftInViewport = btnRect.left + targetOffset;
-    const cardRightInViewport = cardLeftInViewport + cardWidth;
-    const maxViewportRight = window.innerWidth - 16;
-    if (cardRightInViewport > maxViewportRight) {
-      targetOffset -= (cardRightInViewport - maxViewportRight);
-    }
-    const clampedCardLeft = btnRect.left + targetOffset;
-    if (clampedCardLeft < 16) {
-      targetOffset += (16 - clampedCardLeft);
-    }
-    setCardLeftOffset(targetOffset);
-  }, [isOpen, deviceMode, buttonRef]);
+  const isCompact = useCompactViewport();
+  // Touch-layout submenu position, relative to the positioning wrapper. Null until measured,
+  // so the card stays hidden for the one layout pass it takes to place it.
+  const [touchSubPos, setTouchSubPos] = useState<{ left: number; top: number } | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
       setOpenSub(null);
       setIsSubPositionReady(false);
-      setDragOffset(0);
-      setIsDragging(false);
     }
   }, [isOpen]);
 
+  useLayoutEffect(() => {
+    if (!isCompact || !openSub) {
+      setTouchSubPos(null);
+      return;
+    }
+    const place = () => {
+      const wrapper = menuRef.current;
+      const card = touchCardRef.current;
+      const sub = submenuRef.current;
+      const trigger = openSub === 'uploads' ? uploadsRef.current : toolsRef.current;
+      if (!wrapper || !card || !sub || !trigger) return;
+      const origin = wrapper.getBoundingClientRect();
+      const left = Math.max(8, Math.min(
+        trigger.getBoundingClientRect().right,
+        window.innerWidth - TOUCH_SUBMENU_INSET - sub.offsetWidth,
+      ));
+      const top = Math.max(8, card.getBoundingClientRect().bottom - 8 - sub.offsetHeight);
+      setTouchSubPos({ left: left - origin.left, top: top - origin.top });
+    };
+    place();
+    const card = touchCardRef.current;
+    card?.addEventListener('animationend', place);
+    window.addEventListener('resize', place);
+    // The first open can measure before its label fonts settle; re-place when it resizes.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    if (submenuRef.current) observer?.observe(submenuRef.current);
+    return () => {
+      card?.removeEventListener('animationend', place);
+      window.removeEventListener('resize', place);
+      observer?.disconnect();
+    };
+  }, [isCompact, openSub]);
+
   // Calculatively clamp submenu to viewport bounds so it never overflows off-screen vertically.
   useLayoutEffect(() => {
-    if (!openSub) {
+    if (!openSub || isCompact) {
       setIsSubPositionReady(false);
       return;
     }
@@ -720,7 +743,7 @@ export const PlusDropdownMenu: React.FC<{
       window.removeEventListener('resize', clampSubmenu);
       observer?.disconnect();
     };
-  }, [openSub, subTop]);
+  }, [openSub, subTop, isCompact]);
 
   // Flip above or below the trigger depending on room. Gemini's own menu opened upward
   // from a bottom-docked composer, which is why the measured transform-origin is
@@ -742,7 +765,6 @@ export const PlusDropdownMenu: React.FC<{
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (deviceMode === 'mobile') return;
       if (
         menuRef.current && !menuRef.current.contains(e.target as Node)
         && buttonRef.current && !buttonRef.current.contains(e.target as Node)
@@ -757,7 +779,7 @@ export const PlusDropdownMenu: React.FC<{
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [isOpen, onClose, buttonRef, deviceMode]);
+  }, [isOpen, onClose, buttonRef]);
 
   useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
 
@@ -807,231 +829,119 @@ export const PlusDropdownMenu: React.FC<{
   };
   const SUB_LEFT = 249 - 8;
 
-  const renderUploadButtonsRow = () => (
-    <div className="flex w-full items-center gap-1 overflow-x-auto px-4 py-1 no-scrollbar overscroll-x-contain">
-      <SquircleUploadButton
-        label="Files"
-        icon={<MaterialSymbol family="luminous" name="attach_file" size={28} weight={260} variationSettings='"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260' />}
-        onClick={act(onFileSelect)}
-      />
-      <SquircleUploadButton
-        label="Avatar"
-        icon={<LikenessAvatarIcon size={28} />}
-        onClick={act(onAddAvatar)}
-      />
-      <SquircleUploadButton
-        label="Drive"
-        icon={<MaterialSymbol family="google-symbols" name="drive" size={28} weight={330} />}
-        onClick={act(onAddFromDrive)}
-      />
-      <SquircleUploadButton
-        label="Google Photos"
-        icon={<MaterialSymbol family="google-symbols" name="photos" size={28} weight={330} />}
-        onClick={act(onAddPhotos)}
-      />
-      <SquircleUploadButton
-        label="Notebooks"
-        icon={<MaterialSymbol family="luminous" name="notebook" size={28} weight={260} variationSettings='"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260' />}
-        onClick={act(onAddNotebook)}
-      />
-      <SquircleUploadButton
-        label="Code"
-        icon={<MaterialSymbol family="luminous" name="code" size={28} weight={260} variationSettings='"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260' />}
-        onClick={act(onImportCode)}
-      />
-    </div>
-  );
-
-  const renderToolsList = () => {
-    if (sparkMode && sparkToolsEnabled) {
-      return (
-        <div className="flex flex-col">
-          <CompactToolRow
-            icon={<span className={`flex h-10 w-10 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}`}><CodexPlanIcon size={24} strokeWidth={2} /></span>}
-            label="Plan"
-            selected={selectedTool === 'plan'}
-            onClick={() => pickTool('plan')}
-          />
-          <CompactToolRow
-            icon={<span className={`flex h-10 w-10 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}`}><CodexGoalIcon size={24} strokeWidth={2} /></span>}
-            label="Goal"
-            selected={selectedTool === 'goal'}
-            onClick={() => pickTool('goal')}
-          />
-          <CompactToolRow
-            glyph={TOOL_SYMBOLS['computer-use']}
-            family="google-symbols"
-            label="Computer Use"
-            selected={selectedTool === 'computer-use'}
-            onClick={() => pickTool('computer-use')}
-          />
-          <CompactToolRow
-            icon={<span className={`flex h-10 w-10 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}`}><CodexSideChatIcon size={24} strokeWidth={2} /></span>}
-            label="Side chat"
-            onClick={onClose}
-          />
-          <CompactToolRow
-            glyph={TOOL_SYMBOLS['create-skill']}
-            family="google-symbols"
-            label="Create skill"
-            selected={selectedTool === 'create-skill'}
-            onClick={() => pickTool('create-skill')}
-          />
-          <CompactToolRow
-            icon={<span className={`flex h-10 w-10 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'}`}><CodexPetIcon size={24} strokeWidth={2} /></span>}
-            label="Create pet"
-            selected={selectedTool === 'create-pet'}
-            onClick={() => pickTool('create-pet')}
-          />
-          {onTogglePersonalIntelligence && (
-            <CompactPersonalIntelligenceRow
-              checked={personalIntelligence}
-              onChange={onTogglePersonalIntelligence}
-            />
-          )}
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-col">
-        <CompactToolRow
-          glyph={TOOL_SYMBOLS.images}
-          label="Create image"
-          tooltip={TOOL_TOOLTIPS.images}
-          selected={selectedTool === 'images'}
-          onClick={() => pickTool('images')}
-        />
-        <CompactToolRow
-          glyph={TOOL_SYMBOLS.video}
-          label="Create video"
-          tooltip={TOOL_TOOLTIPS.video}
-          selected={selectedTool === 'video'}
-          onClick={() => pickTool('video')}
-        />
-        <CompactToolRow
-          glyph={TOOL_SYMBOLS.music}
-          label="Create music"
-          tooltip={TOOL_TOOLTIPS.music}
-          selected={selectedTool === 'music'}
-          onClick={() => pickTool('music')}
-        />
-        <CompactToolRow
-          glyph={TOOL_SYMBOLS.canvas}
-          label="Canvas"
-          tooltip={TOOL_TOOLTIPS.canvas}
-          selected={selectedTool === 'canvas'}
-          onClick={() => pickTool('canvas')}
-        />
-        <CompactToolRow
-          glyph={TOOL_SYMBOLS.research}
-          label="Deep research"
-          tooltip={TOOL_TOOLTIPS.research}
-          selected={selectedTool === 'research'}
-          onClick={() => pickTool('research')}
-        />
-        <CompactToolRow
-          glyph={TOOL_SYMBOLS.learn}
-          label="Guided learning"
-          tooltip={TOOL_TOOLTIPS.learn}
-          selected={selectedTool === 'learn'}
-          onClick={() => pickTool('learn')}
-        />
-        {onTogglePersonalIntelligence && (
-          <CompactPersonalIntelligenceRow
-            checked={personalIntelligence}
-            onChange={onTogglePersonalIntelligence}
-          />
-        )}
-      </div>
+  if (isCompact) {
+    const openTouchSub = (which: 'uploads' | 'tools') => {
+      setTouchSubPos(null);
+      setOpenSub(which);
+    };
+    const touchAvatarIcon = (
+      <span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}>
+        <LikenessAvatarIcon size={24} />
+      </span>
     );
-  };
 
-  if (deviceMode === 'mobile') {
-    if (typeof document === 'undefined') return null;
-    return createPortal(
-      <PlusMenuThemeContext.Provider value={{ isLight }}>
-        <div className="willow-bottom-sheet-overlay fixed inset-0 z-[1000] flex flex-col justify-end">
-          {/* Dark backdrop */}
-          <div
-            className="fixed inset-0 backdrop-blur-[0.5px] willow-backdrop-fade-in"
-            style={{ backgroundColor: 'rgba(0, 0, 0, 0.32)' }}
-            onClick={onClose}
-            aria-hidden="true"
-          />
+    const toolRows: { key: string; node: React.ReactNode }[] = sparkMode
+      ? (sparkToolsEnabled
+        ? [
+            { key: 'plan', node: <TouchRow icon={<TouchSvgIcon icon={CodexPlanIcon} />} label="Plan" selected={selectedTool === 'plan'} onClick={() => pickTool('plan')} /> },
+            { key: 'goal', node: <TouchRow icon={<TouchSvgIcon icon={CodexGoalIcon} />} label="Goal" selected={selectedTool === 'goal'} onClick={() => pickTool('goal')} /> },
+            { key: 'computer-use', node: <TouchRow glyph={TOOL_SYMBOLS['computer-use']} family="google-symbols" label="Computer Use" selected={selectedTool === 'computer-use'} onClick={() => pickTool('computer-use')} /> },
+            { key: 'side-chat', node: <TouchRow icon={<TouchSvgIcon icon={CodexSideChatIcon} />} label="Side chat" onClick={onClose} /> },
+            { key: 'create-skill', node: <TouchRow glyph={TOOL_SYMBOLS['create-skill']} label="Create skill" selected={selectedTool === 'create-skill'} onClick={() => pickTool('create-skill')} /> },
+            { key: 'create-pet', node: <TouchRow icon={<TouchSvgIcon icon={CodexPetIcon} />} label="Create pet" selected={selectedTool === 'create-pet'} onClick={() => pickTool('create-pet')} /> },
+            { key: 'personal-intelligence', node: <TouchRow icon={<MaskGlyph size={24} />} label="Personal Intelligence" selected={selectedTool === 'personal-intelligence'} onClick={() => pickTool('personal-intelligence')} /> },
+          ]
+        : [])
+      : [
+          { key: 'images', node: <TouchRow glyph={TOOL_SYMBOLS.images} label="Create image" selected={selectedTool === 'images'} onClick={() => pickTool('images')} /> },
+          { key: 'video', node: <TouchRow glyph={TOOL_SYMBOLS.video} label="Create video" selected={selectedTool === 'video'} onClick={() => pickTool('video')} /> },
+          { key: 'music', node: <TouchRow glyph={TOOL_SYMBOLS.music} label="Create music" selected={selectedTool === 'music'} onClick={() => pickTool('music')} /> },
+          { key: 'canvas', node: <TouchRow glyph={TOOL_SYMBOLS.canvas} label="Canvas" selected={selectedTool === 'canvas'} onClick={() => pickTool('canvas')} /> },
+          { key: 'research', node: <TouchRow glyph={TOOL_SYMBOLS.research} label="Deep research" selected={selectedTool === 'research'} onClick={() => pickTool('research')} /> },
+          { key: 'learn', node: <TouchRow glyph={TOOL_SYMBOLS.learn} label="Guided Learning" selected={selectedTool === 'learn'} onClick={() => pickTool('learn')} /> },
+          ...(onTogglePersonalIntelligence
+            ? [{ key: 'personal-intelligence', node: <TouchPersonalIntelligenceRow checked={personalIntelligence} onChange={onTogglePersonalIntelligence} /> }]
+            : []),
+        ];
+    const inlineCount = touchInlineToolCount(toolRows.length);
+    const inlineTools = toolRows.slice(0, inlineCount);
+    const moreTools = toolRows.slice(inlineCount);
 
-          {/* Bottom sheet container */}
-          <div
-            ref={sheetRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Upload & tools"
-            className="relative z-10 w-full flex flex-col willow-bottom-sheet-enter select-none"
-            style={{
-              backgroundColor: isLight ? '#ffffff' : '#1c1c1c',
-              borderTopLeftRadius: 36,
-              borderTopRightRadius: 36,
-              boxShadow: '0 -8px 24px rgba(0, 0, 0, 0.24)',
-              maxHeight: '82vh',
-              transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
-              transition: isDragging ? 'none' : 'transform 200ms cubic-bezier(0, 0, 0.2, 1)',
-            }}
-          >
-            {/* Drag handle */}
-            <div
-              className="flex items-center justify-center pt-3 pb-2 cursor-grab active:cursor-grabbing touch-none"
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-            >
-              <div
-                className="w-[54px] h-[5px] rounded-full"
-                style={{
-                  backgroundColor: isLight ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.55)',
-                }}
-              />
-            </div>
+    const moreUploadRows = sparkMode
+      ? [
+          <TouchRow key="photos" glyph="photos" label="Google Photos" onClick={act(onAddPhotos)} />,
+          <TouchRow key="code" glyph="code" label="Import code" onClick={act(onImportCode)} />,
+        ]
+      : [
+          <TouchRow key="photos" glyph="photos" label="Google Photos" onClick={act(onAddPhotos)} />,
+          <TouchRow key="avatar" icon={touchAvatarIcon} label="Avatar" onClick={act(onAddAvatar)} />,
+          <TouchRow key="notebook" glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />,
+          <TouchRow key="code" glyph="code" label="Import code" onClick={act(onImportCode)} />,
+        ];
 
-            <div className="flex-1 overflow-y-auto pb-6 no-scrollbar">
-              {renderUploadButtonsRow()}
-              <div className="px-2">
-                {renderToolsList()}
-              </div>
-            </div>
-          </div>
-        </div>
-      </PlusMenuThemeContext.Provider>,
-      document.body
-    );
-  }
-
-  if (deviceMode === 'compact') {
     return (
       <PlusMenuThemeContext.Provider value={{ isLight }}>
         <div
           ref={menuRef}
-          className={`absolute z-[100] ${side === 'top' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'}`}
-          style={{ left: cardLeftOffset }}
+          className={`absolute z-[100] ${side === 'top' ? 'bottom-[calc(100%+16px)]' : 'top-[calc(100%+8px)]'}`}
+          style={{ left: -4 }}
         >
-          <div
-            role="menu"
-            aria-label="Upload and tools"
-            className="willow-gem-menu-in overflow-y-auto no-scrollbar"
-            style={{
-              width: Math.min(375, typeof window !== 'undefined' ? window.innerWidth - 32 : 375),
-              maxHeight: 360,
-              backgroundColor: isLight ? '#ffffff' : '#1c1c1c',
-              borderRadius: 20,
-              padding: '8px 0',
-              boxShadow: isLight ? '0 0 20px rgba(0,0,0,0.06)' : MENU_SHADOW,
-              transformOrigin: side === 'top' ? '0 100%' : '0 0',
-            }}
-          >
-            {renderUploadButtonsRow()}
-            <div className="px-2">
-              {renderToolsList()}
+          <TouchMenuCard ref={touchCardRef} origin={side === 'top' ? 'bottom left' : 'top left'} label="Upload and tools">
+            <TouchRow glyph="attach_file" label="Files" onClick={act(onFileSelect)} />
+            <TouchRow glyph="drive" label="Drive" onClick={act(onAddFromDrive)} />
+            <div ref={uploadsRef}>
+              <TouchRow
+                glyph="more_horiz"
+                label="More uploads"
+                trailingChevron
+                ariaHasPopup
+                expanded={openSub === 'uploads'}
+                onClick={() => openTouchSub('uploads')}
+              />
             </div>
-          </div>
+            {toolRows.length > 0 && (
+              <>
+                <TouchDivider />
+                {inlineTools.map((row) => <React.Fragment key={row.key}>{row.node}</React.Fragment>)}
+                {moreTools.length > 0 && (
+                  <div ref={toolsRef}>
+                    <TouchRow
+                      glyph="more_horiz"
+                      label="More tools"
+                      trailingChevron
+                      ariaHasPopup
+                      expanded={openSub === 'tools'}
+                      onClick={() => openTouchSub('tools')}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </TouchMenuCard>
+
+          {openSub && (
+            <div
+              ref={submenuRef}
+              className="absolute z-[110]"
+              style={{
+                width: 'max-content',
+                left: touchSubPos?.left ?? 0,
+                top: touchSubPos?.top ?? 0,
+                visibility: touchSubPos ? undefined : 'hidden',
+              }}
+            >
+              <TouchMenuCard origin="bottom left" label={openSub === 'uploads' ? 'More upload options' : 'More tools'}>
+                <TouchSubmenuHeader
+                  title={openSub === 'uploads' ? 'More uploads' : 'More tools'}
+                  onClose={() => setOpenSub(null)}
+                />
+                <TouchDivider />
+                {openSub === 'uploads'
+                  ? moreUploadRows
+                  : moreTools.map((row) => <React.Fragment key={row.key}>{row.node}</React.Fragment>)}
+              </TouchMenuCard>
+            </div>
+          )}
         </div>
       </PlusMenuThemeContext.Provider>
     );
@@ -1258,4 +1168,15 @@ const GeminiSwitch: React.FC<{ checked: boolean }> = ({ checked }) => {
       </span>
     </span>
   );
+};
+
+/**
+ * The plus menu's card, rows, divider and theme, for the other menus a composer opens,
+ * so they are this menu exactly rather than a lookalike that drifts from it.
+ */
+export {
+  MenuCard as GeminiMenuCard,
+  Row as GeminiMenuRow,
+  Divider as GeminiMenuDivider,
+  PlusMenuThemeContext as GeminiMenuTheme,
 };

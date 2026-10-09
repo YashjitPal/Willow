@@ -73,6 +73,8 @@ export interface PersonalReads {
   listCalendarEvents: (input: { daysAhead?: number; daysBack?: number }) => Promise<string>;
   listTasks: (input: { includeCompleted?: boolean }) => Promise<string>;
   listRecentEmails: (input: { search?: string; limit?: number }) => Promise<string>;
+  /** One whole message, by the id the list gave. Offered only with email contents. */
+  readEmail: (input: { id?: string }) => Promise<string>;
   listTopMusic: (input: { kind?: string; timeRange?: string; limit?: number }) => Promise<string>;
   listSavedTracks: (input: { limit?: number }) => Promise<string>;
   listSpotifyPlaylists: (input: { limit?: number }) => Promise<string>;
@@ -194,6 +196,7 @@ export const READ_TOOLS = {
   listCalendarEvents: 'list_calendar_events',
   listTasks: 'list_tasks',
   listRecentEmails: 'list_recent_emails',
+  readEmail: 'read_email',
   listTopMusic: 'list_top_music',
   listSavedTracks: 'list_saved_tracks',
   listSpotifyPlaylists: 'list_spotify_playlists',
@@ -260,6 +263,8 @@ const runRead = async (
             limit: readNumber(fields, 'limit'),
           }),
         };
+      case READ_TOOLS.readEmail:
+        return { name, text: await reads.readEmail({ id: readString(fields, 'id') }) };
       case READ_TOOLS.listTopMusic:
         return {
           name,

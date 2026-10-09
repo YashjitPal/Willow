@@ -309,16 +309,20 @@ it('hides the code behind the frame on the Preview tab', () => {
   assert.equal(occurrences(expanded, 'class="hidden"'), 1);
 });
 
+/*
+ * Code / Preview is Gemini's `mat-button-toggle-group`: a radiogroup labelled "Tab
+ * Selection", two radios, the checked one darker than the track.
+ */
 it('offers no tab switch and no frame for code that cannot be previewed', () => {
-  assert.ok(!surfaces.pythonPanel.includes('role="tablist"'), 'an empty Preview reads as a bug');
+  assert.ok(!surfaces.pythonPanel.includes('role="radiogroup"'), 'an empty Preview reads as a bug');
   assert.ok(!surfaces.pythonPanel.includes('<iframe'));
   assert.ok(surfaces.pythonPanel.includes('class="hljs'), 'the code is all there is');
-  assert.ok(surfaces.codePanel.includes('role="tablist"'), 'HTML does get the switch');
+  assert.ok(surfaces.codePanel.includes('role="radiogroup" aria-label="Tab Selection"'), 'HTML does get the switch');
 });
 
 it('lands on Preview for HTML, since Code is the tab you switch to', () => {
-  assert.match(surfaces.expandedCode, /aria-selected="true"[^>]*>Preview</);
-  assert.match(surfaces.expandedCode, /aria-selected="false"[^>]*>Code</);
+  assert.match(surfaces.expandedCode, /aria-checked="true"[^>]*><span>Preview</);
+  assert.match(surfaces.expandedCode, /aria-checked="false"[^>]*><span>Code</);
 });
 
 /* ---------------------------------------------------------- the inline card */
@@ -355,7 +359,7 @@ it('draws the collapsed chip as Gemini does: no preview, filled Open, whole card
   );
   assert.ok(collapsed.includes('cursor-pointer'), 'the WHOLE card opens the document');
   assert.ok(
-    collapsed.includes('bg-[rgb(31,59,155)]'),
+    collapsed.includes('bg-[color:var(--sync-1f3b9b,rgb(31,59,155))]'),
     'Open is the filled blue button, not another transparent pill',
   );
   assert.ok(collapsed.includes('aria-label="Open Page in Canvas"'));
@@ -384,11 +388,16 @@ it('reads the chip\'s second line as a timestamp when the revision has one', () 
  * twice. It is opt-in AND gated on a width, and both halves matter.
  */
 it('overhangs the column only when asked, and only above 1200px', () => {
-  assert.match(surfaces.expandedCode, /min-\[1200px\]:w-\[calc\(100%\+245\.6px\)\]/);
-  assert.match(surfaces.expandedCode, /min-\[1200px\]:-translate-x-1\/2/);
+  assert.ok(surfaces.expandedCode.includes('cv-card cv-card--bleed'), 'a bleeding card opts in by class');
   assert.ok(
-    !surfaces.expandedCodeNoBleed.includes('min-[1200px]:'),
+    !surfaces.expandedCodeNoBleed.includes('cv-card--bleed'),
     'without `bleed` the card is column-width at every viewport',
+  );
+  const css = fs.readFileSync(path.join(repoRoot, 'features', 'chat', 'src', 'canvas', 'canvas.css'), 'utf8');
+  assert.match(
+    css,
+    /@media \(min-width: 1200px\) \{\s*\.cv-card--bleed \{ left: 50%; width: 948px; transform: translateX\(-50%\); \}/,
+    'and the class does nothing below 1200px: 948px over a 708px column, centred as Gemini does it',
   );
 });
 
@@ -439,38 +448,39 @@ it('gives prose an Export menu and code a direct Download, in both places', () =
 });
 
 /*
- * `close` on the card and `collapse_content` on the panel are not the same action:
+ * The card's `close` and the panel's `collapse_content` are not the same action:
  * closing an expanded card puts the document back to its chip, collapsing the panel
- * returns the panel TO a chip. Neither discards anything.
+ * returns it to the expanded card. Neither discards anything. Gemini's labels.
  */
 it('keeps the card\'s close and the panel\'s collapse distinct', () => {
-  assert.ok(surfaces.expandedProse.includes('aria-label="Close canvas"'));
-  assert.ok(surfaces.expandedProse.includes('aria-label="Open in Canvas"'), 'the card still offers the panel');
-  assert.ok(!surfaces.expandedProse.includes('aria-label="Collapse canvas"'));
-  assert.ok(surfaces.prosePanel.includes('aria-label="Collapse canvas"'));
-  assert.ok(!surfaces.prosePanel.includes('aria-label="Close canvas"'));
+  assert.ok(surfaces.expandedProse.includes('aria-label="Close"'));
+  assert.ok(surfaces.expandedProse.includes('aria-label="Fullscreen"'), 'the card is the way into full screen');
+  assert.ok(!surfaces.expandedProse.includes('aria-label="Collapse"'));
+  assert.ok(surfaces.prosePanel.includes('aria-label="Collapse"'));
+  assert.ok(!surfaces.prosePanel.includes('aria-label="Close"'));
 });
 
 it('names the panel for a screen reader and titles it with a heading', () => {
   assert.equal(attribute(surfaces.prosePanel, 'aria-label'), 'Draft canvas');
   assert.match(surfaces.prosePanel, /<h2[^>]*>Draft</);
-  assert.ok(surfaces.prosePanel.includes('aria-label="Share canvas"'));
+  assert.ok(surfaces.prosePanel.includes('aria-label="Share and export canvas"'));
 });
 
 /*
- * The rail is prose-only: its three actions are length, tone and wording, none of
- * which mean anything against a code document — and the code body is an iframe and
- * an editor that fill the panel edge to edge.
+ * Gemini's 2026 canvas has no quick-actions rail (Length / Tone / Suggest). What
+ * the prose toolbar carries instead is Styles and a `more_vert` that opens the
+ * formatting row; code gets neither.
  */
-it('rails the quick actions beside prose only', () => {
-  for (const label of ['Length', 'Tone', 'Suggest']) {
-    assert.ok(surfaces.prosePanel.includes(`aria-label="${label}"`), `prose is missing ${label}`);
-    assert.ok(!surfaces.codePanel.includes(`aria-label="${label}"`), `code should not offer ${label}`);
+it('formats prose from the toolbar, with no quick-actions rail', () => {
+  for (const name of ['prosePanel', 'codePanel', 'expandedProse']) {
+    for (const label of ['Length', 'Tone', 'Suggest']) {
+      assert.ok(!surfaces[name].includes(`aria-label="${label}"`), `${name} still offers ${label}`);
+    }
   }
-  assert.ok(
-    !surfaces.expandedProse.includes('aria-label="Length"'),
-    'the rail belongs to the panel; the card has no room for it',
-  );
+  assert.match(surfaces.prosePanel, /title="Styles"[^>]*aria-label="Styles, Normal text"/);
+  assert.ok(surfaces.prosePanel.includes('aria-label="More formatting options"'));
+  assert.ok(!surfaces.codePanel.includes('title="Styles"'));
+  assert.ok(!surfaces.codePanel.includes('aria-label="More formatting options"'));
 });
 
 /*
@@ -546,7 +556,7 @@ it('leaves the code body a scroller, in both axes', () => {
     );
     assert.match(
       html,
-      /class="smd-code-tokens [^"]*overflow-auto/,
+      /class="cv-code-tokens [^"]*overflow-auto/,
       `${name} needs the palette AND its own overflow`,
     );
     assert.match(html, /<pre[^>]*class="m-0 w-max min-w-full/, `${name} keeps a pre wider than its box`);
@@ -605,9 +615,11 @@ it('makes prose editable without a button', () => {
     const html = surfaces[name];
     assert.ok(!html.includes('aria-label="Edit document"'), `${name} must not carry a mode button`);
     assert.ok(!html.includes('aria-label="Preview document"'), `${name} must not carry its inverse either`);
-    assert.match(html, /role="textbox"[^>]*aria-label="Document"/, `${name} takes the caret itself`);
-    assert.match(html, /tabindex="0"/, `${name} has to be reachable by keyboard, not only by pointer`);
-    assert.ok(!html.includes('<textarea'), `${name} still starts as the rendered document`);
+    /* Gemini's `div.ProseMirror[aria-label="Canvas editor"]`: rich text edited in
+       place, which a contenteditable is also reachable by keyboard as. */
+    assert.match(html, /role="textbox"[^>]*aria-label="Canvas editor"[^>]*contentEditable="true"/i, `${name} takes the caret itself`);
+    assert.ok(!html.includes('<textarea'), `${name} has no source mode — it is the rendered document`);
+    assert.match(html, /<h1>Rain<\/h1><p>Soft rain, and the city goes quiet\.<\/p>/, `${name} renders the document on its first frame`);
   }
 });
 
@@ -623,22 +635,19 @@ it('makes prose editable without a button', () => {
 it('keeps an older revision editable, and only a live turn read-only', () => {
   assert.match(
     surfaces.oldVersionProse,
-    /role="textbox"[^>]*aria-label="Document"/,
+    /aria-label="Canvas editor"[^>]*contentEditable="true"/i,
     'scrubbing back must not take the caret away',
   );
-  assert.ok(!surfaces.expandedProse.includes('role="textbox"'), 'no sink, no caret');
-  assert.ok(!surfaces.expandedProse.includes('tabindex="0"'), 'and no tab stop it cannot honour');
+  assert.match(surfaces.expandedProse, /aria-readonly="true"[^>]*contentEditable="false"/i, 'no sink, no caret');
 });
 
 /*
- * Item 7: the panel's own cross. `collapse_content` hands the document back to the
- * thread as an expanded card; `close` dismisses it and leaves chips. Both exist
- * only because they differ — Gemini's panel only collapses.
+ * Gemini's full-screen panel only collapses — back to the expanded card in the
+ * thread. There is no cross, even when a caller passes a close handler.
  */
-it('adds a cross to the panel when there is somewhere to close to', () => {
-  assert.ok(surfaces.closablePanel.includes('aria-label="Close canvas"'));
-  assert.ok(surfaces.closablePanel.includes('aria-label="Collapse canvas"'), 'and keeps the collapse');
-  assert.ok(!surfaces.prosePanel.includes('aria-label="Close canvas"'), 'absent without the handler');
+it('collapses the panel and never closes it', () => {
+  assert.ok(surfaces.closablePanel.includes('aria-label="Collapse"'));
+  assert.ok(!surfaces.closablePanel.includes('aria-label="Close"'));
 });
 
 

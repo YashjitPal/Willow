@@ -1,0 +1,473 @@
+@import "./sidebar.css";
+@import "./primitives.css";
+@import "./menus.css";
+@import "./composer.css";
+@import "./markdown.css";
+@import "./message.css";
+@import "./activity.css";
+@import "./rightpanel.css";
+@import "./usage.css";
+@import "./search.css";
+@import "./settings.css";
+@import "./pages.css";
+@import "./responsive.css";
+
+/*
+ * Willow's design system over T3 Code's web client.
+ *
+ * Imported after index.css and outside any cascade layer, so it outranks both T3's token blocks
+ * (equal specificity, later) and the Tailwind utilities its components are built from (layered).
+ * The default palette is Willow's; a theme picked in Settings -> Appearance still applies over it
+ * through html[data-theme-id], as in T3.
+ *
+ * Willow's values: page #0f0f0f / #faf9f9, sidebar #1f1f1f / #ffffff, rows 32px pills with
+ * rgba(230, 230, 230, 0.08) / rgba(0, 0, 0, 0.05) hover and #171717 / #f2f0f0 selected, menus and
+ * dialogs on #1f1f1f / #ffffff, accents #a8c7fa / #0b57d0, type in Google Sans Flex at wdth 92.
+ */
+
+:root {
+  color-scheme: light;
+  --radius: 0.75rem;
+  --font-sans: "Google Sans Flex", "Google Sans", "Helvetica Neue", -apple-system, sans-serif;
+  --font-mono:
+    "Google Sans Code", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --willow-text-axes: "ROND" 0, "slnt" 0, "wdth" 92;
+  --willow-title-axes: "ROND" 20, "slnt" 0, "wdth" 94;
+  --willow-ease: cubic-bezier(0.2, 0, 0, 1);
+  --willow-menu-enter: 120ms cubic-bezier(0, 0, 0.2, 1);
+  --willow-outline-variant: #c4c7c5;
+  /* The tab's agent's accents (Willow's harness-theme.ts), green until Willow's page sends its own. */
+  --willow-glow: rgb(6 78 59);
+  --willow-glow-light: rgb(158 174 153);
+  --willow-glow-desktop: rgb(0 140 103);
+  --willow-glow-mobile: rgb(19 67 44);
+  --willow-send: #127352;
+  --willow-send-hover: #0d5c41;
+  --willow-send-light: #9eae99;
+  --willow-send-light-hover: #93a38e;
+  --willow-chip: #127352;
+  --willow-toggle-track: #b3d0ba;
+  --willow-toggle-thumb: #0c311a;
+  --willow-accent: #127352;
+  --willow-accent-hover: #0d5c41;
+  --willow-loadbar: #4a7c59;
+
+  --background: #faf9f9;
+  --app-chrome-background: #faf9f9;
+  --toolbar-background: #faf9f9;
+  --surface-raised: #ffffff;
+  --foreground: #1f1f1f;
+  --card: #ffffff;
+  --card-foreground: #1f1f1f;
+  --popover: #ffffff;
+  --popover-foreground: #1f1f1f;
+  --primary: var(--willow-accent);
+  --primary-foreground: #ffffff;
+  --secondary: #f2f0f0;
+  --secondary-foreground: #1f1f1f;
+  --muted: #f2f0f0;
+  --muted-foreground: rgb(0 0 0 / 55%);
+  --placeholder: rgb(0 0 0 / 55%);
+  --secondary-label: #444746;
+  --icon-muted: #444746;
+  --message-surface: #f2f0f0;
+  --message-foreground: #1f1f1f;
+  --message-action: var(--willow-send-light);
+  --message-action-foreground: #1f1f1f;
+  --message-action-hover: var(--willow-send-light-hover);
+  --accent: rgb(0 0 0 / 5%);
+  --accent-foreground: #1f1f1f;
+  --error: #c5221f;
+  --error-foreground: #b3261e;
+  --error-surface: color-mix(in srgb, #c5221f 8%, transparent);
+  --border: rgb(0 0 0 / 10%);
+  --input: #747775;
+  --ring: #0b57d0;
+  --info: #0b57d0;
+  --info-foreground: #0b57d0;
+  --success: #146c2e;
+  --success-foreground: #146c2e;
+  --diff-addition: #146c2e;
+  --diff-deletion: #b3261e;
+  --diff-addition-foreground: #146c2e;
+  --diff-deletion-foreground: #b3261e;
+  --terminal-background: #faf9f9;
+  --terminal-foreground: #1f1f1f;
+  --terminal-cursor: #0b57d0;
+  --terminal-selection-background: rgb(11 87 208 / 20%);
+  --warning: #e37400;
+  --warning-foreground: #b05a00;
+  --update: #0b57d0;
+  --update-foreground: #0b57d0;
+  --update-surface: color-mix(in srgb, #0b57d0 10%, transparent);
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1f1f1f;
+  --sidebar-muted-foreground: rgb(0 0 0 / 55%);
+  --sidebar-control-surface: #f2f0f0;
+  --sidebar-row-hover: rgb(0 0 0 / 5%);
+  --sidebar-row-active: #f2f0f0;
+  --sidebar-row-selected: #f2f0f0;
+  --sidebar-border: transparent;
+  --sidebar-stage-fade: #ffffff;
+  --code-background: #f2f0f0;
+  --code-foreground: #1f1f1f;
+  --terminal-background: #ffffff;
+  --terminal-foreground: #1f1f1f;
+  --terminal-cursor: #0b57d0;
+  --terminal-selection-background: rgb(11 87 208 / 18%);
+  --app-scrollbar-thumb: rgb(0 0 0 / 16%);
+  --app-scrollbar-thumb-hover: rgb(0 0 0 / 28%);
+  --sidebar-content-inset: 0.375rem;
+  --sidebar-row-content-inset: 0.375rem;
+}
+
+:root.dark {
+  color-scheme: dark;
+  --willow-outline-variant: #444746;
+  --background: #0f0f0f;
+  --app-chrome-background: #0f0f0f;
+  --toolbar-background: #0f0f0f;
+  --surface-raised: #1f1f1f;
+  --foreground: #e3e3e3;
+  --card: #1f1f1f;
+  --card-foreground: #e3e3e3;
+  --popover: #1f1f1f;
+  --popover-foreground: #e6e6e6;
+  --primary: var(--willow-toggle-track);
+  --primary-foreground: var(--willow-toggle-thumb);
+  --secondary: #171717;
+  --secondary-foreground: #e6e6e6;
+  --muted: #171717;
+  --muted-foreground: rgb(255 255 255 / 55%);
+  --placeholder: rgb(255 255 255 / 55%);
+  --secondary-label: #c4c7c5;
+  --icon-muted: #c4c7c5;
+  --message-surface: #171717;
+  --message-foreground: #e6e6e6;
+  --message-action: var(--willow-send);
+  --message-action-foreground: #e6e6e6;
+  --message-action-hover: var(--willow-send-hover);
+  --accent: rgb(230 230 230 / 8%);
+  --accent-foreground: #e6e6e6;
+  --error: #f2b8b5;
+  --error-foreground: #f2b8b5;
+  --tool-error-icon: #f2b8b5;
+  --error-surface: color-mix(in srgb, #f2b8b5 12%, transparent);
+  --border: rgb(255 255 255 / 8%);
+  --input: #8e918f;
+  --ring: #a8c7fa;
+  --info: #a8c7fa;
+  --info-foreground: #a8c7fa;
+  --success: #6dd58c;
+  --success-foreground: #6dd58c;
+  --diff-addition: #6dd58c;
+  --diff-deletion: #f2b8b5;
+  --diff-addition-foreground: #6dd58c;
+  --diff-deletion-foreground: #f2b8b5;
+  --terminal-background: #0f0f0f;
+  --terminal-foreground: #e3e3e3;
+  --terminal-cursor: #a8c7fa;
+  --terminal-selection-background: rgb(168 199 250 / 25%);
+  --warning: #fdd663;
+  --warning-foreground: #fdd663;
+  --warning-surface: color-mix(in srgb, #fdd663 12%, transparent);
+  --update: #a8c7fa;
+  --update-foreground: #a8c7fa;
+  --update-surface: color-mix(in srgb, #a8c7fa 14%, transparent);
+  --sidebar: #1f1f1f;
+  --sidebar-foreground: #e6e6e6;
+  --sidebar-muted-foreground: rgb(255 255 255 / 55%);
+  --sidebar-control-surface: #171717;
+  --sidebar-row-hover: rgb(230 230 230 / 8%);
+  --sidebar-row-active: #171717;
+  --sidebar-row-selected: #171717;
+  --sidebar-border: transparent;
+  --sidebar-stage-fade: #1f1f1f;
+  --code-background: #171717;
+  --code-foreground: #e6e6e6;
+  --terminal-background: #0f0f0f;
+  --terminal-foreground: #e6e6e6;
+  --terminal-cursor: #a8c7fa;
+  --terminal-selection-background: rgb(168 199 250 / 25%);
+  --app-scrollbar-thumb: rgb(255 255 255 / 10%);
+  --app-scrollbar-thumb-hover: rgb(255 255 255 / 18%);
+}
+
+/* T3 gives the sidebar a palette of its own; Willow's sidebar is the page's. */
+[data-app-sidebar] {
+  --background: #ffffff;
+  --foreground: #1f1f1f;
+  --card: #ffffff;
+  --card-foreground: #1f1f1f;
+  --accent: rgb(0 0 0 / 5%);
+  --accent-foreground: #1f1f1f;
+  --muted: #f2f0f0;
+  --muted-foreground: rgb(0 0 0 / 55%);
+  --border: rgb(0 0 0 / 10%);
+  --input: #747775;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1f1f1f;
+  --sidebar-muted-foreground: rgb(0 0 0 / 55%);
+  --sidebar-control-surface: #f2f0f0;
+  --sidebar-row-hover: rgb(0 0 0 / 5%);
+  --sidebar-row-active: #f2f0f0;
+  --sidebar-row-selected: #f2f0f0;
+  --sidebar-border: transparent;
+  --sidebar-stage-fade: #ffffff;
+}
+
+.dark [data-app-sidebar] {
+  --background: #1f1f1f;
+  --foreground: #e6e6e6;
+  --card: #1f1f1f;
+  --card-foreground: #e6e6e6;
+  --accent: rgb(230 230 230 / 8%);
+  --accent-foreground: #e6e6e6;
+  --muted: #171717;
+  --muted-foreground: rgb(255 255 255 / 55%);
+  --border: rgb(255 255 255 / 8%);
+  --input: #8e918f;
+  --sidebar: #1f1f1f;
+  --sidebar-foreground: #e6e6e6;
+  --sidebar-muted-foreground: rgb(255 255 255 / 55%);
+  --sidebar-control-surface: #171717;
+  --sidebar-row-hover: rgb(230 230 230 / 8%);
+  --sidebar-row-active: #171717;
+  --sidebar-row-selected: #171717;
+  --sidebar-border: transparent;
+  --sidebar-stage-fade: #1f1f1f;
+}
+
+html,
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Google Sans Flex's narrow width is Willow's UI type; weights past the face's 540 would synthesize. */
+body {
+  font-variation-settings: var(--willow-text-axes);
+  font-synthesis-weight: none;
+}
+
+code,
+kbd,
+pre,
+samp,
+.font-mono {
+  font-variation-settings: normal;
+}
+
+/* Willow's pills carry no width axis: their labels are Google Sans Flex at its normal width. */
+[data-slot="button"] {
+  font-variation-settings: normal;
+}
+
+/* A filled button is Willow's filled CTA (its settings' ma-button-filled): the workspace colour's
+   accent with light text, deepening and lifting under the pointer. */
+[data-slot="button"][data-variant="default"] {
+  background: var(--willow-accent);
+  color: #e6e6e6;
+}
+
+[data-slot="button"][data-variant="default"]:is(:hover, [data-pressed]) {
+  background: var(--willow-accent-hover);
+  box-shadow:
+    0 1px 2px 0 rgb(0 0 0 / 30%),
+    0 1px 3px 1px rgb(0 0 0 / 15%);
+}
+
+[data-slot="button"][data-variant="default"]::before {
+  display: none;
+}
+
+.material-symbols-rounded,
+.luminous-symbols,
+.google-symbols {
+  font-weight: normal;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+}
+
+.material-symbols-rounded {
+  font-family: "Material Symbols Rounded";
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 320,
+    "GRAD" 0,
+    "opsz" 24;
+}
+
+.luminous-symbols {
+  font-family: "Luminous Symbols";
+}
+
+.google-symbols {
+  font-family: "Google Symbols";
+}
+
+/* The glyph inside a Willow icon's 24-unit <svg> box (icons.tsx). It is drawn at 24 and scaled to the
+   box T3 sizes, so it carries the small optical size Willow's 16-20px icons use. */
+.willow-icon-glyph {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  color: inherit;
+  font-family: "Material Symbols Rounded";
+  font-size: 24px;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 24px;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 400,
+    "GRAD" 0,
+    "opsz" 20;
+  font-feature-settings: "liga";
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+}
+
+.willow-icon-glyph::before {
+  content: attr(data-glyph);
+}
+
+.willow-icon-glyph--filled {
+  font-variation-settings:
+    "FILL" 1,
+    "wght" 400,
+    "GRAD" 0,
+    "opsz" 20;
+}
+
+.willow-icon-glyph--luminous {
+  font-family: "Luminous Symbols";
+}
+
+svg[data-willow-icon="progress_activity"].animate-spin {
+  animation-duration: 0.9s;
+}
+
+/* A new thread's heading: Spark home's ("Put Willow Spark to work for you"), 28px/36px at 350. */
+.willow-headline {
+  font-size: 28px;
+  font-weight: 350;
+  line-height: 36px;
+  font-variation-settings:
+    "ROND" 20,
+    "slnt" 0,
+    "wdth" 100,
+    "wght" 350;
+  letter-spacing: normal;
+}
+
+/*
+ * The glow behind a new thread's prompt box: Willow home's (apps/studio index.html
+ * `.willow-home-glow-layer`, Gemini's `.lm-glow`). The layer covers the chat area and is clipped
+ * to it, holding two copies of Gemini's glow mask: its top half in the accent, its bottom half in
+ * black at half opacity (white in light), which darkens the band above the heading. Both are
+ * 202.18% of the area's width up to 1601.27px, at 1.4338:1, centred 15px below the area's middle,
+ * and grow from nothing over 1s. The accent is the tab's agent's (`--willow-glow-desktop`, and
+ * `--willow-glow-light` in light theme).
+ */
+.willow-home-glow-layer {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: clip;
+  pointer-events: none;
+}
+
+.willow-home-glow-layer::before,
+.willow-home-glow-layer::after {
+  position: absolute;
+  top: calc(50% + 15px);
+  left: 50%;
+  width: 202.18%;
+  max-width: 1601.27px;
+  margin: 0 auto;
+  aspect-ratio: 1.4338 / 1;
+  content: "";
+  -webkit-mask-image: url("/willow/glow-mask.webp");
+  mask-image: url("/willow/glow-mask.webp");
+  -webkit-mask-size: 100% 200%;
+  mask-size: 100% 200%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.willow-home-glow-layer::before {
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  background: var(--willow-glow-light);
+  animation: willow-lm-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.dark .willow-home-glow-layer::before {
+  background: var(--willow-glow-desktop);
+}
+
+.willow-home-glow-layer::after {
+  -webkit-mask-position: 0 100%;
+  mask-position: 0 100%;
+  background: #ffffff;
+  opacity: 0.5;
+  animation: willow-lm-glow-bloom-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.dark .willow-home-glow-layer::after {
+  background: #000000;
+}
+
+@keyframes willow-lm-glow-grow {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes willow-lm-glow-bloom-grow {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0);
+  }
+  100% {
+    opacity: 0.5;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-home-glow-layer::before,
+  .willow-home-glow-layer::after {
+    animation: none;
+  }
+}
+
+::selection {
+  background: rgb(11 87 208 / 22%);
+}
+
+.dark ::selection {
+  background: rgb(168 199 250 / 28%);
+}

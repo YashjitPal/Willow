@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './AuthContext';
+import { DEVICE_KEY_SLOT, adoptAccountKeys } from './device-keys';
 
 interface ApiKeys {
   gemini: string[];
@@ -56,16 +57,12 @@ const DEFAULT_SETTINGS: UserSettings = {
   selectedModelId: '',
 };
 
-const GUEST_SCOPE = 'guest';
-
-const getUserStorageKeys = (scope: string) => ({
-  apiKeys: `willow:apiKeys:${scope}`,
-  providerState: `willow:providerState:${scope}`,
-  settings: `willow:userSettings:${scope}`,
-});
+const settingsStorageKey = (uid: string) => `willow:userSettings:${uid}`;
 
 /*
- * Keys live in localStorage and nowhere else, signed in or out.
+ * Keys live in localStorage (and in `settings.json` in the user's folder, which
+ * `apps/studio` keeps in step with this slot), in one slot for the device that
+ * is the same signed in or out (`device-keys.ts`).
  *
  * They used to be Firestore-backed for an account, which made sessionStorage a
  * safe place for the copy — the cache could die with the tab because the real
@@ -125,18 +122,16 @@ const normalizeApiKeys = (value: unknown): ApiKeys | null => {
 const readCachedApiKeys = (uid: string | null): ApiKeys => {
   if (typeof window === 'undefined') return DEFAULT_API_KEYS;
 
-  const scope = uid ?? GUEST_SCOPE;
-
+  adoptAccountKeys(uid);
   try {
-    const keys = getUserStorageKeys(scope);
-    const serializedApiKeys = localStorage.getItem(keys.apiKeys);
+    const serializedApiKeys = localStorage.getItem(DEVICE_KEY_SLOT.apiKeys);
     if (serializedApiKeys) {
       const cachedApiKeys = normalizeApiKeys(JSON.parse(serializedApiKeys));
       if (cachedApiKeys) return cachedApiKeys;
-      localStorage.removeItem(keys.apiKeys);
+      localStorage.removeItem(DEVICE_KEY_SLOT.apiKeys);
     }
 
-    const serializedProviderState = localStorage.getItem(keys.providerState);
+    const serializedProviderState = localStorage.getItem(DEVICE_KEY_SLOT.providerState);
     if (serializedProviderState) {
       return mapProviderState(JSON.parse(serializedProviderState));
     }
@@ -147,10 +142,9 @@ const readCachedApiKeys = (uid: string | null): ApiKeys => {
   return DEFAULT_API_KEYS;
 };
 
-const cacheApiKeys = (uid: string | null, apiKeys: ApiKeys) => {
-  const scope = uid ?? GUEST_SCOPE;
+const cacheApiKeys = (apiKeys: ApiKeys) => {
   try {
-    localStorage.setItem(getUserStorageKeys(scope).apiKeys, JSON.stringify(apiKeys));
+    localStorage.setItem(DEVICE_KEY_SLOT.apiKeys, JSON.stringify(apiKeys));
   } catch (error) {
     console.warn('[UserData] Unable to cache API keys:', error);
   }
@@ -160,7 +154,7 @@ const readCachedSettings = (uid: string | null): UserSettings => {
   if (!uid || typeof window === 'undefined') return DEFAULT_SETTINGS;
 
   try {
-    const serializedSettings = sessionStorage.getItem(getUserStorageKeys(uid).settings);
+    const serializedSettings = sessionStorage.getItem(settingsStorageKey(uid));
     if (serializedSettings) return JSON.parse(serializedSettings) as UserSettings;
   } catch (error) {
     console.warn('[UserData] Ignoring invalid settings cache:', error);
@@ -171,7 +165,7 @@ const readCachedSettings = (uid: string | null): UserSettings => {
 
 const cacheSettings = (uid: string, settings: UserSettings) => {
   try {
-    sessionStorage.setItem(getUserStorageKeys(uid).settings, JSON.stringify(settings));
+    sessionStorage.setItem(settingsStorageKey(uid), JSON.stringify(settings));
   } catch (error) {
     console.warn('[UserData] Unable to cache settings for this tab:', error);
   }
@@ -182,7 +176,6 @@ export const useUserData = () => {
   const userId = user?.uid ?? null;
 
   const [apiKeys, setApiKeysState] = useState<ApiKeys>(() => readCachedApiKeys(userId));
-  const [apiKeysOwnerUid, setApiKeysOwnerUid] = useState<string | null>(userId);
   const [settings, setSettingsState] = useState<UserSettings>(() => readCachedSettings(userId));
   const [settingsOwnerUid, setSettingsOwnerUid] = useState<string | null>(userId);
   const [loading, setLoading] = useState(Boolean(userId));
@@ -191,7 +184,6 @@ export const useUserData = () => {
   // Keep mutation sources synchronous so back-to-back add/remove calls cannot
   // derive from a render that predates the preceding operation.
   const apiKeysRef = useRef(apiKeys);
-  const apiKeysOwnerUidRef = useRef<string | null>(userId);
   const currentUserIdRef = useRef(userId);
   currentUserIdRef.current = userId;
   const loadGenerationRef = useRef(0);
@@ -207,10 +199,8 @@ export const useUserData = () => {
     }
   }, []);
 
-  const setOwnedApiKeys = useCallback((uid: string | null, nextApiKeys: ApiKeys) => {
+  const setDeviceApiKeys = useCallback((nextApiKeys: ApiKeys) => {
     apiKeysRef.current = nextApiKeys;
-    apiKeysOwnerUidRef.current = uid;
-    setApiKeysOwnerUid(uid);
     setApiKeysState(nextApiKeys);
   }, []);
 
@@ -231,15 +221,12 @@ export const useUserData = () => {
     }
   }, []);
 
-  // Listen for API key updates from SettingsModal's UID-scoped device cache.
+  // Listen for API key updates from the Models & API settings.
   useEffect(() => {
-    const handleApiKeysUpdated = () => {
-      const uid = currentUserIdRef.current;
-      setOwnedApiKeys(uid, readCachedApiKeys(uid));
-    };
+    const handleApiKeysUpdated = () => setDeviceApiKeys(readCachedApiKeys(currentUserIdRef.current));
     window.addEventListener('apikeys-updated', handleApiKeysUpdated);
     return () => window.removeEventListener('apikeys-updated', handleApiKeysUpdated);
-  }, [setOwnedApiKeys]);
+  }, [setDeviceApiKeys]);
 
   // Load settings from Firestore. Keys come off local storage only.
   useEffect(() => {
@@ -251,7 +238,7 @@ export const useUserData = () => {
 
     settingsDirtyRef.current = false;
     setSynced(false);
-    setOwnedApiKeys(uid, readCachedApiKeys(uid));
+    setDeviceApiKeys(readCachedApiKeys(uid));
     setOwnedSettings(uid, readCachedSettings(uid));
 
     const loadUserData = async () => {
@@ -323,7 +310,7 @@ export const useUserData = () => {
         loadGenerationRef.current += 1;
       }
     };
-  }, [publishSyncState, setOwnedApiKeys, setOwnedSettings, userId]);
+  }, [publishSyncState, setDeviceApiKeys, setOwnedSettings, userId]);
 
   /**
    * Save API keys — to this device only.
@@ -333,14 +320,9 @@ export const useUserData = () => {
    * Nothing here may ever send a key over the network again.
    */
   const saveApiKeys = useCallback(async (newApiKeys: ApiKeys) => {
-    const uid = userId;
-    if (currentUserIdRef.current !== uid) {
-      throw new Error('The active account changed before API keys could be saved.');
-    }
-
-    setOwnedApiKeys(uid, newApiKeys);
-    cacheApiKeys(uid, newApiKeys);
-  }, [setOwnedApiKeys, userId]);
+    setDeviceApiKeys(newApiKeys);
+    cacheApiKeys(newApiKeys);
+  }, [setDeviceApiKeys]);
 
   // Save settings
   const saveSettings = useCallback(async (newSettings: UserSettings) => {
@@ -383,33 +365,28 @@ export const useUserData = () => {
 
   // Add a single API key
   const addApiKey = useCallback(async (provider: keyof ApiKeys, key: string) => {
-    const currentApiKeys = apiKeysOwnerUidRef.current === userId
-      ? apiKeysRef.current
-      : DEFAULT_API_KEYS;
+    const currentApiKeys = apiKeysRef.current;
     const newApiKeys = {
       ...currentApiKeys,
-      [provider]: [...currentApiKeys[provider], key]
+      [provider]: [...(currentApiKeys[provider] ?? []), key]
     };
     await saveApiKeys(newApiKeys);
-  }, [saveApiKeys, userId]);
+  }, [saveApiKeys]);
 
   // Remove a single API key
   const removeApiKey = useCallback(async (provider: keyof ApiKeys, key: string) => {
-    const currentApiKeys = apiKeysOwnerUidRef.current === userId
-      ? apiKeysRef.current
-      : DEFAULT_API_KEYS;
+    const currentApiKeys = apiKeysRef.current;
     const newApiKeys = {
       ...currentApiKeys,
-      [provider]: currentApiKeys[provider].filter(k => k !== key)
+      [provider]: (currentApiKeys[provider] ?? []).filter(k => k !== key)
     };
     await saveApiKeys(newApiKeys);
-  }, [saveApiKeys, userId]);
+  }, [saveApiKeys]);
 
-  const visibleApiKeys = apiKeysOwnerUid === userId ? apiKeys : DEFAULT_API_KEYS;
   const visibleSettings = settingsOwnerUid === userId ? settings : DEFAULT_SETTINGS;
 
   return useMemo(() => ({
-    apiKeys: visibleApiKeys,
+    apiKeys,
     settings: visibleSettings,
     loading,
     synced,
@@ -418,5 +395,5 @@ export const useUserData = () => {
     addApiKey,
     removeApiKey,
     isLoggedIn: !!user
-  }), [visibleApiKeys, visibleSettings, loading, synced, saveApiKeys, saveSettings, addApiKey, removeApiKey, user]);
+  }), [apiKeys, visibleSettings, loading, synced, saveApiKeys, saveSettings, addApiKey, removeApiKey, user]);
 };

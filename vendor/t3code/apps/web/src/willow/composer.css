@@ -1,0 +1,1493 @@
+/*
+ * T3's composer as Willow's prompt box: features/chat composer/Composer.tsx in its chat variant,
+ * opened to two rows as a chip opens it (Spark's follow-up composer), measured at 1440x900.
+ *
+ * One #1e1f21 / #ffffff surface, 660px at most, on 32px corners with a 0 2px 8px -2px drop at
+ * 16%. The prompt is 17px/24px Google Sans Flex at wdth 92 in #e3e3e3 / #1f1f1f, 24px in and 16px
+ * down, over a 62px row: the plus (32px, Luminous `plus` 24/300) and the chips (24px pills at
+ * 12% / 8%) at the left, the model pill (40px, 15px/20px) and the send button (32px, the
+ * workspace colour, Luminous `arrow_upward`) at the right, 16px off the edge. The send button
+ * only shows while there is something to send, fading in as Willow's does.
+ *
+ * The plus opens Willow's plus menu (PlusDropdownMenu, 249px) and the pill its model menu
+ * (platform/ui ModelsMenu, 241px, with a 220px menu beside it for each trait).
+ */
+
+:root {
+  --willow-composer-surface: #ffffff;
+  --willow-composer-text: #1f1f1f;
+  --willow-composer-placeholder: #747775;
+  --willow-composer-icon: #000000;
+  --willow-composer-icon-hover: rgb(0 0 0 / 8%);
+  --willow-chip-surface: rgb(0 0 0 / 8%);
+  --willow-chip-text: #1f1f1f;
+  --willow-utility-chip: #f0f4f9;
+  --willow-utility-chip-hover: #e9eef6;
+  --willow-utility-chip-text: #1f1f1f;
+  --willow-pill-text: #444746;
+  --willow-pill-text-hover: #1f1f1f;
+  --willow-pill-hover: rgb(0 0 0 / 6%);
+  --willow-pill-name: #1f1f1f;
+  --willow-pill-effort: rgb(0 0 0 / 55%);
+  --willow-send-glyph: #000000;
+  --willow-stop: #f2f0f0;
+  --willow-stop-hover: #e5e5e5;
+  --willow-stop-glyph: #000000;
+  --willow-models-surface: #ffffff;
+  --willow-models-shadow: 0 4px 24px rgb(0 0 0 / 12%), 0 2px 8px rgb(0 0 0 / 6%);
+  --willow-models-sub-shadow: var(--willow-models-shadow);
+  --willow-models-hover: rgb(0 0 0 / 6%);
+  --willow-models-text: #1f1f1f;
+  --willow-models-muted: rgb(0 0 0 / 55%);
+  --willow-models-separator: rgb(0 0 0 / 10%);
+  --willow-plus-hover: rgb(0 0 0 / 8%);
+  --willow-plus-selected: #f2f0f0;
+  --willow-plus-glyph: #000000;
+}
+
+:root.dark {
+  --willow-composer-surface: #1e1f21;
+  --willow-composer-text: #e3e3e3;
+  --willow-composer-placeholder: #bdc1c6;
+  --willow-composer-icon: #e6e6e6;
+  --willow-composer-icon-hover: #333537;
+  --willow-chip-surface: rgb(255 255 255 / 12%);
+  --willow-chip-text: #e6e6e6;
+  --willow-utility-chip: #1e1f20;
+  --willow-utility-chip-hover: #282a2c;
+  --willow-utility-chip-text: #e3e3e3;
+  --willow-pill-text: #c4c7c5;
+  --willow-pill-text-hover: #e3e3e3;
+  --willow-pill-hover: #303134;
+  --willow-pill-name: #e6e6e6;
+  --willow-pill-effort: rgb(255 255 255 / 55%);
+  --willow-send-glyph: #ffffff;
+  --willow-stop: #171717;
+  --willow-stop-hover: #282828;
+  --willow-stop-glyph: #e6e6e6;
+  --willow-models-surface: #1f1f1f;
+  --willow-models-shadow: 0 4px 24px rgb(0 0 0 / 45%), 0 0 20px rgb(255 255 255 / 5%);
+  --willow-models-sub-shadow: 0 4px 18px rgb(0 0 0 / 32%);
+  --willow-models-hover: #333537;
+  --willow-models-text: #e6e6e6;
+  --willow-models-muted: rgb(255 255 255 / 55%);
+  --willow-models-separator: #444746;
+  --willow-plus-hover: rgb(230 230 230 / 8%);
+  --willow-plus-selected: #171717;
+  --willow-plus-glyph: #e6e6e6;
+}
+
+/* ── The box ──────────────────────────────────────────────────────────────── */
+
+[data-slot="composer-shell"] {
+  max-width: min(660px, var(--chat-content-max-width, 660px));
+}
+
+/* T3's glass backdrop and its drawer: Willow's box is the one surface. */
+[data-slot="composer-shell"]::before {
+  display: none;
+}
+
+[data-slot="composer-host"] {
+  border-radius: 32px;
+  box-shadow: none;
+}
+
+[data-slot="composer-host"]::after,
+[data-chat-composer-main-surface="true"]::after {
+  display: none;
+}
+
+[data-chat-composer-main-surface="true"] {
+  padding: 0;
+  border-radius: 32px;
+  background: var(--willow-composer-surface);
+  box-shadow: 0 2px 8px -2px rgb(0 0 0 / 16%);
+}
+
+[data-chat-composer-surface="true"] {
+  border-radius: 32px;
+}
+
+/* ── The prompt ───────────────────────────────────────────────────────────── */
+
+[data-chat-composer-body="true"] {
+  padding: 16px 39px 0 24px;
+}
+
+[data-chat-composer-body="true"] .flow-root,
+[data-chat-composer-body="true"] .composer-tiptap {
+  color: var(--willow-composer-text);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  letter-spacing: normal;
+}
+
+[data-chat-composer-body="true"] .composer-tiptap {
+  min-height: 24px;
+}
+
+[data-chat-composer-body="true"] .composer-tiptap p {
+  line-height: 24px;
+}
+
+[data-chat-composer-body="true"] .flow-root > [class~="text-placeholder/75"] {
+  color: var(--willow-composer-placeholder);
+  line-height: 24px;
+}
+
+/* ── Attachments (platform/ui GeminiAttachmentCard, composer variant) ─────── */
+
+/*
+ * Willow's strip: one row across the whole box, 12px in from its edges and 12px under its top,
+ * tiles 8px apart, fading out over the outer 12px, scrolling sideways without a bar; the prompt
+ * starts 24px under the tiles (the strip's 8px and the text row's 16px).
+ */
+[data-willow-attachment-strip] {
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin: -4px -39px 24px -24px;
+  padding: 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
+
+[data-willow-attachment-strip]::-webkit-scrollbar {
+  display: none;
+}
+
+/* A 112px square on 20px corners, whatever the picture's own shape: it is cover-cropped to fill. */
+:is(
+    [data-chat-composer-expanded-image="true"],
+    [data-chat-composer-video="true"],
+    [data-chat-composer-image-placeholder="true"]
+  ) {
+  width: 112px;
+  min-width: 112px;
+  max-width: none;
+  height: 112px;
+  border: 0;
+  border-radius: 20px;
+  background: rgb(0 0 0 / 8%);
+}
+
+:root.dark
+  :is(
+    [data-chat-composer-expanded-image="true"],
+    [data-chat-composer-video="true"],
+    [data-chat-composer-image-placeholder="true"]
+  ) {
+  background: rgb(255 255 255 / 12%);
+}
+
+[data-chat-composer-expanded-image="true"] img {
+  object-fit: cover;
+  object-position: center;
+}
+
+/* Remove: a white 20px circle with a black close glyph, 8px in, shown while the tile is hovered. */
+[data-willow-attachment-remove] {
+  top: 8px;
+  right: 8px;
+  visibility: hidden;
+  opacity: 1;
+  transition: none;
+}
+
+:is([data-chat-composer-expanded-image="true"], [data-chat-composer-video="true"]):is(:hover, :focus-within)
+  [data-willow-attachment-remove] {
+  visibility: visible;
+}
+
+@media (pointer: coarse) {
+  [data-willow-attachment-remove] {
+    visibility: visible;
+  }
+}
+
+[data-willow-attachment-remove] [data-slot="button"],
+[data-slot="button"][data-willow-attachment-remove],
+[data-willow-attachment-contents] [data-slot="button"] {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: none;
+  color: #000000;
+}
+
+[data-willow-attachment-remove] svg {
+  width: 16px;
+  height: 16px;
+}
+
+/*
+ * A capture's app text stays a click away in the opposite corner, here and on a sent message's
+ * tile (message.css), in the same circle.
+ */
+[data-willow-attachment-contents] {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  visibility: hidden;
+}
+
+:is([data-chat-composer-expanded-image="true"], [data-willow-attachment-tile]):is(:hover, :focus-within)
+  [data-willow-attachment-contents],
+[data-willow-attachment-contents]:has([data-popup-open]) {
+  visibility: visible;
+}
+
+@media (pointer: coarse) {
+  [data-willow-attachment-contents] {
+    visibility: visible;
+  }
+}
+
+[data-willow-attachment-contents] svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ── The row under it ─────────────────────────────────────────────────────── */
+
+[data-chat-composer-footer="true"] {
+  min-height: 62px;
+  padding: 0 15px 0 18px;
+  gap: 8px;
+}
+
+[data-chat-composer-controls="left"] {
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+}
+
+[data-chat-composer-controls="left"] [data-resting-block] {
+  gap: 8px;
+}
+
+[data-chat-composer-controls="left"] [data-slot="separator"],
+[data-chat-composer-controls="left"] [data-resting-controls-separator] {
+  display: none;
+}
+
+/* Willow's right-hand controls ride 1px above the plus: 32px off the bottom to their centre, not 31. */
+[data-chat-composer-actions="right"] {
+  position: relative;
+  top: -1px;
+  gap: 8px;
+  padding-right: 1px;
+}
+
+/* An empty box has no send button, nor the gap before it: the pill keeps 16px to the edge. */
+[data-chat-composer-actions="right"] > span:has(> [data-composer-send="true"][data-empty="true"]) {
+  display: none;
+}
+
+/* The plus: Composer's `willow-composer-icon-button`, its glyph turning to a cross while open. */
+.willow-composer-plus {
+  display: flex;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--willow-composer-icon);
+  outline: none;
+  cursor: pointer;
+  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.willow-composer-plus:hover:not(:disabled) {
+  background: var(--willow-composer-icon-hover);
+}
+
+.willow-composer-plus:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.willow-composer-plus__glyph {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  font-family: "Luminous Symbols";
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 24px;
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "ROND" 100, "opsz" 24;
+  font-feature-settings: "liga";
+  user-select: none;
+  transition: transform 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.willow-composer-plus[data-popup-open] .willow-composer-plus__glyph {
+  transform: rotate(45deg);
+}
+
+/*
+ * The chips: Spark's (SparkNativeBar `chipClass`, Composer `ToolChip`) — 24px pills at 12% white
+ * / 8% black, 4px in at the left and 4px gaps, a 16px glyph at 330 and a 13px/17px label in
+ * #e6e6e6 / #1f1f1f; 4px in at the right before a chevron, 8px without one.
+ */
+[data-chat-composer-footer="true"] [data-composer-control] {
+  height: 24px;
+  min-height: 24px;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--willow-chip-surface);
+  color: var(--willow-chip-text);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  letter-spacing: normal;
+  user-select: none;
+  transform: none;
+  transition: none;
+}
+
+[data-chat-composer-footer="true"] [data-composer-control]:is(:hover, [data-popup-open], [data-pressed], [aria-pressed="true"]) {
+  background: var(--willow-chip-surface);
+  color: var(--willow-chip-text);
+}
+
+[data-chat-composer-footer="true"] [data-composer-control]:has([data-composer-control-chevron]),
+[data-chat-composer-footer="true"] [data-willow-tool-chip]:is(:hover, :focus-visible) {
+  padding-right: 4px;
+}
+
+[data-chat-composer-footer="true"] [data-composer-control] svg {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  color: var(--willow-chip-text);
+  opacity: 1;
+}
+
+[data-chat-composer-footer="true"] [data-composer-control] .willow-icon-glyph {
+  font-variation-settings: "FILL" 0, "wght" 330, "GRAD" 0, "opsz" 20;
+}
+
+[data-chat-composer-footer="true"] [data-composer-control] [data-composer-control-label] {
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--willow-chip-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The access control is not a chip: a line beside the plus as the model pill is at the other
+ * end, its 15px/20px words and its mode's glyph (20px) in the model name's ink with no surface or
+ * border, and the pill's 24px chevron in the pill's ink, taking the pill's soft fill under the
+ * pointer. It rides 1px above the plus as the right-hand controls do, so its words and chevron
+ * sit on the model pill's line.
+ */
+[data-chat-composer-footer="true"] [data-composer-control][data-willow-access-control="true"] {
+  top: -1px;
+  height: 40px;
+  min-height: 40px;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  background: transparent;
+  color: var(--willow-pill-name);
+  font-size: 15px;
+  line-height: 20px;
+  transition:
+    color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-chat-composer-footer="true"]
+  [data-composer-control][data-willow-access-control="true"]:is(:hover, [data-popup-open]) {
+  background: var(--willow-pill-hover);
+  color: var(--willow-pill-name);
+}
+
+[data-chat-composer-footer="true"] [data-willow-access-control="true"] svg {
+  width: 20px;
+  height: 20px;
+  color: currentColor;
+}
+
+[data-chat-composer-footer="true"] [data-willow-access-control="true"] .willow-icon-glyph {
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+}
+
+/* Willow's own glyphs at its menus' settings (SparkFolderSections' "Full access" lock). */
+[data-chat-composer-footer="true"] [data-willow-access-control="true"] .willow-icon-glyph--luminous {
+  font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "ROND" 100, "opsz" 20;
+}
+
+[data-chat-composer-footer="true"] [data-willow-access-control="true"] [data-composer-control-label] {
+  max-width: 220px;
+  color: inherit;
+}
+
+[data-chat-composer-footer="true"] [data-willow-access-control="true"] [data-composer-control-chevron] {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+  color: var(--willow-pill-text);
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 24px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300;
+}
+
+[data-chat-composer-footer="true"]
+  [data-willow-access-control="true"]:is(:hover, [data-popup-open])
+  [data-composer-control-chevron] {
+  color: var(--willow-pill-text-hover);
+}
+
+/*
+ * A select's chevron sits in Base UI's Select.Icon span, a block whose line box (the 20px strut
+ * with the glyph on its baseline) is taller than the glyph, with the glyph at its top. As a flex
+ * box it is the glyph's height, centred in the control as the model pill's chevron is.
+ */
+[data-chat-composer-footer="true"] [data-composer-control] > span:has(> [data-composer-control-chevron]),
+[data-willow-composer-utility="true"]
+  :is([data-composer-control], [data-composer-context-control])
+  > span:has(> [data-composer-control-chevron]) {
+  display: flex;
+  align-items: center;
+}
+
+[data-composer-control-chevron],
+[data-willow-chip-close] {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--willow-chip-text);
+  font-family: "Luminous Symbols";
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 330;
+  line-height: 16px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 16, "wght" 330;
+  font-feature-settings: "liga";
+  letter-spacing: 0;
+  user-select: none;
+}
+
+[data-composer-control-chevron] {
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-popup-open] > [data-composer-control-chevron],
+[data-popup-open] > [data-slot="select-icon"] > [data-composer-control-chevron],
+[data-popup-open] [data-composer-control-chevron] {
+  transform: rotate(180deg);
+}
+
+/* A tool chip shows its close glyph while pointed at: the whole chip deselects. */
+[data-willow-chip-close] {
+  display: none;
+}
+
+[data-willow-tool-chip]:is(:hover, :focus-visible) [data-willow-chip-close] {
+  display: inline-flex;
+}
+
+[data-chat-composer-footer="true"] [data-willow-tool-chip] {
+  cursor: default;
+}
+
+/*
+ * The row under the box, before the first message only: where the chat will run and its branch,
+ * centred 12px under the box as Willow's chips, the media gallery's category chips
+ * (features/chat media.css `.gm-gallery__chip`): 36px pills 8px apart on the surface container,
+ * #f0f4f9 / #1e1f20 and #e9eef6 / #282a2c under the pointer, in the model pill's 15px/20px with a
+ * 20px glyph and chevron. The workspace strip measures the room it has, as T3's does, to drop its
+ * names to glyphs alone when the row runs out, so it keeps the row's width and centres what it
+ * holds. Once a thread has started the context ring sits in the box.
+ */
+[data-willow-composer-utility="true"] {
+  display: flex;
+  min-width: 0;
+  max-width: min(660px, var(--chat-content-max-width, 660px));
+  margin-inline: auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 4px 0;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+[data-willow-composer-utility="true"]:not(
+    :has(
+      [data-slot="composer-context-strip"]:not(.invisible) [data-composer-context-control],
+      [data-willow-context-meter-trigger]
+    )
+  ) {
+  display: none;
+}
+
+[data-willow-context-chips="true"] {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: center;
+}
+
+[data-willow-context-meter="true"] {
+  display: flex;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+
+:is([data-willow-context-chips="true"], [data-willow-context-meter="true"]):empty {
+  display: none;
+}
+
+[data-willow-context-chips="true"] [data-slot="composer-context-strip"] {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  justify-content: center;
+  gap: 8px;
+  overflow: visible;
+  color: var(--willow-utility-chip-text);
+}
+
+[data-willow-context-chips="true"] [data-slot="composer-context-strip"]::before {
+  display: none;
+}
+
+[data-willow-context-chips="true"] [data-slot="composer-context-strip"] > * {
+  margin-inline: 0;
+}
+
+[data-willow-context-chips="true"] [data-slot="composer-context-strip"] > div {
+  justify-content: center;
+  gap: 8px;
+}
+
+[data-willow-context-chips="true"] [data-chat-resting-composer-controls-host="true"] {
+  display: none;
+}
+
+[data-willow-context-chips="true"] [data-slot="separator"] {
+  display: none;
+}
+
+[data-willow-composer-utility="true"]
+  :is(button[data-composer-control], :is(button, span)[data-composer-context-control]),
+[data-willow-context-meter-trigger="true"] {
+  display: inline-flex;
+  height: 36px;
+  min-height: 36px;
+  max-width: none;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--willow-utility-chip);
+  box-shadow: none;
+  color: var(--willow-utility-chip-text);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  transition:
+    background-color 200ms,
+    color 200ms;
+}
+
+[data-willow-composer-utility="true"]
+  :is(button[data-composer-control], button[data-composer-context-control]):has(
+    [data-composer-control-chevron]
+  ) {
+  padding-inline-end: 8px;
+}
+
+[data-willow-composer-utility="true"]
+  :is(button[data-composer-control], :is(button, span)[data-composer-context-control]) {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+[data-willow-context-meter-trigger="true"] {
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-willow-composer-utility="true"]
+  :is(button[data-composer-control], button[data-composer-context-control]):is(
+    :hover,
+    [data-popup-open],
+    [aria-expanded="true"]
+  ),
+[data-willow-context-meter-trigger="true"]:is(:hover, [data-popup-open]) {
+  background: var(--willow-utility-chip-hover);
+  color: var(--willow-utility-chip-text);
+}
+
+[data-willow-composer-utility="true"] :is([data-composer-control], [data-composer-context-control]) svg {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  color: currentColor;
+  opacity: 1;
+}
+
+[data-willow-composer-utility="true"]
+  :is([data-composer-control], [data-composer-context-control])
+  .willow-icon-glyph {
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+}
+
+[data-willow-composer-utility="true"]
+  :is([data-composer-control], [data-composer-context-control])
+  :is([data-composer-label], [data-composer-label] *) {
+  color: inherit;
+}
+
+[data-willow-composer-utility="true"] [data-composer-control-chevron] {
+  width: 20px;
+  height: 20px;
+  flex-basis: 20px;
+  color: currentColor;
+  font-size: 20px;
+  line-height: 20px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 300;
+}
+
+[data-willow-context-meter-trigger="true"] > span:first-child {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── The rail (Codex's composer rail, app-primary's composer-rail module) ─── */
+
+/*
+ * What is attached above the box is one panel, as Codex's rail is: 13px in from the box's sides
+ * (--home-composer-inline-inset) under its 32px corners, 16px corners at the top (--radius-2xl),
+ * a 1px rule round it and between its rows, and its bottom tucked under the box's top. On the
+ * box's own surface, so the prompt box and what is attached to it read as one; the box's drop
+ * marks where it starts.
+ */
+[data-slot="composer-banner-attachment"]:has(> [data-willow-composer-rail="true"]) {
+  width: calc(100% - 26px);
+}
+
+[data-willow-composer-rail="true"] {
+  position: relative;
+  overflow: clip;
+  padding-bottom: calc(1rem + 1px);
+  border: 1px solid var(--codex-border);
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  background: var(--willow-composer-surface);
+}
+
+[data-willow-composer-rail="true"] > [data-slot="composer-banner-attachment"] {
+  width: 100%;
+  margin: 0;
+}
+
+[data-willow-composer-rail="true"] > * + * {
+  border-top: 1px solid var(--codex-border);
+}
+
+/* Each banner's own glass, and the strip it keeps for the box to cover: the rail draws them once. */
+[data-willow-composer-rail="true"] [data-composer-banner-surface]::before,
+[data-willow-composer-rail="true"] [data-slot="composer-banner"]::after {
+  display: none;
+}
+
+[data-willow-composer-rail="true"] [data-slot="composer-banner"] {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Codex's warning rows: its warning surface at 30% over the panel. */
+[data-willow-composer-rail="true"] [data-composer-banner-surface][data-variant="warning"] {
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+}
+
+[data-willow-composer-rail="true"] [data-composer-banner-surface][data-variant="error"] {
+  background: color-mix(in srgb, var(--error) 9%, transparent);
+}
+
+/* ── Queued follow-ups (Codex's queued-message-list, a row of the rail) ──── */
+
+[data-willow-queued-runs="true"] {
+  padding: 0;
+}
+
+.willow-queued-runs {
+  display: flex;
+  max-height: 30dvh;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+/* Codex's rail row: 10px in, 2px over and under a 28px line, 8px between its parts. */
+.willow-queued-run {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 10px;
+  color: var(--codex-ink-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  animation: willow-queued-run-in 180ms ease-out both;
+}
+
+/* Being edited, dragged or sent, as Codex dims the row. */
+.willow-queued-run:is([data-editing="true"], [data-dragging="true"]) {
+  opacity: 0.6;
+}
+
+.willow-queued-run__drop {
+  position: absolute;
+  inset-inline: 12px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--codex-text-accent);
+  pointer-events: none;
+}
+
+.willow-queued-run__drop--top {
+  top: -3px;
+}
+
+.willow-queued-run__drop--bottom {
+  bottom: -3px;
+}
+
+/* The row's 16px icon: Codex's queue glyph at 70% of the tertiary ink, the grip while pointed at. */
+.willow-queued-run__lead {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: color-mix(in srgb, var(--codex-ink-tertiary) 70%, transparent);
+}
+
+.willow-queued-run__lead svg {
+  width: 16px;
+  height: 16px;
+}
+
+.willow-queued-run__grip {
+  cursor: grab;
+}
+
+.willow-queued-run__grip:active {
+  cursor: grabbing;
+}
+
+.willow-queued-run__grip-icon,
+.willow-queued-run:is(:hover, :focus-within) .willow-queued-run__grip .willow-queued-run__glyph {
+  display: none;
+}
+
+.willow-queued-run:is(:hover, :focus-within) .willow-queued-run__grip-icon {
+  display: block;
+}
+
+/* Codex's title: one line, 4px over and under, its image and words 6px apart. */
+.willow-queued-run__title {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  padding-block: 4px;
+}
+
+.willow-queued-run__thumbs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.willow-queued-run__thumb {
+  width: 24px;
+  height: 24px;
+  overflow: hidden;
+  border: 1px solid var(--codex-border-heavy);
+  border-radius: 4px;
+  background: var(--codex-secondary-soft);
+}
+
+.willow-queued-run__text {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-queued-run__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+@keyframes willow-queued-run-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── The model pill ───────────────────────────────────────────────────────── */
+
+.willow-model-pill {
+  display: flex;
+  height: 40px;
+  min-width: 0;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--willow-pill-text);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+  outline: none;
+  cursor: pointer;
+  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.willow-model-pill:is(:hover, [data-popup-open]) {
+  background: var(--willow-pill-hover);
+  color: var(--willow-pill-text-hover);
+}
+
+.willow-model-pill:disabled,
+.willow-model-pill[data-disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.willow-model-pill__label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  margin-right: -4px;
+}
+
+.willow-model-pill__name {
+  overflow: hidden;
+  color: var(--willow-pill-name);
+  text-overflow: ellipsis;
+}
+
+.willow-model-pill__effort {
+  margin-left: 4px;
+  color: var(--willow-pill-effort);
+}
+
+.willow-model-pill__chevron {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  font-family: "Luminous Symbols";
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 24px;
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "ROND" 100, "opsz" 24;
+  font-feature-settings: "liga";
+  user-select: none;
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.willow-model-pill[data-popup-open] .willow-model-pill__chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Send and stop ────────────────────────────────────────────────────────── */
+
+[data-composer-send="true"] {
+  width: 32px;
+  height: 32px;
+  margin-right: 1px;
+  border-radius: 9999px;
+  background: var(--willow-send-light);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 5%);
+  color: var(--willow-send-glyph);
+  transform: none;
+  transition: background-color 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  animation: willow-composer-send-enter 250ms linear both;
+}
+
+[data-composer-send="true"]:hover:not(:disabled) {
+  background: var(--willow-send-light-hover);
+  transform: none;
+}
+
+:root.dark [data-composer-send="true"] {
+  background: var(--willow-send);
+}
+
+:root.dark [data-composer-send="true"]:hover:not(:disabled) {
+  background: var(--willow-send-hover);
+}
+
+[data-composer-send="true"]:disabled {
+  opacity: 0.4;
+}
+
+[data-composer-send="true"][data-empty="true"] {
+  display: none;
+}
+
+.willow-composer-send-glyph {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  font-family: "Luminous Symbols";
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 24px;
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "ROND" 100, "opsz" 24;
+  font-feature-settings: "liga";
+  user-select: none;
+}
+
+[data-composer-stop="true"] {
+  width: 32px;
+  height: 32px;
+  margin-right: 1px;
+  border-radius: 9999px;
+  background: var(--willow-stop);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 5%);
+  color: var(--willow-stop-glyph);
+  transform: none;
+  transition: background-color 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-composer-stop="true"]:hover {
+  background: var(--willow-stop-hover);
+  transform: none;
+}
+
+.willow-composer-stop-glyph {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  font-family: "Google Symbols";
+  font-size: 24px;
+  font-weight: 320;
+  line-height: 24px;
+  font-variation-settings: "FILL" 1, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300;
+  font-feature-settings: "liga";
+  user-select: none;
+}
+
+@keyframes willow-composer-send-enter {
+  0% {
+    opacity: 0;
+    animation-timing-function: linear;
+  }
+
+  20% {
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+/* ── The model menu ───────────────────────────────────────────────────────── */
+
+[data-slot="menu-popup"].willow-models-menu {
+  width: 241px;
+  min-width: 241px;
+  border: 0;
+  background: var(--willow-models-surface);
+  box-shadow: var(--willow-models-shadow);
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  transform-origin: right bottom;
+  animation: willow-dropdown-open-up 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[data-slot="menu-popup"].willow-models-menu[data-side="bottom"] {
+  transform-origin: right top;
+  animation-name: willow-dropdown-open;
+}
+
+[data-slot="menu-popup"].willow-models-menu[data-ending-style] {
+  opacity: 1;
+  animation: willow-dropdown-close-up 150ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[data-slot="menu-popup"].willow-models-menu[data-side="bottom"][data-ending-style] {
+  animation-name: willow-dropdown-close;
+}
+
+[data-slot="menu-sub-content"].willow-models-menu__sub {
+  width: 220px;
+  min-width: 220px;
+  border: 0;
+  background: var(--willow-models-surface);
+  box-shadow: var(--willow-models-sub-shadow);
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  animation: none;
+}
+
+.willow-models-menu__models {
+  position: relative;
+  max-height: 208px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.willow-models-menu__models::-webkit-scrollbar {
+  display: none;
+}
+
+/* ModelsMenu's empty list. */
+.willow-models-menu__empty {
+  padding: 32px 12px;
+  color: var(--willow-models-muted);
+  font-size: 13px;
+  line-height: 17px;
+  text-align: center;
+}
+
+.willow-models-menu :is(.willow-models-menu__model, .willow-models-menu__trait),
+.willow-models-menu__sub [data-slot="menu-radio-item"],
+.willow-models-menu__sub [data-slot="menu-checkbox-item"] {
+  gap: 0;
+  padding: 0;
+  border-radius: 12px;
+  color: var(--willow-models-text);
+  font-size: 13px;
+  line-height: 17px;
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.willow-models-menu .willow-models-menu__model {
+  min-height: 52px;
+}
+
+.willow-models-menu .willow-models-menu__trait {
+  height: 48px;
+  min-height: 48px;
+}
+
+.willow-models-menu__sub :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]) {
+  min-height: 48px;
+}
+
+.willow-models-menu__sub :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]) .text-xs {
+  padding-bottom: 8px;
+  color: var(--willow-models-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.willow-models-menu :is(.willow-models-menu__model, .willow-models-menu__trait):is([data-highlighted], [data-popup-open], :active),
+.willow-models-menu__sub :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]):is([data-highlighted], :active) {
+  background: var(--willow-models-hover);
+}
+
+.willow-models-menu__check {
+  display: flex;
+  width: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  color: var(--willow-models-text);
+  font-family: "Luminous Symbols";
+  font-size: 20px;
+  font-weight: 320;
+  line-height: 20px;
+  font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "ROND" 100, "opsz" 20;
+  font-feature-settings: "liga";
+  user-select: none;
+}
+
+.willow-models-menu__text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 8px 8px 8px 0;
+}
+
+.willow-models-menu__trait .willow-models-menu__text {
+  padding: 0;
+}
+
+.willow-models-menu__name,
+.willow-models-menu__description {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-models-menu__name {
+  color: var(--willow-models-text);
+}
+
+.willow-models-menu__description {
+  color: var(--willow-models-muted);
+}
+
+.willow-models-menu__value {
+  display: block;
+  overflow: hidden;
+  color: var(--willow-models-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-models-menu__arrow {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  color: var(--willow-models-text);
+  font-family: "Google Symbols";
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 100, "slnt" 0, "wght" 400;
+  font-feature-settings: "liga";
+  user-select: none;
+}
+
+/* T3's own submenu chevron gives way to the Google Symbols arrow above. */
+.willow-models-menu__trait > svg:last-child {
+  display: none;
+}
+
+.willow-models-menu [data-slot="menu-separator"].willow-models-menu__separator {
+  height: 1px;
+  margin: 8px 0;
+  border: 0;
+  background: var(--willow-models-separator);
+}
+
+/* The trait's values: ModelsMenu's effort menu, a check in the 36px column and the label after. */
+.willow-models-menu__sub :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"])::before {
+  width: 36px;
+  flex: 0 0 36px;
+  color: var(--willow-models-text);
+}
+
+.willow-models-menu__sub :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]) {
+  padding-right: 12px;
+}
+
+.willow-models-menu__sub [data-slot="badge"] {
+  height: auto;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 10%);
+  color: rgb(0 0 0 / 60%);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 15px;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+:root.dark .willow-models-menu__sub [data-slot="badge"] {
+  background: rgb(255 255 255 / 10%);
+  color: rgb(255 255 255 / 60%);
+}
+
+/* ── The plus menu ────────────────────────────────────────────────────────── */
+
+/*
+ * PlusDropdownMenu's own motion (features/chat Composer.css `willow-gem-menu-in`): in from half
+ * size at a quarter opacity over 100ms ease-in-out from the corner by the button, gone at once.
+ */
+[data-slot="menu-popup"].willow-plus-menu {
+  width: 249px;
+  min-width: 249px;
+  transform-origin: 0 100%;
+  animation: willow-gem-menu-in 100ms ease-in-out;
+}
+
+[data-slot="menu-popup"].willow-plus-menu[data-side="bottom"] {
+  transform-origin: 0 0;
+}
+
+[data-slot="menu-popup"].willow-plus-menu[data-ending-style] {
+  opacity: 0;
+  animation: none;
+}
+
+.willow-plus-menu [data-slot="menu-item"] {
+  height: 36px;
+  min-height: 36px;
+  gap: 0;
+  padding: 0 8px;
+  transition: none;
+}
+
+.willow-plus-menu [data-slot="menu-item"]:is([data-highlighted], :active) {
+  background: var(--willow-plus-hover);
+}
+
+.willow-plus-menu [data-slot="menu-item"][data-checked] {
+  background: var(--willow-plus-selected);
+}
+
+.willow-plus-menu__icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  color: var(--willow-plus-glyph);
+}
+
+.willow-plus-menu [data-slot="menu-item"] .willow-plus-menu__icon svg {
+  width: 18px;
+  height: 18px;
+  color: var(--willow-plus-glyph);
+}
+
+.willow-plus-menu__glyph {
+  font-family: "Luminous Symbols";
+  font-size: 20px;
+  font-weight: 320;
+  line-height: 20px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320;
+  font-feature-settings: "liga";
+  user-select: none;
+}
+
+.willow-plus-menu__label {
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+.willow-plus-menu__label--tool {
+  margin-left: 12px;
+}
+
+/* ── The "@" and "/" menus ────────────────────────────────────────────────── */
+
+/*
+ * Willow's prompt-box menus (features/chat composer/mentions/chat-mentions.css, Gemini's
+ * at-mentions panel) in place of T3's drawer under the box's top edge: a card floating 8px over
+ * the box's left side, #1f1f1f (white in light) on 16px corners, 8px in, `0 0 20px` at 28% (16% in
+ * light), 112px to 280px wide and at most 45vh tall, with 36px rows on 12px corners, 13px/17px
+ * labels and the highlighted row on an 8% layer. "/" is its slash menu: 242px on #1e1f20 (#f0f4f9
+ * in light) with Material's first shadow, 6px above and below its rows. Both grow in from the
+ * corner by the box over 120ms cubic-bezier(0, 0, 0.2, 1) and leave at once.
+ */
+[data-composer-drawer-layer="true"]:has(> [data-composer-command-drawer="true"]) {
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+[data-composer-command-drawer="true"] {
+  --accent: rgb(230 230 230 / 8%);
+  --accent-foreground: #e3e3e3;
+  width: max-content;
+  min-width: 112px;
+  max-width: 280px;
+  margin-bottom: calc(1rem + 1px + 8px);
+  padding: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #1f1f1f;
+  box-shadow: 0 0 20px 0 rgb(0 0 0 / 28%);
+  color: #e3e3e3;
+  pointer-events: auto;
+  transform-origin: left bottom;
+  animation: willow-mention-menu-in 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+[data-composer-command-drawer="true"]::before {
+  display: none;
+}
+
+:root:not(.dark) [data-composer-command-drawer="true"] {
+  --accent: rgb(31 31 31 / 8%);
+  --accent-foreground: #1f1f1f;
+  background: #ffffff;
+  box-shadow: 0 0 20px 0 rgb(0 0 0 / 16%);
+  color: #1f1f1f;
+}
+
+[data-composer-command-drawer="true"]:has([aria-label="Commands"]) {
+  width: 242px;
+  min-width: 242px;
+  max-width: 242px;
+  background: #1e1f20;
+  box-shadow:
+    0 3px 1px -2px rgb(0 0 0 / 20%),
+    0 2px 2px 0 rgb(0 0 0 / 14%),
+    0 1px 5px 0 rgb(0 0 0 / 12%);
+}
+
+:root:not(.dark) [data-composer-command-drawer="true"]:has([aria-label="Commands"]) {
+  background: #f0f4f9;
+}
+
+[data-composer-command-drawer="true"] [data-slot="command-list"] {
+  max-height: none;
+  padding: 8px;
+}
+
+/*
+ * The list scrolls in its ScrollArea's viewport, 45vh at most. With less room over the box the
+ * card is shorter than that, and the viewport shrinks with it, or its last rows (and the scroll's
+ * end) would run on under the card's edge.
+ */
+[data-composer-command-drawer="true"] > div:has(> [data-slot="scroll-area-viewport"]) {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+[data-composer-command-drawer="true"] [data-slot="scroll-area-viewport"] {
+  max-height: 45vh;
+  min-height: 0;
+  flex: 0 1 auto;
+}
+
+[data-composer-command-drawer="true"] [data-slot="command-list"][aria-label="Commands"] {
+  padding: 6px 8px;
+}
+
+[data-composer-command-drawer="true"] [data-slot="command-item"] {
+  height: 36px;
+  min-height: 36px;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 12px;
+  color: inherit;
+}
+
+[data-composer-command-drawer="true"] [data-slot="command-item"] > svg {
+  width: 20px;
+  height: 20px;
+  margin: 2px;
+}
+
+/* The name keeps its room; T3's description after it gives way first. */
+[data-composer-command-drawer="true"] [data-slot="command-item"] > span > span:first-child {
+  max-width: 100%;
+  flex-shrink: 0;
+  color: inherit;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+[data-composer-command-drawer="true"] [data-slot="command-item"] > span > span:nth-child(2) {
+  color: var(--willow-muted-text);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+[data-composer-command-drawer="true"] > div:not([data-slot]) > p {
+  color: var(--willow-muted-text);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+[data-composer-command-drawer="true"] > div:not([data-slot]):has(> p) {
+  padding: 8px 12px;
+}
+
+@keyframes willow-mention-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-composer-send="true"],
+  [data-slot="menu-popup"].willow-models-menu,
+  [data-slot="menu-popup"].willow-models-menu[data-ending-style],
+  [data-slot="menu-popup"].willow-plus-menu,
+  [data-composer-command-drawer="true"],
+  .willow-queued-run {
+    animation: none;
+  }
+}

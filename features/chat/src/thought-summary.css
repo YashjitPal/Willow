@@ -9,6 +9,9 @@
  *   Typography, read via getComputedStyle on the live
  *   `div.animated-thinking-content` (Gemini's own class name):
  *     font-size 17px / line-height 24px / weight 400 / letter-spacing normal
+ *     font-variation-settings "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400 (its
+ *     `gds-body-l`; without the narrower width "Connecting to" sets 111.6px
+ *     wide against Gemini's 106.2)
  *     color rgb(227,227,227) — this is --gem-sys-color--on-surface (#E3E3E3),
  *     the same value independently confirmed as the thinking dots' fill.
  *     display inline-flex; align-items center; white-space normal; and
@@ -60,6 +63,7 @@
   font-size: 17px;
   line-height: 24px;
   font-weight: 400;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400;
   letter-spacing: normal;
   color: rgb(227, 227, 227);
   white-space: normal;
@@ -86,6 +90,18 @@
   -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 50%, rgb(0, 0, 0) calc(50% + 80px));
   mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 50%, rgb(0, 0, 0) calc(50% + 80px));
   animation: 0.35s linear forwards thought-summary-swipe-out;
+}
+
+/*
+ * "Connecting to [logo] YouTube": the logo is 24px with 8px either side, measured on the live
+ * row (text to x=576.2, logo 584.2 to 608.2, the name from 616.2).
+ */
+.thought-summary-line__logo {
+  display: block;
+  width: 24px;
+  height: 24px;
+  margin: 0 8px;
+  flex: none;
 }
 
 @keyframes thought-summary-swipe-in {

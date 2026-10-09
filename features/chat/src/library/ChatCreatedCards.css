@@ -1,0 +1,353 @@
+/*
+ * What a chat turn saved, under its sentence. Measured on Gemini's chat, 2026-10-06
+ * (`tools/ui-research/captures/spark/137-create-with-gemini/`). The space above and below
+ * is set where the list is rendered (ChatView), which knows which card comes first.
+ */
+.chat-created-items {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Scheduled action (`live-prompt-card` > `scheduled-task-card`) ─────────── */
+
+.chat-scheduled-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 24px;
+  border: 1px solid #444746;
+  border-radius: 16px;
+  background: rgba(68, 71, 70, 0.16);
+  color: #e3e3e3;
+}
+
+.chat-scheduled-action__task {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-scheduled-action__icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background: var(--sync-003d64, #003d64);
+  color: var(--sync-60a9ed, #60a9ed);
+}
+
+.chat-scheduled-action__icon.is-paused,
+.chat-scheduled-action.is-deleted .chat-scheduled-action__icon {
+  background: #444746;
+  color: #c4c7c5;
+}
+
+.chat-scheduled-action__details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chat-scheduled-action__when {
+  display: flex;
+  align-items: center;
+  /* The info icon's height, kept when a deleted card drops the icon. */
+  min-height: 20px;
+  font-size: 13px;
+  line-height: 17px;
+  color: #c4c7c5;
+}
+
+.chat-scheduled-action__info {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-inline-start: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chat-scheduled-action__title,
+.chat-scheduled-action__prompt {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.chat-scheduled-action__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 16px;
+}
+
+/* M3 switch, as Gemini's `mat-slide-toggle`: 52×32, a 24px handle when on, 16px off. */
+.chat-scheduled-action__switch {
+  position: relative;
+  flex: 0 0 52px;
+  width: 52px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: #444746;
+  box-shadow: inset 0 0 0 2px #8e918f;
+  cursor: pointer;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.chat-scheduled-action__switch-handle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #8e918f;
+  transition: top 150ms ease, left 150ms ease, width 150ms ease, height 150ms ease, background-color 150ms ease;
+}
+
+.chat-scheduled-action__switch.is-on {
+  background: var(--sync-a8c7fa, #a8c7fa);
+  box-shadow: none;
+}
+
+.chat-scheduled-action__switch.is-on .chat-scheduled-action__switch-handle {
+  top: 4px;
+  left: 24px;
+  width: 24px;
+  height: 24px;
+  background: var(--sync-062e6f, #062e6f);
+}
+
+.chat-scheduled-action__more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: none;
+  color: #c4c7c5;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.chat-scheduled-action__switch:disabled,
+.chat-scheduled-action__more:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+@media (hover: hover) {
+  .chat-scheduled-action__more:not(:disabled):hover,
+  .chat-scheduled-action__info:hover {
+    background: rgba(196, 199, 197, 0.08);
+  }
+}
+
+.chat-scheduled-action__switch:focus-visible,
+.chat-scheduled-action__more:focus-visible,
+.chat-scheduled-action__info:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 2px;
+}
+
+/* ── The info icon's note (`xap-inline-dialog`) ───────────────────────────── */
+
+.chat-scheduled-action-info {
+  position: fixed;
+  z-index: 1300;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--sync-1f3760, #1f3760);
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  box-shadow: 0 1px 3px 1px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  animation: chat-scheduled-action-pop 120ms ease-out;
+}
+
+.chat-scheduled-action-info::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: calc(var(--caret-x, 24px) - 6px);
+  border-top: 6px solid var(--sync-1f3760, #1f3760);
+  border-right: 6px solid transparent;
+  border-left: 6px solid transparent;
+}
+
+.chat-scheduled-action-info.is-below::after {
+  top: auto;
+  bottom: 100%;
+  border-top: 0;
+  border-bottom: 6px solid var(--sync-1f3760, #1f3760);
+}
+
+/* ── The ⋮ menu (`task-actions-menu`) ──────────────────────────────────────── */
+
+.chat-scheduled-action-menu {
+  position: fixed;
+  z-index: 1300;
+  box-sizing: border-box;
+  width: 208px;
+  padding: 4px 0;
+  border-radius: 16px;
+  background: #1e1f20;
+  box-shadow: 0 3px 1px -2px rgba(0, 0, 0, 0.2), 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 1px 5px 0 rgba(0, 0, 0, 0.12);
+  transform-origin: left top;
+  animation: chat-scheduled-action-pop 120ms ease-out;
+}
+
+.chat-scheduled-action-menu.is-upward {
+  transform-origin: left bottom;
+}
+
+.chat-scheduled-action-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.chat-scheduled-action-menu__item > :first-child {
+  color: #c4c7c5;
+}
+
+.chat-scheduled-action-menu__item:hover,
+.chat-scheduled-action-menu__item:focus-visible {
+  background: rgba(227, 227, 227, 0.08);
+  outline: none;
+}
+
+@keyframes chat-scheduled-action-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-scheduled-action-info,
+  .chat-scheduled-action-menu {
+    animation: none;
+  }
+
+  .chat-scheduled-action__switch,
+  .chat-scheduled-action__switch-handle {
+    transition: none;
+  }
+}
+
+/* ── Light theme ───────────────────────────────────────────────────────────── */
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action {
+  border-color: #e1e3e1;
+  background: rgba(225, 227, 225, 0.16);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action__icon {
+  background: var(--sync-d3e3fd, #d3e3fd);
+  color: var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action__icon.is-paused,
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action.is-deleted .chat-scheduled-action__icon {
+  background: #e1e3e1;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action__when,
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action__more {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action__switch {
+  background: #e0e2e0;
+  box-shadow: inset 0 0 0 2px #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action__switch-handle {
+  background: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action__switch.is-on {
+  background: var(--sync-0b57d0, #0b57d0);
+  box-shadow: none;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action__switch.is-on .chat-scheduled-action__switch-handle {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action-info {
+  background: var(--sync-d3e3fd, #d3e3fd);
+  color: var(--sync-041e49, #041e49);
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action-info::after {
+  border-top-color: var(--sync-d3e3fd, #d3e3fd);
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action-info.is-below::after {
+  border-bottom-color: var(--sync-d3e3fd, #d3e3fd);
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action-menu {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action-menu__item {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action-menu__item > :first-child {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action-menu__item:hover,
+:is(.light-theme, [data-theme="light"]) .chat-scheduled-action-menu__item:focus-visible {
+  background: rgba(31, 31, 31, 0.08);
+}

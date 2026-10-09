@@ -218,7 +218,7 @@ export function collaborationModeSection(mode: ModeKind): string {
  * (`task` used to be in this set. It no longer exists — see
  * `../runtime/collaboration.ts`.)
  */
-const MUTATING_TOOLS = new Set(['apply_patch', 'add_dependency']);
+const MUTATING_TOOLS = new Set(['apply_patch', 'add_dependency', 'create_schedule', 'create_skill']);
 
 export const isMutatingTool = (toolName: string): boolean =>
   MUTATING_TOOLS.has(toolName.trim());

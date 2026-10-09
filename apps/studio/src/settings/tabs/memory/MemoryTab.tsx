@@ -127,6 +127,17 @@ export const MemoryTab: React.FC = () => {
     }, 75);
   };
 
+  // Closes on Escape, as Saved Info's add / edit dialog does.
+  useEffect(() => {
+    if (!isModalOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') handleCloseModal();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isModalOpen]);
+
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     const text = inputValue.trim();

@@ -1,0 +1,170 @@
+.dot-edit-card {
+  width: min(460px, 100%);
+  --md-outlined-card-container-shape: 16px;
+  --md-outlined-card-outline-color: var(--md-sys-color-outline-variant);
+  --md-circular-progress-size: 18px;
+  --md-circular-progress-active-indicator-width: 12;
+}
+
+.dot-edit-card md-outlined-card {
+  display: block;
+}
+
+.dot-edit-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-edit-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.dot-edit-card__files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dot-edit-card__files li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.dot-edit-card__path {
+  min-width: 0;
+  flex: 1;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.dot-edit-card__new {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.dot-edit-card__counts {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.dot-edit-card__counts .is-added {
+  color: var(--dot-edit-added, #3fb950);
+}
+
+.dot-edit-card__counts .is-removed {
+  color: var(--md-sys-color-error);
+}
+
+.dot-edit-card__where {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.dot-edit-card__title {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A change waiting for the user reads as a question, like an email waiting to be sent. */
+.dot-edit-card.is-pending .dot-edit-card__head,
+.dot-edit-card.is-applying .dot-edit-card__head {
+  color: var(--md-sys-color-on-surface);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.dot-edit-card.is-declined .dot-edit-card__files,
+.dot-edit-card.is-failed .dot-edit-card__files {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-edit-card__patch {
+  max-height: 320px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+  line-height: 17px;
+  white-space: pre;
+  tab-size: 4;
+}
+
+.dot-edit-card__patch:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.dot-edit-card__patch .is-file {
+  font-weight: 600;
+}
+
+.dot-edit-card__patch .is-hunk {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-edit-card__patch .is-added {
+  color: var(--dot-edit-added, #3fb950);
+}
+
+.dot-edit-card__patch .is-removed {
+  color: var(--md-sys-color-error);
+}
+
+.dot-edit-card__note {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.dot-edit-card__note.is-error {
+  color: var(--md-sys-color-error);
+}
+
+.dot-edit-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 -4px -4px 0;
+}
+
+/* Only "Show the change" left: it sits under the text like the email card's "Show all". */
+.dot-edit-card:not(.is-pending) .dot-edit-card__actions {
+  margin: -6px 0 -6px -12px;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-edit-card {
+  --dot-edit-added: #1a7f37;
+}

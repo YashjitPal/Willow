@@ -13,6 +13,7 @@
  * only the presentation of them.
  */
 
+import { canChooseWindowButtons } from '@willow/core/desktop-bridge';
 import { type ExperimentId } from '@willow/core/experiments-store';
 
 export interface LabsExperimentRow {
@@ -29,7 +30,12 @@ export interface LabsExperimentRow {
   description: string;
   /** The state an `id: null` row is drawn in. Ignored for a real flag. */
   staticEnabled?: boolean;
+  /** Where the row is offered at all; everywhere when absent. Both surfaces skip it elsewhere. */
+  available?: () => boolean;
 }
+
+/** Whether a row is offered on this device; both surfaces skip the ones that are not. */
+export const isLabsRowAvailable = (row: LabsExperimentRow): boolean => row.available?.() ?? true;
 
 /** Page-level copy, above the rows. Both surfaces show it verbatim. */
 export const LABS_DESCRIPTION =
@@ -81,6 +87,14 @@ export const LABS_EXPERIMENTS: readonly LabsExperimentRow[] = [
     title: 'Ring',
     description:
       'Shows the Google membership ring around the profile picture, matching the Gemini app.',
+  },
+  {
+    id: 'mac-window-buttons',
+    title: 'macOS window buttons',
+    description:
+      'Shows the red, yellow and green window buttons at the top left of the window, as on a Mac, '
+      + 'instead of minimize, maximize and close at the top right. Desktop app only.',
+    available: canChooseWindowButtons,
   },
   {
     id: null,

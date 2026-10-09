@@ -107,7 +107,6 @@ export const InputBar: React.FC<{
   selectedModelId?: string;
   setSelectedModelId?: (id: string) => void;
   onAuthRequired?: () => void;
-  isAuthenticated?: boolean;
   chatVariant?: boolean;
   sparkMode?: boolean;
   sparkToolsEnabled?: boolean;
@@ -135,7 +134,6 @@ export const InputBar: React.FC<{
   selectedModelId = '',
   setSelectedModelId = () => {},
   onAuthRequired,
-  isAuthenticated,
   chatVariant = true,
   sparkMode = false,
   sparkToolsEnabled = false,
@@ -156,8 +154,8 @@ export const InputBar: React.FC<{
   extraEfforts,
   effortDisplayOverride,
 }) => {
-  const { userProfile } = useAuth();
-  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
+  const { workspaceColor: currentWorkspaceColor } = useAuth();
+  const effectiveWorkspaceColor = workspaceColor || currentWorkspaceColor;
   const workspaceTheme = useMemo(() => getWorkspaceTheme(effectiveWorkspaceColor), [effectiveWorkspaceColor]);
   const { isLight } = useThemeMode();
   const [isSubmitHovered, setIsSubmitHovered] = useState(false);
@@ -248,7 +246,6 @@ export const InputBar: React.FC<{
   }, []);
   
   const { background } = useBackground();
-  const effectiveBackground = isAuthenticated ? background : 'lines';
   
   const {
     activeModel,
@@ -416,7 +413,7 @@ export const InputBar: React.FC<{
     selectedTool,
     hasAttachments: hasActiveAttachments,
     chatVariant,
-    effectiveBackground,
+    effectiveBackground: background,
     isComposerMaximized,
     collapsedChatPaddingRight,
     isDictationActive,
@@ -424,7 +421,7 @@ export const InputBar: React.FC<{
     setCanMaximizeComposer,
   });
 
-  const promptBoxBg = effectiveBackground === 'lines' 
+  const promptBoxBg = background === 'lines' 
     ? 'bg-[#1e1f21]/70' 
     : 'bg-[#1e1f21]';
   

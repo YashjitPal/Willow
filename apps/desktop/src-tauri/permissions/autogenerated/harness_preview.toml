@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-harness-preview"
+description = "Enables the harness_preview command without any pre-configured scope."
+commands.allow = ["harness_preview"]
+
+[[permission]]
+identifier = "deny-harness-preview"
+description = "Denies the harness_preview command without any pre-configured scope."
+commands.deny = ["harness_preview"]

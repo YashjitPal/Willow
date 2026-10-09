@@ -32,6 +32,16 @@ export type ToolId =
   | 'update_goal'
   | 'connected_app'
   | 'use_skill'
+  /** Spark's remote browser. See `../spark-tools.ts`. */
+  | 'computer'
+  /** A schedule Spark runs on its own, and a skill applied with "/". See `../spark-tools.ts`. */
+  | 'create_schedule'
+  | 'create_skill'
+  /** Codex's unified exec, registered only by the desktop app's native runtime. See `../native/native-tools.ts`. */
+  | 'exec_command'
+  | 'write_stdin'
+  /** A connected app's tool, `app:list_recent_emails`. See `../spark-tools.ts`. */
+  | `app:${string}`
   | `mcp:${string}`;
 
 export interface DeniedTool {
@@ -68,6 +78,9 @@ export const ALLOWED_TOOLS: ToolId[] = [
   'create_goal',
   'update_goal',
   'use_skill',
+  'computer',
+  'create_schedule',
+  'create_skill',
 ];
 
 /**
@@ -147,24 +160,85 @@ export const DENIED_TOOLS: DeniedTool[] = [
       'modify, and `*** Delete File:` to remove.',
   },
   {
-    aliases: ['view_image', 'browser', 'fetch', 'curl'],
+    aliases: ['browser', 'browse', 'web_browser', 'open_browser', 'remote_browser', 'computer_use', 'browser_use'],
     refusal:
-      'This environment has no browser or arbitrary network tool. Use the native ' +
-      'Google Search capability when web research is needed.',
+      'The remote browser is the `computer` call. Emit `computer` with ' +
+      '{"title":"<short step label>","task":"<self-contained browser instruction>","url":"<optional start page>"}.',
+  },
+  {
+    aliases: ['schedule', 'schedule_task', 'create_reminder', 'set_reminder', 'create_routine', 'create_automation'],
+    refusal:
+      'A recurring task is the `create_schedule` call: ' +
+      '{"title":"<name>","frequency":"Daily|Weekly","weekdays":["Sunday"],"time":"HH:mm","instructions":"<what each run does>"}.',
+  },
+  {
+    aliases: ['save_skill', 'add_skill', 'new_skill', 'write_skill'],
+    refusal:
+      'A skill is the `create_skill` call: ' +
+      '{"name":"<kebab-case-name>","description":"<what it does and when to use it>","instructions":"<the skill, in Markdown>"}.',
+  },
+  {
+    aliases: ['view_image', 'fetch', 'curl'],
+    refusal:
+      'There is no arbitrary network tool. Use the native Google Search capability ' +
+      'for web research, or the `computer` call when a live website has to be opened.',
   },
 ];
 
 /** Resolves a tool name the model emitted to a refusal, if it is denied. */
 export function refusalFor(toolName: string): string | null {
+  return refusalIn(DENIED_TOOLS, toolName);
+}
+
+const refusalIn = (denied: DeniedTool[], toolName: string): string | null => {
   const needle = toolName.trim().toLowerCase();
-  for (const denied of DENIED_TOOLS) {
-    if (denied.aliases.includes(needle)) return denied.refusal;
-  }
-  return null;
+  return denied.find((entry) => entry.aliases.includes(needle))?.refusal ?? null;
+};
+
+/**
+ * Tools only the desktop app's native runtime registers. They are allowed by name
+ * so they dispatch there; the web runtime never registers them, so on the web a
+ * call to one is still an unknown tool.
+ */
+export const NATIVE_TOOLS: ToolId[] = ['exec_command', 'write_stdin'];
+
+const NATIVE_SHELL =
+  'Commands run through `exec_command`: {"cmd":"<command>"}, optionally with "workdir". ' +
+  'A command still running when it yields returns a session ID; continue it with `write_stdin`.';
+
+/**
+ * Refusals in the desktop app's native runtime, where there is a real shell: the
+ * shell and package-manager spellings point at `exec_command` instead of saying
+ * there is none. The rest are the web runtime's.
+ */
+export const NATIVE_DENIED_TOOLS: DeniedTool[] = [
+  {
+    aliases: ['shell', 'bash', 'sh', 'exec', 'run', 'terminal', 'local_shell', 'shell_command', 'powershell', 'cmd', 'container.exec'],
+    refusal: NATIVE_SHELL,
+  },
+  {
+    aliases: ['npm', 'npm_install', 'yarn', 'pnpm', 'install', 'install_package', 'add_dependency'],
+    refusal: 'Install packages by running the package manager with `exec_command` in the project\'s folder, as you would in a terminal.',
+  },
+  ...DENIED_TOOLS.filter((denied) => !denied.aliases.includes('shell') && !denied.aliases.includes('npm') && !denied.aliases.includes('view_image')),
+  {
+    aliases: ['fetch', 'curl', 'http', 'web_fetch'],
+    refusal: 'Fetch over the network with `exec_command` (for example `curl.exe -sL <url>`), or use the native Google Search capability for research.',
+  },
+  {
+    aliases: ['view_image'],
+    refusal: 'Images on disk cannot be viewed in this runtime. Inspect an image\'s metadata with a command if you need it, or ask the user to attach it.',
+  },
+];
+
+export function nativeRefusalFor(toolName: string): string | null {
+  return refusalIn(NATIVE_DENIED_TOOLS, toolName);
 }
 
 export function isAllowed(toolName: string): toolName is ToolId {
   return (ALLOWED_TOOLS as string[]).includes(toolName)
+    || (NATIVE_TOOLS as string[]).includes(toolName)
     || toolName === 'connected_app'
+    || toolName.startsWith('app:')
     || toolName.startsWith('mcp:');
 }

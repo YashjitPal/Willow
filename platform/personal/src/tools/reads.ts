@@ -32,7 +32,7 @@ import { type TokenSource } from '../connectors/token-source';
 import type { ConnectorFetch, ConnectorId } from '../connectors/types';
 import { listScheduledEvents as fetchEvents } from '../connectors/google/calendar';
 import { listOpenTasks as fetchTasks } from '../connectors/google/tasks';
-import { listRecentMail as fetchMail } from '../connectors/google/gmail';
+import { canReadContents, listRecentMail as fetchMail, readMailMessage } from '../connectors/google/gmail';
 import {
   listLikedVideos as fetchLikedVideos,
   listSubscriptions as fetchSubscriptions,
@@ -149,6 +149,9 @@ const shortMailDate = (value: string): string => {
 };
 
 const lines = (header: string, body: string[]): string => [header, ...body].join('\n');
+
+/** The most of one email's text a read returns; long newsletters say what they are about well before this. */
+const MAIL_BODY_CHARS = 12_000;
 
 /** How Spotify's three windows read in a sentence. */
 const TIME_RANGE_LABELS: Record<TimeRange, string> = {
@@ -306,19 +309,45 @@ export const createPersonalReads = (tokens?: TokenSource): PersonalReads => ({
 
     const mail = await fetchMail(gate.fetchJson, { search, limit });
     if (!mail) return expired('Gmail');
+    const contents = canReadContents();
     if (mail.length === 0) {
       return search
-        ? `No recent email matches "${search}".`
+        ? `No recent email matches "${search}".${contents ? '' : ' Without email contents Willow searches senders, recipients and subjects of the newest mail only.'}`
         : 'No recent email in the last 60 days.';
     }
 
     return lines(
-      `Recent email headers${search ? ` matching "${search}"` : ''} — subjects and senders only. Willow has metadata-only access to Gmail and cannot read message contents, so do not describe what any of these say.`,
+      contents
+        ? `Recent email${search ? ` matching "${search}"` : ''}. Read a whole message with read_email and its id.`
+        : `Recent email headers${search ? ` matching "${search}"` : ''} — subjects and senders only. Willow has metadata-only access to Gmail and cannot read message contents, so do not describe what any of these say. The user can turn on email contents in Settings → Connected Apps.`,
       mail.map((message) => {
         const sender = message.domain ? `${message.from} (${message.domain})` : message.from;
         const when = message.date ? ` — ${shortMailDate(message.date)}` : '';
-        return `- ${sender}: "${message.subject}"${when}${message.unread ? ' [unread]' : ''}`;
+        return `- ${sender}: "${message.subject}"${when}${message.unread ? ' [unread]' : ''} [id ${message.id}]`;
       }),
+    );
+  },
+
+  readEmail: async ({ id }) => {
+    if (!canReadContents()) return 'Willow can see senders and subjects only. The user can turn on email contents in Settings → Connected Apps.';
+    if (!id) return 'Give the "id" of a message, as list_recent_emails shows it.';
+    const gate = await ready('gmail', 'Gmail', tokens);
+    if ('error' in gate) return gate.error;
+    const message = await readMailMessage(gate.fetchJson, id);
+    if (!message) return `No message with id "${id}" could be read. Check the id with list_recent_emails.`;
+    const body = message.body.length > MAIL_BODY_CHARS ? `${message.body.slice(0, MAIL_BODY_CHARS)}\n[… ${message.body.length - MAIL_BODY_CHARS} more characters]` : message.body;
+    return lines(
+      `From: ${message.from} <${message.address}>`,
+      [
+        `To: ${message.to}`,
+        ...(message.cc ? [`Cc: ${message.cc}`] : []),
+        `Subject: ${message.subject}`,
+        `Date: ${message.date}`,
+        ...(message.attachments.length ? [`Attachments: ${message.attachments.join(', ')}`] : []),
+        `Thread: ${message.threadId}`,
+        '',
+        body || '(no text)',
+      ],
     );
   },
 

@@ -34,6 +34,7 @@ import {
   renderDiff,
   PatchApplyError,
   PatchParseError,
+  type FileChange,
   type FileMap,
 } from './apply-patch';
 import {
@@ -62,6 +63,7 @@ import { multiAgentModeSection, type MultiAgentMode } from '../overlay/multi-age
 import { ProposedPlanParser } from './proposed-plan';
 import { makeRequestUserInputTool, type RequestUserInputSink } from './request-user-input';
 import type { SparkGoalRuntime } from './goal';
+import { CALL_BEGIN, CALL_END } from './protocol';
 import type {
   AgentKind,
   EditCall,
@@ -108,10 +110,19 @@ const gatesFor = (mode: ModeKind, isRootThread = true): TurnGates => ({
   streamProposedPlan: mode === 'plan' && isRootThread,
 });
 
-const FINAL_RESPONSE_OBSERVATION =
-  'The work batch is complete, but the user-facing answer has not been emitted yet. ' +
-  'Write `*** Final Response` on its own line now, followed by the complete answer. ' +
-  'Do not call another tool or add another progress update unless the work is genuinely incomplete.';
+/**
+ * How much of one native call's result a later request replays. The model read the
+ * whole result inside the provider's own tool loop; the next request only needs
+ * enough to know what happened, and every result is re-sent on each later round.
+ */
+const NATIVE_RESULT_HEAD_CHARS = 3_000;
+const NATIVE_RESULT_TAIL_CHARS = 1_000;
+
+const replayedNativeResult = (observation: string): string => {
+  if (observation.length <= NATIVE_RESULT_HEAD_CHARS + NATIVE_RESULT_TAIL_CHARS) return observation;
+  const omitted = observation.length - NATIVE_RESULT_HEAD_CHARS - NATIVE_RESULT_TAIL_CHARS;
+  return `${observation.slice(0, NATIVE_RESULT_HEAD_CHARS)}\n…${omitted} characters omitted…\n${observation.slice(-NATIVE_RESULT_TAIL_CHARS)}`;
+};
 export interface ModelBinding {
   /** Passed through to `streamChat`. */
   options: Omit<AiOptions, 'signal'>;
@@ -216,6 +227,44 @@ export interface TurnOptions {
    * rather than waiting.
    */
   askOutsidePlanMode?: boolean;
+  /**
+   * Set by a tool through `ToolContext.stopTurn` to end the turn where it is,
+   * with `response` as its answer. The `computer` tool uses it: its first call in
+   * a thread asks the user for permission, and the turn has to stop there rather
+   * than let the model carry on without the browser it just asked for.
+   *
+   * `runTurn` creates one per turn; anything set by a caller is replaced.
+   */
+  turnStop?: { response: string | null };
+  /**
+   * The fallback Work Title's source when `prompt` is not what the user typed —
+   * an "Allow" turn's prompt carries the browser's report for the model.
+   */
+  titleHint?: string;
+  /**
+   * The desktop app's native runtime: patches apply to files on disk, read as the
+   * envelope closes, instead of to `files()`. Absent, the in-memory path is used.
+   */
+  diskPatches?: DiskPatchEngine;
+  /**
+   * Sent with every turn in place of the `<project>` manifest: the native
+   * runtime's environment context and project instructions.
+   */
+  turnContext?: string;
+  /** Refusals for denied tool names, in place of the web runtime's. */
+  refusalFor?: (toolName: string) => string | null;
+  /** Calls this turn that reported `mutated`. `runTurn` creates it. */
+  callMutations?: { count: number };
+}
+
+/** How the native runtime applies a patch envelope to real files. */
+export interface DiskPatchEngine {
+  /** Resolves a header path to the key a file is read and written under. */
+  normalizePath: (raw: string, line: number) => string;
+  /** Current contents of these files; a file that does not exist is left out. */
+  read: (paths: string[]) => Promise<FileMap>;
+  /** Writes the applied result: every add, update, move and delete in `changes`. */
+  write: (files: FileMap, changes: FileChange[]) => Promise<void>;
 }
 
 const isUsageLimitError = (error: unknown): boolean => {
@@ -430,10 +479,6 @@ interface IterationResult {
   didMutate: boolean;
   /** True when the model emitted at least one call needing a result. */
   wantsMore: boolean;
-  /** The work batch ended without the explicit final-answer boundary. */
-  needsFinalResponse: boolean;
-  /** A real tool, Patch, or provider operation ran in this iteration. */
-  performedAction: boolean;
 }
 
 /**
@@ -468,7 +513,7 @@ async function runIteration(
   let workLogOffset = 0;
   let callTextOffset = 0;
   const fallbackWorkTitle = (): string => {
-    const prompt = options.prompt.replace(/\s+/g, ' ').trim();
+    const prompt = (options.titleHint ?? options.prompt).replace(/\s+/g, ' ').trim();
     if (!prompt) return 'Working through your request';
     const phrase = prompt.length > 72 ? `${prompt.slice(0, 69)}...` : prompt;
     return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}`;
@@ -489,6 +534,9 @@ async function runIteration(
    */
   let liveEdits: LiveEdit[] = [];
   const patchObservations: string[] = [];
+  /** Disk patches, applied in envelope order; awaited before any observation is read. */
+  let diskPatchQueue: Promise<void> = Promise.resolve();
+  const mutationsBefore = options.callMutations?.count ?? 0;
 
   /*
    * The `<proposed_plan>` lift, and why it is gated in both directions.
@@ -593,7 +641,7 @@ async function runIteration(
         };
         liveEdits.push({
           id: sink.emit(call),
-          path: safeNormalize(call.path),
+          path: safeNormalize(call.path, options.diskPatches?.normalizePath),
           lines: 0,
         });
         return;
@@ -626,6 +674,18 @@ async function runIteration(
         return;
       }
 
+      if (options.diskPatches) {
+        const engine = options.diskPatches;
+        const edits = liveEdits;
+        const slot = patchObservations.push('') - 1;
+        liveEdits = [];
+        diskPatchQueue = diskPatchQueue.then(async () => {
+          patchObservations[slot] = await applyPatchEnvelopeToDisk(envelope, engine, sink, edits);
+        });
+        sink.activity(null);
+        return;
+      }
+
       const observation = applyPatchEnvelope(envelope, options, sink, liveEdits);
       patchObservations.push(observation);
       liveEdits = [];
@@ -639,6 +699,29 @@ async function runIteration(
       callTextOffset = text.length;
     },
   });
+
+  /*
+   * A provider's own tool loop streams every round of function calls into this one
+   * iteration. A round's prose rarely ends with a newline, so each is closed as its
+   * own paragraph; otherwise successive rounds run together — "…in winget.Inspecting
+   * the system…" — wherever this iteration's text is read as a whole.
+   */
+  const endNativeRound = (): void => {
+    if (finalResponseStarted || raw === '' || raw.endsWith('\n')) return;
+    raw += '\n\n';
+    parser.push('\n\n');
+  };
+  /*
+   * The calls the provider ran never pass through the token stream, so `raw` would
+   * show the next request this turn's narration with none of the work it described.
+   * They are written back as the text protocol shows a call, with their results
+   * leading the observations, so a further round knows what has already been done.
+   */
+  const nativeObservations: string[] = [];
+  const recordNativeCall = (name: string, args: unknown, observation: string): void => {
+    raw += `${raw === '' || raw.endsWith('\n') ? '' : '\n'}${CALL_BEGIN} ${name}\n${JSON.stringify(args ?? {})}\n${CALL_END}\n`;
+    nativeObservations.push(replayedNativeResult(observation));
+  };
 
   const messages = conversation.map((entry) => ({
     role: entry.role,
@@ -664,6 +747,7 @@ async function runIteration(
       onToolCallStart: (name, args) => {
         nativeToolUsed = true;
         workBatchStarted = true;
+        endNativeRound();
         if (!finalResponseStarted) flushWorkLog();
         callTextOffset = text.length;
         sink.activity('Working on it…');
@@ -706,6 +790,7 @@ async function runIteration(
       workBatchStarted = true;
       sink.activity('Working on it…');
       sink.workTitle(fallbackWorkTitle());
+      endNativeRound();
       if (!finalResponseStarted) flushWorkLog();
       const observation = await runCall(
         { name, body: JSON.stringify(args ?? {}), narration: '' },
@@ -714,6 +799,7 @@ async function runIteration(
         sink,
         gates,
       );
+      recordNativeCall(name, args, observation);
       return observation.startsWith('ERROR ')
         ? { status: 'error', error: observation }
         : { status: 'success', result: observation };
@@ -738,11 +824,14 @@ async function runIteration(
    * rather than a card that spins forever.
    */
   if (planParser) emitPlanSegments(planParser.finish());
+  await diskPatchQueue;
   throwIfAborted(options.signal);
 
-  const observations = [...patchObservations];
+  const observations = [...nativeObservations, ...patchObservations];
   for (const call of pending) {
     throwIfAborted(options.signal);
+    // A call that stopped the turn takes the rest of the batch with it.
+    if (options.turnStop?.response != null) break;
     const narration = call.narration.trim();
     sink.workTitle(fallbackWorkTitle());
     if (narration) sink.workLog(narration);
@@ -764,13 +853,6 @@ async function runIteration(
   }
 
   const didWork = workBatchStarted || nativeToolUsed || pending.length > 0 || patchObservations.length > 0;
-  const finalResponseNeeded = finalResponseBoundaryEnabled
-    && workBatchStarted
-    && !goalControlUsed
-    && !finalResponseStarted
-    && pending.length === 0
-    && patchObservations.length === 0;
-  if (finalResponseNeeded) observations.push(FINAL_RESPONSE_OBSERVATION);
   const patchNeedsResponse =
     patchObservations.some((observation) => observation.startsWith('Patch applied:')) &&
     text.slice(workLogOffset).trim() === '';
@@ -785,9 +867,14 @@ async function runIteration(
   } else if (goalControlUsed) {
     sink.onText(text.slice(workLogOffset));
   } else if (nativeToolUsed || (finalResponseBoundaryEnabled && workBatchStarted)) {
-    // Without the explicit boundary this prose is ambiguous: it may be a
-    // checkpoint or it may be the answer. Hold it for one corrective round
-    // instead of leaking it into either surface.
+    /*
+     * The batch ended without `*** Final Response`. Keeping the boundary is the prompt's
+     * job; the model is not sent another round to repair it. The prose after the last
+     * call is the answer, as in Codex, whose answer is simply its last message: what came
+     * before it is already on the timeline.
+     */
+    const answer = text.slice(workLogOffset).trim();
+    if (answer) sink.onText(answer);
   } else {
     sink.onText(text);
   }
@@ -797,13 +884,12 @@ async function runIteration(
     raw,
     observations,
     didWork,
-    needsFinalResponse: finalResponseNeeded,
-    performedAction: nativeToolUsed || pending.length > 0 || patchObservations.length > 0,
-    didMutate: nativeMutated || patchObservations.some((observation) => observation.startsWith('Patch applied:')),
+    didMutate: nativeMutated
+      || patchObservations.some((observation) => observation.startsWith('Patch applied:'))
+      || (options.callMutations?.count ?? 0) > mutationsBefore,
     wantsMore:
       pending.length > 0 ||
       loose.length > 0 ||
-      finalResponseNeeded ||
       patchNeedsResponse ||
       patchObservations.some((observation) => observation.startsWith('ERROR')),
   };
@@ -824,9 +910,9 @@ interface LiveEdit {
  * here is not fatal: the card simply will not match a change, and the envelope
  * fails as a whole a moment later.
  */
-function safeNormalize(raw: string): string {
+function safeNormalize(raw: string, normalize: (raw: string, line: number) => string = normalizePath): string {
   try {
-    return normalizePath(raw);
+    return normalize(raw, 0);
   } catch {
     return raw.trim();
   }
@@ -850,102 +936,139 @@ function applyPatchEnvelope(
     const before = options.files();
     const { files, changes } = applyPatch(before, ops);
     options.writeFiles(files);
+    return `${reportAppliedPatch(changes, sink, liveEdits, true)}\n\nThe preview has reloaded.`;
+  } catch (error) {
+    return reportFailedPatch(error, sink, liveEdits);
+  }
+}
 
-    // Each change completes the card opened for that same file. Matching on the
-    // path rather than on position keeps a card with its own file even if the
-    // applier reorders or coalesces operations.
-    const unclaimed = [...liveEdits];
-    const claim = (path: string): LiveEdit | undefined => {
-      const index = unclaimed.findIndex((edit) => edit.path === path);
-      return index === -1 ? undefined : unclaimed.splice(index, 1)[0];
+/**
+ * The native runtime's path: the same envelope, applied to the files on disk it
+ * names. They are read when the envelope closes, so a file a command changed a
+ * moment ago is patched as it is now, never as an earlier copy remembered it.
+ */
+async function applyPatchEnvelopeToDisk(
+  envelope: string,
+  engine: DiskPatchEngine,
+  sink: CallSink,
+  liveEdits: LiveEdit[],
+): Promise<string> {
+  try {
+    const ops = parsePatch(envelope, engine.normalizePath);
+    const touched = [...new Set(ops.flatMap((op) => (op.movePath ? [op.path, op.movePath] : [op.path])))];
+    const before = await engine.read(touched);
+    const { files, changes } = applyPatch(before, ops);
+    await engine.write(files, changes);
+    return reportAppliedPatch(changes, sink, liveEdits, false);
+  } catch (error) {
+    return reportFailedPatch(error, sink, liveEdits);
+  }
+}
+
+/** Completes the cards opened for an applied envelope, and returns the observation. */
+function reportAppliedPatch(
+  changes: FileChange[],
+  sink: CallSink,
+  liveEdits: LiveEdit[],
+  announceGeneratedFiles: boolean,
+): string {
+  // Each change completes the card opened for that same file. Matching on the
+  // path rather than on position keeps a card with its own file even if the
+  // applier reorders or coalesces operations.
+  const unclaimed = [...liveEdits];
+  const claim = (path: string): LiveEdit | undefined => {
+    const index = unclaimed.findIndex((edit) => edit.path === path);
+    return index === -1 ? undefined : unclaimed.splice(index, 1)[0];
+  };
+
+  changes.forEach((change) => {
+    const lines = renderDiff(change);
+    const patch: Partial<EditCall> = {
+      kind: change.kind === 'add' ? 'create' : change.kind === 'delete' ? 'delete' : 'edit',
+      path: change.movePath ?? change.path,
+      movePath: change.movePath,
+      added: change.added,
+      removed: change.removed,
+      lines,
+      revealed: lines.length,
+      status: 'success',
+      endedAt: Date.now(),
     };
 
-    changes.forEach((change) => {
-      const lines = renderDiff(change);
-      const patch: Partial<EditCall> = {
-        kind: change.kind === 'add' ? 'create' : change.kind === 'delete' ? 'delete' : 'edit',
-        path: change.movePath ?? change.path,
+    const opened = claim(change.path);
+    if (opened) {
+      sink.patch(opened.id, patch as Partial<ToolCall>);
+    } else {
+      sink.emit({
+        id: nextId('call'),
+        kind: patch.kind!,
+        status: 'success',
+        startedAt: Date.now(),
+        endedAt: Date.now(),
+        path: patch.path!,
         movePath: change.movePath,
         added: change.added,
         removed: change.removed,
         lines,
         revealed: lines.length,
-        status: 'success',
-        endedAt: Date.now(),
-      };
-
-      const opened = claim(change.path);
-      if (opened) {
-        sink.patch(opened.id, patch as Partial<ToolCall>);
-      } else {
-        sink.emit({
-          id: nextId('call'),
-          kind: patch.kind!,
-          status: 'success',
-          startedAt: Date.now(),
-          endedAt: Date.now(),
-          path: patch.path!,
-          movePath: change.movePath,
-          added: change.added,
-          removed: change.removed,
-          lines,
-          revealed: lines.length,
-        } as EditCall);
-      }
-      if (change.kind === 'add') {
-        const name = (change.path.split('/').filter(Boolean).at(-1) || change.path).trim();
-        const mimeType = name.endsWith('.html') ? 'text/html'
-          : name.endsWith('.css') ? 'text/css'
-            : name.endsWith('.js') || name.endsWith('.ts') ? 'text/javascript'
-              : name.endsWith('.json') ? 'application/json' : 'text/plain';
-        sink.generatedFile({
-          id: `generated-${nextId('file')}`,
-          name,
-          path: change.path,
-          mimeType,
-          createdAt: new Date().toISOString(),
-        });
-      }
-    });
-
-    // A card whose file produced no change would otherwise spin forever.
-    for (const orphan of unclaimed) {
-      sink.patch(orphan.id, {
-        status: 'success',
-        endedAt: Date.now(),
-      } as Partial<ToolCall>);
+      } as EditCall);
     }
-
-    const summary = changes
-      .map(
-        (change) =>
-          `${change.kind} ${change.movePath ?? change.path} (+${change.added} -${change.removed})` +
-          (change.fuzz > 0 ? ` [matched with fuzz level ${change.fuzz}]` : ''),
-      )
-      .join('\n');
-
-    return `Patch applied:\n${summary}\n\nThe preview has reloaded.`;
-  } catch (error) {
-    const message =
-      error instanceof PatchParseError
-        ? `The patch could not be parsed (line ${error.line}): ${error.message}`
-        : error instanceof PatchApplyError
-          ? `The patch could not be applied to ${error.path}: ${error.message}`
-          : `The patch failed: ${(error as Error).message}`;
-
-    // Every card opened for this envelope fails with it — the envelope is
-    // applied as one unit, so none of the files were written. Failing only the
-    // last one would leave the others spinning.
-    for (const edit of liveEdits) {
-      sink.patch(edit.id, {
-        status: 'error',
-        endedAt: Date.now(),
-        error: message,
-      } as Partial<ToolCall>);
+    if (announceGeneratedFiles && change.kind === 'add') {
+      const name = (change.path.split('/').filter(Boolean).at(-1) || change.path).trim();
+      const mimeType = name.endsWith('.html') ? 'text/html'
+        : name.endsWith('.css') ? 'text/css'
+          : name.endsWith('.js') || name.endsWith('.ts') ? 'text/javascript'
+            : name.endsWith('.json') ? 'application/json' : 'text/plain';
+      sink.generatedFile({
+        id: `generated-${nextId('file')}`,
+        name,
+        path: change.path,
+        mimeType,
+        createdAt: new Date().toISOString(),
+      });
     }
+  });
 
-    return `ERROR ${message}`;
+  // A card whose file produced no change would otherwise spin forever.
+  for (const orphan of unclaimed) {
+    sink.patch(orphan.id, {
+      status: 'success',
+      endedAt: Date.now(),
+    } as Partial<ToolCall>);
   }
+
+  const summary = changes
+    .map(
+      (change) =>
+        `${change.kind} ${change.movePath ?? change.path} (+${change.added} -${change.removed})` +
+        (change.fuzz > 0 ? ` [matched with fuzz level ${change.fuzz}]` : ''),
+    )
+    .join('\n');
+
+  return `Patch applied:\n${summary}`;
+}
+
+/** Fails every card opened for an envelope that was not applied, and returns the observation. */
+function reportFailedPatch(error: unknown, sink: CallSink, liveEdits: LiveEdit[]): string {
+  const message =
+    error instanceof PatchParseError
+      ? `The patch could not be parsed (line ${error.line}): ${error.message}`
+      : error instanceof PatchApplyError
+        ? `The patch could not be applied to ${error.path}: ${error.message}`
+        : `The patch failed: ${(error as Error).message}`;
+
+  // Every card opened for this envelope fails with it — the envelope is
+  // applied as one unit, so none of the files were written. Failing only the
+  // last one would leave the others spinning.
+  for (const edit of liveEdits) {
+    sink.patch(edit.id, {
+      status: 'error',
+      endedAt: Date.now(),
+      error: message,
+    } as Partial<ToolCall>);
+  }
+
+  return `ERROR ${message}`;
 }
 
 /** Executes one `*** Call:` envelope. */
@@ -958,7 +1081,7 @@ async function runCall(
 ): Promise<string> {
   const name = call.name.trim();
 
-  const refusal = refusalFor(name);
+  const refusal = (options.refusalFor ?? refusalFor)(name);
   if (refusal) return `ERROR ${name}: ${refusal}`;
 
   /*
@@ -1011,6 +1134,11 @@ async function runCall(
     signal: options.signal,
     emit: sink.emit,
     patch: sink.patch,
+    stopTurn: options.turnStop
+      ? (response) => {
+        options.turnStop!.response = response;
+      }
+      : undefined,
   };
 
   // Timed, because this is where a turn spends the time that is not a model
@@ -1021,6 +1149,7 @@ async function runCall(
 
   try {
     const result: ToolResult = await registry.get(name)!.run(args, context);
+    if (result.mutated && options.callMutations) options.callMutations.count += 1;
     if (name !== 'wait_agent' && name !== 'update_plan') sink.activity(null);
     finish(result.failed ? new Error(result.observation) : undefined);
     if (name !== 'update_goal') options.goalRuntime?.accountProgress();
@@ -1035,9 +1164,13 @@ async function runCall(
 }
 
 const ACTIVITY: Record<string, string> = {
+  // Gemini keeps "Thinking it through…" up for the whole browser run.
+  computer: 'Thinking it through…',
   read_file: 'Reading files',
   list_files: 'Listing files',
   search_files: 'Searching',
+  exec_command: 'Running a command',
+  write_stdin: 'Waiting on a command',
   add_dependency: 'Adding a dependency',
   spawn_agent: 'Starting sub-agents',
   send_message: 'Messaging sub-agents',
@@ -1397,6 +1530,9 @@ class CollaborationRuntime {
     // Plans belong to the root work tree. Sub-agents report their concrete
     // actions through their own timeline instead of creating a second plan.
     registry.delete('update_plan');
+    // The remote browser asks the user for permission, and a delegated agent has
+    // no user to ask — the same reason `request_user_input` is root-only.
+    registry.delete('computer');
     const parentToolDeclarations = (this.options.toolDeclarations ?? [])
       .map((group) => ({
         ...group,
@@ -1429,7 +1565,7 @@ class CollaborationRuntime {
     const conversation = state.conversation;
     conversation.push({
       role: 'user',
-      content: `${projectContext(this.options.files())}\n\nTask name: ${state.path}\n\nMessage from ${senderPath}:\n${objective}`,
+      content: `${this.options.turnContext ?? projectContext(this.options.files())}\n\nTask name: ${state.path}\n\nMessage from ${senderPath}:\n${objective}`,
     });
     let report = '';
     try {
@@ -1673,7 +1809,7 @@ export async function runTurn(options: TurnOptions): Promise<void> {
     if (text) conversation.push({ role: message.role, content: text });
   }
 
-  const context = isWorkRequest(options.prompt) ? projectContext(options.files()) : '';
+  const context = options.turnContext ?? (isWorkRequest(options.prompt) ? projectContext(options.files()) : '');
   const intent = isAgenticRequest(options.prompt)
     ? '<intent>execution</intent>'
     : '<intent>conversation</intent>';
@@ -1686,6 +1822,8 @@ export async function runTurn(options: TurnOptions): Promise<void> {
   const goalTools = options.goalRuntime?.tools() ?? [];
   const runtimeOptions: TurnOptions = {
     ...options,
+    turnStop: { response: null },
+    callMutations: { count: 0 },
     toolDeclarations: [
       ...(options.toolDeclarations ?? []),
       collaboration.declarations(),
@@ -1721,7 +1859,6 @@ export async function runTurn(options: TurnOptions): Promise<void> {
   const mutationRequired = isMutationRequest(options.prompt);
   let mutationCompleted = false;
   let mutationNudged = false;
-  let finalResponseNudged = false;
 
   try {
     options.goalRuntime?.beginTurn();
@@ -1736,35 +1873,19 @@ export async function runTurn(options: TurnOptions): Promise<void> {
       );
       mutationCompleted ||= result.didMutate;
 
+      const stoppedWith = runtimeOptions.turnStop?.response;
+      if (stoppedWith != null) {
+        if (stoppedWith) options.onEvent({ type: 'text', chunk: stoppedWith });
+        options.goalRuntime?.finishTurn();
+        options.onEvent({ type: 'turn-end', reason: 'complete' });
+        return;
+      }
+
       const goalState = options.goalRuntime?.current();
       if (goalState && goalState.status !== 'active' && goalState.status !== 'complete') {
         options.goalRuntime.finishTurn();
         options.onEvent({ type: 'turn-end', reason: 'complete' });
         return;
-      }
-
-      if (result.needsFinalResponse) {
-        if (options.goalRuntime && !options.goalRuntime.isActive() && result.text.trim()) {
-          // Goal completion is itself a terminal tool result. Older goal-aware
-          // model profiles may not emit Spark's final-response marker, so let
-          // the completion report finish this turn without another round.
-          options.onEvent({ type: 'text', chunk: result.text.trim() });
-          options.goalRuntime.finishTurn();
-          options.onEvent({ type: 'turn-end', reason: 'complete' });
-          return;
-        }
-        if (result.performedAction) {
-          finalResponseNudged = false;
-        } else if (finalResponseNudged && result.text.trim()) {
-          // One recovery attempt is enough. If a provider/model still ignores
-          // the boundary, prefer a complete answer over an exhausted loop.
-          options.onEvent({ type: 'text', chunk: result.text.trim() });
-          options.goalRuntime?.finishTurn();
-          options.onEvent({ type: 'turn-end', reason: 'complete' });
-          return;
-        } else {
-          finalResponseNudged = true;
-        }
       }
 
       if (!result.wantsMore) {

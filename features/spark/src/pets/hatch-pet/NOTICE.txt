@@ -1,0 +1,7 @@
+The raster-processing helpers and animation reference material in this package
+derive from OpenAI's Hatch Pet skill, distributed under the Apache License 2.0.
+See LICENSE.txt for that license.
+
+BetterGravity adds the Antigravity workflow, local library integration, progress
+reporting, and packaging bridge. Generation-tool references in prepare_pet_run.py
+have been adapted to Antigravity's native image-generation capability.

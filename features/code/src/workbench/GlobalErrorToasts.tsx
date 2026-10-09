@@ -50,7 +50,7 @@ export const GlobalErrorToasts: React.FC<GlobalErrorToastsProps> = ({
               to { opacity: 0; }
             }
           `}</style>
-      <div className="fixed top-20 bottom-4 right-6 z-50 flex flex-col overflow-y-auto no-scrollbar">
+      <div className="code-error-toasts fixed top-20 bottom-4 right-6 z-50 flex flex-col overflow-y-auto no-scrollbar">
         {globalErrors.map((err) => {
           const isLastOne = globalErrors.length === 1;
           return isLastOne && err.isClosing ? (
@@ -62,7 +62,7 @@ export const GlobalErrorToasts: React.FC<GlobalErrorToastsProps> = ({
               <div className="flex-shrink-0">
                 <AlertTriangle className="text-red-400" size={20} />
               </div>
-              <div className="flex-1 min-w-[200px] max-w-[400px]">
+              <div className="code-error-toast-text flex-1 min-w-[200px] max-w-[400px]">
                 <p className="text-sm font-medium text-gray-200 leading-snug">
                   {err.message}
                 </p>
@@ -99,7 +99,7 @@ export const GlobalErrorToasts: React.FC<GlobalErrorToastsProps> = ({
                     <div className="flex-shrink-0">
                       <AlertTriangle className="text-red-400" size={20} />
                     </div>
-                    <div className="flex-1 min-w-[200px] max-w-[400px]">
+                    <div className="code-error-toast-text flex-1 min-w-[200px] max-w-[400px]">
                       <p className="text-sm font-medium text-gray-200 leading-snug">
                         {err.message}
                       </p>

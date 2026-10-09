@@ -9,6 +9,10 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, googleProvider, driveProvider, db } from './firebase';
+import { WORKSPACE_COLOR_DEFINITIONS } from '@willow/core/workspace-theme';
+
+/** How long a "no user" from elsewhere must hold before it counts as a sign-out (see the listener). */
+const SIGN_OUT_CONFIRM_MS = 3000;
 
 // User profile data stored in Firestore
 interface UserProfile {
@@ -60,7 +64,50 @@ interface AuthContextType {
   clearError: () => void;
   updateUserProfile: (data: Partial<UserProfile>) => Promise<void>;
   completeOnboarding: (name: string, role: string, photoURL: string | null) => Promise<void>;
+  /** The workspace colour on screen, the same signed in or out. Read this, not `userProfile.workspaceColor`. */
+  workspaceColor: UserProfile['workspaceColor'];
+  /** Picks the workspace colour: on this device, and on the account when signed in. */
+  setWorkspaceColor: (color: UserProfile['workspaceColor']) => Promise<void>;
 }
+
+type WorkspaceColor = UserProfile['workspaceColor'];
+
+/*
+ * The workspace colour this device last showed, whoever was signed in.
+ *
+ * The colour lives on the Firestore profile, and without this a signed-out window had none: the
+ * whole app fell back to the default the moment the profile went away, and a colour picked while
+ * signed out was dropped, there being no profile to write it to. Signed in, the profile's colour
+ * is mirrored here; signed out, this is the colour; and an account without one adopts it.
+ */
+const DEVICE_WORKSPACE_COLOR_KEY = 'willow_workspace_color';
+
+const readDeviceWorkspaceColor = (): WorkspaceColor | null => {
+  try {
+    const stored = localStorage.getItem(DEVICE_WORKSPACE_COLOR_KEY);
+    return WORKSPACE_COLOR_DEFINITIONS.some((def) => def.id === stored) ? (stored as WorkspaceColor) : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeDeviceWorkspaceColor = (color: WorkspaceColor): void => {
+  try {
+    localStorage.setItem(DEVICE_WORKSPACE_COLOR_KEY, color);
+  } catch {}
+};
+
+/** The device's background pick. A legacy name, kept: real users have choices saved under it. */
+export const DEVICE_BACKGROUND_KEY = 'dashboard-background';
+
+const readDeviceBackground = (): UserProfile['background'] | null => {
+  try {
+    const stored = localStorage.getItem(DEVICE_BACKGROUND_KEY);
+    return stored === 'solid' || stored === 'waves' || stored === 'lines' ? stored : null;
+  } catch {
+    return null;
+  }
+};
 
 const createEmptyUserProfile = (): UserProfile => ({
   displayName: null,
@@ -69,10 +116,10 @@ const createEmptyUserProfile = (): UserProfile => ({
   onboardingComplete: false,
   workspaceName: null,
   username: null,
-  workspaceColor: 'green',
+  workspaceColor: readDeviceWorkspaceColor() ?? 'green',
   workspaceDescription: null,
   location: null,
-  background: 'solid',
+  background: readDeviceBackground() ?? 'solid',
   theme: null,
   description: null,
 });
@@ -151,6 +198,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const authGenerationRef = useRef(0);
   const activeAuthUidRef = useRef<string | null>(null);
+  const pendingSignOutRef = useRef<number | null>(null);
+  const explicitSignOutRef = useRef(false);
 
   // Fetch user profile from Firestore
   const fetchUserProfile = useCallback(async (uid: string): Promise<UserProfile> => {
@@ -160,6 +209,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       
       if (userDoc.exists()) {
         const data = userDoc.data();
+        // An account that never chose a colour or background takes the ones this device shows, and keeps them.
+        const deviceColor = data.workspaceColor ? null : readDeviceWorkspaceColor();
+        const deviceBackground = data.background ? null : readDeviceBackground();
+        if (deviceColor || deviceBackground) {
+          void setDoc(userDocRef, {
+            ...(deviceColor && { workspaceColor: deviceColor }),
+            ...(deviceBackground && { background: deviceBackground }),
+          }, { merge: true }).catch(() => {});
+        }
         return {
           displayName: data.displayName || null,
           photoURL: data.photoURL || null,
@@ -167,10 +225,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           onboardingComplete: data.onboardingComplete || false,
           workspaceName: data.workspaceName || null,
           username: data.username || null,
-          workspaceColor: data.workspaceColor || 'green',
+          workspaceColor: data.workspaceColor || deviceColor || 'green',
           workspaceDescription: data.workspaceDescription || null,
           location: data.location || null,
-          background: data.background || 'solid',
+          background: data.background || deviceBackground || 'solid',
           theme: data.theme || null,
           description: data.description || null,
         };
@@ -186,8 +244,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     console.log('[Auth] Setting up auth state listener...');
-    
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+
+    const applyAuthUser = async (firebaseUser: User | null) => {
       const generation = ++authGenerationRef.current;
       const nextUid = firebaseUser?.uid || null;
       const previousUid = activeAuthUidRef.current;
@@ -269,10 +327,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (authGenerationRef.current === generation) {
         setLoading(false);
       }
+    };
+
+    /*
+     * Another Willow tab starting up rewrites the shared sign-in record, and this
+     * tab can read it mid-write: Firebase reports "no user", then the same user
+     * again about two seconds later. Applied as given, that is an account switch
+     * — every chat scope is torn down and every running chat and Spark turn in
+     * this tab is stopped — just because a second tab was opened. A real sign-out
+     * from elsewhere is still applied, a moment later; one from this tab, at once.
+     */
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (!firebaseUser && activeAuthUidRef.current && !explicitSignOutRef.current) {
+        if (pendingSignOutRef.current === null) {
+          pendingSignOutRef.current = window.setTimeout(() => {
+            pendingSignOutRef.current = null;
+            if (!auth.currentUser) void applyAuthUser(null);
+          }, SIGN_OUT_CONFIRM_MS);
+        }
+        return;
+      }
+      if (pendingSignOutRef.current !== null) {
+        window.clearTimeout(pendingSignOutRef.current);
+        pendingSignOutRef.current = null;
+      }
+      explicitSignOutRef.current = false;
+      void applyAuthUser(firebaseUser);
     });
 
     return () => {
       authGenerationRef.current += 1;
+      if (pendingSignOutRef.current !== null) window.clearTimeout(pendingSignOutRef.current);
+      pendingSignOutRef.current = null;
       unsubscribe();
     };
   }, [fetchUserProfile]);
@@ -396,6 +482,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const signOut = useCallback(async () => {
     try {
+      explicitSignOutRef.current = true;
       await firebaseSignOut(auth);
       setDriveAccessToken(null);
       setIsDriveConnected(false);
@@ -436,6 +523,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, [user]);
 
+  // Signed in or out, one colour: the profile's while there is one (mirrored to the device), else the device's.
+  const [deviceWorkspaceColor, setDeviceWorkspaceColor] = useState<WorkspaceColor | null>(readDeviceWorkspaceColor);
+  const profileWorkspaceColor = userProfile?.workspaceColor;
+  useEffect(() => {
+    if (!profileWorkspaceColor) return;
+    writeDeviceWorkspaceColor(profileWorkspaceColor);
+    setDeviceWorkspaceColor(profileWorkspaceColor);
+  }, [profileWorkspaceColor]);
+  const workspaceColor: WorkspaceColor = profileWorkspaceColor ?? deviceWorkspaceColor ?? 'green';
+
+  const setWorkspaceColor = useCallback(async (color: WorkspaceColor) => {
+    writeDeviceWorkspaceColor(color);
+    setDeviceWorkspaceColor(color);
+    if (!user) return;
+    // Shown at once; the account catches up when the write lands.
+    setUserProfile((prev) => (prev ? { ...prev, workspaceColor: color } : prev));
+    await updateUserProfile({ workspaceColor: color });
+  }, [user, updateUserProfile]);
+
   // Complete onboarding - save all profile data with auto-generated fields
   const completeOnboarding = useCallback(async (name: string, role: string, photoURL: string | null) => {
     if (!user) return;
@@ -454,7 +560,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       onboardingComplete: true,
       workspaceName: workspaceName,
       username: username,
-      workspaceColor: 'green',
+      workspaceColor: readDeviceWorkspaceColor() ?? 'green',
     });
   }, [user, updateUserProfile]);
 
@@ -501,7 +607,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     clearError,
     updateUserProfile,
     completeOnboarding,
-  }), [user, userProfile, loading, error, driveAccessToken, isDriveConnected, signInWithGoogle, signOut, connectDrive, disconnectDrive, clearError, updateUserProfile, completeOnboarding]);
+    workspaceColor,
+    setWorkspaceColor,
+  }), [user, userProfile, loading, error, driveAccessToken, isDriveConnected, signInWithGoogle, signOut, connectDrive, disconnectDrive, clearError, updateUserProfile, completeOnboarding, workspaceColor, setWorkspaceColor]);
 
   return (
     <AuthContext.Provider value={value}>

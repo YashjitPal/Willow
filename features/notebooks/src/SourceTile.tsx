@@ -1,5 +1,5 @@
 import React from 'react';
-import { fileTypeOf, tileDisplayName } from '@willow/core/gemini-file-info';
+import { fileTypeOf, formatLabel, tileDisplayName } from '@willow/core/gemini-file-info';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { SourceIcon } from './SourceIcon';
 import type { NotebookSource } from './notebook-types';
@@ -125,6 +125,48 @@ export const SourceTile: React.FC<{
           className="nb-src-tile-remove"
         >
           <MaterialSymbol name="close" family="luminous" size={16} weight={330} roundness={100} />
+        </button>
+      )}
+    </div>
+  );
+};
+
+/**
+ * One source as a row — what Gemini's narrow Sources layout lists instead of tiles:
+ * `gem-file-list-item`, measured at 800x1280 and 390x844. 73px on `rgb(19,19,20)` at 16px
+ * corners, padded `16px 20px 16px 12px` with 12px gaps: a 24px box holding the 20px type
+ * icon, the tile's name over its format at 13px/17px ("TXT", "PDF", "HTML"), and a 40px
+ * remove button with a 28px `close`. The name is the same `tileDisplayName` the tile uses.
+ */
+export const SourceRow: React.FC<{
+  source: NotebookSource;
+  /** Still being read: the spinner takes the icon's place and there is nothing to remove. */
+  loading?: boolean;
+  onRemove?: () => void;
+}> = ({ source, loading = false, onRemove }) => {
+  const fullName = source.kind === 'website' ? (source.url ?? source.title) : source.title;
+  // Copied text and websites carry no MIME of their own; these are the formats Gemini prints.
+  const mimeType = source.mimeType
+    || (source.kind === 'text' ? 'text/plain' : source.kind === 'website' ? 'text/html' : '');
+  const fileType = fileTypeOf(mimeType, fullName);
+
+  return (
+    <div className="nb-src-row" title={source.title}>
+      <span className="nb-src-row-icon">
+        {loading ? <TileSpinner /> : <SourceIcon source={source} size={20} />}
+      </span>
+      <span className="nb-src-row-text">
+        <span className="nb-src-row-name">{tileDisplayName(fullName, fileType)}</span>
+        <span className="nb-src-row-format">{formatLabel({ name: fullName, mimeType, fileType })}</span>
+      </span>
+      {!loading && onRemove && (
+        <button
+          type="button"
+          aria-label={`Remove ${source.title}`}
+          onClick={onRemove}
+          className="nb-src-row-remove"
+        >
+          <MaterialSymbol name="close" family="luminous" size={28} weight={260} roundness={100} opticalSize={28} />
         </button>
       )}
     </div>

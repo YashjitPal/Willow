@@ -1,0 +1,644 @@
+/*
+ * The Add clip / Add to prompt picker — Flow's `flow-media-picker-dialog` around
+ * `flow-add-menu-popover-content`, its side nav, asset list, detail pane and video trimmer.
+ * Captured while the dialog was open (components/add-clip-picker/*.css). Open: backdrop 400ms
+ * cubic-bezier(0.25,0.8,0.25,1), surface 150ms scale(0.8)→1; close 75ms.
+ */
+
+@keyframes sb-dialog-in {
+  0% { opacity: 0; transform: scale(0.8); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes sb-dialog-out {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes sb-backdrop-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Every overlay here shares CDK's one z-index and stacks by DOM order, so whatever opened
+ * last is on top: the sort menu over this dialog, a snackbar over an open menu. */
+.sb-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.32);
+  animation: sb-backdrop-in 400ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
+  transition: opacity 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.sb-dialog-backdrop.is-closing { opacity: 0; }
+
+.sb-dialog-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.sb-picker {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(780px, 90vw);
+  height: min(580px, 90vh);
+  padding: 12px;
+  overflow: hidden;
+  border-radius: 24px;
+  background-color: var(--sb-bg-90);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2), 0 6px 10px 0 rgba(0, 0, 0, 0.14), 0 1px 18px 0 rgba(0, 0, 0, 0.12);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 16px;
+  line-height: 24px;
+  pointer-events: auto;
+  animation: sb-dialog-in 150ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+.sb-picker.is-closing { animation: sb-dialog-out 75ms linear forwards; }
+
+/* The All media prompt box's add menu: Flow's connected popover over its dark backdrop, 8px above
+ * the box (the position is set inline). The backdrop fades in over 400ms; the panel appears
+ * without an animation and goes at once. */
+.sb-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.32);
+  animation: sb-backdrop-in 400ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
+  transition: opacity 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.sb-popover-backdrop.is-closing { opacity: 0; pointer-events: none; }
+.sb-picker.sb-picker--popover { position: fixed; z-index: 1000; transform: translateX(-50%); animation: none; }
+
+.sb-picker__panels { display: flex; flex: 1 1 0%; gap: 6px; min-height: 0; }
+
+/* ---- side nav ---- */
+
+.sb-picker__nav { display: flex; flex-direction: column; flex-shrink: 0; gap: 8px; width: 120px; }
+
+.sb-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 8px 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background-color: var(--sb-fg-10);
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-75);
+  cursor: pointer;
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.096px;
+  text-align: left;
+}
+
+.sb-select:hover { color: var(--sb-fg-90); }
+.sb-select__value { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Rotated about the triangle's own centre, so it flips in place when the panel opens. */
+.sb-select__arrow { flex-shrink: 0; width: 24px; height: 24px; margin-right: -7px; fill: rgb(196, 199, 197); transform-origin: 12px 12.5px; }
+.sb-select.is-open .sb-select__arrow { transform: rotate(180deg); }
+
+/* mat-select's panel (Flow's flow-add-menu-dropdown-panel): as wide as its longest option,
+ * 2px under the trigger and in line with its text. */
+.sb-select-panel {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-sizing: border-box;
+  width: max-content;
+  max-height: 275px;
+  padding: 4px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background-color: var(--sb-bg-90);
+  backdrop-filter: blur(40px);
+  box-shadow: rgba(0, 0, 0, 0.2) 0 3px 1px -2px, rgba(0, 0, 0, 0.14) 0 2px 2px 0, rgba(0, 0, 0, 0.12) 0 1px 5px 0;
+  color: var(--sb-fg-75);
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.096px;
+  transform-origin: top center;
+  animation: sb-select-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.sb-select-panel.is-closing { animation: sb-select-exit 100ms linear forwards; }
+
+@keyframes sb-select-enter {
+  from { opacity: 0; transform: scaleY(0.8); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes sb-select-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.sb-select-option {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 0 16px;
+  border-radius: 12px;
+  color: rgb(227, 227, 227);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sb-select-option::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: rgb(227, 227, 227);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sb-select-option:hover::before { opacity: 0.08; }
+.sb-select-option.is-selected { background-color: rgba(227, 227, 227, 0.12); }
+
+.sb-picker__tabs { display: flex; flex-direction: column; flex-grow: 1; gap: 2px; padding: 0; }
+
+.sb-picker__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--sb-fg-50);
+  cursor: pointer;
+  overflow: hidden;
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.096px;
+  text-align: left;
+}
+
+.sb-picker__tab:hover { color: var(--sb-fg-90); }
+.sb-picker__tab.is-active { background-color: var(--sb-fg-25); color: var(--sb-fg-000); }
+.sb-picker__tab-icon { margin: 12px; flex-shrink: 0; }
+.sb-picker__tab-label { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.sb-picker__upload.sb-btn {
+  display: block;
+  width: 100%;
+  padding: 4px;
+  background-color: transparent;
+  backdrop-filter: none;
+  line-height: 24px;
+}
+
+.sb-picker__upload.sb-btn:hover { background-color: var(--sb-fg-10); }
+
+.sb-picker__upload-inner { display: inline-flex; align-items: center; justify-content: center; gap: 8px; max-width: 100%; min-width: 0; vertical-align: middle; }
+
+/* ---- right panel ---- */
+
+.sb-picker__right { display: flex; flex: 1 1 0%; flex-direction: column; gap: 5px; min-width: 0; min-height: 0; }
+
+.sb-picker__search-row { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; width: 100%; }
+
+.sb-picker__search {
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 2px 10px 2px 14px;
+  border-radius: 12px;
+  background-color: var(--sb-fg-10);
+  backdrop-filter: blur(40px);
+}
+
+.sb-picker__search:focus-within { outline: 2px solid rgb(168, 199, 250); outline-offset: 1px; }
+/* Unlike Flow's, the @ menu's search has no focus ring: it holds focus whenever the menu is up. */
+.sb-picker--popover .sb-picker__search:focus-within { outline: none; }
+
+.sb-picker__search-icon { color: var(--sb-fg-90); flex-shrink: 0; }
+
+.sb-picker__search-input {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--sb-on-surface);
+  font-family: var(--sb-font);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  user-select: text;
+}
+
+.sb-picker__search-input::placeholder { color: var(--sb-fg-50); }
+
+.sb-picker__sort { min-width: 120px; }
+
+.sb-picker__content { display: flex; flex: 1 1 0%; gap: 6px; min-height: 0; overflow: hidden; }
+
+.sb-picker__list {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 240px;
+  height: 100%;
+  overflow: hidden auto;
+}
+
+.sb-picker__list::-webkit-scrollbar { width: 8px; height: 8px; }
+.sb-picker__list::-webkit-scrollbar-track { background: transparent; }
+.sb-picker__list::-webkit-scrollbar-thumb { background: var(--sb-fg-15); border-radius: 999px; border-inline: 3px solid transparent; background-clip: padding-box; }
+
+.sb-asset {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 16px 0 4px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--sb-fg-000);
+  cursor: pointer;
+  text-align: start;
+}
+
+.sb-asset:hover { background-color: rgb(51, 53, 55); }
+.sb-asset.is-active { background-color: rgb(68, 71, 70); }
+/* A Tool's multiple select: Flow's secondary container under its 15% state layer; the highlighted pick is outlined in primary. */
+.sb-asset.is-multi-selected { background-color: rgb(33, 96, 135); }
+.sb-asset.is-active.is-multi-selected { outline: 2px solid #a8c7fa; outline-offset: -2px; }
+
+.sb-asset__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 12px;
+  background-color: rgb(51, 53, 55);
+}
+
+.sb-asset__thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+.sb-asset__text { flex-grow: 1; width: 0; min-width: 0; overflow: hidden; }
+
+.sb-asset__title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sb-on-surface);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.sb-asset__type { display: block; color: rgb(196, 199, 197); font-size: 12px; font-weight: 400; line-height: 16px; }
+
+.sb-picker__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+  color: rgb(196, 199, 197);
+  font-size: 16px;
+  line-height: 24px;
+  text-align: center;
+}
+
+.sb-picker__empty > span { display: block; }
+
+/* The svg stays inline, as in mat-icon: the line's descender space under it is part of the
+ * 45x79.5 box Flow measures. */
+.sb-picker__empty-art {
+  max-width: 45px;
+  width: 100%;
+  height: auto;
+  padding-bottom: 8px;
+  overflow: hidden;
+}
+
+.sb-picker__empty-art > svg { display: inline; vertical-align: baseline; }
+
+/* ---- detail pane ---- */
+
+.sb-detail {
+  position: relative;
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+  padding: 8px;
+  overflow: hidden;
+  border-radius: 16px;
+  background-color: var(--sb-fg-05);
+}
+
+.sb-detail__image-box { display: flex; flex: 1 1 0%; flex-direction: column; align-items: center; justify-content: center; min-height: 0; overflow: hidden; }
+
+/* flow-character-preview-pane: the chosen slot's image over the slot thumbnails. */
+.sb-character-preview { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; max-height: 100%; }
+
+.sb-character-preview__hero {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-height: 320px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 12px;
+  background-color: rgb(51, 53, 55);
+}
+
+.sb-character-preview__image { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+.sb-character-preview__placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 12px; background-color: var(--sb-fg-15); color: var(--sb-fg-50); }
+.sb-character-preview__thumbs { display: flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 8px; }
+
+.sb-character-preview__thumb {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--sb-fg-15);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.sb-character-preview__thumb:hover { opacity: 0.85; }
+.sb-character-preview__thumb::after { content: ''; position: absolute; inset: 0; z-index: 1; border-radius: 12px; pointer-events: none; }
+.sb-character-preview__thumb.is-active::after { box-shadow: inset 0 0 0 2px var(--sb-fg-000); }
+.sb-character-preview__thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* The preview's voice card: the voice's gradient chip, its name and description, and play. */
+.sb-character-voice {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 16px;
+  background-color: var(--sb-fg-05);
+}
+
+.sb-character-voice__left { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; }
+.sb-character-voice__chip { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; color: var(--sb-fg-000); }
+.sb-character-voice__info { display: flex; flex-direction: column; min-width: 0; }
+.sb-character-voice__name,
+.sb-character-voice__description { overflow: hidden; min-width: 0; white-space: nowrap; text-overflow: ellipsis; font-family: var(--sb-font); line-height: 16px; letter-spacing: 0.096px; }
+.sb-character-voice__name { color: var(--sb-fg-000); font-size: 12px; font-weight: 500; }
+.sb-character-voice__description { color: var(--sb-fg-50); font-size: 11.008px; font-weight: 500; }
+
+.sb-character-voice__play {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: var(--sb-fg-15);
+  color: var(--sb-fg-000);
+  cursor: pointer;
+}
+
+.sb-character-voice__play:hover { background-color: var(--sb-fg-25); }
+.sb-detail__image { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 12px; }
+
+.sb-trimmer { display: block; flex: 1 1 0%; width: 100%; min-height: 0; padding: 8px; box-sizing: border-box; overflow: hidden; }
+
+.sb-trimmer__inner { display: flex; flex-direction: column; align-items: center; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+
+.sb-trimmer__preview { display: flex; flex: 1 1 0%; align-items: center; justify-content: center; min-height: 0; overflow: hidden; border-radius: 10px; }
+
+.sb-trimmer__video { display: block; max-width: 100%; max-height: 100%; border-radius: 10px; object-fit: contain; }
+
+/* Flow's row is 100% of a host element that shrink-wraps it, so it is only as wide as its
+ * contents (278px) and sits centred, mute button beside the duration. */
+.sb-trimmer__controls { display: flex; align-self: center; align-items: center; justify-content: space-between; width: max-content; padding-block: 20px; }
+.sb-trimmer__spacer { width: 24px; height: 24px; }
+.sb-trimmer__center { display: flex; align-items: center; gap: 16px; height: 20px; padding: 5px; border-radius: 14px; }
+
+.sb-trimmer__time,
+.sb-trimmer__dur {
+  min-width: 72px;
+  color: var(--sb-fg-000);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Flow writes var(--foreground-state-60) here, but the token is undefined inside the dialog, so
+ * the colour falls back to inherited white — which is what renders. */
+.sb-trimmer__dur { text-align: start; }
+
+.sb-trimmer__play.sb-icon-btn:disabled { color: var(--sb-fg-50); cursor: default; }
+
+.sb-trim-tl {
+  --tl-height: 70px;
+  --tl-top: 21px;
+  --tl-content: 31px;
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+  height: calc(var(--tl-height) + 1px);
+  overflow: clip;
+  isolation: isolate;
+  border-radius: 2px;
+  user-select: none;
+  touch-action: none;
+}
+
+.sb-trim-tl__skeleton {
+  position: absolute;
+  inset-inline: 0;
+  top: 1px;
+  height: var(--tl-height);
+  border-radius: 4px;
+  background-color: var(--sb-bg-200);
+  background-image: linear-gradient(90deg, transparent 0, var(--sb-fg-15) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: sb-trim-shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes sb-trim-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.sb-trim-tl__bg {
+  position: absolute;
+  inset-inline: 0;
+  top: 1px;
+  display: flex;
+  height: var(--tl-height);
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--sb-bg-000);
+  box-shadow: 0 0 0 1px var(--sb-fg-10);
+}
+
+.sb-trim-tl__seg { flex: 1 1 0%; height: 100%; box-shadow: inset 1px 0 0 var(--sb-fg-25), inset -1px 0 0 var(--sb-fg-25); }
+
+.sb-trim-tl__strip {
+  position: absolute;
+  top: var(--tl-top);
+  left: 0;
+  display: flex;
+  width: 100%;
+  height: var(--tl-content);
+  overflow: hidden;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--sb-bg-200);
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.sb-trim-tl__slot { flex: 1 1 0%; min-width: 0; height: 100%; overflow: hidden; background: var(--sb-bg-200); box-shadow: inset 1px 0 0 var(--sb-bg-200), inset -1px 0 0 var(--sb-bg-200); }
+.sb-trim-tl__slot img { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+
+.sb-trim-tl__dim {
+  position: absolute;
+  top: var(--tl-top);
+  height: var(--tl-content);
+  background-color: color-mix(in srgb, #000 60%, transparent);
+  pointer-events: none;
+}
+
+.sb-trim-tl__dim--start { border-radius: 4px 0 0 4px; }
+.sb-trim-tl__dim--end { border-radius: 0 4px 4px 0; }
+
+.sb-trim-tl__box {
+  position: absolute;
+  top: var(--tl-top);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--tl-content);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--sb-fg-000);
+  pointer-events: none;
+}
+
+.sb-trim-tl__handle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 10px;
+  height: var(--tl-content);
+  background: var(--sb-fg-000);
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.sb-trim-tl__handle::before { content: ''; position: absolute; inset: -8px -12px; }
+.sb-trim-tl__handle--start { border-radius: 3px 0 0 3px; }
+.sb-trim-tl__handle--end { border-radius: 0 3px 3px 0; }
+
+.sb-trim-tl__grip { display: flex; gap: 2px; }
+.sb-trim-tl__grip::before,
+.sb-trim-tl__grip::after { content: ''; display: block; width: 1px; height: 12px; border-radius: 1px; background: var(--sb-bg-200); }
+
+.sb-trim-tl__playhead {
+  position: absolute;
+  top: 1px;
+  width: 1px;
+  height: var(--tl-height);
+  background: var(--sb-fg-000);
+  box-shadow: 0 0 4px var(--sb-shadow);
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.sb-trim-tl__playhead::before { content: ''; position: absolute; inset-block: 0; inset-inline: -8px; }
+
+.sb-trim-tl__flag {
+  position: absolute;
+  bottom: calc(100% - 22px);
+  left: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--sb-fg-000);
+  color: var(--sb-bg-000);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px var(--sb-shadow);
+}
+
+.sb-detail__actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding-top: 8px; }
+.sb-detail__actions .sb-btn--tonal { width: 100%; line-height: 24px; }
+
+/* Flow's `flow-add-menu-selection-bar`: "# items selected" with Clear selection, in a pill. */
+.sb-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px 4px 4px;
+  border-radius: 100px;
+  background-color: #333537;
+}
+.sb-selection-bar__clear { width: 40px; height: 40px; border-radius: 50%; color: #e3e3e3; }
+.sb-selection-bar__count { color: #e3e3e3; font: 500 14px / 20px 'Google Sans Text', 'Google Sans', sans-serif; letter-spacing: 0.1px; }

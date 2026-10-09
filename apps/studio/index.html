@@ -67,10 +67,14 @@
       height: Flow's placeholder measures 181.26px against Willow's 189.4px for the same
       string at the same declared 14px, and it reads as visibly bigger text.
 
+      Google Sans (the display face) is Flow's for its large type — the Characters hero at 36px,
+      character names at 22px and 32px. Without it those fell back to Google Sans Text, 7px wider
+      across the hero line.
+
       Families must be listed alphabetically or the endpoint returns 400.
     -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Google+Sans+Text:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500&family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Google+Sans+Text:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
       rel="stylesheet"
       media="print"
       onload="this.media='all'"
@@ -99,7 +103,7 @@
     />
     <noscript>
       <link
-        href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Google+Sans+Text:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500&family=Google+Sans+Code:wght@400;500;600;700&family=Google+Sans+Code:ital,MONO,wght@1,0,300..400&family=Google+Sans+Text:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
         rel="stylesheet"
       />
       <link
@@ -137,7 +141,7 @@
          * its own icons as inline SVG for exactly this reason.
          */
         font-display: block;
-        src: url("https://fonts.gstatic.com/l/font?kit=daaOSSYgOGmYaRLpq55MPuzv2kUKwTXcoFHm2zCWlB3F1WQIV8RopohwcDXo4e5J9gZ4U7xddIimtf_IVhIHUUZE2MAXvEMvroe_2ApV2xaXBT7_w4L0SiM4QAb2SyCCIIR2Vd32BxhHrLxVQhjz0lNhWG-AzoQxyiw_4BQArjOuLkAHWWzgSSXkQq311CLLTp-lxr_gUH7GySbVwVnWfH9H-VV9cB1tnzcw4zuAw4CuzQxOTdUu_1t9cDgSsJ5m_Z1NqTB3TSX1A8vda9bZpIPP2IESJ2Qwf9_vn6yH6ZH91CAOdMWdC2ATmPB2QW-mJafEJ4mudD9qX7wGAl5VYNuUtD6NCNCeDu20WI-AvieR9QKMTraNsI6SsKnCmWc8mm3LKA&skey=bef131c18897d264&v=v56") format("woff2");
+        src: url("https://fonts.gstatic.com/l/font?kit=daa9SSYgOGmYaRLpq55MPuzv2kUKwTXcoFHm2zCWlB3F1X4GbR--VkFDUwLRfs4LkFA8BeoHKNX94c7GRAARR1RWxt4EqVQrG_bns_HpVucfsjhERqEM3OUj4CG1SRCN3nPK7Rc7CP-0QpWxpwc8rKKBgQIC3_CdwMt-Flw9Oi7S4uQ3VDVZ1kdCEr4Opf3II_iOgFLjo7KlBEp_zIxzKs18uf4pFrGtzukYzWMQ8CPHrSUgFOXa-q23STHylTxK_WR3bPNF1X9po8Kvw0I68-p82IkXWWjV2LySD6SNudjphSz-d9ObVWPWpOiI6K945qXoIFkItIzDZd1o654ZZbbHt5uxAhY-CAe0BBbDki71o6JKE7otHEDFbM_7Wd8BZQL7brhnNZF2xlEG2svB&skey=bef131c18897d264&v=v61") format("woff2");
       }
 
       /*
@@ -146,7 +150,8 @@
        * The subset is regenerated rather than hand-edited, by
        * `tools/ui-research/scrapers/flow/54-symbols-subset.cjs --add=<new names>`, which works
        * out the current contents by measuring rather than guessing. The full family is 2.8MB;
-       * this is 96KB for 194 icons.
+       * this is 118KB for 250 icons. Names under three letters (`tv`) are not harvested; the
+       * script's SHORT_NAMES keeps them.
        *
        * Adding a glyph means regenerating this URL. There is no fallback for a missing one:
        * a ligature the face does not contain renders as its own name in words, and because
@@ -161,7 +166,7 @@
         font-style: normal;
         font-weight: 100 700;
         font-display: block;
-        src: url("https://fonts.gstatic.com/l/font?kit=Hhy3U5Ak9u-oMExPeInvcuEmPosC9zS3FYkFU68cPrjdKM1pSPywlmmzc_ohQP9PrWumSDfXZxlcLqnGuwPZJBWrKZK2S-fE6UUzh2RWzVEBcGuQIMHU6OgQWFMwv6w1TNW0QbUB0XTpF8EwIoE4BAqaRWApyCGPE3YKcBsghyt8NVLh4dETuz1qCQpZUlrHmYweyrJ0RoJQOpvj4PO9A_IGAKCmcsPspGMNIPrda1WarfXrhRcNn0iPX5OAbF1w04kLutwmONmXFDFKHUjdIC8UtNoyYqc5TSQtUWpGdOY4Z1YVuNIHBgyG4Q3nOuVLbuJNHXFfGRP-EnAwX8k7sqTZZih2VcckPA&skey=f8ec4d50247dc1c1&v=v459") format("woff2");
+        src: url("https://fonts.gstatic.com/l/font?kit=Hhy3U5Ak9u-oMExPeInvcuEmPosC9zS3FYkFU68cPrjdKM1pSPywlmmzc_ohQP9PrGumSDfXZxlcLqnGuwPZJRKqKpOpSuTF7kQwhmtXzkHcrkOgsYHkl5BgOC1ej9pybUE9mnYifXDGl-UgKGE4z1f7aptOd5KA5KwIkqxW9080CyI0ZeDwkZ2_MFhV-L1VpVO_mszd9gILaKLg6SM11J_HhjWTISEIwcmUj5CGWsYTxCwhlhuU-tuPDD9DbEcg8KQ-dCM584CnHajv0g58-sQeXpIyy2hU4-FfAT9o3OWaXswf0P2Qi6mxsQ7rGmcXvtJEPyhcKYCHlElAawMxdc8oCix__vCtL-9-cqIUM0EIufDq8nGxGqHj-i_tZTa6BcqG632BvqKm9m3_rA-tRLuN&skey=f8ec4d50247dc1c1&v=v463") format("woff2");
       }
 
       .material-symbols-rounded,
@@ -323,8 +328,83 @@
         box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.16);
       }
 
+      /* The desktop app's first paint is the frame Willow's page sits in instead
+       * (shell/rail/AppRail.css: the workspace colour's tint, the rail's column, the
+       * rounded page), with the Media tab's "Loading..." (features/media
+       * FlowLoadingPage) in the page, in the user's theme: carrying on in step from
+       * the app's own loading page (apps/desktop/shell/index.html), which is what the
+       * window showed a moment before. The rail's buttons come with the app, which
+       * draws its frame in the same place. The letters are in the system's face: the
+       * web fonts are not there yet, and one arriving midway would change them. */
+      #willow-boot[data-loading] .willow-boot-main {
+        display: none;
+      }
+
+      #willow-boot[data-loading] {
+        background: color-mix(in srgb, var(--willow-boot-shell, #202020) 35%, #202020);
+      }
+
+      #willow-boot[data-loading="light"] {
+        background: color-mix(in srgb, var(--willow-boot-shell, #f3f3f3) 35%, #f3f3f3);
+      }
+
+      /* Over Mica only the tint is laid, so the page behind it is see-through too. */
+      #willow-boot[data-loading][data-mica] {
+        background: color-mix(in srgb, var(--willow-boot-shell) 35%, transparent);
+      }
+
+      html:has(#willow-boot[data-mica]),
+      html:has(#willow-boot[data-mica]) body {
+        background: transparent;
+      }
+
+      .willow-boot-rail {
+        width: 52px;
+        flex-shrink: 0;
+      }
+
+      .willow-boot-page {
+        display: flex;
+        flex: 1 1 auto;
+        min-width: 0;
+        margin: 8px 4px 4px 0;
+        border-radius: 12px 12px 4px 12px;
+        background: #0f0f0f;
+        box-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.06), 0 4px 16px 0 rgb(0 0 0 / 0.05);
+      }
+
+      #willow-boot[data-loading="light"] .willow-boot-page {
+        background: #faf9f9;
+        box-shadow: 0 0 0 0.5px rgb(13 13 13 / 0.04), 0 4px 16px 0 rgb(0 0 0 / 0.05);
+      }
+
+      .willow-boot-loading {
+        display: flex;
+        flex: 1;
+        align-items: center;
+        justify-content: center;
+        opacity: 0.25;
+        color: #fff;
+        font: 400 24px/32px system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+
+      #willow-boot[data-loading="light"] .willow-boot-loading {
+        color: #000;
+      }
+
+      .willow-boot-loading span {
+        display: inline-block;
+        animation: willow-boot-letter 1.6s ease-in-out infinite;
+      }
+
+      @keyframes willow-boot-letter {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.2; }
+      }
+
       @media (prefers-reduced-motion: reduce) {
         #willow-boot { transition: none; }
+        .willow-boot-loading span { animation: none; }
       }
     </style>
     <script>
@@ -634,7 +714,12 @@
         pointer-events: auto;
       }
 
-      @media (hover: none), (pointer: coarse) {
+      /*
+       * Above 960px only. At <=960px Gemini never pins this row: on touch it shows
+       * once a tap or a press on the bubble lifts (the browser's sticky :hover, the
+       * same hover rule a mouse uses) and goes when you tap elsewhere.
+       */
+      @media (min-width: 961px) and (hover: none), (min-width: 961px) and (pointer: coarse) {
         .gemini-user-actions {
           opacity: 1 !important;
           pointer-events: auto !important;
@@ -656,14 +741,25 @@
         transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
-      @keyframes willow-gemini-home-glow-grow {
+      @keyframes willow-lm-glow-grow {
         0% {
           opacity: 0;
-          transform: translate(-50%, -45%) scale(0);
+          transform: translate(-50%, -50%) scale(0);
         }
         100% {
           opacity: 1;
-          transform: translate(-50%, -45%) scale(1);
+          transform: translate(-50%, -50%) scale(1);
+        }
+      }
+
+      @keyframes willow-lm-glow-bloom-grow {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0);
+        }
+        100% {
+          opacity: 0.5;
+          transform: translate(-50%, -50%) scale(1);
         }
       }
 
@@ -679,88 +775,104 @@
       }
 
       /*
-       * The accent stop is Gemini's `--lumi-sys-color--surface-accent`, the one
-       * token its own rule references. Willow drives it from the workspace
-       * colour: `MediaHome` sets `--willow-home-glow-accent` on the host, and
-       * the fallback here is the shipped green, so the glow still paints if the
-       * profile has not loaded yet. Blue resolves to Gemini's measured
-       * `#14204f` = rgb(20, 32, 79). See `features/media/src/home-glow.ts`.
+       * The glow behind the zero-state prompt box above 960px: Gemini's `.lm-glow`,
+       * measured off the live desktop chat window. `.willow-home-glow-layer` covers the
+       * chat area, as `.lm-glow` covers Gemini's, and is clipped to it; it is a layer of
+       * its own because clipping the host would clip the composer's menus too. It holds
+       * two copies of Gemini's glow mask: the mask's top half filled with the accent, and
+       * its bottom half in black at half opacity (white in light), which darkens the band
+       * above the heading. Both are 202.18% of the area's width up to 1601.27px, at
+       * 1.4338:1, centred 15px below the area's middle, and grow from nothing over 1s.
+       *
+       * The mask is `/glow-mask.webp`, Gemini's `/glow-mask.svg` rasterised once (742px
+       * wide; within 9/255 of the SVG's alpha at this size). The SVG's 125px blur costs
+       * ~300ms to rasterise at 1601px for every new glow, and a mask still rasterising
+       * paints nothing, so each mount lost the first 300ms of the grow, nearly all of
+       * the growing under this easing. The bitmap decodes in milliseconds, so the grow
+       * shows from its first frame.
+       *
+       * The accent is Gemini's `--bard-color-lm-glow-chat` (#1f3b9b dark, #9dd2ff light),
+       * which `MediaHome` sets on the host per workspace colour:
+       * `--willow-home-glow-desktop-accent` in dark, and `--willow-home-glow-accent`,
+       * which carries the light accent in light theme. The fallbacks are green's, so the
+       * glow still paints before the profile loads. See `features/media/src/home-glow.ts`.
+       *
+       * The pseudo-elements need the host's `willow-gemini-home-glow` class, so they are
+       * created, and the grow plays, when that class lands with the greeting.
        */
-      .willow-gemini-home-glow::before {
-        content: "";
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -45%);
-        z-index: -1;
-        margin: 0 auto;
-        width: 100%;
-        max-width: 792px;
-        height: 50%;
-        max-height: 300px;
-        background: radial-gradient(
-          ellipse 100% 100% at center 8%,
-          rgb(15, 15, 15) 0,
-          var(--willow-home-glow-accent, rgb(6, 78, 59)) 50%
-        );
-        border-radius: 9999px;
-        filter: blur(100px);
-        pointer-events: none;
-        animation: willow-gemini-home-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
+      .willow-home-glow-layer {
+        display: none;
       }
 
-      /*
-       * Temporary-chat variant. A MODIFIER on the glow, never a replacement for
-       * it: the box, the blur and the grow animation are shared, and only the
-       * gradient's outer stop changes. That is how Gemini does it
-       * (`.show-lm-background.is-temporary-chat::before` overrides `background`
-       * alone), and the sharing is what makes toggling look right — a separate
-       * class would be a different `::before` rule, so every toggle would
-       * restart `grow` and visibly collapse the glow to scale(0) before
-       * regrowing it. Gemini's own capture shows `lm-background-grow` firing
-       * only on load and New chat, never on a toggle.
-       *
-       * The colour is Gemini's `--gem-sys-color--outline-variant` (#444746)
-       * against `--lumi-sys-color--surface` (#0f0f0f) — the same opaque radial
-       * as normal mode, not a translucent white haze.
-       *
-       * It is deliberately a literal, not `--willow-home-glow-accent`: Gemini's
-       * `is-temporary-chat` replaces the accent stop outright, so temporary
-       * chat is the same neutral gray at every workspace colour.
-       */
-      .willow-gemini-home-glow.willow-gemini-home-glow-gray::before {
-        background: radial-gradient(
-          ellipse 100% 100% at center 8%,
-          rgb(15, 15, 15) 0,
-          rgb(68, 71, 70) 50%
-        );
-      }
+      @media (min-width: 961px) {
+        .willow-home-glow-layer {
+          display: block;
+          position: absolute;
+          inset: 0;
+          z-index: -1;
+          overflow: clip;
+          pointer-events: none;
+        }
 
-      /*
-       * Light-theme variants.
-       *
-       * In light theme, Gemini uses:
-       *   var(--lumi-sys-color--surface) (#faf9f9) at stop 0
-       *   var(--lumi-sys-color--surface-accent) (#9dd2ff for blue) at stop 50%
-       *   filter: blur(125px) (vs blur(100px) in dark mode)
-       *
-       * Temporary chat in light theme uses Gemini's outline-variant (#c4c7c5).
-       */
-      :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow::before {
-        background: radial-gradient(
-          ellipse 100% 100% at center 8%,
-          var(--studio-surface, #faf9f9) 0,
-          var(--willow-home-glow-accent, rgb(158, 174, 153)) 50%
-        );
-        filter: blur(125px);
-      }
+        .willow-gemini-home-glow > .willow-home-glow-layer::before,
+        .willow-gemini-home-glow > .willow-home-glow-layer::after {
+          content: "";
+          position: absolute;
+          top: calc(50% + 15px);
+          left: 50%;
+          transform: translate(-50%, -50%);
+          margin: 0 auto;
+          width: 202.18%;
+          max-width: 1601.27px;
+          aspect-ratio: 1.4338 / 1;
+          -webkit-mask-image: url("/glow-mask.webp");
+          mask-image: url("/glow-mask.webp");
+          -webkit-mask-size: 100% 200%;
+          mask-size: 100% 200%;
+          -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+          pointer-events: none;
+        }
 
-      :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow.willow-gemini-home-glow-gray::before {
-        background: radial-gradient(
-          ellipse 100% 100% at center 8%,
-          var(--studio-surface, #faf9f9) 0,
-          rgb(196, 199, 197) 50%
-        );
+        .willow-gemini-home-glow > .willow-home-glow-layer::before {
+          -webkit-mask-position: 0px 0px;
+          mask-position: 0px 0px;
+          background: var(--willow-home-glow-desktop-accent, rgb(0, 140, 103));
+          animation: willow-lm-glow-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
+        }
+
+        .willow-gemini-home-glow > .willow-home-glow-layer::after {
+          -webkit-mask-position: 0px 100%;
+          mask-position: 0px 100%;
+          background: #000000;
+          opacity: 0.5;
+          animation: willow-lm-glow-bloom-grow 1s cubic-bezier(0.2, 0, 0, 1) both;
+        }
+
+        /*
+         * Temporary chat. A MODIFIER on the glow, never a replacement for it: only the
+         * accent layer's background changes, as Gemini's
+         * `.show-lm-background.is-temporary-chat .lm-glow::before` overrides `background`
+         * alone. A separate rule with its own box or animation would restart the grow on
+         * every toggle, collapsing the glow to scale(0) and regrowing it. The colour is
+         * Gemini's `--gem-sys-color--outline-variant`, a literal rather than the accent
+         * variable, so temporary chat is the same neutral gray at every workspace colour.
+         */
+        .willow-gemini-home-glow.willow-gemini-home-glow-gray > .willow-home-glow-layer::before {
+          background: rgb(68, 71, 70);
+        }
+
+        :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow > .willow-home-glow-layer::before {
+          background: var(--willow-home-glow-accent, rgb(158, 174, 153));
+        }
+
+        :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow > .willow-home-glow-layer::after {
+          background: #ffffff;
+        }
+
+        :is(.light-theme, [data-theme="light"]) .willow-gemini-home-glow.willow-gemini-home-glow-gray > .willow-home-glow-layer::before {
+          background: rgb(196, 199, 197);
+        }
       }
 
       @keyframes willow-lm-background-mobile-fade {
@@ -815,6 +927,7 @@
         }
 
         .willow-gemini-home-glow::before {
+          content: "";
           position: fixed;
           top: auto;
           bottom: -445.7px;
@@ -836,6 +949,7 @@
           -webkit-mask-repeat: no-repeat;
           mask-repeat: no-repeat;
           background: var(--willow-home-glow-mobile-accent, var(--willow-home-glow-accent, rgb(19, 67, 44)));
+          margin: 0 auto;
           pointer-events: none;
           z-index: -1;
           animation: willow-lm-background-mobile-fade 1s cubic-bezier(0.2, 0, 0, 1) both;
@@ -889,7 +1003,9 @@
       @media (prefers-reduced-motion: reduce) {
         .willow-gemini-home-glow::before,
         .willow-gemini-home-glow::after,
-        .willow-gemini-home-glow-gray::before {
+        .willow-gemini-home-glow-gray::before,
+        .willow-gemini-home-glow > .willow-home-glow-layer::before,
+        .willow-gemini-home-glow > .willow-home-glow-layer::after {
           animation: none;
         }
       }
@@ -1042,6 +1158,46 @@
         <div class="willow-boot-composer"></div>
       </div>
     </div>
+    <script>
+      /*
+       * The desktop app's first paint (see `.willow-boot-loading` in <head>): the
+       * frame in the theme as `theme-mode.ts` resolves it and the colour the frame
+       * last had (`reportDesktopFrame`, else what the app passes in), and each letter
+       * 100ms after the one before, timed from the clock as the app's loading page
+       * times them.
+       */
+      (function () {
+        if (!window.__TAURI_INTERNALS__) return;
+        var boot = document.getElementById('willow-boot');
+        var choice = null;
+        var frame = window.__WILLOW_FRAME__ || null;
+        try {
+          choice = window.localStorage.getItem('willow_theme');
+          frame = JSON.parse(window.localStorage.getItem('willow:desktop-frame') || 'null') || frame;
+        } catch (error) { /* storage blocked */ }
+        var light = choice === 'light'
+          || (choice === 'system' && !window.matchMedia('(prefers-color-scheme: dark)').matches);
+        boot.setAttribute('data-loading', light ? 'light' : 'dark');
+        if (window.__WILLOW_MATERIAL__ === 'mica') boot.setAttribute('data-mica', '');
+        if (frame && /^#[0-9a-f]{6}$/i.test(frame.color)) boot.style.setProperty('--willow-boot-shell', frame.color);
+        var rail = document.createElement('div');
+        rail.className = 'willow-boot-rail';
+        var page = document.createElement('div');
+        page.className = 'willow-boot-page';
+        var letters = document.createElement('div');
+        letters.className = 'willow-boot-loading';
+        var now = Date.now();
+        ['L', 'o', 'a', 'd', 'i', 'n', 'g', '...'].forEach(function (text, index) {
+          var letter = document.createElement('span');
+          letter.textContent = text;
+          letter.style.animationDelay = -((((now - index * 100) % 1600) + 1600) % 1600) + 'ms';
+          letters.appendChild(letter);
+        });
+        page.appendChild(letters);
+        boot.appendChild(rail);
+        boot.appendChild(page);
+      })();
+    </script>
     <div class="sr-only" role="status" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">Loading Willow</div>
 
     <div id="root"></div>

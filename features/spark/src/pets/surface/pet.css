@@ -1,0 +1,109 @@
+/*
+ * Pets — the sprite.
+ *
+ * The whole animation is one background image and one background-position, both
+ * written as percentages, which is how Codex does it: percentage positions are
+ * resolved against the element's own box, so a single rule plays the animation
+ * at any size and the size becomes one custom property.
+ *
+ * `background-size: 800% 1100%` is columns x 100% by rows x 100%. The sheet is
+ * an 8 x 11 grid of 192 x 208 cells, so with the element at the cell's aspect
+ * ratio, column i sits at i / (8 - 1) * 100% and row j at j / (11 - 1) * 100%.
+ * index.js writes only those two numbers.
+ *
+ * This sheet is loaded twice from the same text: once into Antigravity's window,
+ * and once into the transparent window the pet stands on when it lives on the
+ * desktop. Nothing here may depend on Antigravity's own variables, because in
+ * the second of those two documents there are none — see hud.css.
+ */
+
+.bettergravity-pet {
+  position: fixed;
+  z-index: 2147483000;
+
+  /* Codex's default is 7.04rem; index.js overwrites this from the setting. */
+  --pet-width: 7.04rem;
+
+  width: var(--pet-width);
+  aspect-ratio: 192 / 208;
+
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
+
+  /*
+   * Without this the pet cannot be picked up inside Antigravity's own window.
+   *
+   * Electron hands the window manager the union of every element marked
+   * `-webkit-app-region: drag`, and a press inside that union is consumed before
+   * the page hears about it: the window starts moving and no `pointerdown` is
+   * ever dispatched. Antigravity marks its title bar and parts of its chrome, and
+   * the pet stands on top of whatever is under it, so it inherits the region it
+   * happens to be sitting over — which is why hovering worked (mousemove is still
+   * delivered) while dragging did nothing. Codex carves its own surfaces out the
+   * same way; see _QuickChatMaterial_ in hud.css.
+   *
+   * The desktop window never needed it. It is transparent, frameless and marks
+   * nothing draggable, so there is no region there to carve out of.
+   */
+  -webkit-app-region: no-drag;
+
+  /* Only the activity badge is focusable; the sprite remains decoration. */
+  outline: none;
+}
+
+.bettergravity-pet[data-pet-dragging="true"] {
+  cursor: grabbing;
+}
+
+/* The standard mascot keeps its size when approached. Picking it up lifts
+   the sprite independently of the wrapper and its corner badge. */
+.bettergravity-pet__body {
+  width: 100%;
+  height: 100%;
+
+  background-image: var(--pet-sheet);
+  background-repeat: no-repeat;
+  background-size: 800% 1100%;
+
+  /* Pixel art. Without this the browser smooths it into mud. */
+  image-rendering: pixelated;
+
+  --pet-sprite-scale: 1;
+  --pet-launch-shift: 0px;
+
+  transform: translateY(var(--pet-launch-shift))
+    scale(var(--pet-sprite-scale));
+  transform-origin: 50% 50%;
+
+  /* Dropping is instant; the spring below only applies when picked up. */
+  transition: transform 0s;
+}
+
+/* app-initial 22117: movementSpringBounce 0.1 over hbe's stiffness 180 / damping
+   18.85 / mass 1 — barely underdamped, so a back-out ease with a small
+   overshoot is the closest transition to it. */
+.bettergravity-pet[data-pet-dragging="true"] .bettergravity-pet__body {
+  --pet-launch-shift: -16px;
+  transition: transform 0.36s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+/* The bundled test pet. Local url() references are folded into data URIs before
+   the stylesheet reaches the page, so this resolves from the plugin folder
+   rather than from Antigravity's loopback origin — and, because the folded text
+   is what the desktop window is handed, it resolves there too. */
+.bettergravity-pet[data-pet="rocky"] {
+  --pet-sheet: url("../assets/rocky.webp");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bettergravity-pet__body,
+  .bettergravity-pet[data-pet-dragging="true"] .bettergravity-pet__body {
+    transition: none;
+  }
+
+  .bettergravity-pet[data-pet-dragging="true"] .bettergravity-pet__body {
+    --pet-launch-shift: 0px;
+  }
+}

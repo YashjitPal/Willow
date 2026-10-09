@@ -11,6 +11,9 @@ interface CharactersViewProps {
   modelMode: 'image' | 'video';
   activeModelId: string;
   onModelChange: (id: any) => void;
+  /** The models of this kind added in Settings → Models. */
+  models: { id: string; name: string }[];
+  onAddModel?: () => void;
 }
 
 const sampleCharacters = [
@@ -42,7 +45,9 @@ export const CharactersView: React.FC<CharactersViewProps> = ({
   onFileSelect, 
   modelMode,
   activeModelId,
-  onModelChange
+  onModelChange,
+  models,
+  onAddModel,
 }) => {
   const { userProfile, user } = useAuth();
   
@@ -73,22 +78,29 @@ export const CharactersView: React.FC<CharactersViewProps> = ({
   const [characterInfo, setCharacterInfo] = useState('');
   const [characterImage, setCharacterImage] = useState<string | null>(null);
 
-  const models = modelMode === 'image' ? [
-    { id: 'gemini-3-pro-image-preview', name: 'Nano Banana Pro' },
-    { id: 'gemini-3.1-flash-image-preview', name: 'Nano Banana 2' },
-    { id: 'gemini-3.1-flash-lite-image', name: 'Nano Banana Lite' },
-    { id: 'grok-imagine', name: 'Grok Imagine' }
-  ] : [
-    { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast' },
-    { id: 'veo-3.1', name: 'Veo 3.1' },
-    { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite' },
-    { id: 'omni-flash', name: 'Omni Flash 1' },
-    { id: 'omni-flash-1.1', name: 'Omni Flash 1.1' }
-  ];
+  const getActiveModelName = () =>
+    models.find(m => m.id === activeModelId)?.name ?? (modelMode === 'image' ? 'No image model' : 'No video model');
 
-  const getActiveModelName = () => {
-    return models.find(m => m.id === activeModelId)?.name || (modelMode === 'image' ? 'Nano Banana 2' : 'Omni Flash');
-  };
+  const addModelRows = models.length === 0 && (
+    <>
+      <span className="px-3 pt-2 pb-1 text-[12px] text-[#808080] whitespace-nowrap">
+        {modelMode === 'image' ? 'No image models added' : 'No video models added'}
+      </span>
+      {onAddModel && (
+        <button
+          type="button"
+          onClick={() => {
+            setIsLocalDropdownOpen(false);
+            onAddModel();
+          }}
+          className="w-full flex items-center gap-1.5 text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors cursor-pointer text-white hover:bg-white/5"
+        >
+          <Plus size={14} strokeWidth={2} />
+          Add a model
+        </button>
+      )}
+    </>
+  );
 
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -545,6 +557,7 @@ export const CharactersView: React.FC<CharactersViewProps> = ({
                           {modelOpt.name}
                         </button>
                       ))}
+                      {addModelRows}
                     </div>
                   )}
                 </div>
@@ -773,6 +786,7 @@ export const CharactersView: React.FC<CharactersViewProps> = ({
                           {modelOpt.name}
                         </button>
                       ))}
+                      {addModelRows}
                     </div>
                   )}
                 </div>

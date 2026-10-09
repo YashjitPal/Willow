@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "shell",
+  "description": "The strip across the top of the window, a page bundled with the app: it moves, resizes, minimises, maximises and closes the window, takes the page back and forward, opens its File, Edit and View menus over the page, has the page draw its buttons' tooltips, shows or hides the pet, and hands the page what is done to the agents' panel tabs it draws.",
+  "webviews": ["tabstrip"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-is-maximized",
+    "allow-tabs-snapshot",
+    "allow-tab-history",
+    "allow-menu-open",
+    "allow-menu-mnemonics",
+    "allow-strip-tooltip",
+    "allow-panel-tab",
+    "allow-pets-toggle"
+  ]
+}

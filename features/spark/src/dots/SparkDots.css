@@ -1,0 +1,578 @@
+/*
+ * Bots inside Spark. The values are Gemini's dark-theme ones Spark already uses (see features/spark/AGENTS.md):
+ * #e3e3e3 / #c4c7c5 text, the gds type scale on a 92% width axis, 8% state layers and pill buttons.
+ * The open bot reuses SparkTaskDetail.css wholesale; only what is new to bots lives here. The Codex onboarding,
+ * characters and editor are styled by codex-dots.css on Willow's tokens (dots-theme.css).
+ */
+
+.spark-dots-onboarding,
+.spark-dots,
+.spark-dots-detail {
+  font-stretch: 92%;
+}
+
+.spark-dots-onboarding :is(button, input, textarea),
+.spark-dots :is(button, input),
+.spark-dots-detail :is(button, input) {
+  font-stretch: inherit;
+}
+
+/* ── Onboarding: Codex's steps fill the Spark workspace ─────────────────── */
+
+.spark-dots-onboarding {
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* ── Codex characters in Willow's lists ─────────────────────────────────── */
+
+.spark-dots-avatar {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+
+.spark-dots-avatar--sidebar {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── Buttons and chips ──────────────────────────────────────────────────── */
+
+.spark-dots-button {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.spark-dots-button--primary {
+  background: var(--spark-accent, #1f3b9b);
+  color: #ffffff;
+}
+
+.spark-dots-button--primary:hover {
+  background: var(--spark-accent-hover, #2649b8);
+}
+
+.spark-dots-button:focus-visible,
+.spark-dots-chip:focus-visible,
+.spark-dots-row:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 2px;
+}
+
+.spark-dots-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The media gallery's category chips (`.gm-gallery__chip`, features/chat/src/media/media.css). */
+.spark-dots-chip {
+  display: inline-flex;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: #1e1f20;
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  font-weight: 370;
+  line-height: 24px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.spark-dots-chip:hover {
+  background: #282a2c;
+}
+
+.spark-dots-chip.is-selected,
+.spark-dots-chip.is-selected:hover {
+  background: var(--sync-1f3760, #1f3760);
+  color: var(--sync-d3e3fd, #d3e3fd);
+}
+
+.spark-dots-chip--input {
+  width: 180px;
+  cursor: text;
+  outline: none;
+}
+
+.spark-dots-chip--input::placeholder {
+  color: #8e918f;
+}
+
+.spark-dots-chip--input:focus {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 2px;
+}
+
+/* ── Directory ──────────────────────────────────────────────────────────── */
+
+/*
+ * Clipped sideways, as Spark's task list is. Opening or closing a bot glides this whole box with a
+ * transform (dot-transition.ts), so its clip travels with the list instead of cutting it off.
+ * Its scrollbar is the task list's, thin and only coloured while hovered.
+ */
+.spark-dots {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  justify-content: center;
+  padding: 56px 24px 32px;
+  color: #e3e3e3;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.spark-dots:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+}
+
+.spark-dots__column {
+  display: flex;
+  width: 100%;
+  max-width: 720px;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.spark-dots__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.spark-dots__heading {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 320;
+  line-height: 44px;
+  font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 320;
+  color: #e3e3e3;
+}
+
+.spark-dots-search {
+  display: flex;
+  height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: #1e1f20;
+  color: #c4c7c5;
+}
+
+.spark-dots-search__input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  font-size: 16px;
+  line-height: 24px;
+  color: #e3e3e3;
+  outline: none;
+}
+
+.spark-dots-search__input::placeholder {
+  color: #8e918f;
+}
+
+.spark-dots-search__input::-webkit-search-cancel-button {
+  filter: invert(0.8);
+}
+
+.spark-dots__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.spark-dots-row {
+  display: flex;
+  width: 100%;
+  min-height: 72px;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.spark-dots-row:hover {
+  background: rgba(230, 230, 230, 0.08);
+}
+
+/* The open bot, in the list squeezed beside it: marked as Spark marks the open task. */
+.spark-dots-row.is-selected,
+.spark-dots-row.is-selected:hover {
+  background: var(--spark-raised-surface, #1f1f1f);
+}
+
+.spark-dots-row__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.spark-dots-row__name {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 540;
+  line-height: 20px;
+  color: #e3e3e3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-dots-row__preview,
+.spark-dots-row__time {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 17px;
+  color: #c4c7c5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-dots-row__meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+}
+
+/* `.spark-task-detail__pinned-icon`: a pinned task's mark in the task list. */
+.spark-dots-row__pin {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.spark-dots-row__category {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(227, 227, 227, 0.08);
+  font-size: 12px;
+  line-height: 16px;
+  color: #c4c7c5;
+}
+
+/* At 960px and below a row's two lines are one-line clamps each, as Spark's task rows are (SparkAllTasks.css):
+ * they break at a word and the ellipsis follows it. */
+@media (max-width: 960px) {
+  .spark-dots-row__name,
+  .spark-dots-row__preview {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+}
+
+/* A phone's row keeps the pin and the time; the category it is filed under is the chip row above the list. */
+@media (max-width: 520px) {
+  .spark-dots-row__category {
+    display: none;
+  }
+}
+
+.spark-dots__empty {
+  margin: 24px 0 0;
+  font-size: 15px;
+  line-height: 20px;
+  color: #c4c7c5;
+  text-align: center;
+}
+
+/* ── An open bot (on SparkTaskDetail's layout) ──────────────────────────── */
+
+/* Tasks carry Gemini's blue glow behind the split view; an open bot sits on the plain workspace. */
+.spark-task-detail.spark-dots-detail::before {
+  display: none;
+}
+
+.spark-dots-detail__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/*
+ * The profile follows a task's Progress: docked while the list is collapsed, floating otherwise. Its header button
+ * hides while it is docked, with the status pill's fade and shrink (SparkTaskDetail.css).
+ */
+.spark-dots-detail__profile-button {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  opacity: 1;
+  scale: 1;
+  transition: opacity 300ms ease, scale 300ms ease, display 300ms allow-discrete;
+}
+
+.spark-dots-detail__profile-button.is-hidden {
+  display: none;
+  opacity: 0;
+  scale: 0.9;
+}
+
+/* Progress floats under the status pill; the profile floats under its button, the header's last action. */
+.spark-dots-detail .spark-dots-profile-popover {
+  right: 12px;
+}
+
+@media (max-width: 720px) {
+  .spark-dots-detail .spark-dots-profile-popover {
+    right: 8px;
+  }
+}
+
+/* ── The bot's profile, docked in the progress panel or floating ────────── */
+
+.spark-dots-profile__identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px 16px;
+}
+
+.spark-dots-profile__identity-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.spark-dots-profile__name {
+  max-width: 100%;
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  color: #e3e3e3;
+}
+
+.spark-dots-profile__status {
+  padding-inline: 10px;
+  font-size: 15px;
+  line-height: 20px;
+  color: #c4c7c5;
+}
+
+/*
+ * One connected button group, Material 3's: four tonal segments in a single 40px capsule, 2px apart, with only
+ * the outer ends fully round (radii stay explicit; a 9999px corner would scale the inner ones down to square).
+ * Icon-only, so the row reads as one control rather than four boxes; the names are tooltips and accessible labels.
+ * Its ends line up with the avatar and the rows' buttons, and the cap keeps it compact full-screen. App logos keep
+ * their own colours, as Gemini shows apps.
+ */
+.spark-dots-profile__actions {
+  display: flex;
+  max-width: 360px;
+  gap: 2px;
+  padding: 4px 4px 0;
+}
+
+.spark-dots-profile__action {
+  display: flex;
+  height: 40px;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: #1e1f20;
+  color: #e3e3e3;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.spark-dots-profile__action:first-child {
+  border-radius: 20px 8px 8px 20px;
+}
+
+.spark-dots-profile__action:last-child {
+  border-radius: 8px 20px 20px 8px;
+}
+
+.spark-dots-profile__action:hover:not(:disabled) {
+  background: #282a2c;
+}
+
+.spark-dots-profile__action:active:not(:disabled) {
+  background: #333537;
+}
+
+/* Not wired up in Willow yet: shown, at Material's 38% for disabled content. */
+.spark-dots-profile__action:disabled {
+  cursor: default;
+}
+
+.spark-dots-profile__action:disabled > * {
+  opacity: 0.38;
+}
+
+.spark-dots-profile__action:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 2px;
+}
+
+/* Background work and notifications, under Category: laid out as the Computers rows, on the sections' 16px inset. */
+.spark-dots-profile__rows {
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
+}
+
+.spark-dots-profile__rows > .spark-dots-profile__note {
+  padding: 0 16px 0 48px;
+}
+
+.spark-dots-profile__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 15px;
+  line-height: 20px;
+  color: #e3e3e3;
+}
+
+.spark-dots-profile__row-icon {
+  flex: none;
+  color: #c4c7c5;
+}
+
+.spark-dots-profile__toggle {
+  height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: #e3e3e3;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f1f1f;
+  cursor: pointer;
+}
+
+.spark-dots-profile__toggle.is-on {
+  background: rgba(227, 227, 227, 0.12);
+  color: #e3e3e3;
+}
+
+.spark-dots-profile__computer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.spark-dots-profile__computer-icon {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  color: #c4c7c5;
+}
+
+.spark-dots-profile__computer-icon.is-connected::after {
+  position: absolute;
+  right: -2px;
+  bottom: 1px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid #1f1f1f;
+  border-radius: 50%;
+  background: #34a853;
+  content: "";
+}
+
+.spark-dots-profile__computer-copy,
+.spark-dots-profile__row-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  font-size: 15px;
+  line-height: 20px;
+  color: #e3e3e3;
+}
+
+/* Carries the bot's own `--sync-*` colours (`useDotTint`) without adding a box. */
+.spark-dots-profile__tint {
+  display: contents;
+}
+
+.spark-dots-profile__computer-preview {
+  width: 60px;
+  height: 40px;
+  flex: none;
+  border-radius: 8px;
+  background: linear-gradient(160deg, var(--sync-1c2a6b, #1c2a6b) 0%, var(--sync-2f5be3, #2f5be3) 55%, var(--sync-b9c8ff, #b9c8ff) 100%);
+}
+
+.spark-dots-profile__muted {
+  font-size: 13px;
+  line-height: 17px;
+  color: #9a9b9c;
+}
+
+.spark-dots-profile__activity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 15px;
+  line-height: 20px;
+  color: #e3e3e3;
+}
+
+.spark-dots-profile__activity-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

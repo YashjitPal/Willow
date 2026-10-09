@@ -17,6 +17,24 @@ const gmailMetadata: ConnectorScope = {
   tier: 'restricted',
 };
 
+/**
+ * Email contents, only when the user turns them on (`connector-options.ts`), and then in place of
+ * `gmail.metadata`, never beside it: a token carrying metadata cannot search or read a message whatever else it
+ * holds.
+ */
+export const GMAIL_CONTENTS_SCOPE: ConnectorScope = {
+  url: 'https://www.googleapis.com/auth/gmail.readonly',
+  summary: 'Read your email, including what messages say',
+  tier: 'restricted',
+};
+
+/** Sending only: no reading, deleting or changing mail. Each message a bot sends is one the user approved. */
+const gmailSend: ConnectorScope = {
+  url: 'https://www.googleapis.com/auth/gmail.send',
+  summary: 'Send email as you, when you approve it',
+  tier: 'sensitive',
+};
+
 const calendarRead: ConnectorScope = {
   url: 'https://www.googleapis.com/auth/calendar.readonly',
   summary: 'Read your calendars and events',
@@ -181,7 +199,7 @@ export const SCOPES: Record<
   'gmail' | 'calendar' | 'youtube' | 'tasks' | 'drive' | 'docs' | 'spotify' | 'github',
   { read: ConnectorScope[]; write: ConnectorScope[] }
 > = {
-  gmail: { read: [gmailMetadata], write: [] },
+  gmail: { read: [gmailMetadata], write: [gmailSend] },
   calendar: { read: [calendarRead], write: [calendarWrite] },
   youtube: { read: [youtubeRead], write: [youtubeWrite] },
   tasks: { read: [tasksRead], write: [tasksWrite] },

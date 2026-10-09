@@ -3,7 +3,7 @@
 
 import { atom } from 'nanostores';
 import type { SelectedElement, InspectorMessage } from './types';
-import { sandpackStore } from '../../runtime/sandpack/sandpack-store';
+import { $activeCodeSession, $codeScreenSwitches, activeWorkbench } from '../../session/code-session';
 
 /**
  * Whether visual edit mode is currently active
@@ -159,13 +159,13 @@ export function markAsUnsaved(): void {
   // If we don't have a snapshot yet, take one now (this is the state BEFORE this new edit applied? 
   // actually direct-style-service calls this inside applyDirectStyle... wait. 
   // If we call this inside applyDirectStyle, we should ideally capture the snapshot BEFORE the change is applied.
-  // BUT applyDirectStyle works by modifying sandpackStore.
+  // BUT applyDirectStyle works by modifying the workbench's files.
   // So we should rely on this being called EITHER:
   // 1. Just before the modification (preferred)
   // 2. Or if we want to support multiple edits, we only capture if snapshot is null.
   
   if (!visualEditSessionSnapshot.get()) {
-    const currentFiles = sandpackStore.files.get();
+    const currentFiles = activeWorkbench().files.get();
     const snapshot: Record<string, string> = {};
     for (const [path, file] of Object.entries(currentFiles)) {
       snapshot[path] = file.content;
@@ -186,12 +186,13 @@ export async function saveVisualChanges(): Promise<void> {
   
   isSaving.set(true);
   console.log('[VisualEditor] Saving changes...');
+  const workbench = activeWorkbench();
 
   // Simulate a small delay for the animation as requested by user
   await new Promise(resolve => setTimeout(resolve, 800));
 
   // Capture current state as the new baseline
-  const currentFiles = sandpackStore.files.get();
+  const currentFiles = workbench.files.get();
   const snapshot: Record<string, string> = {};
   for (const [path, file] of Object.entries(currentFiles)) {
     snapshot[path] = file.content;
@@ -227,8 +228,9 @@ export async function discardVisualChanges(): Promise<void> {
   pushUndoState('Before discard');
 
   console.log('[VisualEditor] Discarding changes, restoring snapshot');
+  const workbench = activeWorkbench();
   for (const [path, content] of Object.entries(snapshot)) {
-    sandpackStore.setFile(path, content);
+    workbench.setFile(path, content);
   }
   
   // Clear unsaved state but KEEP the baseline for future edits in this session
@@ -257,7 +259,7 @@ export function checkUnsavedStatus(): void {
     return;
   }
 
-  const currentFiles = sandpackStore.files.get();
+  const currentFiles = activeWorkbench().files.get();
   
   // Compare current state with baseline
   for (const [path, baselineContent] of Object.entries(baseline)) {
@@ -319,8 +321,7 @@ export function clearVisualEditQueue(): void {
  * Call this BEFORE applying any visual edit
  */
 export function pushUndoState(description: string): void {
-  // Get current file state from sandpackStore
-  const currentFiles = sandpackStore.files.get();
+  const currentFiles = activeWorkbench().files.get();
   const snapshot: Record<string, string> = {};
 
   for (const [path, file] of Object.entries(currentFiles)) {
@@ -361,8 +362,9 @@ export function undoLastVisualEdit(): boolean {
 
   // Restore files from snapshot
   console.log('[VisualEditor] Undoing:', lastEntry.description);
+  const workbench = activeWorkbench();
   for (const [path, content] of Object.entries(lastEntry.files)) {
-    sandpackStore.setFile(path, content);
+    workbench.setFile(path, content);
   }
 
   // Trigger preview refresh
@@ -459,29 +461,46 @@ let iframeRef: HTMLIFrameElement | null = null;
 let wasGenerating = false;
 
 /**
- * Initialize subscription to sandpack generation state
+ * Initialize subscription to the active screen's generation state
  * Re-initializes visual editor when app generation completes
  */
 function initGenerationWatcher(): void {
-  sandpackStore.isGenerating.subscribe((isGenerating) => {
-    // Detect transition from generating -> not generating
-    const justFinishedGenerating = wasGenerating && !isGenerating;
-    wasGenerating = isGenerating;
+  let unwatch = () => {};
+  $activeCodeSession.subscribe(() => {
+    unwatch();
+    // The first value is where the newly active screen stands, not a transition.
+    let first = true;
+    unwatch = activeWorkbench().isGenerating.subscribe((isGenerating) => {
+      // Detect transition from generating -> not generating
+      const justFinishedGenerating = !first && wasGenerating && !isGenerating;
+      first = false;
+      wasGenerating = isGenerating;
 
-    // Skip reinitialization if this is a visual edit (handled separately)
-    if (isVisualEditing.get()) {
-      return;
-    }
+      // Skip reinitialization if this is a visual edit (handled separately)
+      if (isVisualEditing.get()) {
+        return;
+      }
 
-    // If visual edit mode is active and generation just completed, re-initialize
-    if (justFinishedGenerating && isVisualEditMode.get()) {
-      reinitializeInspector();
-    }
+      // If visual edit mode is active and generation just completed, re-initialize
+      if (justFinishedGenerating && isVisualEditMode.get()) {
+        reinitializeInspector();
+      }
+    });
   });
 }
 
 // Start watching generation state immediately
 initGenerationWatcher();
+
+// The baseline, the undo history and queued edits hold the previous screen's
+// files: restoring them on this one would write that project into it.
+$codeScreenSwitches.listen(() => {
+  visualEditSessionSnapshot.set(null);
+  undoHistory.set([]);
+  canUndo.set(false);
+  hasUnsavedChanges.set(false);
+  visualEditQueue.set([]);
+});
 
 /**
  * Re-initialize the inspector after iframe content changes
@@ -611,7 +630,7 @@ export function enterVisualEdit(): void {
   
   // Capture baseline for this session (if not already set from a previous session)
   if (!visualEditSessionSnapshot.get()) {
-    const currentFiles = sandpackStore.files.get();
+    const currentFiles = activeWorkbench().files.get();
     const snapshot: Record<string, string> = {};
     for (const [path, file] of Object.entries(currentFiles)) {
       snapshot[path] = file.content;
@@ -626,7 +645,7 @@ export function enterVisualEdit(): void {
   hasUnsavedChanges.set(false);
 
   // Check if app is currently generating
-  const currentlyGenerating = sandpackStore.isGenerating.get();
+  const currentlyGenerating = activeWorkbench().isGenerating.get();
 
   if (currentlyGenerating) {
     // If generating, don't inject yet - the generation watcher will

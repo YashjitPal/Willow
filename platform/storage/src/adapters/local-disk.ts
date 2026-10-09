@@ -4,6 +4,7 @@
  * Persists directory handles in IndexedDB
  */
 
+import { isDesktopApp } from '@willow/core/desktop-bridge';
 import { getProjectFileUploadPayload, readProjectFileContent } from '@willow/projects/file-content';
 
 // IndexedDB database name and store name
@@ -43,7 +44,7 @@ function isStoredDirectoryRecord(value: unknown): value is StoredDirectoryRecord
     !!(value as StoredDirectoryRecord).handle;
 }
 
-async function handlesReferToSameEntry(
+export async function handlesReferToSameEntry(
   left: FileSystemDirectoryHandle,
   right: FileSystemDirectoryHandle
 ): Promise<boolean> {
@@ -213,6 +214,11 @@ export async function removeStoredDirectoryHandle(): Promise<void> {
 /**
  * Verify if we have read/write permission to the directory.
  * Prompts the user if permission is not already granted.
+ *
+ * The desktop app asks even when not interactive: every restart of it (each
+ * update) drops the grant back to "prompt", and it grants Willow's own pages
+ * the folder the user picked without a prompt or a gesture, so the folder comes
+ * back on its own instead of behind the Authorize modal.
  */
 export async function verifyPermission(handle: FileSystemDirectoryHandle, readWrite = true, interactive = false): Promise<boolean> {
   const opts = { mode: readWrite ? 'readwrite' as const : 'read' as const };
@@ -220,7 +226,7 @@ export async function verifyPermission(handle: FileSystemDirectoryHandle, readWr
     if ((await (handle as any).queryPermission(opts)) === 'granted') {
       return true;
     }
-    if (interactive) {
+    if (interactive || isDesktopApp()) {
       if ((await (handle as any).requestPermission(opts)) === 'granted') {
         return true;
       }
@@ -312,6 +318,15 @@ export async function readFilesRecursively(
 // (which keys covers and media), instead of being assigned a fresh random id.
 const PROJECT_MANIFEST_NAME = '.willow.json';
 
+/** When a project folder's manifest was last written, or 0 when it has none. */
+export async function readProjectManifestTime(projectDirHandle: FileSystemDirectoryHandle): Promise<number> {
+  try {
+    return (await (await projectDirHandle.getFileHandle(PROJECT_MANIFEST_NAME)).getFile()).lastModified;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Read a project's `.willow.json` manifest from its folder handle.
  * Returns null if the manifest is absent or unreadable.
@@ -327,6 +342,20 @@ export async function readProjectManifest(
     return parsed && typeof parsed === 'object' ? parsed : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Whether a folder carries a project manifest. Throws when that cannot be told — a read that
+ * failed is not an answer, and a scan treating it as "no" would drop a project.
+ */
+export async function holdsProjectManifest(dirHandle: FileSystemDirectoryHandle): Promise<boolean> {
+  try {
+    await dirHandle.getFileHandle(PROJECT_MANIFEST_NAME);
+    return true;
+  } catch (error: any) {
+    if (error?.name === 'NotFoundError') return false;
+    throw error;
   }
 }
 

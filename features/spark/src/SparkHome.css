@@ -35,6 +35,8 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  /* Pages other than home render this outside their own font scope. */
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
 }
 
 .spark-release-button {
@@ -78,7 +80,7 @@
   height: 4px;
   flex: 0 0 4px;
   border-radius: 9999px;
-  background: #3186ff;
+  background: var(--sync-3186ff, #3186ff);
 }
 
 .spark-beta-label {
@@ -440,35 +442,79 @@
 .spark-release-button:focus-visible,
 .spark-all-tasks-button:focus-visible,
 .spark-suggested-row:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
-@media (max-width: 720px) {
-  .spark-top-controls {
-    top: 16px;
-    right: 16px;
+/*
+ * Gemini keeps this page's desktop geometry at every width — the badges stay 24px in, the
+ * heading stays 28px/36px, the column keeps its 40px top and 32px gaps, and suggestion
+ * descriptions stay one line. Two things do change.
+ *
+ * At <=768px the composer takes `width: calc(100% - 32px); margin: 0 16px 12px`
+ * (`.lm-input-redesign:has(.simplified-input-on-mobile)`).
+ */
+@media (max-width: 768px) {
+  .spark-home .spark-composer-host {
+    width: calc(100% - 32px);
+    margin: 0 16px 12px;
   }
-
 }
 
-@media (max-width: 480px) {
-  .spark-home {
-    padding-bottom: 32px;
+/* Between the two, the composer keeps `.remy-input-area`'s `margin-block: -6px`, so the
+ * anchor gives it 12px less than its height — measured 61.6px around 73.6px at 800. */
+@media (min-width: 769px) and (max-width: 960px) {
+  .spark-home .spark-composer-host {
+    margin-block: -6px;
+  }
+}
+
+/* Spark's `input-area-v2` is not Chat's box: `border: .0625rem solid transparent`, which
+ * insets everything inside it by a device pixel, the level-1 shadow, and surface-bright. */
+@media (max-width: 960px) {
+  .spark-home .spark-composer-host .willow-gemini-composer {
+    border: 1px solid transparent;
+    background-color: #1e1f20;
+    box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
   }
 
-  .spark-content {
-    gap: 24px;
-    padding-block-start: 34px;
+  :is(.light-theme, [data-theme="light"]) .spark-home .spark-composer-host .willow-gemini-composer {
+    background-color: #ffffff;
+    box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.16);
+  }
+}
+
+/* And at <=960px the theme's on-surface is #e0e0e0, not desktop's #e6e6e6. */
+@media (max-width: 960px) {
+  .spark-whats-new,
+  .spark-beta-label,
+  .spark-section-heading h2,
+  .spark-suggested-heading,
+  .spark-suggested-title {
+    color: #e0e0e0;
   }
 
-  .spark-heading-block h1 {
-    font-size: 24px;
-    line-height: 30px;
+  /* `span.beta-badge` is body-s, which carries the narrow `"wdth" 92` cut. */
+  .spark-beta-label {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   }
 
-  .spark-suggested-description {
-    -webkit-line-clamp: 2;
+  /* `.suggestion-card:hover` is surface-bright, #1c1c1c at this size. */
+  .spark-suggested-row:hover {
+    background: #1c1c1c;
+  }
+
+  /* `.suggestion-indicator` is a plain `width: 3px` flex item, so the one-line description's
+   * overflow squeezes it to 2.5px — and the text starts half a pixel earlier for it. */
+  .spark-suggested-indicator {
+    flex: 0 1 auto;
+  }
+}
+
+/* A tap leaves :hover on the card; Gemini's indicator keeps its accent through it. */
+@media (hover: none) {
+  .spark-suggested-row:hover .spark-suggested-indicator {
+    background: var(--spark-accent, #1f3b9b);
   }
 }
 
@@ -540,7 +586,7 @@
 :is(.light-theme, [data-theme="light"]) .spark-release-button:focus-visible,
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks-button:focus-visible,
 :is(.light-theme, [data-theme="light"]) .spark-suggested-row:focus-visible {
-  outline-color: #0b57d0;
+  outline-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-composer-anchor::before {

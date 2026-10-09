@@ -199,8 +199,8 @@ export const NOTEBOOK_CHATS_DIR_NAME = 'Chats';
 /**
  * Windows forbids these in a path segment, and so does this code on every
  * platform: the same folder has to be openable after the user syncs it to a PC.
- * `\` is included, which `getSanitizedWorkspaceName` omits — a title containing
- * one would otherwise become a directory separator.
+ * `\` is included: a title containing one would otherwise become a directory
+ * separator.
  */
 const ILLEGAL_FOLDER_CHARS = /[\\/:*?"<>|]/g;
 
@@ -452,4 +452,34 @@ export const adoptChatIntoNotebook = (chatId: string, notebookId: string | null)
   if (!changed) return false;
   writeNotebooks(sortNotebooks(next));
   return true;
+};
+
+// ── The manifest: a notebook's details in its own folder ─────────────────────
+//
+// The registry above is this browser's, so a copy of Willow that starts without it — a reinstall,
+// a fresh profile, the web version on the same folder — would find `Notebooks/` full of folders it
+// has no rows for, and their chats in folders nothing scans. So each notebook's `.willow.json`
+// carries the notebook as well as its id, and a copy with no row for a folder's id rebuilds one.
+// Which chats it holds is not written: the files in its `Chats/` say that, and the reconciler
+// files them (`adoptChatIntoNotebook`). Nor is a source's `dataUrl`: its bytes are in `Sources/`.
+
+/** What a notebook's `.willow.json` holds. */
+export const notebookManifest = (notebook: Notebook): Record<string, unknown> => ({
+  id: notebook.id,
+  title: notebook.title,
+  emoji: notebook.emoji,
+  vertical: notebook.vertical,
+  pinned: notebook.pinned,
+  ...(notebook.useMemory ? { useMemory: true } : {}),
+  ...(notebook.instructions ? { instructions: notebook.instructions } : {}),
+  createdAt: notebook.createdAt,
+  updatedAt: notebook.updatedAt,
+  sources: notebook.sources.map(({ dataUrl: _bytes, ...source }) => source),
+});
+
+/** A notebook rebuilt from the manifest in `Notebooks/<folderName>/`, or null when it names none. */
+export const notebookFromManifest = (manifest: unknown, folderName: string): Notebook | null => {
+  if (!manifest || typeof manifest !== 'object' || !folderName) return null;
+  const [notebook] = parseNotebooks(JSON.stringify([{ title: folderName, ...manifest, chatIds: [], fsFolder: folderName }]));
+  return notebook ?? null;
 };

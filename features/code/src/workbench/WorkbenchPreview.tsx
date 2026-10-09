@@ -11,21 +11,20 @@ import VisualEditingOverlay from "../visual-editing/VisualEditingOverlay";
 import { CpuArchitecture } from "@willow/ui/cpu-architecture";
 import "@willow/ui/cpu-architecture.css";
 import { DesignCanvas } from "@willow/design/DesignCanvas";
-import { sandpackStore } from "../runtime/sandpack/sandpack-store";
+import { isOwnPreviewMessage, useCodeSession } from "../session/code-session";
 import { createPreviewURL, initBundler, bundleForHotUpdate } from "../runtime/preview/index";
-import { testStore } from "@willow/ai/computer-use/test-store";
 import { isVisualEditMode, isScanning, isVisualEditing, visualEditorStore, codeNavigationRequest, previewRefreshRequest, requestInspectorReinit, immediateInspectorReinit, exitVisualEdit } from "../visual-editing/engine/index";
 import { previewErrors, isErrorPanelOpen, addPreviewError, clearPreviewErrors, removePreviewError } from "@willow/core/error-store";
+import { PREVIEW_VIEWPORTS } from "./preview-control";
 import { saveProjectCover } from "@willow/storage/media-storage";
 import { readProjectRegistry, writeProjectRegistry } from "@willow/projects/registry";
 
 // Import cursor image from cursor folder
 import cursorImage from "@willow/assets/cursors/arrow.cur";
-// Lets the Agent tool's `computer_use` reach the preview frame.
-import { setPreviewFrame } from "../agent/agent-store";
 
 // Visual cursor overlay for Computer Use testing
 const TestCursor: React.FC<{ iframeRef: React.RefObject<HTMLIFrameElement> }> = React.memo(({ iframeRef }) => {
+  const { test: testStore } = useCodeSession();
   const cursorPosition = useStore(testStore.cursorPosition);
   const isClicking = useStore(testStore.isClicking);
   const currentThought = useStore(testStore.currentThought);
@@ -90,8 +89,9 @@ const TestCursor: React.FC<{ iframeRef: React.RefObject<HTMLIFrameElement> }> = 
   // Use lastPosition during fade-out so cursor stays in place
   const rect = iframeRef.current.getBoundingClientRect();
   const activePosition = cursorPosition || lastPosition;
-  const x = activePosition ? (activePosition.x / 1000) * rect.width : 0;
-  const y = activePosition ? (activePosition.y / 1000) * rect.height : 0;
+  // Offset by the frame's own position, which moves when it is narrowed to a phone width.
+  const x = (activePosition ? (activePosition.x / 1000) * rect.width : 0) + iframeRef.current.offsetLeft;
+  const y = (activePosition ? (activePosition.y / 1000) * rect.height : 0) + iframeRef.current.offsetTop;
   
   // Symmetric padding value (same on both sides)
   const bubblePadding = 10;
@@ -270,6 +270,7 @@ const TestModeGlow: React.FC<{ isActive: boolean }> = React.memo(({ isActive }) 
 
 // Floating status indicator for active testing
 const TestStatusIndicator: React.FC<{ isActive: boolean }> = React.memo(({ isActive }) => {
+  const { test: testStore } = useCodeSession();
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   
@@ -479,27 +480,23 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const previousUrlRef = useRef<string | null>(null);
 
-  /*
-   * Publish the preview frame so the Agent tool's `computer_use` can screenshot
-   * and drive it.
-   *
-   * A store rather than a prop because the tool runs inside the harness, far
-   * from this component's tree. Cleared on unmount so the tool reports "the
-   * preview is not open" instead of holding a detached node.
-   *
-   * Unconditional, not gated on the Agent tool: registering the frame is inert
-   * while nothing reads it, and gating it would leave the frame missing on the
-   * turn where the tool is first switched on.
-   */
-  useEffect(() => {
-    setPreviewFrame(iframeRef.current);
-    return () => setPreviewFrame(null);
-  }, [previewUrl]);
   // ✨ Tracks the latest blob URL for "Open Externally" after hot updates
   // Hot updates don't change previewUrl (to avoid iframe reload), so this ref
   // holds the up-to-date blob URL for external opens
   const latestExternalUrlRef = useRef<string | null>(null);
 
+  const codeSession = useCodeSession();
+  const {
+    workbench: sandpackStore,
+    test: testStore,
+    preview: { rebuildRequest: previewRebuildRequest, viewport: previewViewport, inspectable: previewInspectable },
+  } = codeSession;
+  // Visual editing, the problems list and code navigation are one per tab and
+  // belong to the screen on show; a hidden one's preview leaves them alone.
+  const isOnShow = useStore(codeSession.onShow);
+  const clearShownErrors = () => {
+    if (codeSession.onShow.get()) clearPreviewErrors();
+  };
   const filesMap = useStore(sandpackStore.files);
   const previewSnapshot = useStore(sandpackStore.previewSnapshot);
   const activeSnapshotId = useStore(sandpackStore.activeSnapshotId);
@@ -507,11 +504,15 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   const currentEditingFile = useStore(sandpackStore.currentEditingFile);
   const isGenerating = useStore(sandpackStore.isGenerating);
   const isTestMode = useStore(testStore.isTestMode);
+  // The harness asks for a rebuild mid-turn, and for a phone or tablet width, while it tests.
+  const rebuildRequest = useStore(previewRebuildRequest);
+  const viewport = useStore(previewViewport);
+  const wasRebuildRequestRef = useRef(rebuildRequest);
   
   // Visual editor state
-  const isVisualEdit = useStore(isVisualEditMode);
+  const isVisualEdit = useStore(isVisualEditMode) && isOnShow;
   const isScanningProject = useStore(isScanning);
-  const isDoingVisualEdit = useStore(isVisualEditing);
+  const isDoingVisualEdit = useStore(isVisualEditing) && isOnShow;
   const refreshRequest = useStore(previewRefreshRequest);
   const wasVisualEditModeRef = useRef(false);
   const lastBuildHadSourceLocationsRef = useRef(false); // Track if we already have source locations
@@ -523,24 +524,25 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   // Listen for PREVIEW_ERROR messages from the iframe and add to error store
   useEffect(() => {
     const handlePreviewError = (event: MessageEvent) => {
+      if (!isOwnPreviewMessage(codeSession, event) || !codeSession.onShow.get()) return;
       if (event.data?.type === 'PREVIEW_ERROR' && event.data.message) {
         addPreviewError(event.data.errorType || 'Build Error', event.data.message);
       }
     };
     window.addEventListener('message', handlePreviewError);
     return () => window.removeEventListener('message', handlePreviewError);
-  }, []);
+  }, [codeSession]);
 
   // Listen for code navigation requests and switch to code tab
   useEffect(() => {
     const unsubscribe = codeNavigationRequest.subscribe((request) => {
-      if (request) {
+      if (request && codeSession.onShow.get()) {
         console.log('[MainPreview] Code navigation requested, switching to code tab');
         onTabChange('code');
       }
     });
     return unsubscribe;
-  }, [onTabChange]);
+  }, [onTabChange, codeSession]);
 
   // Initialize esbuild bundler on mount
   useEffect(() => {
@@ -557,6 +559,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
   // Listen for preview errors and exit visual edit mode when they occur
   useEffect(() => {
     const handlePreviewError = (event: MessageEvent) => {
+      if (!isOwnPreviewMessage(codeSession, event)) return;
       if (event.data?.type === 'PREVIEW_ERROR') {
         console.log('[MainPreview] Preview error detected, exiting visual edit mode');
         // Exit visual edit mode when there's a build/runtime error
@@ -608,7 +611,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
         (async () => {
           try {
             // Rebuild with source location injection enabled
-            const url = await createPreviewURL(files, { injectSourceLocations: true });
+            const url = await createPreviewURL(files, { injectSourceLocations: true, screen: codeSession.screenKey });
             if (previousUrlRef.current) {
               URL.revokeObjectURL(previousUrlRef.current);
             }
@@ -639,6 +642,10 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     // Detect when user reverted to a snapshot
     const justReverted = wasActiveSnapshotIdRef.current !== activeSnapshotId;
     wasActiveSnapshotIdRef.current = activeSnapshotId;
+
+    // Detect a mid-turn rebuild the harness asked for
+    const justRequested = wasRebuildRequestRef.current !== rebuildRequest;
+    wasRebuildRequestRef.current = rebuildRequest;
     
     console.log('[MainPreview] Effect - bundlerReady:', bundlerReady, 'hasUserCode:', hasUserCode, 'isGenerating:', isGenerating, 'justFinished:', justFinishedGenerating, 'justReverted:', justReverted);
     
@@ -650,7 +657,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     // 3. We are viewing a snapshot and it just changed, or we just exited snapshot mode
     // 4. We just reverted to a past snapshot state
     const isSnapshotMode = previewSnapshot !== null;
-    const shouldBuild = !previewUrl || justFinishedGenerating || previewSnapshot !== null || wasSnapshotRef.current || justReverted;
+    const shouldBuild = !previewUrl || justFinishedGenerating || previewSnapshot !== null || wasSnapshotRef.current || justReverted || justRequested;
     
     if (!shouldBuild) {
       console.log('[MainPreview] Skipping rebuild - generation in progress or no change');
@@ -680,14 +687,14 @@ const MainPreview: React.FC<MainPreviewProps> = ({
 
     const buildPreview = async () => {
       try {
-        // ✨ NEW: Enable source location injection when in visual edit mode
-        const isVisualEdit = isVisualEditMode.get();
+        // ✨ NEW: Enable source location injection when in visual edit mode, or while the harness inspects the app
+        const isVisualEdit = (isVisualEditMode.get() && codeSession.onShow.get()) || previewInspectable.get();
 
         // ✨ HOT UPDATE: Try to hot update the preview if we already have a running iframe
         // This prevents the iframe from flickering white when switching to/from snapshots
         if (!isFirstBuild.current && previewUrl && iframeRef.current?.contentWindow) {
           try {
-            const scriptCode = await bundleForHotUpdate(files, { injectSourceLocations: isVisualEdit });
+            const scriptCode = await bundleForHotUpdate(files, { injectSourceLocations: isVisualEdit, screen: codeSession.screenKey });
             
             iframeRef.current.contentWindow.postMessage({
               type: 'HOT_UPDATE',
@@ -695,13 +702,13 @@ const MainPreview: React.FC<MainPreviewProps> = ({
             }, '*');
 
             // Generate new blob URL in background for "Open Externally" feature
-            const newExternalUrl = await createPreviewURL(files, { injectSourceLocations: isVisualEdit });
+            const newExternalUrl = await createPreviewURL(files, { injectSourceLocations: isVisualEdit, screen: codeSession.screenKey });
             if (latestExternalUrlRef.current) {
               URL.revokeObjectURL(latestExternalUrlRef.current);
             }
             latestExternalUrlRef.current = newExternalUrl;
             
-            clearPreviewErrors();
+            clearShownErrors();
             console.log('[MainPreview] Preview hot updated successfully');
             return; // Skip the full reload below
           } catch (hotUpdateError) {
@@ -709,7 +716,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
           }
         }
 
-        const url = await createPreviewURL(files, { injectSourceLocations: isVisualEdit });
+        const url = await createPreviewURL(files, { injectSourceLocations: isVisualEdit, screen: codeSession.screenKey });
 
         // Check if the build returned an error fallback page
         const isBuildError = url.includes('#build-error');
@@ -744,7 +751,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
         setPreviewUrl(url);
         setIsPreviewLoading(false);
         isFirstBuild.current = false;
-        clearPreviewErrors();
+        clearShownErrors();
         console.log('[MainPreview] Preview built successfully');
       } catch (error) {
         console.error('[MainPreview] Preview build failed:', error);
@@ -755,7 +762,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     // Small delay to let files settle
     const timer = setTimeout(buildPreview, 150);
     return () => clearTimeout(timer);
-  }, [bundlerReady, hasUserCode, isGenerating, getFilesForBundler, previewUrl, activeSnapshotId]);
+  }, [bundlerReady, hasUserCode, isGenerating, getFilesForBundler, previewUrl, activeSnapshotId, rebuildRequest]);
 
   // Update generation status when editing file changes
   useEffect(() => {
@@ -828,7 +835,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
         (async () => {
           try {
             // ✨ HOT UPDATE: Bundle and send via postMessage instead of changing blob URL
-            const scriptCode = await bundleForHotUpdate(files, { injectSourceLocations: true });
+            const scriptCode = await bundleForHotUpdate(files, { injectSourceLocations: true, screen: codeSession.screenKey });
 
             if (iframeRef.current?.contentWindow) {
               // Send the new code to the iframe - it will re-render in place
@@ -838,7 +845,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               }, '*');
 
               console.log('[MainPreview] Visual edit hot update sent');
-              clearPreviewErrors();
+              clearShownErrors();
 
               // Re-inject inspector after a brief moment for the DOM to settle
               setTimeout(() => {
@@ -849,7 +856,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
 
               // ✨ Generate new blob URL in background for "Open Externally" feature
               // This doesn't change the iframe src (no reload), just updates the URL for external opens
-              const newExternalUrl = await createPreviewURL(files, { injectSourceLocations: true });
+              const newExternalUrl = await createPreviewURL(files, { injectSourceLocations: true, screen: codeSession.screenKey });
               if (latestExternalUrlRef.current) {
                 URL.revokeObjectURL(latestExternalUrlRef.current);
               }
@@ -858,7 +865,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
             } else {
               // Fallback: if iframe not accessible, do a full reload
               console.warn('[MainPreview] iframe not accessible, falling back to full reload');
-              const url = await createPreviewURL(files, { injectSourceLocations: true });
+              const url = await createPreviewURL(files, { injectSourceLocations: true, screen: codeSession.screenKey });
               if (previousUrlRef.current) {
                 URL.revokeObjectURL(previousUrlRef.current);
               }
@@ -881,7 +888,8 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     if (refreshRequest === 0 || refreshRequest === lastRefreshRequestRef.current) return;
     lastRefreshRequestRef.current = refreshRequest;
 
-    if (!bundlerReady || !hasUserCode) return;
+    // Visual editing asked, for the screen on show.
+    if (!bundlerReady || !hasUserCode || !codeSession.onShow.get()) return;
 
     console.log('[MainPreview] Refresh requested (undo), using hot update');
 
@@ -897,14 +905,14 @@ const MainPreview: React.FC<MainPreviewProps> = ({
 
           // ✨ HOT UPDATE for undo: send via postMessage if possible
           if (isVisualEditActive && iframeRef.current?.contentWindow) {
-            const scriptCode = await bundleForHotUpdate(files, { injectSourceLocations: true });
+            const scriptCode = await bundleForHotUpdate(files, { injectSourceLocations: true, screen: codeSession.screenKey });
             iframeRef.current.contentWindow.postMessage({
               type: 'HOT_UPDATE',
               scriptCode,
             }, '*');
 
             console.log('[MainPreview] Undo hot update sent');
-            clearPreviewErrors();
+            clearShownErrors();
 
             // Re-inject inspector after DOM settles
             setTimeout(() => {
@@ -914,7 +922,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
             }, 50);
 
             // ✨ Generate new blob URL in background for "Open Externally" feature
-            const newExternalUrl = await createPreviewURL(files, { injectSourceLocations: true });
+            const newExternalUrl = await createPreviewURL(files, { injectSourceLocations: true, screen: codeSession.screenKey });
             if (latestExternalUrlRef.current) {
               URL.revokeObjectURL(latestExternalUrlRef.current);
             }
@@ -922,7 +930,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
             console.log('[MainPreview] External URL updated after undo');
           } else {
             // Not in visual edit mode or no iframe access - full reload
-            const url = await createPreviewURL(files, { injectSourceLocations: isVisualEditActive });
+            const url = await createPreviewURL(files, { injectSourceLocations: isVisualEditActive, screen: codeSession.screenKey });
             if (previousUrlRef.current) {
               URL.revokeObjectURL(previousUrlRef.current);
             }
@@ -962,7 +970,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
     try {
       // ✨ NEW: Enable source location injection when in visual edit mode
       const isVisualEdit = isVisualEditMode.get();
-      const url = await createPreviewURL(files, { injectSourceLocations: isVisualEdit });
+      const url = await createPreviewURL(files, { injectSourceLocations: isVisualEdit, screen: codeSession.screenKey });
 
       if (previousUrlRef.current) {
         URL.revokeObjectURL(previousUrlRef.current);
@@ -1157,12 +1165,16 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                     src={previewUrl}
                     className="w-full h-full border-0 rounded-[12px]"
                     title="Preview"
-                    sandbox="allow-scripts allow-same-origin"
+                    // Without allow-forms the browser never fires `submit`, so every <form onSubmit> app is dead;
+                    // without allow-modals confirm() answers "no" unasked. allow-same-origin already lets the page out.
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
                     ref={(el) => {
                       // @ts-ignore - Store locally and in stores
                       iframeRef.current = el;
                       testStore.setIframeRef(el);
-                      visualEditorStore.setIframeRef(el);
+                      // Visual editing has one frame per tab: the on-show screen's. Coming on
+                      // show re-renders this, which hands the frame over.
+                      if (codeSession.onShow.get()) visualEditorStore.setIframeRef(el);
                     }}
                     onLoad={() => {
                       // ✨ Inject persistent theme color listener
@@ -1288,6 +1300,14 @@ const MainPreview: React.FC<MainPreviewProps> = ({
                       transform: isRefreshing ? 'scale(0.995)' : 'scale(1)',
                       filter: isRefreshing ? 'blur(4px)' : 'blur(0px)',
                       transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                      // A phone or tablet width the agent is testing at, centred in the pane.
+                      ...(viewport ? {
+                        width: PREVIEW_VIEWPORTS[viewport].width,
+                        maxWidth: '100%',
+                        margin: '0 auto',
+                        display: 'block',
+                        boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.08)',
+                      } : null),
                     }}
                   />
 
@@ -1341,7 +1361,7 @@ const MainPreview: React.FC<MainPreviewProps> = ({
               {showFullLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#1c1c1c]">
                   <div className="flex flex-col items-center gap-8">
-                    <div className="w-[400px] h-[200px]">
+                    <div className="code-preview-loading-art w-[400px] h-[200px]">
                       <CpuArchitecture className="text-gray-600" />
                     </div>
                     <div className="relative h-6 overflow-hidden">

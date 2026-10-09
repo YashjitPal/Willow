@@ -868,7 +868,7 @@ export const resolveChatModel = ({
 
   const provider = (sel?.provider ?? 'gemini') as ChatProvider;
   const binding = resolveProviderBinding(modelConfig, provider, sel);
-  const rawModel = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.6-flash';
+  const rawModel = sel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.8-flash';
   const thinkingLevel: number = explicitThinkingLevel ?? sel?.thinkingLevel ?? modelConfig?.[provider]?.thinkingLevel ?? 0;
   const reasoningEffort = Array.isArray(sel?.reasoningEfforts)
     ? sel.reasoningEfforts.find((effort: any) => Number(effort.level) === thinkingLevel)?.value

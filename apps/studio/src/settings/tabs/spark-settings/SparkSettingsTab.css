@@ -272,7 +272,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-settings__link {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-settings:hover::-webkit-scrollbar-thumb {

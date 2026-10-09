@@ -11,12 +11,9 @@
 // unit. Export them only if a second caller genuinely appears.
 
 import React, { useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import {
-  MoreVertical,
   X,
-  Heart,
   Undo2,
   RotateCcw,
   Trash2,
@@ -24,7 +21,13 @@ import {
 } from 'lucide-react';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { ImagesIcon, VideoIcon } from './media-icons';
-import { FlowMenuItem, FlowMenuSeparator, MENU_EXIT_MS } from './HeaderMenus';
+import { Tooltip } from '@willow/ui/Tooltip';
+import { FlowIcon, FlowMatDivider, FlowMatMenu, FlowMatMenuItem, type MenuAnchor } from './scenes/flow-ui';
+import { AddToSceneSubmenu } from './scenes/AddToSceneSubmenu';
+import { DownloadOptions } from './editor/editor-overlays';
+import { useVideoStill } from './video-still';
+import { useLongPress } from './use-long-press';
+import { TouchMoreButton } from './TouchMoreButton';
 import './gallery-tile.css';
 import type { MediaItem, MediaKind } from './types';
 
@@ -35,26 +38,6 @@ import type { MediaItem, MediaKind } from './types';
  */
 const REVEAL_DURATION_MS = 2692.5;
 const ERROR_REVEAL_HOLD_MS = 2500;
-
-/*
- * The tile menu's own box, needed before it renders because the placement has to know whether it
- * fits below the trigger. Flow's is 182.32px wide, sized to its longest label; Willow's labels are
- * shorter, so the width is pinned instead of letting it shrink away from Flow's proportions.
- *
- * The height is derived rather than measured so it cannot drift the next time a row is added:
- * 8px of surface padding either side, nine 34px rows, four 1px rules with 4px of margin above
- * and below each, and a 4px flex gap between all thirteen children.
- */
-const MENU_WIDTH = 184;
-const MENU_ROWS = 9;
-const MENU_SEPARATORS = 4;
-const MENU_HEIGHT =
-  16
-  + MENU_ROWS * 34
-  + MENU_SEPARATORS * (1 + 8)
-  + (MENU_ROWS + MENU_SEPARATORS - 1) * 4;
-
-
 
 // Videos are stored durably as base64 data URLs (so they survive reload), but a
 // large base64 string is slow to load in a <video> element — it can't stream and
@@ -90,145 +73,13 @@ const MediaVideo = React.forwardRef<HTMLVideoElement, React.VideoHTMLAttributes<
 );
 MediaVideo.displayName = 'MediaVideo';
 
-const TileContent = React.memo(({
-  item,
-  isMenuOpen,
-  onMenuOpenChange: onMenuOpenChangeProp,
-  isHovered,
-  onCancel,
-  onRefresh,
-  onRePrompt,
-  onDelete,
-  onRename,
-  isRenaming,
-  setIsRenaming,
-  onAddToPrompt,
-  onAnimate,
-  projectName = 'Default',
-  onSetAsCover,
-  onToggleFavorite
-}: { 
-  item: MediaItem; 
-  isMenuOpen: boolean; 
-  onMenuOpenChange: (open: boolean, isContext?: boolean) => void; 
-  isHovered: boolean;
-  onCancel?: (id: string) => void;
-  onRefresh?: (item: MediaItem) => void;
-  onRePrompt?: (item: MediaItem) => void;
-  onDelete?: (id: string) => void;
-  onRename?: (id: string, newName: string) => void;
-  isRenaming?: boolean;
-  setIsRenaming?: (renaming: boolean) => void;
-  onAddToPrompt?: (item: MediaItem) => void;
-  onAnimate?: (item: MediaItem) => void;
-  projectName?: string;
-  onSetAsCover?: (url: string, isVideo?: boolean) => void;
-  onToggleFavorite?: (id: string) => void;
-}) => {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, refreshLocalMedia } = useLocalFS();
-
+/*
+ * The pieces of a tile the agent sidebar shares, so its preview of a generation is the same
+ * surface the canvas draws rather than an approximation. Moved out of TileContent verbatim;
+ * the generating liquid itself is still Flow's and still left alone (see AGENTS.md).
+ */
+export function useGenerationProgress(item: MediaItem): number {
   const [progress, setProgress] = React.useState(0);
-  const [renameValue, setRenameValue] = React.useState(item.shortenedPrompt || item.prompt);
-  const [boxPosition, setBoxPosition] = React.useState<'bottom' | 'top'>('bottom');
-  const [contextMenuCoords, setContextMenuCoords] = React.useState<{ x: number; y: number } | null>(null);
-
-  const onMenuOpenChange = (open: boolean, isContext?: boolean) => {
-    if (!open) {
-      if (dropdownRef.current) {
-        dropdownRef.current.style.display = 'none';
-      }
-    }
-    onMenuOpenChangeProp(open, isContext);
-  };
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-
-    requestAnimationFrame(() => {
-      const x = clientX - 4;
-      const y = clientY - 4;
-      const dropdownWidth = MENU_WIDTH;
-      const dropdownHeight = MENU_HEIGHT;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      let left = x;
-      if (left + dropdownWidth > viewportWidth - 4) {
-        left = viewportWidth - dropdownWidth - 4;
-      }
-      if (left < 4) left = 4;
-
-      let top = y;
-      if (top + dropdownHeight > viewportHeight - 4) {
-        top = viewportHeight - dropdownHeight - 4;
-        if (top < 4) {
-          top = 4;
-        }
-      }
-
-      setMenuStyle({
-        position: 'fixed',
-        left: `${left}px`,
-        top: `${top}px`,
-        width: `${dropdownWidth}px`,
-        zIndex: 9999,
-        transformOrigin: 'top left',
-      });
-
-      setContextMenuCoords({ x: clientX, y: clientY });
-      onMenuOpenChange(true, true);
-    });
-  };
-
-  React.useEffect(() => {
-    if (!isMenuOpen) {
-      setContextMenuCoords(null);
-    }
-  }, [isMenuOpen]);
-
-  React.useLayoutEffect(() => {
-    if (isRenaming && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      
-      // If the bottom of the card is within 160px of the viewport bottom, position it at the top
-      if (viewportHeight - rect.bottom < 160) {
-        setBoxPosition('top');
-      } else {
-        setBoxPosition('bottom');
-      }
-    }
-  }, [isRenaming]);
-
-  React.useEffect(() => {
-    if (!isRenaming) {
-      setRenameValue(item.shortenedPrompt || item.prompt);
-    }
-  }, [item.shortenedPrompt, item.prompt, isRenaming]);
-
-  const handleSave = () => {
-    if (onRename && renameValue.trim()) {
-      onRename(item.id, renameValue.trim());
-    }
-    if (setIsRenaming) {
-      setIsRenaming(false);
-    }
-  };
-
-  const handleCancel = () => {
-    if (setIsRenaming) {
-      setIsRenaming(false);
-    }
-    setRenameValue(item.shortenedPrompt || item.prompt);
-  };
 
   React.useEffect(() => {
     if (item.status !== 'generating') return;
@@ -236,7 +87,7 @@ const TileContent = React.memo(({
     const getEstimatedDuration = (modelId: string, kind: MediaKind) => {
       if (modelId === 'upload') return 1500;
       if (kind === 'image') {
-        if (modelId === 'gemini-3-pro-image-preview') return 7000;
+        if (modelId === 'gemini-3-pro-image' || modelId === 'gemini-3-pro-image-preview') return 7000;
         return 5000;
       } else {
         if (modelId === 'veo-3.1-fast') return 25000;
@@ -260,341 +111,10 @@ const TileContent = React.memo(({
     return () => clearInterval(interval);
   }, [item.status, item.timestamp, item.modelId, item.kind]);
 
-  React.useEffect(() => {
-    if (item.kind !== 'video' || !videoRef.current) return;
-    const video = videoRef.current;
-    if (isHovered) {
-      video.play().catch(() => {});
-    } else {
-      video.pause();
-    }
-  }, [isHovered, item.kind]);
+  return progress;
+}
 
-  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({
-    right: 0,
-    top: '100%',
-    bottom: 'auto',
-    marginTop: '-3px',
-    marginBottom: 'auto',
-    transformOrigin: 'top right'
-  });
-
-  /* Kept mounted for the length of `flow-menu-out`; unmounting on the click instead would make
-   * the menu vanish with no close animation at all. Same trick as `FlowMenu`. */
-  const [menuMounted, setMenuMounted] = React.useState(isMenuOpen);
-  React.useEffect(() => {
-    if (isMenuOpen) { setMenuMounted(true); return undefined; }
-    if (!menuMounted) return undefined;
-    const timer = window.setTimeout(() => setMenuMounted(false), MENU_EXIT_MS);
-    return () => window.clearTimeout(timer);
-  }, [isMenuOpen, menuMounted]);
-
-  React.useEffect(() => {
-    const handleClose = (event: Event) => {
-      if (event.type === 'scroll') {
-        onMenuOpenChange(false);
-        return;
-      }
-      
-      const mouseEvent = event as MouseEvent;
-      const clickedOutsideMenu = menuRef.current && !menuRef.current.contains(mouseEvent.target as Node);
-      const clickedOutsideDropdown = dropdownRef.current && !dropdownRef.current.contains(mouseEvent.target as Node);
-      
-      if (clickedOutsideMenu && clickedOutsideDropdown) {
-        onMenuOpenChange(false);
-      }
-    };
-
-    if (isMenuOpen) {
-      document.addEventListener('mousedown', handleClose, { capture: true });
-      document.addEventListener('scroll', handleClose, { capture: true, passive: true });
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClose, { capture: true });
-      document.removeEventListener('scroll', handleClose, { capture: true });
-    };
-  }, [isMenuOpen, onMenuOpenChange]);
-
-  React.useLayoutEffect(() => {
-    if (!isMenuOpen) return;
-
-    if (contextMenuCoords) {
-      // Offset slightly northwest (4px left, 4px up) to align closer to the cursor tip
-      const x = contextMenuCoords.x - 4;
-      const y = contextMenuCoords.y - 4;
-      const dropdownWidth = MENU_WIDTH;
-      const dropdownHeight = MENU_HEIGHT;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      let left = x;
-      if (left + dropdownWidth > viewportWidth - 4) {
-        left = viewportWidth - dropdownWidth - 4;
-      }
-      if (left < 4) left = 4;
-
-      let top = y;
-      if (top + dropdownHeight > viewportHeight - 4) {
-        // Slide up just enough to fit within the viewport bottom boundary
-        top = viewportHeight - dropdownHeight - 4;
-        if (top < 4) {
-          top = 4; // Cap at viewport top boundary if screen is too small
-        }
-      }
-
-      setMenuStyle({
-        position: 'fixed',
-        left: `${left}px`,
-        top: `${top}px`,
-        width: `${dropdownWidth}px`,
-        zIndex: 9999,
-        transformOrigin: 'top left',
-      });
-      return;
-    }
-
-    if (!menuRef.current) return;
-
-    const updatePosition = () => {
-      if (!menuRef.current) return;
-      const triggerRect = menuRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      const dropdownWidth = MENU_WIDTH;
-      const dropdownHeight = MENU_HEIGHT;
-
-      const centerRightOffset = (dropdownWidth - triggerRect.width) / 2;
-      const spaceOnRight = viewportWidth - triggerRect.right;
-      let rightOffset = centerRightOffset;
-      if (spaceOnRight < centerRightOffset + 12) {
-        rightOffset = Math.max(0, spaceOnRight - 12);
-      }
-      
-      const fixedRight = spaceOnRight - rightOffset;
-
-      // Compute actual bottom of dropdown when opening downwards (with 3px overlap/margin)
-      const actualDropdownBottom = triggerRect.bottom + dropdownHeight - 3;
-
-      // The only time it should appear up is when there is no space on the screen below
-      const openUp = actualDropdownBottom > (viewportHeight - 8);
-
-      setMenuStyle({
-        position: 'fixed',
-        right: `${fixedRight}px`,
-        top: openUp ? 'auto' : `${triggerRect.bottom - 3}px`,
-        bottom: openUp ? `${viewportHeight - triggerRect.top - 3}px` : 'auto',
-        width: `${dropdownWidth}px`,
-        zIndex: 9999,
-        transformOrigin: `${openUp ? 'bottom' : 'top'} ${rightOffset === 0 ? 'right' : 'center'}`,
-      });
-    };
-
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    return () => window.removeEventListener('resize', updatePosition);
-  }, [isMenuOpen, contextMenuCoords]);
-
-  /*
-   * Flow's menu, down to the glyph names and the grouping: Favorite at the top, Animate on its
-   * own, then the action cluster, then the cover, then the destructive row. `flow-menu.css`
-   * carries the styling, and `FlowMenuItem` is the same component the header's menus use because
-   * it is the same component in Flow. Copy is Willow's own addition to the cluster; Flow has no
-   * equivalent. Flow's first group also holds a Reuse prompt row, which Willow keeps only in the
-   * hover toolbar.
-   */
-  const dropdownContent = (
-    <>
-      <FlowMenuItem
-        body
-        glyph="favorite"
-        fill={!!item.favorite}
-        label="Favorite"
-        onSelect={(e) => {
-          e.stopPropagation();
-          onMenuOpenChange(false);
-          if (onToggleFavorite) onToggleFavorite(item.id);
-        }}
-      />
-
-      <FlowMenuSeparator />
-
-      <FlowMenuItem
-        body
-        glyph="motion_blur"
-        label="Animate"
-        onSelect={(e) => {
-          e.stopPropagation();
-          onMenuOpenChange(false);
-          if (onAnimate) onAnimate(item);
-        }}
-      />
-
-      <FlowMenuSeparator />
-
-      <FlowMenuItem
-        body
-        glyph="add"
-        label="Add to prompt"
-        onSelect={(e) => {
-          e.stopPropagation();
-          onMenuOpenChange(false);
-          if (onAddToPrompt) onAddToPrompt(item);
-        }}
-      />
-      <FlowMenuItem
-        body
-        glyph="download"
-        label="Download"
-        onSelect={async (e) => {
-          e.stopPropagation();
-          onMenuOpenChange(false);
-          if (item.url) {
-            const name = item.shortenedPrompt || item.prompt;
-            const ext = item.kind === 'video' ? 'mp4' : 'png';
-            const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
-            const filename = `${cleanName}.${ext}`;
-            try {
-              const response = await fetch(item.url);
-              const blob = await response.blob();
-              if (isLocalFolderConnected && !isLocalFolderAuthorized) {
-                // Prompt for folder access while we're in a user gesture; the
-                // auto-sync backfill effect then persists any unsaved items
-                // (recording fsName). Do NOT also save directly here — an
-                // already-saved item would get a second "name (1).png" on disk,
-                // which the reconciler ingests as a phantom duplicate tile.
-                await authorizeLocalFolder();
-              }
-              const blobUrl = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = blobUrl;
-              a.download = filename;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(blobUrl);
-            } catch (err) {
-              const a = document.createElement('a');
-              a.href = item.url;
-              a.download = filename;
-              a.target = '_blank';
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-            }
-          }
-        }}
-      />
-      <FlowMenuItem
-        body
-        glyph="whiteboard"
-        label="Rename"
-        onSelect={(e) => {
-          e.stopPropagation();
-          onMenuOpenChange(false);
-          if (setIsRenaming) {
-            setIsRenaming(true);
-          }
-        }}
-      />
-      <FlowMenuItem
-        body
-        glyph="content_copy"
-        label="Copy"
-        onSelect={async (e) => {
-          e.stopPropagation();
-          onMenuOpenChange(false);
-          if (item.url) {
-            if (item.kind === 'video') {
-              if (!item.url.startsWith('data:')) {
-                await navigator.clipboard.writeText(item.url);
-              }
-              return;
-            }
-            
-            try {
-              // To copy any image to clipboard reliably across all browsers,
-              // we load it into an Image, paint it to canvas, and write as 'image/png'.
-              // This bypasses browser restrictions on copying raw JPEG/WebP or base64 data strings.
-              const img = new Image();
-              img.crossOrigin = 'anonymous';
-              img.onload = () => {
-                try {
-                  const canvas = document.createElement('canvas');
-                  canvas.width = img.naturalWidth;
-                  canvas.height = img.naturalHeight;
-                  const ctx = canvas.getContext('2d');
-                  if (ctx) {
-                    ctx.drawImage(img, 0, 0);
-                    canvas.toBlob(async (pngBlob) => {
-                      if (pngBlob) {
-                        try {
-                          await navigator.clipboard.write([
-                            new ClipboardItem({
-                              'image/png': pngBlob
-                            })
-                          ]);
-                        } catch (err) {
-                          if (!item.url.startsWith('data:')) {
-                            await navigator.clipboard.writeText(item.url);
-                          }
-                        }
-                      }
-                    }, 'image/png');
-                  }
-                } catch (err) {
-                  if (!item.url.startsWith('data:')) {
-                    navigator.clipboard.writeText(item.url).catch(() => {});
-                  }
-                }
-              };
-              img.onerror = () => {
-                if (!item.url.startsWith('data:')) {
-                  navigator.clipboard.writeText(item.url).catch(() => {});
-                }
-              };
-              img.src = item.url;
-            } catch (err) {
-              if (!item.url.startsWith('data:')) {
-                await navigator.clipboard.writeText(item.url);
-              }
-            }
-          }
-        }}
-      />
-      <FlowMenuItem body glyph="share" label="Share" />
-
-      <FlowMenuSeparator />
-
-      <FlowMenuItem
-        body
-        glyph="photo_library"
-        label="Set as cover"
-        onSelect={(e) => {
-          e.stopPropagation();
-          onMenuOpenChange(false);
-          if (item.url && onSetAsCover) {
-            onSetAsCover(item.url, item.kind === 'video');
-          }
-        }}
-      />
-
-      <FlowMenuSeparator />
-
-      <FlowMenuItem
-        body
-        danger
-        glyph="delete"
-        label="Move to trash"
-        onSelect={(e) => {
-          e.stopPropagation();
-          onMenuOpenChange(false);
-          if (onDelete) onDelete(item.id);
-        }}
-      />
-    </>
-  );
-
+function useTileReveal(item: MediaItem) {
   const [isImageReady, setIsImageReady] = React.useState(false);
 
   React.useEffect(() => {
@@ -665,15 +185,18 @@ const TileContent = React.memo(({
   // The finished media mounts with the reveal, not before, so the glass fades it in from zero.
   const showMedia = item.status === 'completed' && !!item.url && revealPhase !== 'loading';
 
+  return { revealPhase, isRevealing, showGeneratingOverlay, showMedia };
+}
+
+/** The drifting liquid behind a generating tile. `children` is the chrome drawn over it. */
+export function GeneratingLayers({ isRevealing, children }: { isRevealing: boolean; children?: React.ReactNode }) {
   return (
-  <>
-    {showGeneratingOverlay && (
       <div
         className={`mesh-container-generating ${isRevealing ? 'mesh-container-generating--revealing' : ''}`}
         style={{ zIndex: 50, pointerEvents: 'none' }}
       >
         <div
-          className={`absolute inset-0 z-10 overflow-hidden rounded-[18px] opacity-100 pointer-events-none ${isRevealing ? 'mesh-noise--revealing' : ''}`}
+          className={`absolute inset-0 z-10 overflow-hidden rounded-[16px] opacity-100 pointer-events-none ${isRevealing ? 'mesh-noise--revealing' : ''}`}
           style={{ filter: 'brightness(1) contrast(1)', mixBlendMode: 'luminosity' }}
         >
           <div className="absolute inset-0 bg-black" style={{ filter: 'blur(12px) contrast(0.9)' }}>
@@ -710,7 +233,7 @@ const TileContent = React.memo(({
         .mesh-container-generating {
           position: absolute;
           inset: 0;
-          border-radius: 18px;
+          border-radius: 16px;
           background-color: #5F6368; 
           overflow: hidden;
           container-type: inline-size;
@@ -727,6 +250,461 @@ const TileContent = React.memo(({
         }
       `}} />
 
+        {children}
+      </div>
+  );
+}
+
+/*
+ * One gallery item drawn the way its canvas tile draws it — the same generating liquid,
+ * reveal and failure card — without the tile's toolbar, menus or drag handling. The agent
+ * sidebar renders one inside each of its media cards. `item` is undefined for the moment
+ * between a generation being announced and its tile reaching the gallery.
+ */
+export function MediaTilePreview({ item }: { item?: MediaItem }) {
+  if (!item) {
+    return (
+      <span className="absolute inset-0 block overflow-hidden bg-[#0c0c0c]">
+        <GeneratingLayers isRevealing={false} />
+      </span>
+    );
+  }
+  return <MediaTilePreviewContent item={item} />;
+}
+
+function MediaTilePreviewContent({ item }: { item: MediaItem }) {
+  const { revealPhase, isRevealing, showGeneratingOverlay, showMedia } = useTileReveal(item);
+  const progress = useGenerationProgress(item);
+  const glassClass = `gallery-tile-glass ${isRevealing ? 'gallery-tile-glass--revealing' : 'gallery-tile-glass--settled'}`;
+  const mediaClass = `w-full h-full object-cover rounded-[16px] ${isRevealing ? 'gallery-tile-image--revealing' : ''}`;
+
+  // A video behaves as on its canvas tile: a still until first hovered, then playing only while
+  // hovered and paused where it was left. One that lands while shown loads at once, for the reveal.
+  const isVideo = item.kind === 'video';
+  const [hovered, setHovered] = React.useState(false);
+  const [videoLoaded, setVideoLoaded] = React.useState(() => item.status === 'generating');
+  const still = useVideoStill(isVideo && !videoLoaded ? item.url : undefined);
+  const holdVideo = isVideo && !videoLoaded && still !== null;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hoveredRef = useRef(hovered);
+  hoveredRef.current = hovered;
+  React.useEffect(() => {
+    if (hovered && isVideo) setVideoLoaded(true);
+  }, [hovered, isVideo]);
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!isVideo || !video) return;
+    if (hovered) video.play().catch(() => {});
+    else video.pause();
+  }, [hovered, isVideo]);
+
+  return (
+    <span
+      className="absolute inset-0 block overflow-hidden bg-[#0c0c0c]"
+      onMouseEnter={isVideo ? () => setHovered(true) : undefined}
+      onMouseLeave={isVideo ? () => setHovered(false) : undefined}
+    >
+      {showGeneratingOverlay && (
+        <GeneratingLayers isRevealing={isRevealing}>
+          <div className={`absolute inset-0 z-30 pointer-events-none ${isRevealing ? 'mesh-chrome--revealing' : ''}`}>
+            <div className="absolute top-3 left-3 select-none">
+              {item.kind === 'video' ? (
+                <VideoIcon size={16} className="text-zinc-400 shrink-0" />
+              ) : (
+                <ImagesIcon size={16} className="text-zinc-400 shrink-0" />
+              )}
+            </div>
+            <div className="absolute top-3 right-3 select-none">
+              <span className="text-[12px] font-normal text-zinc-400 leading-none">{progress}%</span>
+            </div>
+          </div>
+        </GeneratingLayers>
+      )}
+
+      {showMedia && (
+        <div className={glassClass}>
+          {isVideo ? (
+            <MediaVideo
+              ref={videoRef}
+              src={holdVideo ? undefined : item.url}
+              poster={still || undefined}
+              preload={holdVideo ? 'none' : undefined}
+              // The first hover sets the source a render after it asks to play.
+              onCanPlay={() => { if (hoveredRef.current) videoRef.current?.play().catch(() => {}); }}
+              loop
+              muted
+              playsInline
+              className={mediaClass}
+              draggable={false}
+            />
+          ) : (
+            <img src={item.url} alt={item.shortenedPrompt || item.prompt} className={mediaClass} draggable={false} />
+          )}
+        </div>
+      )}
+
+      {item.status === 'failed' && revealPhase !== 'loading' && (
+        <div className={glassClass}>
+          <div className={`absolute inset-0 ${isRevealing ? 'gallery-tile-image--revealing' : ''}`}>
+            <div className="absolute inset-0 flex flex-col items-start p-3 bg-gradient-to-b from-[#232323] to-[#171717] rounded-[16px] text-left">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" strokeLinejoin="miter" className="text-zinc-200 shrink-0">
+                <path d="M12 2 L22 21 H2 Z" />
+                <line x1="12" y1="8" x2="12" y2="14" />
+                <line x1="12" y1="17.5" x2="12" y2="18" strokeWidth="2.5" />
+              </svg>
+              <span className="text-[12px] font-semibold text-zinc-200 mt-1.5 leading-none">Failed</span>
+              <span className="text-[11.5px] font-normal text-zinc-300 mt-1 leading-relaxed line-clamp-4 max-w-full break-words">
+                {item.error || 'This media could not be generated.'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+const TileContent = React.memo(({
+  item,
+  isMenuOpen,
+  onMenuOpenChange: onMenuOpenChangeProp,
+  isHovered,
+  onCancel,
+  onRefresh,
+  onRePrompt,
+  onDelete,
+  onRename,
+  isRenaming,
+  setIsRenaming,
+  onAddToPrompt,
+  onAnimate,
+  projectName = 'Default',
+  onSetAsCover,
+  onToggleFavorite,
+  onShare,
+  onFlag,
+  onSetCollectionCover,
+  onMoveOutOfCollection,
+  onSelectionMenu,
+  hasHistory = false,
+}: { 
+  item: MediaItem; 
+  isMenuOpen: boolean; 
+  onMenuOpenChange: (open: boolean, isContext?: boolean) => void; 
+  isHovered: boolean;
+  onCancel?: (id: string) => void;
+  onRefresh?: (item: MediaItem) => void;
+  onRePrompt?: (item: MediaItem) => void;
+  onDelete?: (id: string) => void;
+  onRename?: (id: string, newName: string) => void;
+  isRenaming?: boolean;
+  setIsRenaming?: (renaming: boolean) => void;
+  onAddToPrompt?: (item: MediaItem) => void;
+  onAnimate?: (item: MediaItem) => void;
+  projectName?: string;
+  onSetAsCover?: (url: string, isVideo?: boolean) => void;
+  onToggleFavorite?: (id: string) => void;
+  onShare?: (item: MediaItem) => void;
+  onFlag?: (item: MediaItem) => void;
+  /** Set inside a collection only, like the next one. */
+  onSetCollectionCover?: (item: MediaItem) => void;
+  onMoveOutOfCollection?: (id: string) => void;
+  /** Set while the tile is part of a selection: its right-click opens the selection's menu instead. */
+  onSelectionMenu?: (x: number, y: number) => void;
+  /** Other versions exist (an edit history): Flow's `stacks` badge. */
+  hasHistory?: boolean;
+}) => {
+  /** Made by a model. Only such an item has a prompt to reuse, sizes to upscale to, and an output to share or flag. */
+  const generated = item.modelId !== 'upload' && item.modelId !== 'crop' && item.modelId !== 'external' && !!item.prompt;
+  const menuRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  /** The touch screens' lasting three dots, and whether the open menu came from them. */
+  const touchMoreRef = useRef<HTMLButtonElement>(null);
+  const openedFromTouchMore = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const { isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, refreshLocalMedia } = useLocalFS();
+
+  const [renameValue, setRenameValue] = React.useState(item.shortenedPrompt || item.prompt);
+  const [boxPosition, setBoxPosition] = React.useState<'bottom' | 'top'>('bottom');
+  const [contextMenuCoords, setContextMenuCoords] = React.useState<{ x: number; y: number } | null>(null);
+
+  const onMenuOpenChange = (open: boolean, isContext?: boolean) => {
+    onMenuOpenChangeProp(open, isContext);
+  };
+
+  // Flow opens a tile's context menu with its corner exactly at the pointer.
+  const openContextMenu = (x: number, y: number) => {
+    if (onSelectionMenu) { onSelectionMenu(x, y); return; }
+    setContextMenuCoords({ x, y });
+    onMenuOpenChange(true, true);
+  };
+  // A touch screen's right-click: a long press (use-long-press.ts).
+  const longPress = useLongPress(openContextMenu);
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    longPress.cancel();
+    if (longPress.justFired()) return;
+    openContextMenu(e.clientX, e.clientY);
+  };
+
+  React.useEffect(() => {
+    if (!isMenuOpen) {
+      setContextMenuCoords(null);
+      openedFromTouchMore.current = false;
+    }
+  }, [isMenuOpen]);
+
+  React.useLayoutEffect(() => {
+    if (isRenaming && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      
+      // If the bottom of the card is within 160px of the viewport bottom, position it at the top
+      if (viewportHeight - rect.bottom < 160) {
+        setBoxPosition('top');
+      } else {
+        setBoxPosition('bottom');
+      }
+    }
+  }, [isRenaming]);
+
+  React.useEffect(() => {
+    if (!isRenaming) {
+      setRenameValue(item.shortenedPrompt || item.prompt);
+    }
+  }, [item.shortenedPrompt, item.prompt, isRenaming]);
+
+  const handleSave = () => {
+    if (onRename && renameValue.trim()) {
+      onRename(item.id, renameValue.trim());
+    }
+    if (setIsRenaming) {
+      setIsRenaming(false);
+    }
+  };
+
+  const handleCancel = () => {
+    if (setIsRenaming) {
+      setIsRenaming(false);
+    }
+    setRenameValue(item.shortenedPrompt || item.prompt);
+  };
+
+  const progress = useGenerationProgress(item);
+
+  // Flow loads a tile's video on its first hover and keeps it loaded after, paused where it was
+  // left; until then the tile is a still of the first frame (video-still.ts) and loads nothing.
+  // A tile that mounts while generating loads its video the moment it lands, for the reveal.
+  const [videoLoaded, setVideoLoaded] = React.useState(() => item.status === 'generating');
+  const still = useVideoStill(item.kind === 'video' && !videoLoaded ? item.url : undefined);
+  const holdVideo = item.kind === 'video' && !videoLoaded && still !== null;
+  const hoveredRef = useRef(isHovered);
+  hoveredRef.current = isHovered;
+  React.useEffect(() => {
+    if (isHovered && item.kind === 'video') setVideoLoaded(true);
+  }, [isHovered, item.kind]);
+
+  React.useEffect(() => {
+    if (item.kind !== 'video' || !videoRef.current) return;
+    const video = videoRef.current;
+    if (isHovered) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
+  }, [isHovered, item.kind]);
+
+  // The menu is Flow's mat-menu (`scenes/flow-ui`): it places, animates and dismisses itself.
+  // This only closes it when the gallery scrolls out from under it.
+  React.useEffect(() => {
+    if (!isMenuOpen) return undefined;
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest('[data-sb-menu]')) return;
+      onMenuOpenChange(false);
+    };
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => document.removeEventListener('scroll', onScroll, { capture: true });
+  }, [isMenuOpen, onMenuOpenChange]);
+
+  const [menuAnchor, setMenuAnchor] = React.useState<MenuAnchor | null>(null);
+  React.useLayoutEffect(() => {
+    if (!isMenuOpen) return;
+    const trigger = openedFromTouchMore.current ? touchMoreRef.current : moreButtonRef.current;
+    if (contextMenuCoords) setMenuAnchor({ kind: 'point', x: contextMenuCoords.x, y: contextMenuCoords.y });
+    else if (trigger) setMenuAnchor({ kind: 'below', rect: trigger.getBoundingClientRect() });
+  }, [isMenuOpen, contextMenuCoords]);
+
+  /*
+   * Flow's current tile menu (flow.google.com, Angular Material) in its own order: Favorite and
+   * Reuse prompt; Add to scene for a video, Animate for an image; the action cluster; the cover;
+   * Flag output; the destructive rows. An item no model made (an upload, a saved frame) has no
+   * Reuse prompt, Share or Flag output, and downloads at once instead of offering sizes. Inside a
+   * collection the cover row asks which cover, and Move out of collection joins Move to trash.
+   * Flow's Publish to YouTube has no Willow counterpart and is left out rather than shown dead.
+   * The menu closes itself after a row runs.
+   */
+  const downloadItem = async () => {
+    if (item.url) {
+      const name = item.shortenedPrompt || item.prompt;
+      const ext = item.kind === 'video' ? 'mp4' : 'png';
+      const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
+      const filename = `${cleanName}.${ext}`;
+      try {
+        const response = await fetch(item.url);
+        const blob = await response.blob();
+        if (isLocalFolderConnected && !isLocalFolderAuthorized) {
+          // Prompt for folder access while we're in a user gesture; the
+          // auto-sync backfill effect then persists any unsaved items
+          // (recording fsName). Do NOT also save directly here — an
+          // already-saved item would get a second "name (1).png" on disk,
+          // which the reconciler ingests as a phantom duplicate tile.
+          await authorizeLocalFolder();
+        }
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      } catch (err) {
+        const a = document.createElement('a');
+        a.href = item.url;
+        a.download = filename;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    }
+  };
+
+  const copyItem = async () => {
+    if (item.url) {
+      if (item.kind === 'video') {
+        if (!item.url.startsWith('data:')) {
+          await navigator.clipboard.writeText(item.url);
+        }
+        return;
+      }
+
+      try {
+        // To copy any image to clipboard reliably across all browsers,
+        // we load it into an Image, paint it to canvas, and write as 'image/png'.
+        // This bypasses browser restrictions on copying raw JPEG/WebP or base64 data strings.
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0);
+              canvas.toBlob(async (pngBlob) => {
+                if (pngBlob) {
+                  try {
+                    await navigator.clipboard.write([
+                      new ClipboardItem({
+                        'image/png': pngBlob
+                      })
+                    ]);
+                  } catch (err) {
+                    if (!item.url.startsWith('data:')) {
+                      await navigator.clipboard.writeText(item.url);
+                    }
+                  }
+                }
+              }, 'image/png');
+            }
+          } catch (err) {
+            if (!item.url.startsWith('data:')) {
+              navigator.clipboard.writeText(item.url).catch(() => {});
+            }
+          }
+        };
+        img.onerror = () => {
+          if (!item.url.startsWith('data:')) {
+            navigator.clipboard.writeText(item.url).catch(() => {});
+          }
+        };
+        img.src = item.url;
+      } catch (err) {
+        if (!item.url.startsWith('data:')) {
+          await navigator.clipboard.writeText(item.url);
+        }
+      }
+    }
+  };
+
+  const dropdownContent = (
+    <>
+      <FlowMatMenuItem icon="favorite" iconFill={!!item.favorite} label="Favorite" onSelect={() => onToggleFavorite?.(item.id)} />
+      {generated && <FlowMatMenuItem icon="keyboard_return" label="Reuse prompt" onSelect={() => onRePrompt?.(item)} />}
+      <FlowMatDivider />
+      {item.kind === 'video' ? (
+        <FlowMatMenuItem
+          icon="play_movies"
+          label="Add to scene"
+          disabled={item.status !== 'completed' || !item.url}
+          submenu={<AddToSceneSubmenu item={{ id: item.id, url: item.url, ratio: item.ratio }} />}
+        />
+      ) : (
+        <FlowMatMenuItem icon="motion_blur" label="Animate" onSelect={() => onAnimate?.(item)} />
+      )}
+      <FlowMatDivider />
+      <FlowMatMenuItem icon="add_2" label="Add to prompt" onSelect={() => onAddToPrompt?.(item)} />
+      {generated && item.status === 'completed' && item.url ? (
+        <FlowMatMenuItem icon="download" label="Download" submenu={<DownloadOptions item={item} />} />
+      ) : (
+        <FlowMatMenuItem icon="download" label="Download" onSelect={() => { void downloadItem(); }} />
+      )}
+      <FlowMatMenuItem icon="content_copy" label="Copy" onSelect={() => { void copyItem(); }} />
+      <FlowMatMenuItem icon="edit" label="Rename" onSelect={() => setIsRenaming?.(true)} />
+      {generated && <FlowMatMenuItem icon="share" label="Share" onSelect={() => onShare?.(item)} />}
+      <FlowMatDivider />
+      {onSetCollectionCover ? (
+        <FlowMatMenuItem
+          icon="photo_library"
+          label="Set cover image"
+          submenu={(
+            <>
+              <FlowMatMenuItem label="Set project cover" onSelect={() => { if (item.url && onSetAsCover) onSetAsCover(item.url, item.kind === 'video'); }} />
+              <FlowMatMenuItem label="Set collection cover" onSelect={() => onSetCollectionCover(item)} />
+            </>
+          )}
+        />
+      ) : (
+        <FlowMatMenuItem
+          icon="photo_library"
+          label="Set project cover"
+          onSelect={() => { if (item.url && onSetAsCover) onSetAsCover(item.url, item.kind === 'video'); }}
+        />
+      )}
+      {generated && (
+        <>
+          <FlowMatDivider />
+          <FlowMatMenuItem icon="flag" label="Flag output" onSelect={() => onFlag?.(item)} />
+        </>
+      )}
+      <FlowMatDivider />
+      {onMoveOutOfCollection && (
+        <FlowMatMenuItem icon="drive_file_move_outline" label="Move out of collection" onSelect={() => onMoveOutOfCollection(item.id)} />
+      )}
+      <FlowMatMenuItem icon="delete" label="Move to trash" danger onSelect={() => onDelete?.(item.id)} />
+    </>
+  );
+
+  const { revealPhase, isRevealing, showGeneratingOverlay, showMedia } = useTileReveal(item);
+
+  return (
+  <>
+    {showGeneratingOverlay && (
+      <GeneratingLayers isRevealing={isRevealing}>
         {/* Foreground Content */}
         <div className={`absolute inset-0 z-30 pointer-events-none ${isRevealing ? 'mesh-chrome--revealing' : ''}`}>
           <div className="absolute top-4 left-4 pointer-events-none select-none">
@@ -769,7 +747,7 @@ const TileContent = React.memo(({
             </div>
           </div>
         </div>
-      </div>
+      </GeneratingLayers>
     )}
  
     {showMedia && (
@@ -777,35 +755,29 @@ const TileContent = React.memo(({
         ref={containerRef}
         className={`gallery-tile-glass ${isRevealing ? 'gallery-tile-glass--revealing' : 'gallery-tile-glass--settled'}`}
         onContextMenu={handleContextMenu}
+        {...longPress.handlers}
       >
         {item.kind === 'video' ? (
           <>
             <MediaVideo
               ref={videoRef}
-              src={item.url}
+              src={holdVideo ? undefined : item.url}
+              poster={still || undefined}
+              preload={holdVideo ? 'none' : undefined}
+              // The first hover sets the source a render after it asks to play.
+              onCanPlay={() => { if (hoveredRef.current) videoRef.current?.play().catch(() => {}); }}
               loop
               muted
               playsInline
-              className={`w-full h-full object-cover rounded-[18px] ${isRevealing ? 'gallery-tile-image--revealing' : ''}`}
+              className={`w-full h-full object-cover rounded-[16px] ${isRevealing ? 'gallery-tile-image--revealing' : ''}`}
               draggable={false}
             />
-            <div className="absolute top-3.5 left-3.5 w-[22px] h-[22px] flex items-center justify-center shadow-md pointer-events-none group-hover:opacity-0 transition-opacity duration-300 z-20 rounded-full">
-              <svg viewBox="0 0 26 26" className="w-[22px] h-[22px] text-white fill-current">
-                <defs>
-                  <mask id={`play-cutout-${item.id}`}>
-                    <rect x="0" y="0" width="26" height="26" fill="white" />
-                    <path d="M10.5 9v8l7-4z" fill="black" />
-                  </mask>
-                </defs>
-                <circle cx="13" cy="13" r="12" mask={`url(#play-cutout-${item.id})`} />
-              </svg>
-            </div>
           </>
         ) : (
           <img
             src={item.url}
             alt={item.shortenedPrompt || item.prompt}
-            className={`w-full h-full object-cover rounded-[18px] ${isRevealing ? 'gallery-tile-image--revealing' : ''}`}
+            className={`w-full h-full object-cover rounded-[16px] ${isRevealing ? 'gallery-tile-image--revealing' : ''}`}
             draggable="false"
           />
         )}
@@ -817,7 +789,7 @@ const TileContent = React.memo(({
         className={`gallery-tile-glass ${isRevealing ? 'gallery-tile-glass--revealing' : 'gallery-tile-glass--settled'}`}
       >
         <div className={`absolute inset-0 ${isRevealing ? 'gallery-tile-image--revealing' : ''}`}>
-          <div className="absolute inset-0 flex flex-col items-start p-4 bg-gradient-to-b from-[#232323] to-[#171717] rounded-[18px] select-text">
+          <div className="absolute inset-0 flex flex-col items-start p-4 bg-gradient-to-b from-[#232323] to-[#171717] rounded-[16px] select-text">
         {/* Steep Sharp Warning Triangle */}
         <svg 
           viewBox="0 0 24 24" 
@@ -907,63 +879,93 @@ const TileContent = React.memo(({
  
     {showMedia && (
       <>
-        <div className={`absolute top-3 right-3 transition-all duration-300 z-30 ${
-          isRenaming 
-            ? 'opacity-0 -translate-y-2 pointer-events-none' 
-            : `opacity-0 -translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 pointer-events-none group-hover:pointer-events-auto ${(isMenuOpen && !contextMenuCoords) ? '!opacity-100 !translate-y-0 !transition-none' : ''}`
-        }`}>
-          <div className="flex items-center gap-[3.5px] bg-white/70 backdrop-blur-[80px] rounded-[11px] p-[3.5px] shadow-xl pointer-events-auto" ref={menuRef}>
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onToggleFavorite) onToggleFavorite(item.id);
-              }}
-              className="w-[28px] h-[28px] flex items-center justify-center rounded-[7px] bg-transparent hover:bg-white transition-colors duration-200 outline-none cursor-pointer"
-              title={item.favorite ? 'Remove from favorites' : 'Add to favorites'}
-            >
-               <Heart size={17} className="text-[#1a1a1a]" strokeWidth={2} fill={item.favorite ? 'currentColor' : 'none'} />
-            </button>
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onRePrompt) onRePrompt(item);
-              }}
-              className="w-[28px] h-[28px] flex items-center justify-center rounded-[7px] bg-transparent hover:bg-white transition-colors duration-200 outline-none cursor-pointer"
-              title="Use prompt again"
-            >
-               <Undo2 size={17} className="text-[#1a1a1a]" strokeWidth={2} style={{ transform: 'scaleY(-1)' }} />
-            </button>
-            <button 
-              className={`w-[28px] h-[28px] flex items-center justify-center rounded-[7px] transition-colors duration-200 outline-none ${(isMenuOpen && !contextMenuCoords) ? 'bg-white' : 'bg-transparent hover:bg-white'}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onMenuOpenChange(!isMenuOpen);
-              }}
-            >
-               <MoreVertical size={17} className="text-[#1a1a1a]" strokeWidth={2} />
-            </button>
-          </div>
- 
-          {/*
-            * Dropdown menu. One surface for both ways in — the three-dot button and a right-click —
-            * because Flow animates both the same way: 200ms of `flow-menu-in` opening, 100ms of
-            * `flow-menu-out` closing. The exit is why this stays mounted past `isMenuOpen`.
-            */}
-          {createPortal(
-            menuMounted ? (
-              <div
-                ref={dropdownRef}
-                role="menu"
-                data-state={isMenuOpen ? 'open' : 'closed'}
-                style={{ ...menuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
-                className="flow-menu flow-menu--fit pointer-events-auto"
-              >
-                {dropdownContent}
-              </div>
-            ) : null,
-            document.body
+        {/* Flow's tile chrome (gallery-tile.css): the badges at rest, and on hover the hotbar,
+          * with Reuse prompt only where there is a prompt to reuse, and the name footer. */}
+        <div className="gt-pre">
+          {item.kind === 'video' && (
+            <div className="gt-type"><FlowIcon name="play_circle" size={22} fill /></div>
+          )}
+          {hasHistory && (
+            <div className="gt-status"><FlowIcon name="stacks" size={18} /></div>
           )}
         </div>
+        <div
+          className={`gt-hover${(isMenuOpen && !contextMenuCoords) ? ' is-menu-open' : ''}`}
+          style={isRenaming ? { opacity: 0, visibility: 'hidden' } : undefined}
+        >
+          <div className="sb-hotbar-wrap">
+            <div className="sb-hotbar" ref={menuRef} onMouseDown={(e) => e.stopPropagation()}>
+              <Tooltip content="Favorite" position="above" className="sb-tooltip">
+                <button
+                  type="button"
+                  className="sb-hotbar-btn"
+                  aria-label="Favorite"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onToggleFavorite) onToggleFavorite(item.id);
+                  }}
+                >
+                  <FlowIcon name="favorite" size={18} fill={!!item.favorite} />
+                </button>
+              </Tooltip>
+              {generated && (
+                <Tooltip content="Reuse prompt" position="above" className="sb-tooltip">
+                  <button
+                    type="button"
+                    className="sb-hotbar-btn"
+                    aria-label="Reuse prompt"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onRePrompt) onRePrompt(item);
+                    }}
+                  >
+                    <FlowIcon name="redo" size={18} style={{ transform: 'rotate(180deg)' }} />
+                  </button>
+                </Tooltip>
+              )}
+              <Tooltip content="More" position="above" className="sb-tooltip">
+                <button
+                  ref={moreButtonRef}
+                  type="button"
+                  className="sb-hotbar-btn"
+                  aria-label="More options"
+                  aria-expanded={isMenuOpen && !contextMenuCoords}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMenuOpenChange(!isMenuOpen);
+                  }}
+                >
+                  <FlowIcon name="more_vert" size={18} />
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+          <div className="gt-footer">
+            <div className="gt-footer__left">
+              <FlowIcon name={item.kind === 'video' ? 'play_circle' : item.kind === 'audio' ? 'music_note' : 'image'} size={18} />
+              <span className="gt-footer__title">{item.shortenedPrompt || item.prompt}</span>
+            </div>
+          </div>
+        </div>
+        <TouchMoreButton
+          ref={touchMoreRef}
+          open={isMenuOpen && !contextMenuCoords}
+          hidden={isRenaming}
+          onToggle={() => {
+            openedFromTouchMore.current = !isMenuOpen;
+            onMenuOpenChange(!isMenuOpen);
+          }}
+        />
+
+        {/* One menu for both ways in, the three-dot button and a right-click, as in Flow. */}
+        <FlowMatMenu
+          open={isMenuOpen}
+          onClose={() => onMenuOpenChange(false)}
+          anchor={menuAnchor}
+          ignoreRefs={[menuRef]}
+        >
+          {dropdownContent}
+        </FlowMatMenu>
         
         {isRenaming && (
           <div 
@@ -1056,6 +1058,8 @@ const GalleryTile = React.memo(({
   isDragging,
   isSelected,
   dimmed,
+  dragDimmed = false,
+  hasHistory = false,
   interactionsMuted,
   onTileMouseDown,
   onTileClick,
@@ -1071,7 +1075,12 @@ const GalleryTile = React.memo(({
   onSetAsCover,
   onAddToPrompt,
   onAnimate,
-  onToggleFavorite
+  onToggleFavorite,
+  onShare,
+  onFlag,
+  onSetCollectionCover,
+  onMoveOutOfCollection,
+  onSelectionMenu,
 }: {
   item: MediaItem;
   projectName: string;
@@ -1086,6 +1095,10 @@ const GalleryTile = React.memo(({
   isDragging: boolean;
   isSelected: boolean;
   dimmed: boolean;
+  /** Flow dims every tile a drag doesn't carry (drag/drag.css). */
+  dragDimmed?: boolean;
+  /** The tile stands for an edit history (Flow's `stacks` badge). */
+  hasHistory?: boolean;
   interactionsMuted: boolean;
   onTileMouseDown: (item: MediaItem, e: React.MouseEvent) => void;
   onTileClick: (item: MediaItem) => void;
@@ -1102,6 +1115,13 @@ const GalleryTile = React.memo(({
   onAddToPrompt: (item: MediaItem) => void;
   onAnimate: (item: MediaItem) => void;
   onToggleFavorite: (id: string) => void;
+  onShare: (item: MediaItem) => void;
+  onFlag: (item: MediaItem) => void;
+  /** Given only inside a collection, like the next one. */
+  onSetCollectionCover?: (item: MediaItem) => void;
+  onMoveOutOfCollection?: (id: string) => void;
+  /** Given while the tile is part of a selection (see TileContent). */
+  onSelectionMenu?: (x: number, y: number) => void;
 }) => {
   const handleMenuOpenChange = React.useCallback(
     (open: boolean, isContext?: boolean) => onMenuOpenChange(item.id, open, isContext),
@@ -1124,15 +1144,11 @@ const GalleryTile = React.memo(({
         flexGrow: isLastRow ? 0 : ar,
         flexBasis: `${finalWidth}px`,
         height: `${finalHeight}px`,
-        borderWidth: item.status === 'completed' ? '0.5px' : '0px',
-        borderColor: item.status === 'completed' ? '#0e0e10' : 'transparent',
         cursor: isRenaming ? 'default' : isDragging ? 'grabbing' : 'grab',
       }}
       data-id={item.id}
-      className={`gallery-tile relative rounded-[18px] bg-[#0c0c0c] shadow-2xl ${
+      className={`gallery-tile dg-tile${dragDimmed ? ' is-drag-dimmed' : ''} relative rounded-[16px] bg-[#0c0c0c] shadow-2xl border-none ${
         interactionsMuted ? '' : 'group'
-      } ${
-        item.status === 'completed' ? 'border' : 'border-none'
       } ${
         isRenaming
           ? 'overflow-visible z-50'
@@ -1165,11 +1181,17 @@ const GalleryTile = React.memo(({
         onAddToPrompt={onAddToPrompt}
         onAnimate={onAnimate}
         onToggleFavorite={onToggleFavorite}
+        onShare={onShare}
+        onFlag={onFlag}
+        onSetCollectionCover={onSetCollectionCover}
+        onMoveOutOfCollection={onMoveOutOfCollection}
+        onSelectionMenu={onSelectionMenu}
+        hasHistory={hasHistory}
       />
 
       {/* Smooth fading local dark overlay for all other images/videos */}
       <div
-        className={`absolute inset-0 bg-black/55 rounded-[18px] z-[35] pointer-events-none transition-opacity duration-[400ms] ${
+        className={`absolute inset-0 bg-black/55 rounded-[16px] z-[35] pointer-events-none transition-opacity duration-[400ms] ${
           dimmed
             ? 'opacity-100'
             : 'opacity-0'
@@ -1178,16 +1200,10 @@ const GalleryTile = React.memo(({
 
       {/* Selection white border overlay to prevent any gap */}
       <div
-        className={`absolute rounded-[18px] pointer-events-none z-[38] transition-opacity duration-300 ease-in-out ${
+        className={`absolute inset-0 rounded-[16px] pointer-events-none z-[38] transition-opacity duration-300 ease-in-out ${
           isSelected ? 'opacity-100' : 'opacity-0'
         }`}
-        style={{
-          top: item.status === 'completed' ? '-0.5px' : '0px',
-          left: item.status === 'completed' ? '-0.5px' : '0px',
-          right: item.status === 'completed' ? '-0.5px' : '0px',
-          bottom: item.status === 'completed' ? '-0.5px' : '0px',
-          border: '2.2px solid white',
-        }}
+        style={{ border: '2.2px solid white' }}
       />
     </motion.div>
   );

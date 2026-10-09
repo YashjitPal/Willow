@@ -1,0 +1,324 @@
+/*
+ * The Tools pages on tablets (601-960px) and phones (600px and below): Willow's narrow layout for
+ * Flow's Tools tab, whose own stylesheet (flow-tools.css) barely narrows.
+ *
+ * - Every header is the narrow 64px bar (56px on a phone). A tool's keeps its name and actions in
+ *   one row; on a phone App / Edit (or Remix tool) drops to a row of its own, and More takes
+ *   Favorite, Share and Apply to be featured (ToolViewPage.tsx). Explore tools' My Tools /
+ *   Community / Templates drops under its title the same way, beside the drawer's menu button.
+ * - Edit is one pane at a time, the Tool Builder or the tool's Preview or Code, picked from a row
+ *   above them, where the desktop puts the builder beside the tool.
+ * - Create tool's hero steps down, its suggestions stack, and its prompt box stands under them
+ *   rather than over them.
+ * - A phone on its side (a tablet's width, a phone's height) opens the rail as a drawer, as a phone
+ *   does: the icon column would run off the bottom.
+ *
+ * Every rule sits in a max-width block. Flow's rules weigh two classes (`:where(…) .x:not(.ng-)`),
+ * so these are written with three, under `.ng-flow-tools`, and win whichever loads first. Pinned
+ * by apps/studio/test/media-responsive.test.mjs.
+ */
+
+@media (max-width: 960px) {
+  .ng-flow-tools.wt-tools-surface {
+    padding-inline-end: 0;
+    padding-bottom: var(--media-keyboard-inset, 0px);
+  }
+
+  /* ---- Headers ------------------------------------------------------------------------------ */
+
+  .ng-flow-tools .ng-flow-applet-view-header .applet-view-header,
+  .ng-flow-tools .ng-flow-applet-manager-page .applet-manager-header,
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-header {
+    min-height: 64px;
+    padding: env(safe-area-inset-top) 8px 0;
+    column-gap: 8px;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-header .header-left {
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-header .header-center {
+    flex: 0 1 auto;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-header .header-right {
+    flex: 0 0 auto;
+    gap: 0;
+  }
+
+  /* ---- A tool in Edit: one pane at a time ------------------------------------------------- */
+
+  .wt-edit-panes {
+    display: flex;
+    flex-shrink: 0;
+    justify-content: center;
+    gap: 4px;
+    margin: 0 auto 8px;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .wt-edit-pane {
+    min-width: 88px;
+    height: 36px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 18px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    font: 500 14px/20px "Google Sans Text", "Google Sans", sans-serif;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .wt-edit-pane.is-active {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-page .applet-view-content.edit-mode {
+    gap: 0;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-page .wt-pane-agent .applet-view-main {
+    display: none;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-page .wt-pane-agent .sidebar-wrapper.sidebar-visible {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-page .wt-pane-agent .sidebar-wrapper.sidebar-visible > * {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-page .wt-pane-app .sidebar-wrapper {
+    display: none;
+  }
+
+  /* The panes' row stands in for Flow's Preview / Code tabs. */
+  .ng-flow-tools .ng-flow-applet-view-page .wt-pane-app .applet-content-tab-bar {
+    display: none;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-page .wt-pane-app .applet-panel-body-edit {
+    border-start-start-radius: var(--applet-panel-border-radius);
+    border-start-end-radius: var(--applet-panel-border-radius);
+  }
+
+  /* ---- Create tool --------------------------------------------------------------------------- */
+
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-hero-title {
+    font: 400 28px/36px "Google Sans", sans-serif;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .suggestions-row {
+    flex-wrap: wrap;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .suggestion-card {
+    flex: 1 1 260px;
+    width: auto;
+    max-width: 100%;
+    min-height: 56px;
+  }
+
+  /* The prompt box stands under the hero and suggestions instead of floating over them, so a short
+   * window (a phone on its side, or with its keyboard up) scrolls them above it rather than covering
+   * them. `safe` keeps an overflowing hero's top reachable. */
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-main {
+    justify-content: safe center;
+    padding-block: 2rem 1rem;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-footer {
+    position: relative;
+    bottom: auto;
+    flex-shrink: 0;
+    padding: 0 12px calc(16px + env(safe-area-inset-bottom));
+  }
+
+  /* Flow floats the hint over a one-line field, so where the hint wraps (a phone) its second line
+   * is cut off under a scrollbar. Stacked in one grid cell with the field, it gives the cell its
+   * height. */
+  .ng-flow-tools .ng-flow-create-applet-page .ng-flow-rich-text-editor {
+    display: grid;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .ng-flow-rich-text-editor > * {
+    grid-area: 1 / 1;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .prosemirror-placeholder {
+    position: static;
+  }
+}
+
+/* ---- A phone on its side: a tablet's width under a phone's height. The rail is the drawer there
+ * (useRailDrawer), opened from Explore tools' menu button at the header's end as on a phone, and
+ * the corner disclaimer centres under Create tool's prompt as it does on a phone. ---------------- */
+
+@media (max-width: 960px) and (max-height: 500px) {
+  .ng-flow-tools .ng-flow-applet-manager-page .header-right-spacer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .ng-flow-tools .ng-flow-footer-disclaimer {
+    inset-inline: 0;
+    bottom: calc(4px + env(safe-area-inset-bottom));
+    text-align: center;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-footer {
+    padding-bottom: calc(28px + env(safe-area-inset-bottom));
+  }
+
+  /* The height goes to the suggestions: the hero takes a phone's size, with less room round it. */
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-hero-title {
+    font: 400 22px/28px "Google Sans", sans-serif;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-main {
+    padding-block: 12px 8px;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-centered-content {
+    gap: 16px;
+  }
+
+  /* The hero on one line and the suggestions in one row, scrolling sideways where three do not
+   * fit, so all of it shows above the prompt without scrolling the page. */
+  .ng-flow-tools .ng-flow-create-applet-page .hero-line {
+    display: inline;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .hero-line:first-child::after {
+    content: " ";
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .suggestions-row {
+    flex-wrap: nowrap;
+    justify-content: safe center;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .suggestion-card {
+    flex: 0 0 240px;
+  }
+}
+
+/* ---- Phones ---------------------------------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  .ng-flow-tools .ng-flow-applet-view-header .applet-view-header,
+  .ng-flow-tools .ng-flow-applet-manager-page .applet-manager-header,
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-header {
+    flex-wrap: wrap;
+    min-height: 56px;
+    padding: env(safe-area-inset-top) 4px 0;
+    column-gap: 4px;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-header .header-left,
+  .ng-flow-tools .ng-flow-applet-view-header .header-right,
+  .ng-flow-tools .ng-flow-applet-manager-page .header-left-group,
+  .ng-flow-tools .ng-flow-applet-manager-page .header-right-spacer {
+    height: 56px;
+  }
+
+  /* App / Edit, or Remix tool, and Explore tools' switch: a row of their own. */
+  .ng-flow-tools .ng-flow-applet-view-header .header-center,
+  .ng-flow-tools .ng-flow-applet-manager-page .header-center-group {
+    order: 3;
+    flex: 1 0 100%;
+    max-width: none;
+    justify-content: center;
+    padding-bottom: 8px;
+  }
+
+  .ng-flow-tools .ng-flow-applet-manager-page .header-left-group {
+    min-width: 0;
+  }
+
+  .ng-flow-tools .ng-flow-applet-manager-page .header-right-spacer {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+  }
+
+  .ng-flow-tools .ng-flow-applet-manager-page .marketplace-toggles {
+    width: 100%;
+  }
+
+  .ng-flow-tools .ng-flow-applet-manager-page .marketplace-toggles > * {
+    flex: 1 1 0;
+  }
+
+  /* One card a row, and the hero's own narrow cut (flow-tools.css) under it. */
+  .ng-flow-tools .ng-flow-applet-manager-page .applet-grid,
+  .ng-flow-tools .ng-flow-applet-manager-page .applet-grid-gallery {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 1.75rem;
+  }
+
+  .ng-flow-tools .ng-flow-applet-manager-page .applet-manager-content {
+    gap: 1.75rem;
+    padding-inline: 12px;
+  }
+
+  .ng-flow-tools .ng-flow-applet-view-page .applet-view-main-container {
+    padding-inline: 4px;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-hero-title {
+    font: 400 22px/28px "Google Sans", sans-serif;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-content {
+    padding-inline: 8px;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .suggestions-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .suggestion-card {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .suggestion-subtitle {
+    white-space: normal;
+  }
+
+  /* Flow's corner disclaimer, centred under the prompt, which rises to clear it. */
+  .ng-flow-tools .ng-flow-footer-disclaimer {
+    inset-inline: 0;
+    bottom: calc(4px + env(safe-area-inset-bottom));
+    text-align: center;
+  }
+
+  .ng-flow-tools .ng-flow-create-applet-page .create-applet-footer {
+    padding-bottom: calc(28px + env(safe-area-inset-bottom));
+  }
+
+  .wt-edit-pane {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .wt-edit-panes {
+    width: calc(100% - 16px);
+    max-width: 400px;
+  }
+}

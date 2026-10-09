@@ -42,6 +42,11 @@ export interface HttpTransportOptions {
   headers?: Record<string, string>;
   /** Injectable for tests. Defaults to `globalThis.fetch`. */
   fetchImpl?: typeof fetch;
+  /**
+   * A server the user signed in to (`mcp-oauth.ts`): the access token for each request, and a fresh one when the
+   * server turns the current one away — null when there is none to be had, which means signing in again.
+   */
+  auth?: { token: () => Promise<string | null>; refresh: () => Promise<string | null> };
 }
 
 export function createHttpTransport(options: HttpTransportOptions): McpTransport {
@@ -124,28 +129,38 @@ export function createHttpTransport(options: HttpTransportOptions): McpTransport
     async send(message) {
       if (closed) throw new McpError('protocol', 'The connection is closed.');
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-      let response: Response;
-      try {
-        response = await doFetch(options.url, {
-          method: 'POST',
-          headers: headersFor(),
-          body: JSON.stringify(message),
-          signal: controller.signal,
-        });
-      } catch (cause) {
-        clearTimeout(timer);
-        if (controller.signal.aborted) {
-          throw new McpError(
-            'timeout',
-            `The server did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
-          );
+      const post = async (token: string | null): Promise<Response> => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+          return await doFetch(options.url, {
+            method: 'POST',
+            headers: token ? { ...headersFor(), authorization: `Bearer ${token}` } : headersFor(),
+            body: JSON.stringify(message),
+            signal: controller.signal,
+          });
+        } catch (cause) {
+          if (controller.signal.aborted) {
+            throw new McpError(
+              'timeout',
+              `The server did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+            );
+          }
+          throw explainFetchFailure(options.url, cause);
+        } finally {
+          clearTimeout(timer);
         }
-        throw explainFetchFailure(options.url, cause);
+      };
+
+      let response = await post(options.auth ? await options.auth.token() : null);
+      // A signed-in server that turns the token away gets one fresh token and one more try; then it is a sign-in.
+      if (response.status === 401 && options.auth) {
+        const fresh = await options.auth.refresh().catch(() => null);
+        if (!fresh) {
+          throw new McpError('needs-sign-in', 'Your sign-in to this server has ended. Sign in again to keep using it.');
+        }
+        response = await post(fresh);
       }
-      clearTimeout(timer);
 
       // Captured before the body is touched: on `initialize` this is the only
       // place the session id appears, and a server that forgets to expose the
@@ -165,7 +180,7 @@ export function createHttpTransport(options: HttpTransportOptions): McpTransport
       if (!response.ok) {
         const body = await response.text().catch(() => '');
         throw new McpError(
-          response.status === 401 || response.status === 403 ? 'blocked-by-server' : 'protocol',
+          response.status === 401 ? 'needs-sign-in' : response.status === 403 ? 'blocked-by-server' : 'protocol',
           `The server answered ${response.status} ${response.statusText}.`,
           body.slice(0, 500),
         );
@@ -223,7 +238,8 @@ export function createHttpTransport(options: HttpTransportOptions): McpTransport
       // Best effort: the spec has DELETE end a session, and a server that does
       // not implement it is not a problem worth surfacing on the way out.
       try {
-        await doFetch(options.url, { method: 'DELETE', headers: headersFor() });
+        const token = options.auth ? await options.auth.token().catch(() => null) : null;
+        await doFetch(options.url, { method: 'DELETE', headers: token ? { ...headersFor(), authorization: `Bearer ${token}` } : headersFor() });
       } catch {
         /* Ignored deliberately. */
       }

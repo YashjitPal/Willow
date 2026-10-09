@@ -108,7 +108,7 @@
   padding: 0;
   border: 0;
   border-radius: 9999px;
-  background: #a8c7fa;
+  background: var(--sync-a8c7fa, #a8c7fa);
   color: #e3e3e3;
   font-size: 15px;
   font-weight: 370;
@@ -123,12 +123,12 @@
 }
 
 .spark-skill-editor__create:not(:disabled) {
-  background: #1f3b9b;
+  background: var(--sync-1f3b9b, #1f3b9b);
   color: #ffffff;
 }
 
 .spark-skill-editor__create:not(:disabled):hover {
-  background: #2948a8;
+  background: var(--sync-2948a8, #2948a8);
 }
 
 /* The editor reset is intentionally scoped above the controls; these two rules
@@ -330,7 +330,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #a8c7fa;
+  color: var(--sync-a8c7fa, #a8c7fa);
   font: inherit;
   font-weight: 560;
   cursor: pointer;
@@ -341,7 +341,7 @@
 .spark-skill-editor__delete:focus-visible,
 .spark-skill-editor__instructions-heading button:focus-visible,
 .spark-skill-editor__disclaimer button:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
@@ -417,14 +417,14 @@
   border: 0;
   border-radius: 20px;
   background: transparent;
-  color: #a8c7fa;
+  color: var(--sync-a8c7fa, #a8c7fa);
   font-size: 14px;
   font-weight: 560;
   cursor: pointer;
 }
 
 .spark-skill-editor__delete-dialog button:hover {
-  background: rgba(168, 199, 250, 0.08);
+  background: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
 }
 
 .spark-skill-editor__delete-dialog button.is-danger {
@@ -497,7 +497,7 @@
 
 .spark-skill-editor__delete-dialog button:focus-visible,
 .spark-skill-editor__discard-dialog button:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
@@ -566,6 +566,101 @@
     min-height: calc(100vh - 68px);
     padding: 24px 16px;
     border-radius: 0;
+  }
+}
+
+/*
+ * At 960px and below Gemini's `skill-folder-manager` fills the viewport, measured at
+ * 390x844 and 800x1280: a 60px header holding the back pill (36px, `padding: 0 12px 0 8px`,
+ * a 24px weight-300 glyph, a 15px/20px label) and Create (`padding: 0 12px`), each 12px
+ * in from its edge; then `.editor-new-content` from y=60 to the bottom, edge to edge, with
+ * its 0.8px #141414 hairline, 24px padding and 20px between sections. Section labels sit
+ * 16px in from the fields, and the instructions box takes whatever height is left.
+ */
+@media (max-width: 960px) {
+  .spark-skill-editor {
+    display: flex;
+    padding: 0;
+    flex-direction: column;
+  }
+
+  .spark-skill-editor::after {
+    display: none;
+  }
+
+  .spark-skill-editor__content {
+    display: flex;
+    width: 100%;
+    flex: 1 0 auto;
+    flex-direction: column;
+  }
+
+  .spark-skill-editor__header {
+    height: 60px;
+    min-height: 60px;
+    margin: 0;
+    padding: 12px;
+  }
+
+  .spark-skill-editor .spark-skill-editor__back {
+    height: 36px;
+    padding: 0 12px 0 8px;
+    border-radius: 9999px;
+    color: #e0e0e0;
+  }
+
+  .spark-skill-editor .spark-skill-editor__back > span:last-child {
+    height: 20px;
+    font-size: 15px;
+    line-height: 20px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-skill-editor .spark-skill-editor__create {
+    min-width: 0;
+    padding: 0 12px;
+  }
+
+  .spark-skill-editor__gemini-note {
+    margin: 0 12px 12px;
+  }
+
+  .spark-skill-editor__panel {
+    min-height: 0;
+    flex: 1 0 auto;
+    padding: 24px;
+    border-color: #141414;
+    border-radius: 28px;
+  }
+
+  .spark-skill-editor__field > span,
+  .spark-skill-editor__instructions-heading {
+    margin-left: 16px;
+  }
+
+  .spark-skill-editor__field > span,
+  .spark-skill-editor__instructions-heading label,
+  .spark-skill-editor__field input,
+  .spark-skill-editor__field textarea {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-skill-editor__field input,
+  .spark-skill-editor__field textarea {
+    border-color: #141414;
+  }
+
+  .spark-skill-editor__field.spark-skill-editor__field--description textarea {
+    min-height: 40px;
+  }
+
+  .spark-skill-editor__panel > .spark-skill-editor__field:last-child {
+    flex: 1 0 auto;
+  }
+
+  .spark-skill-editor__panel > .spark-skill-editor__field:last-child textarea {
+    min-height: 398px;
+    flex: 1 0 auto;
   }
 }
 
@@ -646,12 +741,12 @@
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__field input:focus,
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__field textarea:focus {
-  border-color: #0b57d0;
-  box-shadow: inset 0 0 0 1px #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
+  box-shadow: inset 0 0 0 1px var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__instructions-heading button {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__disclaimer {
@@ -659,7 +754,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__disclaimer button {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__dialog-backdrop {
@@ -684,11 +779,11 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog button {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog button:hover {
-  background: rgba(11, 87, 208, 0.08);
+  background: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog button.is-danger {
@@ -725,16 +820,16 @@
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__disclaimer button:focus-visible,
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__delete-dialog button:focus-visible,
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__discard-dialog button:focus-visible {
-  outline-color: #0b57d0;
+  outline-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__gemini-note {
   background: #e8f0fe;
-  color: #041e49;
+  color: var(--sync-041e49, #041e49);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__gemini-note strong {
-  color: #041e49;
+  color: var(--sync-041e49, #041e49);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__gemini-note span {
@@ -742,5 +837,5 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-skill-editor__gemini-note .luminous-symbols {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }

@@ -172,9 +172,10 @@ const commit = (next: SavedInfoState, { toDisk = true } = {}): void => {
 /**
  * Point the store at the user's folder, adopting whatever is already there.
  *
- * Call this only once the workspace name is real. It is the name of the folder
- * the write path creates, and it falls back to "My Willow" until the profile
- * loads — attaching too early is how junk folders get minted under the fallback.
+ * Call this once auth has settled and a folder is connected and authorized:
+ * attaching can run the one-time migration write below. There is no workspace
+ * name to wait for — `Personal/` sits directly in the chosen folder, not in one
+ * named after the profile.
  *
  * Disk wins over localStorage when a file exists, because the file is the copy
  * that survives a reinstall or a second browser. When the folder has no file yet

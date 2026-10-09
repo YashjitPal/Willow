@@ -267,6 +267,51 @@
   animation: willow-mat-menu-exit 100ms linear 25ms forwards;
 }
 
+/*
+ * A confirmation below 961px — `message-dialog.is-mobile` in its
+ * `message-dialog-mobile-panel`, measured on Delete notebook at 800x1280 and 390x844.
+ * The container is `width: calc(100vw - 32px); max-width: 20.75rem`, i.e. 332px
+ * wherever it fits — `!important` because the desktop width arrives inline. Title and
+ * body keep their insets; the pills become `gem-button-size-medium` tonals that split
+ * the row, `flex: 1 1 0`, 48px tall, `0 16px` padding round a 15px/20px label that
+ * wraps (Delete everywhere takes two lines), on the narrow surface-dim.
+ */
+@media (max-width: 960px) {
+  /* A dialog taller than a phone scrolls inside the host's 16px inset instead of running off it. */
+  .willow-gdlg-surface {
+    max-height: 100%;
+  }
+
+  .willow-gdlg-surface--message {
+    max-width: 332px !important;
+    background: rgb(28, 28, 28);
+  }
+
+  .willow-gdlg-surface--message .willow-gdlg-content {
+    color: rgb(224, 224, 224);
+  }
+
+  .willow-gdlg-surface--message .willow-gdlg-pill {
+    height: 48px;
+    flex: 1 1 0%;
+    padding: 0 16px;
+    background: rgb(20, 20, 20);
+    color: rgb(224, 224, 224);
+    font-size: 15px;
+    line-height: 20px;
+    font-weight: 400;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+    text-align: center;
+    white-space: normal;
+  }
+
+  /* The mobile panel's pills are all tonal, a desktop text pill included. Dark gets that from the rule above. */
+  :is(.light-theme, [data-theme="light"]) .willow-gdlg-surface--message .willow-gdlg-pill--text {
+    background: rgb(242, 240, 240);
+    color: rgb(31, 31, 31);
+  }
+}
+
 /* Repo convention, as in Sidebar.css and CopyToast.css. Not measured — Gemini
    ships no reduced-motion rule for the dialog. */
 @media (prefers-reduced-motion: reduce) {
@@ -295,7 +340,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .willow-gdlg-link {
-  color: rgb(11, 87, 208);
+  color: var(--sync-0b57d0, rgb(11, 87, 208));
 }
 
 :is(.light-theme, [data-theme="light"]) .willow-gdlg-pill {
@@ -326,11 +371,11 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .willow-gdlg-field:focus-within .willow-gdlg-field__outline {
-  border-color: rgb(11, 87, 208);
+  border-color: var(--sync-0b57d0, rgb(11, 87, 208));
 }
 
 :is(.light-theme, [data-theme="light"]) .willow-gdlg-field__input {
   color: rgb(31, 31, 31);
-  caret-color: rgb(11, 87, 208);
+  caret-color: var(--sync-0b57d0, rgb(11, 87, 208));
 }
 

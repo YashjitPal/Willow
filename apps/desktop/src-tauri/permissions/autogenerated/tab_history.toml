@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tab-history"
+description = "Enables the tab_history command without any pre-configured scope."
+commands.allow = ["tab_history"]
+
+[[permission]]
+identifier = "deny-tab-history"
+description = "Denies the tab_history command without any pre-configured scope."
+commands.deny = ["tab_history"]

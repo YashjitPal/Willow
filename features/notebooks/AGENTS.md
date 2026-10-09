@@ -35,7 +35,9 @@ however much Gemini's class names suggest otherwise.
 | `src/NotebooksSplashScreen.tsx` | First-run "Introducing notebooks" screen. |
 | `src/NotebookPage.tsx` | One notebook: header, sources chip, composer, Past chats. |
 | `src/NotebookSourcesDialog.tsx` | Add sources: upload / paste / link. Owns the pending (still-reading) list. |
-| `src/SourceTile.tsx` | One source as a 112px tile, plus its loading spinner. |
+| `src/NotebookMenu.tsx` | Gemini's `gem-menu` popup, right-aligned to its trigger or (`align="start"`) left-aligned and pushed on screen. |
+| `src/NotebookActionsMenu.tsx` | The narrow Pin / Rename / Delete menu and its dialogs, shared by the grid's cards and the drawer's rows. |
+| `src/SourceTile.tsx` | One source as a 112px tile, plus its loading spinner — and `SourceRow`, the narrow layout's row. |
 | `src/SourceIcon.tsx` | The type icon / favicon for a source. |
 | `src/notebooks.css` | Every animation and measured dimension. |
 
@@ -263,13 +265,23 @@ authoritative for *where a chat file is*.
 
 ```
 <workspace>/Notebooks/<Notebook title>/
-├── .willow.json          // { id } — the notebook's uuid
+├── .willow.json          // the notebook's uuid and details (notebookManifest)
 ├── Sources/
 │   ├── lecture-notes.pdf // uploads keep their original bytes and extension
 │   └── Photosynthesis.md // 'text' and 'website' sources (URL on line 1)
 └── Chats/
     └── <chatId>.json     // MOVED here out of the workspace's global Chats/
 ```
+
+**The manifest carries the notebook, so the list can be rebuilt.** The registry is this
+browser's; a copy of Willow that starts without it (a reinstall, a fresh profile, the web
+version on the same folder) would otherwise find folders it has no rows for, and their chats
+in folders nothing scans. `notebookManifest` writes the title, emoji, vertical, pin, settings,
+dates and sources (text included, a source's `dataUrl` not: its bytes are in `Sources/`) beside
+the id, and the storage backfill keeps it current (step 4). Once per scope it rebuilds a row
+for each folder whose id the registry lacks (`notebookFromManifest`, step 0); the reconciler
+then files that folder's chats into it. A deleted notebook's folder is in the Recycle Bin, so
+nothing deleted comes back.
 
 Every directory operation is in `platform/storage/src/local-fs/notebooks-disk.ts`;
 this folder never touches a handle. Two things about it are load-bearing:
@@ -319,7 +331,8 @@ Replacing it with an ease-out makes the whole create flow feel like another prod
 **Lists inside the sidebar row have no pin icon.** Gemini renders its row menu with
 `hide-pin-icon`, and probing confirms `.project-item-pin-icon` is *absent*, not
 hidden. Pinning still sorts the notebook to the top; the pin glyph only ever appears
-on the card in the grid, which uses `always-show-menu-icon`.
+on the card in the grid, which uses `always-show-menu-icon`. The narrow drawer is the
+exception — see *Phones and tablets*.
 
 **The card's 291px width is derived, not fixed.** Cards measured exactly 291.0px in
 a 1188px row, and (1188 − 3×8)/4 = 291 exactly — a 4-column fractional grid. An
@@ -370,10 +383,11 @@ Two things there are load-bearing:
   atom.** StrictMode double-invokes effects in dev, and a read-then-clear sends the
   turn twice — a dev-only duplicate that would ship unnoticed. It also makes the
   reactive effect safe to re-run as `handleSend`'s identity changes.
-- **The effect is gated on `isAuthenticated`.** `handleSend` bails on
-  `!isAuthenticated` by calling `onAuthRequired` and returning — no throw, no log.
-  Consuming the handoff before auth resolves therefore *silently* dropped the
-  message and never retried, which looks exactly like a dead button.
+- **The effect waits for identity and keys to settle** (`isAuthResolving`,
+  `areKeysLoading`). Sending needs no account, but `handleSend` gives up without a
+  key — no throw, no log. Consuming the handoff before they resolve therefore
+  *silently* dropped the message and never retried, which looks exactly like a
+  dead button.
 
 ### Grounding goes in the system prompt, not the message
 
@@ -460,7 +474,8 @@ number you write down, or it cannot be checked later.
 | empty state | centred in the pane to the RIGHT of the rail |
 
 The four entries are **"Upload files" / "Add from Drive" / "Add websites" /
-"Copied text"** — the last is not "Add text". Icons are mixed families again:
+"Copied text"** — the last is not "Add text" (below 961px it is; see *Phones and
+tablets*). Icons are mixed families again:
 `add_2` Luminous, an inline four-colour Drive SVG, then `web` and `content_paste`
 from **Google Symbols**.
 
@@ -873,6 +888,59 @@ Show error" plus a retry line, but only after the provider retries are exhausted
 which took ~12.5s. Anything watching for less than that sees an empty assistant
 turn with the stop button still up, and will wrongly conclude the notebook path is
 broken. It is not — check the network tab for the real status before debugging.
+
+## Phones and tablets
+
+Below 961px (Gemini's breakpoint is 959.98px) every surface here swaps to Gemini's
+narrow layout, measured at **800x1280 and 390x844** through the device emulator,
+opening and cancelling UI only. The desktop rules are untouched, and
+`apps/studio/test/notebooks-responsive.test.mjs` pins that no narrow-only rule reaches
+them. The narrow tokens throughout: surface `#000`, surface-bright `rgb(28,28,28)`,
+surface-dim `rgb(20,20,20)`, on-surface `#e0e0e0`, and the Google Sans Flex width
+cuts — body at `"wdth" 92`, titles at `"wdth" 94`, the settings labels at 95. Missing
+a cut leaves a title a few pixels wide, which reads as "slightly bold", not as wrong.
+
+| Surface | Below 961px |
+| --- | --- |
+| Top bar | The grid and the create screen show a **"Willow" wordmark** at [56,14] and a New chat button at the right (`StudioLayout`). The notebook page shows the shell's model picker instead — `renderModelPicker`, fed `MobileModelPicker` from `@willow/chat`. |
+| Grid | 68px under the top bar, `minmax(260px, 1fr)` columns; at 600px and below each card is a 32px-round row. One 36px touch trigger per card: the pin while pinned (labelled "Pinned"), ⋮ otherwise. |
+| Card and drawer menus | `NotebookActionsMenu`: Pin (or Unpin), Rename, Delete, no tint. The drawer's hangs from the trigger's **left** edge and is pushed back on screen (`align="start"`), and it alone draws its glyphs in `#c4c7c5` — the header, card and chat-row menus use `#e3e3e3`. |
+| Drawer | **Two** notebooks (`COMPACT_NOTEBOOK_LIMIT`; the desktop keeps four), each with an always-visible 36px trigger that draws `push_pin` while pinned. |
+| Notebook page | Header static, the composer docked `sticky; bottom: 0` on `--studio-surface`, Past chats with the ⋮ always shown. |
+| Sources | Gemini's `mobile-layout`: full screen, a back arrow, a "+" raising a bottom sheet — Upload files / Add from Drive / Add websites / **Add text** — and sources as 73px `SourceRow`s whose second line is the format (`formatLabel`: "TXT", "PDF", "HTML"). |
+| Add websites | Up to 600px, edge to edge on a phone. An outlined field whose label rests inside until focus or text floats it into a notch; nothing takes focus on open, so no keyboard pops. The close is Google Symbols at weight 400. |
+| Add text | Gemini's own `copied-text-dialog`, **not** the website shell: no icon, no close, no title field, one 244px field that does take focus, then Cancel and Add text — both accent pills, the second only once there is text. |
+| Rename, Move, Settings, Delete | Rename runs edge to edge on a phone with a `min(48px, 10vw)` emoji; Move caps at `100vw - 44px`; Settings is a full-screen sheet with a back arrow and no pills; Delete is a 332px `GeminiDialog` with `message`. |
+| Menus | 40px rows, 24px weight-300 glyphs, 17px/24px labels; a panel stays flush with a trigger at the screen edge instead of keeping the desktop's 8px margin. |
+| Snackbar | The narrow tokens; at 480px and below it spans the host, 24px a side. |
+
+Four traps, all hit while building this:
+
+- **Portal events bubble through React, not the DOM.** The "+" sheet renders *beside*
+  the Sources scrim, not inside it, or a tap on a sheet row reaches the scrim's
+  `onClick` and closes the whole dialog. The card menu and its dialogs sit beside the
+  cards for the same reason.
+- **The sheet has to out-stack the dialog that raised it.** `GeminiBottomSheet`'s
+  layer is `z-index: 1000` and the Sources scrim `2147483000`, so the sheet carries
+  `nb-src-add-sheet`, scoped `.gemini-bottom-sheet-layer.nb-src-add-sheet` so the
+  order the two stylesheets load in cannot undo it.
+- **`:focus-within` does not match in a background tab.** Measuring the outlined
+  field over CDP read "unfocused" while `document.activeElement` was the textarea —
+  the Willow tab was behind Gemini's. Bring the tab to the front first.
+- **Gemini closes an open menu when its tab loses focus.** Open the menu and pick the
+  item in one script, or the second step finds nothing.
+
+Deliberately not copied:
+
+- **Gemini's phone Notebook settings overflow.** The sheet keeps its 512px tablet
+  width on a 390px screen, so the memory toggle is off-screen behind a horizontal
+  scrollbar. Willow's fits the screen.
+- **"Open in Gemini Notebook"** in the header menu, which is why Gemini's panel is
+  wider than Willow's.
+- **The snackbar below 481px is Material's own rule, not a measurement.** Gemini loads
+  its snackbar styles only once one opens, and every notebook snackbar follows a
+  destructive action. Its colours and corner are measured — they come from the theme
+  variables, which are on the page.
 
 ## Sidebar row geometry — do not re-derive
 

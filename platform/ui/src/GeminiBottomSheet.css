@@ -1,0 +1,210 @@
+/*
+ * Gemini's content-height `gem-bottom-sheet`, measured at 390x844 and 800x1280 on the Spark
+ * task-list filter and a saved instruction's actions:
+ *
+ *   mat-bottom-sheet-container  #1c1c1c, radius 56px 56px 0 0, max-height fit-content,
+ *                               Material's level-16 shadow,
+ *                               `_mat-bottom-sheet-enter` 195ms cubic-bezier(0,0,.2,1)
+ *   .drag-handle-container      padding 5px 0, holding a 54x5 handle, radius 19px, 55% white
+ *   .gem-bottom-sheet-content   padding 0 16px 8px
+ *   .cdk-overlay-backdrop       rgba(0,0,0,.32), opacity 400ms cubic-bezier(.25,.8,.25,1)
+ *
+ * The exit is Material's 150ms accelerate.
+ */
+@keyframes gemini-bottom-sheet-enter {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+
+@keyframes gemini-bottom-sheet-exit {
+  from { transform: none; }
+  to { transform: translateY(100%); }
+}
+
+@keyframes gemini-bottom-sheet-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes gemini-bottom-sheet-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.gemini-bottom-sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.gemini-bottom-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  animation: gemini-bottom-sheet-backdrop-in 400ms cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.gemini-bottom-sheet-backdrop.is-leaving {
+  animation: gemini-bottom-sheet-backdrop-out 400ms cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.gemini-bottom-sheet {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  max-height: 80vh;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 56px 56px 0 0;
+  background: #1c1c1c;
+  color: #e3e3e3;
+  box-shadow: 0 8px 10px -5px rgba(0, 0, 0, 0.2), 0 16px 24px 2px rgba(0, 0, 0, 0.14), 0 6px 30px 5px rgba(0, 0, 0, 0.12);
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-variation-settings: normal;
+  animation: gemini-bottom-sheet-enter 195ms cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+.gemini-bottom-sheet.is-leaving {
+  animation: gemini-bottom-sheet-exit 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.gemini-bottom-sheet-handle-area {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  padding: 5px 0;
+  touch-action: none;
+}
+
+.gemini-bottom-sheet-handle {
+  width: 54px;
+  height: 5px;
+  border-radius: 19px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.gemini-bottom-sheet-content {
+  position: relative;
+  min-height: 0;
+  padding: 0 16px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+/*
+ * `gem-list` holding a sheet's actions: one #0e0e0e card on 28px corners with `12px 8px`
+ * padding, and `mat-list-item` rows of 48px on 16px corners, `padding: 12px 16px`, a 12px
+ * gap between a 24px weight-300 glyph in #c4c7c5 and a 17px/24px label in #e3e3e3 cut to
+ * the 92 width axis. Hover is the on-surface state layer.
+ */
+.gemini-sheet-list {
+  display: flex;
+  padding: 12px 8px;
+  flex-direction: column;
+  border-radius: 28px;
+  background: #0e0e0e;
+}
+
+.gemini-sheet-item {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: #e3e3e3;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gemini-sheet-item::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #e3e3e3;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gemini-sheet-item:hover::before {
+  opacity: 0.08;
+}
+
+.gemini-sheet-item:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: -2px;
+}
+
+.gemini-sheet-item-icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: #c4c7c5;
+}
+
+.gemini-sheet-item-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Light is unmeasured (the probed account is pinned dark); these follow Willow's light sheets. */
+.gemini-bottom-sheet.is-light {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+.gemini-bottom-sheet.is-light .gemini-bottom-sheet-handle {
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.gemini-bottom-sheet.is-light .gemini-sheet-list {
+  background: #f2f0f0;
+}
+
+.gemini-bottom-sheet.is-light .gemini-sheet-item {
+  color: #1f1f1f;
+}
+
+.gemini-bottom-sheet.is-light .gemini-sheet-item::before {
+  background: #1f1f1f;
+}
+
+.gemini-bottom-sheet.is-light .gemini-sheet-item-icon {
+  color: #444746;
+}
+
+@media (hover: none) {
+  .gemini-sheet-item:hover::before {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gemini-bottom-sheet,
+  .gemini-bottom-sheet.is-leaving,
+  .gemini-bottom-sheet-backdrop,
+  .gemini-bottom-sheet-backdrop.is-leaving {
+    animation-duration: 1ms;
+  }
+}

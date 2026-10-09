@@ -105,6 +105,8 @@ const MIME_TYPES = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
+const DOT_CHARACTER_FRAME_PATH = /^\/codex\/assets\/orbit-character-[a-f0-9]{16}\/[a-f0-9]{16}\/frame\.html$/;
+
 function isPortAvailable(port, host) {
   return new Promise((resolve) => {
     const tester = net
@@ -147,16 +149,78 @@ async function start() {
   const defaultPort = parseInt(getArg('--port', '-p') || process.env.PORT || '3000', 10);
   const host = getArg('--host', '-h') || 'localhost';
   const shouldOpen = !hasArg('--no-open');
-
-  let port;
-  try {
-    port = await findAvailablePort(defaultPort, host);
-  } catch (err) {
-    console.error(`\x1b[31m[willow]\x1b[0m ${err.message}`);
+  // The Windows desktop app answers Willow's pages itself and sends only what needs
+  // this server here, over a private named pipe instead of a port. Every request
+  // carries the token the app started it with.
+  const pipe = getArg('--pipe');
+  const pipeToken = process.env.WILLOW_PIPE_TOKEN || '';
+  if (pipe && !pipeToken) {
+    console.error('\x1b[31m[willow]\x1b[0m --pipe needs WILLOW_PIPE_TOKEN.');
     process.exit(1);
   }
 
-  const server = http.createServer((req, res) => {
+  let port;
+  if (!pipe) {
+    try {
+      port = await findAvailablePort(defaultPort, host);
+    } catch (err) {
+      console.error(`\x1b[31m[willow]\x1b[0m ${err.message}`);
+      process.exit(1);
+    }
+  }
+
+  // Spark's remote browser serves every site from its own `*.wb.localhost` host,
+  // which arrives here like any other request. This server only ever runs on the
+  // user's own machine, so the proxy is on; see api/_browse-proxy.js.
+  let handleBrowseRequest = null;
+  try {
+    ({ handleBrowseRequest } = await import('../api/_browse-proxy.js'));
+  } catch {
+    // An install without the proxy still serves Studio; Spark's browser reports itself unavailable.
+  }
+
+  // What the dev server also provides: custom AI gateways that answer no CORS
+  // preflight go through /llm-proxy on localhost, and notebooks fetch web
+  // sources through /api/fetch-source, which is open here as on the dev server
+  // because this is the user's own machine.
+  let handleLlmProxy = null;
+  try {
+    ({ handleLlmProxy } = await import('../api/_llm-proxy.js'));
+  } catch {
+    // Custom gateways then need to answer CORS themselves.
+  }
+  let fetchSource = null;
+  try {
+    ({ default: fetchSource } = await import('../api/fetch-source.js'));
+    process.env.SOURCE_FETCH_ENABLED ??= '1';
+  } catch {
+    // Notebooks then cannot add web pages as sources.
+  }
+
+  const server = http.createServer(async (req, res) => {
+    if (pipe) {
+      if (req.headers['x-willow-pipe-token'] !== pipeToken) {
+        res.statusCode = 403;
+        res.end();
+        return;
+      }
+      // Never forwarded: the proxies below pass request headers on to other servers.
+      delete req.headers['x-willow-pipe-token'];
+    }
+    if (handleBrowseRequest && await handleBrowseRequest(req, res, { enabled: true })) return;
+    if (handleLlmProxy && handleLlmProxy(req, res)) return;
+    if (fetchSource && req.url?.startsWith('/api/fetch-source')) {
+      const shim = Object.assign(res, { status(code) { res.statusCode = code; return shim; } });
+      try {
+        await fetchSource(req, shim);
+      } catch (error) {
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: error?.message || 'fetch-source failed' }));
+        }
+      }
+      return;
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.statusCode = 405;
       res.end('Method Not Allowed');
@@ -217,6 +281,14 @@ async function start() {
     const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
+    // The dot character frame alone is isolated, as apps/studio/vercel.json and
+    // the dev server isolate it: its engine needs SharedArrayBuffer, and
+    // isolating the whole app would break Firebase sign-in.
+    if (DOT_CHARACTER_FRAME_PATH.test(reqPath)) {
+      res.setHeader('Document-Isolation-Policy', 'isolate-and-require-corp');
+      res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+    }
+
     // Caching headers
     if (filePath.includes(`${path.sep}assets${path.sep}`)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
@@ -243,7 +315,9 @@ async function start() {
     stream.pipe(res);
   });
 
-  server.listen(port, host, () => {
+  if (pipe) {
+    server.listen(pipe, () => console.log(`[willow] answering the desktop app on ${pipe}`));
+  } else server.listen(port, host, () => {
     const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`;
     console.log(`
   \x1b[32m🌿 Willow Studio\x1b[0m \x1b[2mv${version}\x1b[0m

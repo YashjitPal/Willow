@@ -14,23 +14,23 @@
  * ## Why here rather than in a feature
  *
  * The repo rule is that anything two features need moves down to `platform/*`,
- * and three want this: Spark (which owns the sync), the Code tab's Agent
- * harness, and Chat. It also has to be `platform/` for the layering rule —
+ * and several want this: Spark (which owns the sync), the shell's Customize
+ * page, the Code harness, and Chat. It also has to be `platform/` for the layering rule —
  * `features/spark` already imports from `features/code`, so having `code` reach
  * back into `spark` would close a cycle between two features.
  *
  * ## Who writes, who reads
  *
- * **Spark publishes; everyone else reads.** Spark owns the editor UI and the
- * synced-folder registration, so it remains the single writer — `publishSkills`
- * is called from its store whenever its skill collection changes, and nothing
- * else calls it. That keeps one owner for `Skills/` on disk, which the
- * synced-folder registry requires anyway (it rejects a second registration of
- * the same folder).
+ * **Owners publish; everyone else reads.** Two surfaces own skills: Spark (its
+ * editor and the `Skills/` synced folder) and Customize → Skills in the shell.
+ * Each publishes its own list under its own source name, and the library is
+ * their union. A source only ever replaces its own list, so neither can clobber
+ * the other, and Spark stays the single owner of `Skills/` on disk, which the
+ * synced-folder registry requires anyway.
  *
  * This store is therefore a mirror, not a second source of truth. It is
- * deliberately not persisted: Spark's state already is, and a second cache of
- * the same rows is how the two drift.
+ * deliberately not persisted: each owner's state already is, and a second cache
+ * of the same rows is how the two drift.
  */
 
 import { atom } from 'nanostores';
@@ -63,21 +63,8 @@ const EMPTY: LibrarySkill[] = [];
 
 export const skillLibrary = atom<LibrarySkill[]>(EMPTY);
 
-/**
- * Replaces the library. Spark's store is the only caller.
- *
- * Skips the write when nothing changed. The publisher is driven by a store
- * subscription that fires on every Spark state change — task edits, schedule
- * edits, run progress — and re-setting an identical array would wake every
- * `useStore(skillLibrary)` in the app on each one.
- */
-export function publishSkills(skills: LibrarySkill[]): void {
-  const current = skillLibrary.get();
-  if (current.length === skills.length && current.every((skill, index) => same(skill, skills[index]!))) {
-    return;
-  }
-  skillLibrary.set(skills);
-}
+/** Each owner's latest list, in the order owners first published. */
+const sources = new Map<string, LibrarySkill[]>();
 
 const same = (a: LibrarySkill, b: LibrarySkill): boolean =>
   a.id === b.id &&
@@ -85,7 +72,40 @@ const same = (a: LibrarySkill, b: LibrarySkill): boolean =>
   a.description === b.description &&
   a.shortDescription === b.shortDescription &&
   a.instructions === b.instructions &&
-  a.enabled === b.enabled;
+  a.enabled === b.enabled &&
+  JSON.stringify(a.files ?? null) === JSON.stringify(b.files ?? null);
+
+const sameList = (a: readonly LibrarySkill[], b: readonly LibrarySkill[]): boolean =>
+  a.length === b.length && a.every((skill, index) => same(skill, b[index]!));
+
+/**
+ * Replaces one owner's skills. Spark publishes as `spark` (the default) and
+ * Customize as `customize`.
+ *
+ * Skips the write when nothing changed. Spark's publisher is driven by a store
+ * subscription that fires on every Spark state change — task edits, schedule
+ * edits, run progress — and re-setting an identical array would wake every
+ * `useStore(skillLibrary)` in the app on each one.
+ *
+ * When two owners publish the same id, the first owner's skill wins.
+ */
+export function publishSkills(skills: LibrarySkill[], source = 'spark'): void {
+  const previous = sources.get(source);
+  if (previous && sameList(previous, skills)) return;
+  sources.set(source, skills);
+
+  const seen = new Set<string>();
+  const merged: LibrarySkill[] = [];
+  for (const list of sources.values()) {
+    for (const skill of list) {
+      if (seen.has(skill.id)) continue;
+      seen.add(skill.id);
+      merged.push(skill);
+    }
+  }
+  if (sameList(skillLibrary.get(), merged)) return;
+  skillLibrary.set(merged);
+}
 
 /* ------------------------------------------------------------------------ */
 /* Hydration                                                                 */
@@ -109,12 +129,12 @@ const same = (a: LibrarySkill, b: LibrarySkill): boolean =>
  */
 type SkillHydrator = (scopeId: string) => void;
 
-let hydrator: SkillHydrator | null = null;
+const hydrators = new Set<SkillHydrator>();
 const hydratedScopes = new Set<string>();
 
-/** Called once, from the owning feature's `register.ts`. */
+/** Called once per owner, from its registration module. */
 export function registerSkillHydrator(next: SkillHydrator): void {
-  hydrator = next;
+  hydrators.add(next);
 }
 
 /**
@@ -126,15 +146,16 @@ export function registerSkillHydrator(next: SkillHydrator): void {
  * previous account's skills.
  */
 export function ensureSkillsHydrated(scopeId: string): void {
-  if (!hydrator || hydratedScopes.has(scopeId)) return;
+  if (hydrators.size === 0 || hydratedScopes.has(scopeId)) return;
   hydratedScopes.add(scopeId);
-  hydrator(scopeId);
+  for (const hydrate of hydrators) hydrate(scopeId);
 }
 
 /** Test hook. The app never needs this. */
 export function resetSkillHydration(): void {
   hydratedScopes.clear();
-  hydrator = null;
+  hydrators.clear();
+  sources.clear();
   skillLibrary.set(EMPTY);
 }
 

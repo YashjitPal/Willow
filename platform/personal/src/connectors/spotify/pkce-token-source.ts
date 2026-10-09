@@ -38,6 +38,7 @@
  */
 
 import { refreshAuthorizations } from '../authorization';
+import { userClientId } from '../client-ids';
 import {
   createTokenCache,
   setTokenSource,
@@ -68,7 +69,7 @@ const DEFAULT_EXPIRY_S = 3600;
  * is a bug this repo has already had once, in `gis-token-source.ts`, where it
  * presented as "connectors are not configured" on a build that was configured.
  */
-const readClientId = (): string | undefined => {
+const readEnvClientId = (): string | undefined => {
   try {
     const env = (import.meta.env as any) ?? undefined;
     const value = env?.[CLIENT_ID_ENV];
@@ -77,6 +78,9 @@ const readClientId = (): string | undefined => {
     return undefined;
   }
 };
+
+/** The deployment's client id, else the one the user pasted for this build (`client-ids.ts`). */
+const readClientId = (): string | undefined => readEnvClientId() ?? userClientId('spotify');
 
 export const spotifyConfigured = (): boolean => Boolean(readClientId());
 
@@ -344,6 +348,7 @@ export const createSpotifyTokenSource = (
 export const clearSpotifyGrant = (): void => writeRefreshToken(null);
 
 let installed: TokenSource | null = null;
+let installedClientId: string | undefined;
 
 /**
  * Install the Spotify token source. Safe to call more than once.
@@ -362,10 +367,13 @@ let installed: TokenSource | null = null;
  * popup and no user present.
  */
 export const initSpotifyTokenSource = (options: { clientId?: string } = {}): boolean => {
-  if (installed) return true;
-  const source = createSpotifyTokenSource(options);
+  const clientId = options.clientId ?? readClientId();
+  // A new client id the user pasted needs a source of its own; the same one keeps the installed source.
+  if (installed && clientId === installedClientId) return true;
+  const source = createSpotifyTokenSource({ clientId });
   if (!source) return false;
   installed = source;
+  installedClientId = clientId;
   setTokenSource(source, 'spotify');
   // Not awaited, for the same reason as the Google side: this is a network round
   // trip and the caller is deciding what to render.

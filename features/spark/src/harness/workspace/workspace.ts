@@ -54,6 +54,31 @@ const readDirectory = async (
   }
 };
 
+/**
+ * One file of the OPFS workspace `createOpfsWorkspace(scope)` writes, by the path a run
+ * reported it under. Null when it is not there (or the browser has no OPFS).
+ */
+export const readSparkWorkspaceFile = async (
+  scope: string,
+  path: string,
+  rootName = 'workspace',
+): Promise<string | null> => {
+  const storage = navigator.storage as StorageManager & {
+    getDirectory?: () => Promise<FileSystemDirectoryHandle>;
+  };
+  if (!storage?.getDirectory) return null;
+  try {
+    const parts = splitPath(path);
+    if (parts.length === 0) return null;
+    const root = await getDirectory(await storage.getDirectory(), ['willow-spark', scope, rootName]);
+    const directory = await getDirectory(root, parts.slice(0, -1));
+    const file = await (await directory.getFileHandle(parts.at(-1)!)).getFile();
+    return await file.text();
+  } catch {
+    return null;
+  }
+};
+
 /** Private, small-file OPFS workspace used by Spark when no mount is supplied. */
 export const createOpfsWorkspace = async (
   scope: string,

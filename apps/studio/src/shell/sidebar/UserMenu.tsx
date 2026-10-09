@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Settings, Contrast, ChevronRight, Users, LogOut } from 'lucide-react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useThemeMode } from '@willow/core/theme-mode';
+import { ProfilePhoto } from '@willow/ui/ProfilePhoto';
 import { AppearanceMenu } from './AppearanceMenu';
 
 export const UserMenu: React.FC<{ isOpen: boolean; onClose: () => void; isCollapsed: boolean; onSettingsClick?: () => void; backgroundType?: string }> = ({ isOpen, onClose, isCollapsed, onSettingsClick, backgroundType }) => {
@@ -82,11 +83,7 @@ export const UserMenu: React.FC<{ isOpen: boolean; onClose: () => void; isCollap
       <div className={`px-3.5 py-2.5 flex items-center gap-2.5 border-b ${isLight ? 'border-black/5' : 'border-white/5'} mb-1.5`}>
         {user ? (
           <>
-            <img 
-              src={user.photoURL || 'https://picsum.photos/64/64?random=42'} 
-              alt="User" 
-              className={`w-6 h-6 rounded-full border ${isLight ? 'border-black/10' : 'border-white/10'} shrink-0`} 
-            />
+            <ProfilePhoto src={user.photoURL} alt="" className={`w-6 h-6 border ${isLight ? 'border-black/10' : 'border-white/10'}`} />
             <span className={`text-[13.5px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white'} truncate tracking-tight`}>{user.email}</span>
           </>
         ) : (
@@ -99,7 +96,7 @@ export const UserMenu: React.FC<{ isOpen: boolean; onClose: () => void; isCollap
                 /* sign in failed */
               }
             }}
-            className={`w-full flex items-center gap-2.5 text-[13.5px] font-medium ${isLight ? 'text-[#1f1f1f] hover:text-[#0b57d0]' : 'text-white hover:text-blue-400'} transition-colors`}
+            className={`w-full flex items-center gap-2.5 text-[13.5px] font-medium ${isLight ? 'text-[#1f1f1f] hover:text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-white hover:text-blue-400'} transition-colors`}
           >
             <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>

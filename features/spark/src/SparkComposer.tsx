@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { InputBar, type Attachment, type ComposerHandle } from '@willow/chat/composer/Composer';
+import type { WorkspaceComputedTheme } from '@willow/core/workspace-theme';
 import {
   createSparkTaskAttachments,
   deleteSparkAttachmentPayloads,
@@ -9,6 +10,8 @@ import { getActiveSparkStorageScope } from './spark-store';
 import { setSparkUltraEngaged, sparkUltraEngaged } from './spark-store';
 import { useStore } from '@nanostores/react';
 import type { SparkTaskAttachment } from './spark-types';
+import { SparkMentions } from './composer/SparkMentions';
+import { useSparkMentionOptions } from './composer/spark-mention-options';
 import './SparkComposer.css';
 
 /**
@@ -56,7 +59,8 @@ export interface SparkComposerProps {
   selectedModelId?: string;
   setSelectedModelId?: (id: string) => void;
   workspaceColor?: string;
-  isAuthenticated?: boolean;
+  /** A whole theme in place of the workspace colour's — a bot's composer, in the bot's colour. */
+  theme?: WorkspaceComputedTheme;
   onAuthRequired?: () => void;
   placeholder?: string;
   className?: string;
@@ -75,6 +79,10 @@ export interface SparkComposerProps {
   onStopGenerating?: () => void;
   /** Lets the page fill the box — Spark's Suggested cards write a prompt into it. */
   composerRef?: React.MutableRefObject<ComposerHandle | null>;
+  /** A chip beside the plus, as a picked tool's: the desktop app's folder or full-access chip. */
+  leadingChip?: React.ReactNode;
+  /** Files may go with no words, as a picture does in a messenger: a bot's composer. A task always needs its prompt. */
+  allowFilesOnly?: boolean;
 }
 
 export const SparkComposer: React.FC<SparkComposerProps> = ({
@@ -84,7 +92,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
   selectedModelId = '',
   setSelectedModelId,
   workspaceColor,
-  isAuthenticated,
+  theme,
   onAuthRequired,
   placeholder = 'Describe a task',
   className = '',
@@ -92,9 +100,13 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
   isGenerating = false,
   onStopGenerating,
   composerRef,
+  leadingChip,
+  allowFilesOnly = false,
 }) => {
   const isUltra = useStore(sparkUltraEngaged);
   const [error, setError] = useState('');
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const mentionOptions = useSparkMentionOptions();
   const mountedRef = useRef(true);
   const submitInFlightRef = useRef(false);
 
@@ -111,7 +123,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
    * cleanup it schedules revokes the object URLs, not the `File` handles themselves.
    */
   const submit = (prompt: string, attachments: readonly Attachment[], tool?: string | null) => {
-    if (!prompt || disabled || isGenerating || submitInFlightRef.current) return;
+    if ((!prompt && !(allowFilesOnly && attachments.length)) || disabled || isGenerating || submitInFlightRef.current) return;
     const files = attachments.map((attachment) => attachment.file).filter((file): file is File => !!file);
     const tools = tool ? [tool] : [];
 
@@ -156,7 +168,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
   };
 
   return (
-    <div className={`spark-composer-host ${className}`.trim()}>
+    <div ref={setHost} className={`spark-composer-host ${className}`.trim()}>
       <InputBar
         chatVariant
         sparkMode
@@ -184,12 +196,15 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
           onSelect: () => setSparkUltraEngaged(true),
         }]}
         workspaceColor={workspaceColor}
-        isAuthenticated={isAuthenticated}
+        theme={theme}
         onAuthRequired={onAuthRequired}
         // Spark has no voice session. With this false the send slot is empty until there
         // is something to send, and the live handlers below are deliberately absent.
         liveAvailable={false}
+        leadingChip={leadingChip}
       />
+      {/* "@" for apps and "/" for skills, as in Gemini Spark's composer. */}
+      <SparkMentions host={host} options={mentionOptions} disabled={disabled} />
       {error && <p className="spark-composer-host__error" role="status">{error}</p>}
     </div>
   );

@@ -21,11 +21,16 @@ Willow-specific:
 | `src/streaming-markdown-styles.ts` | The renderer's injected stylesheet + `useInjectStyles` (522 lines). |
 | `src/MaterialSymbol.tsx` | Material Symbols icon by name. |
 | `src/Avatar.tsx` · `src/AgentIcon.tsx` · `src/CanvasIcon.tsx` | Iconography. |
+| `src/ProfilePhoto.tsx` | A person's profile photo: no Referer, one retry, and the silhouette (`ProfileSilhouette`) while it loads and wherever it cannot load. Every view of the user's photo uses it (or `Avatar`, which does), never a bare `<img>`. |
 | `src/GeminiAttachmentCard.tsx` · `src/RichResourcePreview.tsx` | Attachment/link previews. The tile is measured off Gemini — see below. |
 | `src/GeminiBentoCard.tsx` + `src/gemini-cards.ts` | Gemini's `bento-card` tiles and the flex packing that lays them out. Every value measured — see below. |
 | `src/GeminiInlineImage.tsx` | Gemini's markdown `.inline-image-container`: floated image plus a credit/alt caption. |
 | `src/TopLoadingBar.tsx` | Route-transition progress bar. |
 | `src/Tooltip.tsx` + `.css` | Gemini's tooltip. Every value measured off gemini.google.com — see below. |
+| `src/GeminiBottomSheet.tsx` + `.css` | Gemini's content-height `gem-bottom-sheet`, which it opens at 960px and below where the desktop shows a menu, and `GeminiSheetList` / `GeminiSheetItem` for a sheet of actions (the `gem-list` card and its 48px rows). Used by the Spark task-list filter, a saved instruction's actions, a memory's actions, the narrow notebook Sources "+", Customize's card and Create menus, and the Code tab's Tools, More and "Your apps" card menus. An item takes a Luminous `icon` name or, for another face or a logo, a `glyph` node in the same 24px slot; `className` lands on the layer, e.g. to lift the sheet over the dialog that raised it (the layer is `z-index: 1000`). |
+| `src/GeminiDialog.tsx` + `.css` | Gemini's centred confirm dialog — title, body, tonal pills — plus `GeminiOutlinedField`. Below 961px a `message` dialog takes Gemini's narrow message variant: 332px at most, surface-bright, 48px pills that share the row, a `willow-gdlg-pill--text` one included (in light too). Also below 961px, any dialog taller than the screen scrolls inside the host's 16px inset. Used by the sidebar's chat dialogs, Customize, the chat surface, and notebook Delete. |
+| `src/ConfirmationCard.tsx` + `.css` | Gemini's `remy-confirmation-card.draft-approval`, the card under a reply that saved a schedule or a skill: a 28px title, a Markdown body clamped to five lines with See more / See less (shown only when it overflows), and an optional disclaimer under a rule. Spark's and Chat's. |
+| `src/models/ModelsMenu.tsx` | The model and effort menu the composers open. With `mobile` it is the narrow list, and its effort row has no hover handlers: a tap's emulated mouse events would open the effort submenu and close it again in the same gesture. |
 | `src/hooks/use-auto-resize-textarea.ts` | Grows a textarea to fit its content. |
 | `src/github/GithubImportDialog.tsx` + `src/github/repository.ts` | The composer's "Import code" dialog and its GitHub client. Lived in `features/code` until it was noticed that Code never used it and Chat did — see below. |
 
@@ -49,6 +54,18 @@ code fence, half a table row) and re-render without flickering as more text
 arrives. It also handles KaTeX math, GFM tables, and syntax highlighting. Read
 carefully before changing — most of its length is edge cases that were hit in
 practice.
+
+The stylesheet has one narrow-layout rule of its own: below 959.98px, `.smd-link`
+takes Gemini's narrow on-surface `rgb(224, 224, 224)` for both the text and its dotted
+underline (measured on Spark replies at 390 and 800 wide). It applies to every host —
+Chat included — and the light-theme link colour still overrides it.
+
+Images written as `media-id:<id>` resolve live against the `mediaItems` prop and
+render as cards, so a card follows its item from generating to done or failed.
+The card's own interior is a generic placeholder; a host that already draws its
+media passes `renderMediaItem` to fill each card instead. The Media agent sidebar
+does, with the gallery tile's generating liquid and failure card. That prop is how
+a feature's drawing gets in without `platform/ui` importing the feature.
 
 ## Tooltip
 
@@ -109,6 +126,13 @@ measured against Gemini's own rail (pane `left` == anchor `right`, gap 8,
 vertical centres equal).
 
 `apps/studio/test/tooltip-triggers.test.mjs` pins both directions.
+
+`TooltipOverlay`, the floating half both share, is exported for a caller that
+decides on its own when its tooltip shows — the desktop app's rail, which hides it
+while an item is pressed or dragged, and its window strip, whose buttons live in
+another webview and whose tooltips the page draws against a stand-in anchor
+(`apps/studio/src/shell/rail/StripTooltip.tsx`). Give it the anchor element, the
+text, a side and `open`; it does the placing and the show and hide.
 
 ## Attachment tiles
 

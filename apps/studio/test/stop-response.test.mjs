@@ -195,16 +195,18 @@ test('the load path reads back every flag serializeChatMessage writes', () => {
   const persistedFlags = [...chatMessage.matchAll(/^\s*(was[A-Z]\w*)\??:/gm)].map((m) => m[1]);
   assert.ok(persistedFlags.length >= 2, 'expected ChatMsg to declare was* flags');
 
-  const loadBlock = chatView.slice(
-    chatView.indexOf('const sanitized: ChatMsg[]'),
-    chatView.indexOf('hasSavedMessageContent(m))'),
+  // ChatView's load and a turn resumed in another tab both rebuild through this one function.
+  const loadBlock = chatMessage.slice(
+    chatMessage.indexOf('export const restoreSavedChatMessage'),
+    chatMessage.indexOf('});', chatMessage.indexOf('export const restoreSavedChatMessage')),
   );
   assert.ok(loadBlock.length > 0, 'could not locate the load path');
+  assert.match(chatView, /restoreSavedChatMessage\(\s*m,/, 'ChatView no longer loads through restoreSavedChatMessage');
   for (const flag of persistedFlags) {
     if (runtimeOnly.has(flag)) continue;
     assert.match(
       loadBlock,
-      new RegExp(`${flag}: m\\.${flag}`),
+      new RegExp(`${flag}: saved\\.${flag}`),
       `the load path drops ${flag}, so it is lost on reload`,
     );
   }
@@ -269,6 +271,7 @@ test('notice sits 8px under the body and 4px above the button row', () => {
   //   body bottom -> 8px -> 20px notice -> 4px -> 32px button row.
   // An earlier pass recorded that last gap as 0 by measuring to
   // `message-actions`, whose own 4px inset sits above the buttons.
+  // At <=960px (`isCompact`) Gemini leaves that same 4px under every response.
   assert.match(chatView, /marginTop: 8, marginBottom: 0/);
-  assert.match(chatView, /msg\.wasStopped \? \{ marginTop: 4 \}/);
+  assert.match(chatView, /msg\.wasStopped \|\| isCompact \? \{ marginTop: 4 \}/);
 });

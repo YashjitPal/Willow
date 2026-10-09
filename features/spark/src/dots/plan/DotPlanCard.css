@@ -1,0 +1,84 @@
+.dot-plan-card {
+  width: min(460px, 100%);
+  --md-outlined-card-container-shape: 16px;
+  --md-outlined-card-outline-color: var(--md-sys-color-outline-variant);
+}
+
+.dot-plan-card md-outlined-card {
+  display: block;
+}
+
+.dot-plan-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-plan-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-plan-card__title {
+  min-width: 0;
+  color: var(--md-sys-color-on-surface);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.dot-plan-card__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dot-plan-card__steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.dot-plan-card__steps li > :first-child {
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-plan-card__steps li.is-completed > :first-child,
+.dot-plan-card__steps li.is-in_progress > :first-child {
+  color: var(--md-sys-color-primary);
+}
+
+.dot-plan-card__steps li.is-completed > span:last-child {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-plan-card__steps li.is-in_progress > span:last-child {
+  font-weight: 500;
+}
+
+.dot-plan-card__status {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.dot-plan-card.is-stalled .dot-plan-card__status {
+  color: var(--md-sys-color-error);
+}
+
+.dot-plan-card.is-past {
+  opacity: 0.8;
+}

@@ -94,9 +94,12 @@ export const TopLoadingBar: React.FC<TopLoadingBarProps> = ({ active, leftOffset
   return (
     <div
       aria-hidden="true"
-      className={`pointer-events-none fixed right-0 top-0 z-[3000] h-[2px] overflow-hidden ${visible ? 'opacity-100' : 'opacity-0'}`}
+      className={`pointer-events-none fixed z-[3000] h-[2px] overflow-hidden ${visible ? 'opacity-100' : 'opacity-0'}`}
       style={{
-        left: `${leftOffset}px`,
+        // The desktop app's frame sets these; the bar then runs along its page, inside the rounded corners.
+        top: 'var(--willow-frame-top, 0px)',
+        left: `calc(var(--willow-frame-left, 0px) + max(${leftOffset}px, var(--willow-frame-radius, 0px)))`,
+        right: 'calc(var(--willow-frame-right, 0px) + var(--willow-frame-radius, 0px))',
         transition: 'left 280ms cubic-bezier(0.32, 0.72, 0, 1), opacity 150ms ease',
       }}
     >

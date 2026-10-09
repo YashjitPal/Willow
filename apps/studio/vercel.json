@@ -3,6 +3,15 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "installCommand": "npm install",
+  "headers": [
+    {
+      "source": "/codex/assets/:runtime/:version/frame.html",
+      "headers": [
+        { "key": "Document-Isolation-Policy", "value": "isolate-and-require-corp" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'self'" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]

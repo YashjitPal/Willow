@@ -210,7 +210,7 @@
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog input:focus,
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog textarea:focus,
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog select:focus {
-  border-color: #0b57d0 !important;
+  border-color: var(--sync-0b57d0, #0b57d0) !important;
 }
 
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog .bg-\[\#1c1c1c\],
@@ -258,7 +258,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog .border-white\/40 {
-  border-color: #0b57d0 !important;
+  border-color: var(--sync-0b57d0, #0b57d0) !important;
 }
 
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog button[class*="rounded-full"][class*="bg-white/5"] {
@@ -278,17 +278,17 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog .w-2.h-2.bg-white.rounded-full {
-  background-color: #0b57d0 !important;
+  background-color: var(--sync-0b57d0, #0b57d0) !important;
 }
 
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white,
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white\/90 {
-  background-color: #0b57d0 !important;
+  background-color: var(--sync-0b57d0, #0b57d0) !important;
   color: #ffffff !important;
 }
 
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white:hover {
-  background-color: #0842a0 !important;
+  background-color: var(--sync-0842a0, #0842a0) !important;
 }
 
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog button.bg-white\/5,
@@ -318,5 +318,153 @@
 
 :is(.light-theme, [data-theme="light"]) .settings-modal-dialog .hover-scrollbar:hover::-webkit-scrollbar-thumb {
   background-color: rgba(0, 0, 0, 0.25) !important;
+}
+
+/*
+ * Below 961px (`is-compact`, set from `useCompactViewport`): a full-screen settings
+ * screen in two levels, in the narrow language of the other settings pages. A 64px bar
+ * holds the back arrow (in a tab) and the close button, both 40px Google Symbols in
+ * #c4c7c5. The list level carries a 32px "Settings" title and 48px touch rows; a tab
+ * keeps its own title and content, inset 24px rather than the desktop's 48.
+ */
+.settings-modal-dialog.is-compact {
+  border-radius: 0;
+}
+
+.settings-modal-compact-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 64px;
+  box-sizing: border-box;
+  padding: 0 12px 0 8px;
+}
+
+.settings-modal-compact-icon {
+  display: flex;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #c4c7c5;
+  transition: background-color 0.15s ease-out;
+}
+
+.settings-modal-compact-icon:hover,
+.settings-modal-compact-icon:focus-visible {
+  background-color: rgba(227, 227, 227, 0.08);
+  outline: none;
+}
+
+.settings-modal-compact-close {
+  margin-left: auto;
+}
+
+.settings-modal-compact-list {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 0 12px 24px;
+  scrollbar-width: none;
+}
+
+.settings-modal-compact-list::-webkit-scrollbar {
+  display: none;
+}
+
+.settings-modal-compact-heading {
+  margin: 12px 12px 4px;
+  color: #e3e3e3;
+  font-size: 32px;
+  font-weight: 360;
+  line-height: 38px;
+  font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
+}
+
+.settings-modal-compact-list > button,
+.settings-modal-compact-list > .settings-modal-labs-item {
+  min-height: 48px;
+  font-size: 15px;
+}
+
+.settings-modal-dialog.is-compact .settings-modal-content {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.settings-modal-dialog.is-compact .settings-modal-content .px-12 {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.settings-modal-dialog.is-compact .settings-modal-content .py-10 {
+  padding-top: 4px;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-dialog.is-compact .settings-modal-sidebar {
+  background-color: #ffffff !important;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-compact-icon {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-compact-icon:hover,
+:is(.light-theme, [data-theme="light"]) .settings-modal-compact-icon:focus-visible {
+  background-color: rgba(31, 31, 31, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .settings-modal-compact-heading {
+  color: #1f1f1f;
+}
+
+/*
+ * The tabs themselves, on a phone. They were drawn for a ~700px pane, so a description
+ * column beside its field leaves the field no room under 600px. These rows stack, the way
+ * the narrow settings pages stack theirs:
+ *
+ * - Account's label-and-field rows put the field under its description, full width.
+ * - Rows that end in a switch or checkbox keep it at their end and lose the desktop's cap
+ *   on the text.
+ * - A Models & API default puts its dropdown under its label.
+ * - Card grids (providers, connectors) go one to a row.
+ */
+@media (max-width: 600px) {
+  .settings-modal-dialog.is-compact .settings-modal-content .flex.items-start.gap-8:not(.justify-between) {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .settings-modal-dialog.is-compact .settings-modal-content .flex.items-start.gap-8:not(.justify-between) > .w-\[50\%\],
+  .settings-modal-dialog.is-compact .settings-modal-content .flex.items-start.gap-8:not(.justify-between) > .flex-1 {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .settings-modal-dialog.is-compact .settings-modal-content .max-w-\[50\%\],
+  .settings-modal-dialog.is-compact .settings-modal-content .max-w-\[60\%\] {
+    max-width: none;
+  }
+
+  .settings-modal-dialog.is-compact .settings-modal-content .justify-between:has(> .w-64) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .settings-modal-dialog.is-compact .settings-modal-content .justify-between > .w-64 {
+    width: 100%;
+  }
+
+  .settings-modal-dialog.is-compact .settings-modal-content .grid-cols-2,
+  .settings-modal-dialog.is-compact .settings-modal-content .grid-cols-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 

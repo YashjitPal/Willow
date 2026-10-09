@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-snapshot-ack"
+description = "Enables the snapshot_ack command without any pre-configured scope."
+commands.allow = ["snapshot_ack"]
+
+[[permission]]
+identifier = "deny-snapshot-ack"
+description = "Denies the snapshot_ack command without any pre-configured scope."
+commands.deny = ["snapshot_ack"]

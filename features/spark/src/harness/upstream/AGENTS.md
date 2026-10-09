@@ -10,7 +10,7 @@ The pinned commit, the checksums, and what each file is for are all in
 
 **Do not edit these files. Ever.**
 
-`apps/studio/test/agent-harness.test.mjs` hashes each one against
+`apps/studio/test/spark-upstream-integrity.test.mjs` hashes each one against
 `MANIFEST.json`, so an edit fails `npm test`. `npm run codex:check` reports the
 same thing with a clearer message.
 
@@ -44,6 +44,5 @@ Strongly prefer the overlay.
 ## Provenance
 
 `MANIFEST.json` records the repository, licence, release tag, full commit sha,
-fetch timestamp, and a SHA-256 for every file. The Harness panel in the app
-(Code → Harness → Overview) renders all of it, so the pin is visible
-without reading this folder.
+fetch timestamp, and a SHA-256 for every file. `npm run codex:check` prints the
+pin and verifies the checksums without reading this folder.

@@ -1,0 +1,819 @@
+{
+  "assetBase": "https://www.gstatic.com/aitestkitchen/website/flow/applets/",
+  "banners": {
+    "templates": "https://www.gstatic.com/aitestkitchen/website/flow/applets/banner.webp",
+    "myTools": "https://www.gstatic.com/aitestkitchen/website/flow/applets/featured-banner.webp"
+  },
+  "iconPresets": [
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-1.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-2.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-3.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-4.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-5.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-6.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-7.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-8.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-9.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-10.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-11.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-12.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-13.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-14.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-15.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-16.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-17.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-18.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-1.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-2.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-3.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-4.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-5.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-6.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-7.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-8.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-9.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-10.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-11.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-12.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-13.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-14.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-15.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-16.png",
+    "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-17.png"
+  ],
+  "templates": [
+    {
+      "id": "8ffd7fee-0821-4ff5-9fe0-0e3cc43e968e",
+      "name": "Simple Sketch",
+      "description": "Turn any drawing into a stylized image",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-10.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/8ffd7fee-0821-4ff5-9fe0-0e3cc43e968e.webp",
+      "category": "Image"
+    },
+    {
+      "id": "18017f37-108e-4cab-b7dd-450107c9e6bf",
+      "name": "Scene Explorer",
+      "description": "Explore visuals for scenes based on an initial location",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-7.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/18017f37-108e-4cab-b7dd-450107c9e6bf.webp",
+      "category": "Image"
+    },
+    {
+      "id": "c4ddcb1b-07b0-429b-8f44-6abdbafdac03",
+      "name": "Mockup",
+      "description": "Comp your image into different environments",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-4.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/c4ddcb1b-07b0-429b-8f44-6abdbafdac03.webp",
+      "category": "Image"
+    },
+    {
+      "id": "6bd23cea-3c85-4f0e-8237-f798654db58e",
+      "name": "Image Editor",
+      "description": "Transform objects, add text and adjust image sizing",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-3.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/6bd23cea-3c85-4f0e-8237-f798654db58e.webp",
+      "category": "Image"
+    },
+    {
+      "id": "83a78fea-bb55-4ddd-b5d3-43855fba4c6f",
+      "name": "Shot Explorer",
+      "description": "See your scene from new angles",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-9.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/83a78fea-bb55-4ddd-b5d3-43855fba4c6f.webp",
+      "category": "Image"
+    },
+    {
+      "id": "75dc4896-8a76-4806-bfd4-35c19b6ee872",
+      "name": "Mask Magic",
+      "description": "Perform selective image edits using segmentation",
+      "author": "Arden Schager, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-8.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/75dc4896-8a76-4806-bfd4-35c19b6ee872.webp",
+      "category": "Image"
+    },
+    {
+      "id": "394d817c-0be5-4454-94bc-a89e377fb1dd",
+      "name": "Converge",
+      "description": "Render your sketches",
+      "author": "Chris Maestas",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-13.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/394d817c-0be5-4454-94bc-a89e377fb1dd.webp",
+      "category": "Image"
+    },
+    {
+      "id": "6b649a77-e480-45e0-9d45-664e2b2e72ed",
+      "name": "Grid Architect",
+      "description": "Create image grids and extract individual images from them",
+      "author": "Henry Daubrez",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-7.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/6b649a77-e480-45e0-9d45-664e2b2e72ed.webp",
+      "category": "Image"
+    },
+    {
+      "id": "0de99d2a-4930-4022-bd1b-ba94d32ecd62",
+      "name": "Shader Effects",
+      "description": "Apply customizable filters to your media",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-8.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/0de99d2a-4930-4022-bd1b-ba94d32ecd62.webp",
+      "category": "Video"
+    },
+    {
+      "id": "4c8ba875-f7db-4092-9e39-80ce2a4c4bd1",
+      "name": "Type Overlays",
+      "description": "Add animated text to your videos",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-15.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/4c8ba875-f7db-4092-9e39-80ce2a4c4bd1.webp",
+      "category": "Video"
+    },
+    {
+      "id": "4de1ebce-ac98-4d41-9802-dea6a54f3211",
+      "name": "pixelBento",
+      "description": "Apply post-processing effects like lo-fi and glitch",
+      "author": "László Gaal",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-6.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/4de1ebce-ac98-4d41-9802-dea6a54f3211.webp",
+      "category": "Video"
+    },
+    {
+      "id": "38aedfe5-ebd9-4aaf-9062-a90b9d139ac9",
+      "name": "Poster Designer",
+      "description": "Create animated posters from your media",
+      "author": "Heysu Oh and Kaloyan Kolev, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-9.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/38aedfe5-ebd9-4aaf-9062-a90b9d139ac9.webp",
+      "category": "Video"
+    },
+    {
+      "id": "97d256f6-22b3-469c-b594-d4485fe901b3",
+      "name": "Video Sketch",
+      "description": "Animate drawings on top of your videos",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-11.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/97d256f6-22b3-469c-b594-d4485fe901b3.webp",
+      "category": "Video"
+    },
+    {
+      "id": "a867151e-7806-490c-b181-655c35af5bdb",
+      "name": "Transition Machine",
+      "description": "Generate seamless transitions between your videos",
+      "author": "Scotch Johnson, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-16.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/a867151e-7806-490c-b181-655c35af5bdb.webp",
+      "category": "Video"
+    },
+    {
+      "id": "506be04c-4f2b-4afd-a0f8-9fe2473491e1",
+      "name": "Weirdcore",
+      "description": "Fry, chop, melt and distort your videos",
+      "author": "Kaloyan Kolev, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-18.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/506be04c-4f2b-4afd-a0f8-9fe2473491e1.webp",
+      "category": "Video"
+    },
+    {
+      "id": "47749767-9ba0-4dd0-b137-5c16c3c02e4f",
+      "name": "Video Resizer",
+      "description": "Resize your videos into any aspect ratio",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-6.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/47749767-9ba0-4dd0-b137-5c16c3c02e4f.webp",
+      "category": "Video"
+    },
+    {
+      "id": "f472f46e-d957-4d54-89eb-94dc5a5f0bfd",
+      "name": "Stringout Creator",
+      "description": "Stitch multiple video clips together",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-14.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/f472f46e-d957-4d54-89eb-94dc5a5f0bfd.webp",
+      "category": "Video"
+    },
+    {
+      "id": "239a803a-ce0c-468e-ba5a-feabe943524d",
+      "name": "Video Granulator",
+      "description": "Play your videos like an instrument",
+      "author": "Arden Schager, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-15.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/239a803a-ce0c-468e-ba5a-feabe943524d.webp",
+      "category": "Video"
+    },
+    {
+      "id": "43d3a4ae-117a-461b-a732-adac0ea13021",
+      "name": "Character X-Ray",
+      "description": "Develop your characters and their backstory",
+      "author": "MetaPuppet",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-3.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/43d3a4ae-117a-461b-a732-adac0ea13021.webp",
+      "category": "Prompting"
+    },
+    {
+      "id": "0c1b03b1-d77e-42ff-97fe-5efb35ac9aa7",
+      "name": "Style Writer",
+      "description": "Turn your mood board into a style prompt",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-5.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/0c1b03b1-d77e-42ff-97fe-5efb35ac9aa7.webp",
+      "category": "Prompting"
+    },
+    {
+      "id": "7566ba88-b77f-460c-a7c2-80e00052ac0f",
+      "name": "Storyboard Studio",
+      "description": "Write a script, create the cast, and visualize a storyboard",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-13.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/7566ba88-b77f-460c-a7c2-80e00052ac0f.webp",
+      "category": "Prompting"
+    },
+    {
+      "id": "e2c0a9f9-4117-4724-bf3f-17071c6a7be9",
+      "name": "Prompt Tree",
+      "description": "Organize prompts using a branching structure for precise edits",
+      "author": "Scotch Johnson, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-10.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/e2c0a9f9-4117-4724-bf3f-17071c6a7be9.webp",
+      "category": "Prompting"
+    },
+    {
+      "id": "12350ecf-485f-4bc6-aef1-2518692508fb",
+      "name": "Story Sketch",
+      "description": "Create storyboards that follow any visual style",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-12.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/12350ecf-485f-4bc6-aef1-2518692508fb.webp",
+      "category": "Prompting"
+    },
+    {
+      "id": "abab232a-988c-4726-abd8-2039c4ef754e",
+      "name": "Frame Deconstructor",
+      "description": "Deconstruct videos and gifs to create 3D sculptures",
+      "author": "Shashwath Santosh and Alan Yam, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-5.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/abab232a-988c-4726-abd8-2039c4ef754e.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "a4dec4b8-aa93-4c9a-a720-d6830706aa0d",
+      "name": "Blob Tracking",
+      "description": "Generate futuristic tracking effects",
+      "author": "Arden Schager, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-2.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/a4dec4b8-aa93-4c9a-a720-d6830706aa0d.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "5fce9564-7267-4c2e-af8e-c4548355a268",
+      "name": "DepthWarp 4D",
+      "description": "See your video in a new dimension",
+      "author": "Sam Lawton, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-14.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/5fce9564-7267-4c2e-af8e-c4548355a268.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "8bb72d73-1d96-4406-a65a-3c2f05cd180e",
+      "name": "Webcam Set",
+      "description": "Drop yourself into footage",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-16.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/8bb72d73-1d96-4406-a65a-3c2f05cd180e.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "a0e4a6e0-b7a2-42a5-9f95-4f8deb49c68d",
+      "name": "Datamosh",
+      "description": "Add datamoshing effects to your videos",
+      "author": "Kaloyan Kolev, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-4.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/a0e4a6e0-b7a2-42a5-9f95-4f8deb49c68d.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "8049d58f-05d8-4448-acc7-ec6ca84bb314",
+      "name": "3D Model Visualizer",
+      "description": "Use a 3D model to guide your image generation",
+      "author": "Filip Havlena, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-1.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/8049d58f-05d8-4448-acc7-ec6ca84bb314.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "d5be67d6-7bc6-46ad-af91-6e73d154cbba",
+      "name": "Scout360",
+      "description": "Capture a 360 degree environment from an image",
+      "author": "PJ Ace",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-12.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/d5be67d6-7bc6-46ad-af91-6e73d154cbba.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "00244c6b-e838-4bb0-983e-faa9cabf7c50",
+      "name": "Ribbit",
+      "description": "Perform videos live as the beat drives playback",
+      "author": "Kat Zhang",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-11.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/00244c6b-e838-4bb0-983e-faa9cabf7c50.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "4e8fe1c4-2349-4f2b-9ea3-bc309296b72d",
+      "name": "Whisk",
+      "description": "Use images as prompts to visualize your ideas",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-17.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/4e8fe1c4-2349-4f2b-9ea3-bc309296b72d.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "9ea653c0-7f0f-4ee1-8b8e-c1ec3a79cf04",
+      "name": "Pose Text",
+      "description": "Add text labels that track a character in your video",
+      "author": "Alan Yam, Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-17.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/9ea653c0-7f0f-4ee1-8b8e-c1ec3a79cf04.webp",
+      "category": "Experimental"
+    },
+    {
+      "id": "a50af5aa-6cca-41c0-a6cb-0bc3a8da6c14",
+      "name": "3D Face Swap",
+      "description": "Swap your face with virtual characters",
+      "author": "Google",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-1.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/preview/a50af5aa-6cca-41c0-a6cb-0bc3a8da6c14.webp",
+      "category": "Experimental"
+    }
+  ],
+  "community": [
+    {
+      "id": "community-417e7481-f38b-4b4d-a8f6-076fdafbb9c9",
+      "name": "ThumbnailForge",
+      "description": "Create photorealistic, scroll-stopping thumbnails for every platform in seconds.",
+      "author": "Jay Pirabakaran",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-5-ThumbnailForge.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/preview/thumbnail_forge_preview_d1f27b3f-a035-40b1-a694-a39a843e6c43.png",
+      "category": "Spotlight",
+      "spotlightOrder": 6,
+      "created": "2026-09-22T05:59:55.313Z"
+    },
+    {
+      "id": "community-49e065fc-04f9-4789-9445-35f5d1489943",
+      "name": "CollageMotion Pro",
+      "description": "Create stylized collage-art videos with AI-powered script generation and narrative controls.",
+      "author": "Hashem Al-Ghaili",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-3-CollageMotionPro.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/preview/collagemotion_preview_b789dd7c-02a0-4b4c-87dc-965ecc3e6102.jpeg",
+      "category": "Spotlight",
+      "spotlightOrder": 5,
+      "created": "2026-09-22T05:59:31.287Z"
+    },
+    {
+      "id": "community-31693eb2-959b-46b9-b1b4-480070c91099",
+      "name": "CaptionCast",
+      "description": "Turn videos into viral-ready content with AI captions, smart styling, and multi-language support.",
+      "author": "Jay Pirabakaran",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-4-CaptionCast.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/preview/captioncast_preview_0f220805-11a1-47bb-a02e-7bd739d56925.jpeg",
+      "category": "Spotlight",
+      "spotlightOrder": 4,
+      "created": "2026-09-22T05:59:18.229Z"
+    },
+    {
+      "id": "community-489515b8-4861-4041-8cde-e4d9920da54d",
+      "name": "Surface",
+      "description": "High-fidelity architectural material lab and cinematic staging tool.",
+      "author": "Vojtek Morsztyn",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-6-Surface.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/preview/surface_preview_89f411f7-d4c3-4e8f-b0eb-c913de38f9c3.png",
+      "category": "Spotlight",
+      "spotlightOrder": 3,
+      "created": "2026-09-22T05:58:52.874Z"
+    },
+    {
+      "id": "community-0a16aa5d-7c35-4b31-8e37-62344fec4239",
+      "name": "SwissFlow Studio",
+      "description": "Turn your scripts into clean, professional Swiss-style typography animations without any complex keyframing.",
+      "author": "Hashem Al-Ghaili",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-2-SwissFlowStudio.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/preview/swissflow_preview_7f4a3553-86e1-4b9a-8c5c-64cbd0661966.jpeg",
+      "category": "Spotlight",
+      "spotlightOrder": 2,
+      "created": "2026-09-22T05:58:35.780Z"
+    },
+    {
+      "id": "community-d17dd022-5243-4904-a1ea-245d997fefe9",
+      "name": "Mondo Sónico",
+      "description": "Professional sound design studio now featuring cross-layer fade synchronization for Ambiance, Foley, and SFX.",
+      "author": "Ricardo Villavicencio, Sebastián Carvallo",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-1-MondoSonico.png",
+      "preview": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/preview/mondo_sonico_preview_137e185c-31a2-4389-97df-170533940c17.jpeg?v=2",
+      "category": "Spotlight",
+      "spotlightOrder": 1,
+      "created": "2026-09-22T05:58:21.998Z"
+    },
+    {
+      "id": "community-9101c9fd-d061-4771-985e-7a4d0d0e05de",
+      "name": "Screen Script",
+      "description": "Professional screenplay editor with real-time formatting, block selection, and AI assist.",
+      "author": "Zach M",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-10.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/62139dad-7063-4f52-ae17-b627128bbe06.png",
+      "category": "Video",
+      "created": "2026-08-11T14:26:47.100Z"
+    },
+    {
+      "id": "community-feb1a687-1179-47d0-b789-cac6b72e04b5",
+      "name": "LyricFlow",
+      "description": "Generate AI music videos and high-quality audio from your lyrics",
+      "author": "MAHENDER TOMAR",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-9.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/c9f00bf3-fc39-4f4d-8ac0-8919ab11a891.png",
+      "category": "Video",
+      "created": "2026-08-11T14:26:43.678Z"
+    },
+    {
+      "id": "community-6ca3e02b-b3e8-45c8-a665-ebc92d1ea5d8",
+      "name": "Fashion Grid Analyzer",
+      "description": "Analyze costumes from photos and generate a structured 16:9 grid layout of every part.",
+      "author": "Zuhal Mughni",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-12.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/a2405759-7d76-4268-9695-854f966fb79b.png",
+      "category": "Image",
+      "created": "2026-08-11T14:26:40.375Z"
+    },
+    {
+      "id": "community-bf5a7e9a-a887-469b-95fd-5671927640ff",
+      "name": "Face Morph",
+      "description": "Change Facial Expressions using AI",
+      "author": "Nuwan Shilpa Hennayake",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-18.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/79f6aa8b-5390-4033-9e28-786eb0ecb48f.png",
+      "category": "Image",
+      "created": "2026-08-11T14:26:37.252Z"
+    },
+    {
+      "id": "community-7d582f04-1db8-4fc8-ac09-12b28829b479",
+      "name": "Elite Designer Collective",
+      "description": "An AI roundtable of five world-class designers refining your creative prompts.",
+      "author": "nuraiza siddiq",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-13.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/0f767266-e5a7-41e7-bc10-f9b00c1ad92b.png",
+      "category": "Image",
+      "created": "2026-08-11T14:26:23.290Z"
+    },
+    {
+      "id": "community-63040bf6-21c4-404f-a2e7-69e016a4782e",
+      "name": "Editorial Jewelry Studio",
+      "description": "Professional jewelry campaign simulator with automated AI Quality Control and smart retries.",
+      "author": "aditya shukla",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-15.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/8d3091af-a3c0-4355-8bbf-2063c7d99b24.png",
+      "category": "Image",
+      "created": "2026-08-11T14:26:20.105Z"
+    },
+    {
+      "id": "community-c3600c99-e58f-457f-acff-857cb99d9ba5",
+      "name": "Doodle Logo Architect",
+      "description": "Sketch your logo ideas and transform them into professional brands with AI",
+      "author": "Janith Anjana",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-4.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/dc2d1b7f-2616-474f-b13d-14b6c6da4d7f.png",
+      "category": "Image",
+      "created": "2026-08-11T14:26:16.260Z"
+    },
+    {
+      "id": "community-18345db0-2688-40ce-ad63-5349256d7c93",
+      "name": "Director Camera & Path Vector Board",
+      "description": "Visual trajectory brush with professional director camera and physics parameter controls.",
+      "author": "adcraftai",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-12.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/6ad3ac9b-623f-4a1c-8068-9730d2b6baca.png",
+      "category": "Video",
+      "created": "2026-08-11T14:26:12.437Z"
+    },
+    {
+      "id": "community-fb662939-313c-4983-83bf-e94e8eba4c8e",
+      "name": "ComicGen Studio",
+      "description": "Professional full-bleed comic generator with interactive speech bubble and SFX overlay system.",
+      "author": "Brinsley",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-11.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/ad461ad9-0c17-4158-b2ad-e53ae884e83a.png",
+      "category": "Image",
+      "created": "2026-08-11T14:25:59.863Z"
+    },
+    {
+      "id": "community-770ec585-9372-48c7-8c62-ee847d2c7eec",
+      "name": "Bouquet & Note Studio",
+      "description": "Create custom flower bouquets and heartfelt notes for any occasion.",
+      "author": "Maxai",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-4.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/e799d0a2-5aee-4480-8882-e28f2d64797c.png",
+      "category": "Image",
+      "created": "2026-08-11T14:25:56.235Z"
+    },
+    {
+      "id": "community-900cd63e-489f-47c5-828e-bcf2bd71c176",
+      "name": "Background Remover",
+      "description": "Remove image backgrounds instantly with a transparent output.",
+      "author": "Keera",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-10.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/edf41c89-c8ba-4a8b-a327-93bf0859f3cf.png",
+      "category": "Image",
+      "created": "2026-08-11T14:25:53.015Z"
+    },
+    {
+      "id": "community-7e36d572-2dab-4ad4-9bf9-ddfb567eb054",
+      "name": "B-2 Illustrator",
+      "description": "Generate editorial graphic novel illustrations with stick-figure protagonists.",
+      "author": "B2😼",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-17.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/b9e4a0ae-aa03-40bf-a369-eb51c3f91b46.png",
+      "category": "Image",
+      "created": "2026-08-11T14:25:49.578Z"
+    },
+    {
+      "id": "community-631c16e0-84df-4b1c-a5aa-1fc5e69a3c23",
+      "name": "8-Bit Quest",
+      "description": "Transform your videos into retro 8-bit adventure game cinematics.",
+      "author": "Trollceratops",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-13.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/c59e52f8-0982-48c7-a840-1e2915a7aa7a.png",
+      "category": "Video",
+      "created": "2026-08-11T14:25:36.461Z"
+    },
+    {
+      "id": "community-e69361a9-2402-47b6-b590-c2011d34c0b8",
+      "name": "Void Velocity",
+      "description": "High-octane arcade jumper with neon aesthetics and aggressive synthetic beats.",
+      "author": "Joker",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-2.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/9e71b92f-bba8-4a18-ba90-8f1365d1f094.png",
+      "category": "Experimental",
+      "created": "2026-07-20T19:07:39.626Z"
+    },
+    {
+      "id": "community-e5589317-0a5a-41c2-9fe8-bb19500e0166",
+      "name": "Vector Sticker Studio",
+      "description": "V2 - Create die-cut stickers from your own images, with smart cutout, a wide variety of styles, plus a style sampler.",
+      "author": "Glenn B",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-18.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/3a0544b2-8018-4f45-9e4d-27ed0625186e.png",
+      "category": "Image",
+      "created": "2026-07-20T19:07:31.543Z"
+    },
+    {
+      "id": "community-4c6e48ac-7924-4f31-b940-fd683fa2f528",
+      "name": "Text Effect",
+      "description": "Generate stylized text renders inspired by your sample media",
+      "author": "inxstudio",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-7.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/467de8f9-13dc-46b5-a2bb-0bc23a7796dc.png",
+      "category": "Image",
+      "created": "2026-07-20T19:07:11.186Z"
+    },
+    {
+      "id": "community-b2429357-2161-429a-a3e8-cbc5ae0963d2",
+      "name": "Mars Blueprint Architect",
+      "description": "Architect Martian colonies using a simplified structural stencil library",
+      "author": "Sridhar",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-13.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/2b6b5d6a-d7da-4b8d-8273-0c71f2bef9da.png",
+      "category": "Experimental",
+      "created": "2026-07-20T19:06:53.139Z"
+    },
+    {
+      "id": "community-585fa6f1-efa4-4a80-904d-cf29a0dfe497",
+      "name": "LuzRelighting",
+      "description": "Relight your scenes by clicking where you want the light source to be.",
+      "author": "Dany",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-4.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/3c6ffdff-5326-4b79-8081-e9b1cd283ecc.png",
+      "category": "Image",
+      "created": "2026-07-20T19:06:34.413Z"
+    },
+    {
+      "id": "community-68b942b4-1f51-4700-83bc-977028ff4b18",
+      "name": "GridCraft",
+      "description": "GridCraft is a lightweight visual utility that lets users upload multiple images and instantly arrange them into clean, customizable grid layouts. Designed for speed and simplicity, it includes drag-and-drop uploads, automatic grid generation, adjustable spacing, borders, backgrounds, image positioning, and high-resolution exports. Ideal for creating social media collages, mood boards, product showcases, contact sheets, portfolios, and marketing assets, the tool provides a fast, browser-based workflow with real-time previews and professional-quality results—no design software required.",
+      "author": "Queen Usouwa",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-8.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/a127e298-d600-4c03-8c3e-790f6c6f5197.png",
+      "category": "Image",
+      "created": "2026-07-20T19:06:27.858Z"
+    },
+    {
+      "id": "community-fb657156-ffb6-4d1d-b214-7cae999d197b",
+      "name": "Character Persona Generator",
+      "description": "Generate 22+ consistent character portraits from a reference image across multiple angles.",
+      "author": "MrRobotX",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-1.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/0af54886-8845-474c-9798-f618e966fcfa.png",
+      "category": "Image",
+      "created": "2026-07-20T19:06:22.979Z"
+    },
+    {
+      "id": "community-18a06c32-59d8-444f-96f4-eac28979d0cf",
+      "name": "AI Subtitle Generator – Automatically Add Subtitles to Videos",
+      "description": "**AI Subtitle Generator** automatically converts speech in your videos into accurate subtitles using advanced AI speech recognition. Upload any video and generate captions in seconds with automatic timing, punctuation, and synchronization. Edit subtitles, customize fonts and styles, and export in popular formats like SRT or embed captions directly into your video. Perfect for YouTube, TikTok, Instagram Reels, online courses, presentations, and business videos. Save time, improve accessibility, increase viewer engagement, and reach a wider audience with fast, accurate, AI-powered subtitles.",
+      "author": "Classic_Ai_Apps",
+      "icon": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/276abb31-5089-469b-a6c3-e1afd823767b.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/e94298ca-329f-487d-89b6-38cc1ab30631.png",
+      "category": "Video",
+      "created": "2026-07-20T19:06:15.817Z"
+    },
+    {
+      "id": "community-408e23d3-13c3-41d4-84d4-71ffd8f38aa0",
+      "name": "RETRO-TERM 80",
+      "description": "Brutalist terminal with magnetic distortion and phosphor matrix effects.",
+      "author": "Matthew Wyatt",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-4.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/62a91205-beae-4cbf-89ea-6c2f192bb92f.png",
+      "category": "Image",
+      "created": "2026-07-20T19:00:54.818Z"
+    },
+    {
+      "id": "community-4a8cfc4c-c5d9-4731-81c1-3a11b760a1ed",
+      "name": "Manga Architect Pro",
+      "description": "Generate KDP-ready manga projects with print-specification covers and margins. Create and save characters for use later.",
+      "author": "Stormy",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-4.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/b9a6159c-2047-4ae5-9ef0-33b25d91ce25.png",
+      "category": "Image",
+      "created": "2026-07-20T19:00:46.217Z"
+    },
+    {
+      "id": "community-bce840dd-a814-4233-94af-a44f1c4e5d50",
+      "name": "Lumina Filter StudioL",
+      "description": "Professional image filtering with real-time effects and intensity controls",
+      "author": "AJEET PAL",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-17.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/b7478207-4fff-47d0-8d8c-72f5f8b1c914.png",
+      "category": "Video",
+      "created": "2026-07-20T19:00:41.417Z"
+    },
+    {
+      "id": "community-b94f22b9-c2c0-4684-b1d2-5e77d17ed97b",
+      "name": "GeoVisualizer",
+      "description": "Identify locations in your media and generate cinematic drone orbits",
+      "author": "eteek",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-12.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/672c2f27-7c98-4146-bfdf-5e3a3f88a150.png",
+      "category": "Experimental",
+      "created": "2026-07-20T19:00:24.946Z"
+    },
+    {
+      "id": "community-6d5a1116-d7a6-475c-a6ac-a4bba88c4673",
+      "name": "Emote Crafter Pro",
+      "description": "Professional character sprite engine with Plutchik wheel and special emote grid.",
+      "author": "Rotti",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/first-party/ada-1.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/bd6be59f-36e6-46d9-87f4-17a099ecf03b.png",
+      "category": "Image",
+      "created": "2026-07-20T19:00:19.784Z"
+    },
+    {
+      "id": "community-cf52b62b-254b-4114-9301-6d8c53070ea1",
+      "name": "Car Showdown",
+      "description": "Create cinematic car duos with stylized lighting and custom POVs.",
+      "author": "KareemAfterWork",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-16.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/368e1e99-8d28-407e-b3fa-37a1a397d700.png",
+      "category": "Image",
+      "created": "2026-07-20T18:58:34.170Z"
+    },
+    {
+      "id": "community-d03e8785-5ffa-42d4-af36-da3a8f066045",
+      "name": "Brand Carousel Builder",
+      "description": "Create high-fidelity branded slide carousels for social media.",
+      "author": "Exterly.io",
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-10.png",
+      "preview": "https://www.gstatic.com/ai-sandbox-internal/flow/review_thumbnails/ca3ccb84-febd-495d-9b10-668d39a37dd4.png",
+      "category": "Image",
+      "created": "2026-07-20T18:58:27.718Z"
+    }
+  ],
+  "carousel": [
+    {
+      "id": "submit-your-tool-banner",
+      "title": "Submit your tool to be featured",
+      "subtitle": "Each week we share a handful of the community's most exciting new tools for everyone to use. Submit yours today!",
+      "background": "https://www.gstatic.com/aitestkitchen/website/flow/applets/featured-banner.webp"
+    },
+    {
+      "id": "cohort-1-1-d17dd022",
+      "title": "Master Your Soundscape",
+      "subtitle": "Professional sound design studio now featuring cross-layer fade synchronization for Ambiance, Foley, and SFX.",
+      "background": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/banner_background/cohort-1-1-MondoSonico.png?v=2",
+      "toolIcon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-1-MondoSonico.png",
+      "toolName": "Mondo Sónico",
+      "toolId": "community-d17dd022-5243-4904-a1ea-245d997fefe9",
+      "author": "Ricardo Villavicencio and Sebastián Carvallo",
+      "avatars": [
+        "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/profiles/cohort-1-1-RicardoV.png",
+        "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/profiles/cohort-1-1-SebastianC.png"
+      ],
+      "cta": "Try Mondo Sónico"
+    },
+    {
+      "id": "cohort-1-2-0a16aa5d",
+      "title": "Typography, Perfected",
+      "subtitle": "Editorial collage video engine with adaptive Swiss design and retro-futuristic HUD.",
+      "background": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/banner_background/cohort-1-SwissFlowStudio.png",
+      "toolIcon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-2-SwissFlowStudio.png",
+      "toolName": "SwissFlow Studio",
+      "toolId": "community-0a16aa5d-7c35-4b31-8e37-62344fec4239",
+      "author": "Hashem Al-Ghaili",
+      "avatars": [
+        "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/profiles/cohort-1-HashemAl-Ghaili.jpg"
+      ],
+      "cta": "Try SwissFlow Studio"
+    },
+    {
+      "id": "cohort-1-6-e4f5b050",
+      "title": "Textures on Demand",
+      "subtitle": "High-fidelity architectural material lab and cinematic staging tool.",
+      "background": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/banner_background/cohort-1-6-Surface.png",
+      "toolIcon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-6-Surface.png",
+      "toolName": "Surface",
+      "toolId": "community-489515b8-4861-4041-8cde-e4d9920da54d",
+      "author": "Vojtek Morsztyn",
+      "avatars": [
+        "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/profiles/cohort-1-6-VojtekMorsztyn.jpg"
+      ],
+      "cta": "Try Surface"
+    },
+    {
+      "id": "cohort-1-4-31693eb2",
+      "title": "Caption Your Vids",
+      "subtitle": "Turn videos into viral-ready content with AI captions, smart styling, and multi-language support.",
+      "background": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/banner_background/cohort-1-CaptionCast.png",
+      "toolIcon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-4-CaptionCast.png",
+      "toolName": "CaptionCast",
+      "toolId": "community-31693eb2-959b-46b9-b1b4-480070c91099",
+      "author": "Jay Pirabakaran",
+      "avatars": [
+        "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/profiles/cohort-1-JayPirabakaran.png"
+      ],
+      "cta": "Try CaptionCast"
+    },
+    {
+      "id": "cohort-1-3-49e065fc",
+      "title": "Art in Motion",
+      "subtitle": "Create stylized collage-art videos with AI-powered script generation and narrative controls",
+      "background": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/banner_background/cohort-1-CollageMotionPro.png",
+      "toolIcon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-3-CollageMotionPro.png",
+      "toolName": "CollageMotion Pro",
+      "toolId": "community-49e065fc-04f9-4789-9445-35f5d1489943",
+      "author": "Hashem Al-Ghaili",
+      "avatars": [
+        "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/profiles/cohort-1-HashemAl-Ghaili.jpg"
+      ],
+      "cta": "Try CollageMotion Pro"
+    },
+    {
+      "id": "cohort-1-5-417e7481",
+      "title": "Instant Thumbnails",
+      "subtitle": "Create photorealistic, scroll-stopping thumbnails for every platform in seconds.",
+      "background": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/banner_background/cohort-1-ThumbnailForge.png",
+      "toolIcon": "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/tool_icon/cohort-1-5-ThumbnailForge.png",
+      "toolName": "ThumbnailForge",
+      "toolId": "community-417e7481-f38b-4b4d-a8f6-076fdafbb9c9",
+      "author": "Jay Pirabakaran",
+      "avatars": [
+        "https://www.gstatic.com/aitestkitchen/website/flow/community_tools/profiles/cohort-1-JayPirabakaran.png"
+      ],
+      "cta": "Try ThumbnailForge"
+    }
+  ],
+  "suggestions": [
+    {
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-1.png",
+      "name": "Image filter",
+      "description": "Explore different styles of your images",
+      "prompt": "Make an image filter app that has a central image preview with a carousel of filter options such as grayscale, soft focus, invert, hue shift, and more. A right panel should display the name of the filter selected along with a single slider that pertains to filter intensity or color hue target etc."
+    },
+    {
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-4.png",
+      "name": "Voice over",
+      "description": "Record your voice over a video",
+      "prompt": "Create a minimalist voiceover studio app that uses deep blacks, monospace typography, and red accents. The interface should feature a main media preview area for imported videos or images, sitting above a sleek, zoomable two-track timeline for media and voice. Users can scrub the timeline with a precise playhead and use a prominent record button to capture microphone audio, which instantly appears as a synced clip on the voice track. To ensure clean recordings, the app must automatically mute existing audio while recording, and users should be able to easily delete unwanted clips directly from the timeline. Add a button to export to media grid and a button to download clip"
+    },
+    {
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-5.png",
+      "name": "Time stretcher",
+      "description": "Change video frame rate and clip speed",
+      "prompt": "Build a simple video manipulation tool called 'TimeStretch' that allows users to upload a video and manipulate its playback in real-time. The interface should feature a professional workspace layout with a large video viewport on the left and a dedicated controls panel on the right. Key features must include a live playback speed slider (0.1x to 10.0x), a custom frame rate slider (1 fps to 60 fps) that visually creates a stop-motion effect, and an interactive timeline below the video that allows users to scrub through the footage and drag handles to trim the start and end points of the looping clip. The aesthetic should be minimal, subtle gray borders, technical uppercase typography for labels, and monospace fonts for values. There should be an export video to grid button, that exports the stretched video to the media grid."
+    },
+    {
+      "icon": "https://www.gstatic.com/aitestkitchen/website/flow/applets/default/ada-6.png",
+      "name": "Style morph",
+      "description": "Use preset styles to reimagine your image",
+      "prompt": "Create an app where I can pick an image from my gallery, apply a style transfer (e.g., \"oil painting\" or \"anime\" + several more) with nano banana. Show the result in a before and after comparison with a slider that reveals the new image underneath the original. Keep the generations handy as I explore other versions so I can go back and forth."
+    }
+  ]
+}

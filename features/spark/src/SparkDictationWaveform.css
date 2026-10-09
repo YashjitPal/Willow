@@ -19,7 +19,7 @@
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background-color: rgba(168, 199, 250, 0.12); /* Based on primary color with opacity */
+  background-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.12); /* Based on primary color with opacity */
 }
 
 .spark-mic-pulse {
@@ -29,7 +29,7 @@
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: radial-gradient(circle at center, transparent 50%, rgba(168, 199, 250, 0.25) 50%);
+  background: radial-gradient(circle at center, transparent 50%, rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.25) 50%);
   animation: spark-mic-pulse-anim 2s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -46,7 +46,7 @@
 
 .spark-mic-button.is-dictating {
   position: relative; /* For absolute overlay positioning */
-  color: #a8c7fa; /* Primary blue color for active mic */
+  color: var(--sync-a8c7fa, #a8c7fa); /* Primary blue color for active mic */
 }
 
 /* Remove old waveform styling */

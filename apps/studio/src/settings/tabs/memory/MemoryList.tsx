@@ -15,6 +15,9 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { groupBulletsBySection, type ProfileBullet } from '@willow/personal';
+import { useThemeMode } from '@willow/core/theme-mode';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { GeminiBottomSheet, GeminiSheetItem, GeminiSheetList } from '@willow/ui/GeminiBottomSheet';
 
 export interface MemoryListProps {
   bullets: ProfileBullet[];
@@ -33,22 +36,24 @@ const MemoryRow: React.FC<{
   bullet: ProfileBullet;
   borderClass: string;
   isMenuOpen: boolean;
+  /** Below 961px the actions open the list's bottom sheet instead of this dropdown. */
+  showsDropdown: boolean;
   onToggleMenu: () => void;
   onEdit: () => void;
   onDelete: () => void;
-}> = ({ bullet, borderClass, isMenuOpen, onToggleMenu, onEdit, onDelete }) => {
+}> = ({ bullet, borderClass, isMenuOpen, showsDropdown, onToggleMenu, onEdit, onDelete }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Same arrangement as Saved Info: mousedown rather than click, so the menu is
   // already gone by the time the click lands on whatever is underneath it.
   useEffect(() => {
-    if (!isMenuOpen) return undefined;
+    if (!isMenuOpen || !showsDropdown) return undefined;
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) onToggleMenu();
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isMenuOpen, onToggleMenu]);
+  }, [isMenuOpen, showsDropdown, onToggleMenu]);
 
   return (
     <div className={`mem-row ${borderClass}`}>
@@ -78,7 +83,7 @@ const MemoryRow: React.FC<{
         <span className="mat-icon notranslate google-symbols mat-ligature-font mat-icon-no-color">more_vert</span>
       </button>
 
-      {isMenuOpen && (
+      {isMenuOpen && showsDropdown && (
         <div ref={menuRef} className="mem-row-menu" role="menu">
           <button type="button" role="menuitem" className="mem-menu-item" onClick={onEdit}>
             <span className="mat-icon notranslate google-symbols mat-ligature-font mat-icon-no-color">edit</span>
@@ -100,13 +105,43 @@ const MemoryRow: React.FC<{
 };
 
 export const MemoryList: React.FC<MemoryListProps> = ({ bullets, onEdit, onDelete }) => {
+  const { isLight } = useThemeMode();
+  const isCompact = useCompactViewport();
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const groups = groupBulletsBySection(bullets).filter((group) => group.bullets.length > 0);
 
   if (groups.length === 0) return null;
 
+  const activeBullet = bullets.find((bullet) => bullet.id === activeMenuId);
+
   return (
     <div className="mem-groups">
+      {/* Below 961px a row's actions are a bottom sheet, as Saved Info's are. */}
+      <GeminiBottomSheet
+        isOpen={isCompact && !!activeBullet}
+        onClose={() => setActiveMenuId(null)}
+        label="Memory actions"
+        isLight={isLight}
+      >
+        <GeminiSheetList label="Memory actions">
+          <GeminiSheetItem
+            icon="edit"
+            label="Edit"
+            onSelect={() => {
+              setActiveMenuId(null);
+              if (activeBullet) onEdit(activeBullet);
+            }}
+          />
+          <GeminiSheetItem
+            icon="delete"
+            label="Delete"
+            onSelect={() => {
+              setActiveMenuId(null);
+              if (activeBullet) onDelete(activeBullet.id);
+            }}
+          />
+        </GeminiSheetList>
+      </GeminiBottomSheet>
       {groups.map(({ section, bullets: sectionBullets }) => (
         <section className="mem-group" key={section.id}>
           <header className="mem-group-header">
@@ -130,6 +165,7 @@ export const MemoryList: React.FC<MemoryListProps> = ({ bullets, onEdit, onDelet
                   bullet={bullet}
                   borderClass={borderClass}
                   isMenuOpen={activeMenuId === bullet.id}
+                  showsDropdown={!isCompact}
                   onToggleMenu={() => setActiveMenuId((current) => (current === bullet.id ? null : bullet.id))}
                   onEdit={() => {
                     setActiveMenuId(null);

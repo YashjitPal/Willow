@@ -1,0 +1,355 @@
+/*
+ * The header's panels as Flow draws them today, measured off the live app
+ * (tools/ui-research/scrapers/flow/media/18-header-menus.cjs, 19-filter-checked.cjs):
+ * flow-tile-view-settings inside a wide mat-menu, and the search bar's filter panel.
+ * The menus themselves are the shared Flow mat-menu (`sb-menu`, scenes/flow-ui.css).
+ */
+
+/* ---- View settings (flow-tile-view-settings) ---- */
+
+.hp-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 251.462px;
+  padding: 4px;
+  color: #fff;
+  font-family: var(--sb-font);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.hp-view__label {
+  padding-left: 4px;
+  color: var(--sb-fg-75);
+}
+
+/* flow-toggles: a segmented row, the picked segment at fg-15. */
+.hp-toggles {
+  display: flex;
+  height: 34px;
+  overflow: hidden;
+  border-radius: 12px;
+  background-color: var(--sb-fg-05);
+  backdrop-filter: blur(40px);
+}
+
+.hp-toggle {
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #fff;
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 34px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.hp-toggle:hover { background-color: var(--sb-fg-05); }
+.hp-toggle.is-checked { background-color: var(--sb-fg-15); }
+
+.hp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 24px;
+  color: var(--sb-fg-90);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.hp-row__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px 0 1.6px;
+  white-space: nowrap;
+}
+
+/* mat-slide-toggle: a 40x24 pill; off, an 18px fg-50 dot in an outlined fg-05 track; on, a
+ * 20px dark dot at the right of a fg-90 track. */
+.hp-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.hp-switch__track {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border: 0.8px solid var(--sb-fg-50);
+  border-radius: 100px;
+  background-color: var(--sb-fg-05);
+  transition: background-color 75ms cubic-bezier(0.4, 0, 0.2, 1), border-color 75ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hp-switch.is-on .hp-switch__track {
+  border-color: transparent;
+  background-color: var(--sb-fg-90);
+}
+
+.hp-switch__handle {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 24px;
+  background-color: var(--sb-fg-50);
+  transform: translateY(-50%);
+  transition: left 75ms cubic-bezier(0.4, 0, 0.2, 1), width 75ms, height 75ms, background-color 75ms;
+}
+
+.hp-switch.is-on .hp-switch__handle {
+  left: 18px;
+  width: 20px;
+  height: 20px;
+  background-color: rgb(32, 33, 36);
+}
+
+/* ---- Filters (search-bar-filter-panel) ---- */
+
+.hp-filter {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 405.188px;
+  overflow: hidden;
+  border: 0.8px solid var(--sb-fg-05);
+  border-radius: 24px;
+  background-color: rgba(22, 23, 24, 0.75);
+  box-shadow: rgba(0, 0, 0, 0.4) 0 16px 32px -8px;
+  backdrop-filter: blur(80px);
+  color: #fff;
+  font-family: var(--sb-font);
+  animation: hp-filter-in 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+@keyframes hp-filter-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: none; }
+}
+
+.hp-filter__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 16px 16px 8px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.hp-filter__rule {
+  flex-shrink: 0;
+  height: 0;
+  border-top: 0.8px solid rgb(68, 71, 70);
+}
+
+/* Flow keeps a 4px scrollbar gutter on the right, scrolling or not. */
+.hp-filter__body {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px 16px 16px;
+  overflow: auto;
+}
+
+.hp-filter__groups {
+  display: flex;
+  gap: 16px;
+}
+
+/* Groups share a row evenly but never below their content; Type, with two columns, takes two
+ * shares (234.6px to Aspect ratio's 117 at Flow's width). */
+.hp-filter__group {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 4px;
+  min-width: max-content;
+}
+
+.hp-filter__group--wide { flex-grow: 2; }
+
+/* Created holds 115px against Duration's and Resolution's 110.3 in Flow's panel. */
+.hp-filter__group--created { min-width: 115px; }
+
+.hp-filter__subtitle {
+  box-sizing: border-box;
+  height: 20px;
+  padding: 0 0 4px 12px;
+  color: var(--sb-fg-50);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+/* Type runs down two columns of three, stretched to share the group; the rest are single columns. */
+.hp-filter__grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, 40px);
+}
+
+.hp-filter__list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* mat-checkbox / mat-radio-button: a 40px target, the 18px box (20px circle) at its centre, and
+ * the label 4px past it at 11.008px. */
+.hp-check {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font-family: var(--sb-font);
+  cursor: pointer;
+}
+
+.hp-check__target {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.hp-check__target::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background-color: rgb(227, 227, 227);
+  opacity: 0;
+  transition: opacity 0.09s;
+}
+
+.hp-check:hover .hp-check__target::before { opacity: 0.04; }
+
+/* Material's focus indicator, which Flow's panel shows on its first box as it opens. */
+.hp-check:focus-visible .hp-check__target::after,
+.hp-check.is-initial-focus .hp-check__target::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2.4px solid rgb(127, 207, 255);
+  border-radius: 50%;
+}
+
+.hp-check:focus-visible .hp-check__target::before,
+.hp-check.is-initial-focus .hp-check__target::before { opacity: 0.12; }
+
+.hp-check__box {
+  position: relative;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 1.6px solid rgb(227, 227, 227);
+  border-radius: 2px;
+  transition: background-color 0.09s cubic-bezier(0.4, 0, 0.6, 1), border-color 0.09s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.hp-check[aria-checked='true'] .hp-check__box {
+  border-color: rgb(168, 199, 250);
+  background-color: rgb(168, 199, 250);
+}
+
+.hp-check__mark {
+  position: absolute;
+  inset: 0.2px;
+  color: rgb(6, 46, 111);
+}
+
+.hp-radio__ring {
+  position: relative;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  border: 1.6px solid rgb(196, 199, 197);
+  border-radius: 50%;
+  transition: border-color 0.09s cubic-bezier(0, 0, 0.2, 1);
+}
+
+.hp-radio__ring::after {
+  content: '';
+  position: absolute;
+  inset: -1.6px;
+  border-radius: 50%;
+  background-color: #fff;
+  transform: scale(0);
+  transition: transform 0.09s cubic-bezier(0, 0, 0.2, 1);
+}
+
+.hp-check[aria-checked='true'] .hp-radio__ring { border-color: #fff; }
+.hp-check[aria-checked='true'] .hp-radio__ring::after { transform: scale(0.5); }
+
+.hp-check__label {
+  padding-left: 4px;
+  font-size: 11.008px;
+  font-weight: 400;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.hp-filter__footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  height: 66.8px;
+  padding: 16px;
+  border-top: 0.8px solid var(--sb-fg-10);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.hp-filter__clear {
+  min-width: 64px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 16px;
+  background-color: #fff;
+  color: #000;
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.096px;
+  backdrop-filter: blur(40px);
+  cursor: default;
+}

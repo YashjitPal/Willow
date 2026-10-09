@@ -21,54 +21,32 @@ the natural thing to grow rather than starting again — read
 
 ## 1. MCP servers that are not web-reachable
 
-**What ships today:** two of MCP's transports, both browser-only. The client is
-[`platform/ai/src/mcp/`](platform/ai/src/mcp/mcp-protocol.ts); the adapter that
-turns MCP tools into Codex tools is
-[`features/code/src/agent/mcp/mcp-harness-tools.ts`](features/code/src/agent/mcp/mcp-harness-tools.ts).
+**Real in the desktop app.** The companion starts a server the user configured
+(`command`, `args`, `env`, `cwd`) and carries JSON-RPC over its stdin/stdout,
+newline-delimited, to the window that asked, behind the pairing token
+([`services/local-companion/src/mcp-programs.mjs`](services/local-companion/src/mcp-programs.mjs)).
+The window's side is a third `McpTransport`,
+[`platform/ai/src/mcp/program-transport.ts`](platform/ai/src/mcp/program-transport.ts),
+beside `http-transport.ts` and `worker-transport.ts`, with `kind: 'program'` its
+arm in `McpServerConfig`. The companion also relays Streamable HTTP
+(`relay.http`), so CORS does not apply there. Such servers are added from
+**Spark → Connected apps** as "A program on this computer".
 
-Servers are added from **Spark → Connected apps → MCP servers** and from
-**Settings → Connectors → MCP servers**. Both edit one store
-(`platform/ai/src/mcp/mcp-store.ts`), so they cannot disagree.
+**Still blocked in a browser tab:** stdio — MCP's original transport and most of
+the published ecosystem (the filesystem, git, sqlite and puppeteer servers are
+npm and Python packages a client launches as a subprocess) — and any HTTP server
+without CORS headers. MCP needs more than the usual ones: `Mcp-Session-Id` and
+`MCP-Protocol-Version` in `Access-Control-Allow-Headers`, and `Mcp-Session-Id`
+in `Access-Control-Expose-Headers`, or the session is silently lost after the
+handshake. The web build's warning says so.
 
-- **Streamable HTTP** — servers at a URL. Works *only* if the operator sends
-  CORS headers, and MCP needs more than the usual ones: `Mcp-Session-Id` and
-  `MCP-Protocol-Version` must be named in `Access-Control-Allow-Headers`, and
-  `Mcp-Session-Id` must appear in `Access-Control-Expose-Headers` or the session
-  is silently lost after the handshake. Servers written for desktop clients
-  generally send none of this, because they never had to.
-- **Web Worker** — servers that are plain JavaScript with no OS dependency,
-  running inside the tab.
-
-**What is blocked:** stdio, which is MCP's original transport and still most of
-the published ecosystem. The filesystem, git, sqlite and puppeteer servers are
-npm and Python packages that a client launches as a subprocess. A tab cannot.
-
-**What the helper app would need to do**
-
-1. Spawn a configured server (`command`, `args`, `env`, `cwd`) and speak
-   JSON-RPC over its stdin/stdout, framed newline-delimited.
-2. Expose those servers to the page over loopback — HTTP or WebSocket, with an
-   origin allow-list and a per-session token so any other page on the machine
-   cannot drive them.
-3. Optionally relay Streamable HTTP too, which makes the CORS problem vanish for
-   remote servers as a side effect.
-
-**Where it plugs in.** `platform/ai/src/mcp/mcp-protocol.ts` defines
-`McpTransport` as `{ send, onMessage, close }` and nothing more. A third
-transport is a third file next to `http-transport.ts` and `worker-transport.ts`,
-plus a `kind: 'stdio'` arm in `McpServerConfig` and a branch in
-`connectMcpServer`. **Nothing above the transport changes** — not the client,
-not the tool bridge, not the prompt, not either settings screen. That seam was
-drawn for this.
-
-**Do not forget the approval layer.** An MCP server is third-party code and its
-output is text the model reads and acts on, which is the standard
-prompt-injection path. Today's protection is coarse: a server is off until the
-user switches it on, and the prompt tells the model to treat MCP output as
-untrusted data. A helper app that spawns arbitrary local commands raises the
-stakes a long way, and upstream Codex has a whole review layer for this
-(`codex-rs/core/src/agent/control/user_authorization.rs` and its Guardian
-policy). Per-tool approval should land with stdio support, not after it.
+**The approval layer is still coarse.** An MCP server is third-party code and
+its output is text the model reads and acts on, which is the standard
+prompt-injection path. Today a server is off until the user switches it on, the
+form for a program says it runs as the user, and the prompt tells the model to
+treat MCP output as untrusted data. Upstream Codex has a whole review layer for
+this (`codex-rs/core/src/agent/control/user_authorization.rs` and its Guardian
+policy); per-tool approval is the next step.
 
 ---
 
@@ -121,7 +99,8 @@ essentially everything else.
 | The MCP transport seam | [`platform/ai/src/mcp/mcp-protocol.ts`](platform/ai/src/mcp/mcp-protocol.ts) |
 | Spark's task and schedule shapes | [`features/spark/src/spark-types.ts`](features/spark/src/spark-types.ts) |
 | How the workspace folder reconciles | [`platform/storage/ARCHITECTURE.md`](platform/storage/ARCHITECTURE.md) §13 |
-| Why the Agent harness tracks upstream Codex | [`features/code/src/agent/harness/AGENTS.md`](features/code/src/agent/harness/AGENTS.md) |
+| How the Code harness uses tools, skills and MCP | [`features/code/src/harness/AGENTS.md`](features/code/src/harness/AGENTS.md) |
+| Why Spark's harness tracks upstream Codex | [`features/spark/src/harness/AGENTS.md`](features/spark/src/harness/AGENTS.md) |
 
 ## Keeping this file honest
 

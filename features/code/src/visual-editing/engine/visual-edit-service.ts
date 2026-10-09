@@ -3,7 +3,7 @@
 // The Project persists across requests for speed (<5ms queries instead of 50-100ms)
 
 import { Project, SyntaxKind, Node, SourceFile } from 'ts-morph';
-import { sandpackStore } from '../../runtime/sandpack/sandpack-store';
+import { activeWorkbench } from '../../session/code-session';
 import { streamChat, type ChatMessage, type AiOptions } from '@willow/ai/chat';
 import type { SelectedElement, FamilyElement } from './types';
 import { isVisualEditing, pushUndoState, clearSelection, requestInspectorReinit, markAsUnsaved, pendingSelectionRestore } from './visual-editor-store';
@@ -319,6 +319,8 @@ export async function applyVisualEdit(
   onProgress?: (status: string) => void
 ): Promise<VisualEditResult> {
   const { element, prompt, apiOptions } = request;
+  // Held for the whole edit: the model call takes a while, and the edit lands in the screen it started in.
+  const sandpackStore = activeWorkbench();
 
   console.log('[VisualEdit] === AST SURGICAL EDIT ===');
   console.log('[VisualEdit] Element:', element.tagName, `"${element.textContent?.substring(0, 30)}..."`);

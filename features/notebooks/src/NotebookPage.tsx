@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { chatDisplayName, isTempChatId } from '@willow/storage/local-fs/chat-metadata';
 
@@ -34,7 +35,7 @@ import { useNotebookDisk } from './useNotebookDisk';
  * space a short list occupies, so the swap to real rows does not jump.
  */
 const PastChatsSkeleton: React.FC = () => (
-  <div aria-hidden="true">
+  <div className="nb-page-chats" aria-hidden="true">
     {[0, 1, 2].map((i) => (
       <div key={i} className="nb-skeleton-row">
         <span className="nb-skeleton-bar" />
@@ -85,6 +86,11 @@ export interface NotebookPageProps {
    * notebook so the shell can ground the turn on its sources.
    */
   renderComposer?: (notebook: Notebook) => React.ReactNode;
+  /**
+   * The shell's top-bar model picker, shown below 961px where Gemini's notebook (a chat
+   * window) carries one and the composer's own model button is hidden.
+   */
+  renderModelPicker?: () => React.ReactNode;
   /**
    * Called after a past chat is selected, so the shell can switch to the chat
    * surface. The selection itself happens here — see the note on `useLocalFS`.
@@ -154,6 +160,7 @@ const MoreVertGlyph: React.FC = () => (
 export const NotebookPage: React.FC<NotebookPageProps> = ({
   notebookId,
   renderComposer,
+  renderModelPicker,
   onOpenChat,
   onMissing,
 }) => {
@@ -170,6 +177,7 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
   const notebooks = useStore(notebooksStore);
   const isHydrated = useStore(notebooksHydratedStore);
   const notebook = notebooks.find((candidate) => candidate.id === notebookId);
+  const isCompact = useCompactViewport();
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
@@ -273,6 +281,9 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
      * scroll.
      */
     <div className="nb-surface nb-page-host gemini-chat-scrollbar">
+      {/* The picker places itself at 56/20 of this fixed box, i.e. of the viewport. */}
+      {renderModelPicker && <div className="nb-page-model">{renderModelPicker()}</div>}
+
       {/*
        * The header three-dot. Gemini pins this in the top bar's `.right-section`
        * rather than in the notebook column, so it stays put as the column scrolls.
@@ -302,16 +313,19 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
           {/*
             * 24px at weight 300, matching the chat surface's three-dot rather than
             * the 28px/260 the past-chat rows use. Same corner of the same app, so
-            * the two triggers are now one look.
+            * the two triggers are now one look. Below 961px Gemini's top-bar
+            * trigger is the rows' 28px/260 one.
             */}
-          <MaterialSymbol
-            name="more_vert"
-            family="luminous"
-            size={24}
-            weight={300}
-            roundness={100}
-            opticalSize={24}
-          />
+          {isCompact ? <MoreVertGlyph /> : (
+            <MaterialSymbol
+              name="more_vert"
+              family="luminous"
+              size={24}
+              weight={300}
+              roundness={100}
+              opticalSize={24}
+            />
+          )}
         </button>
       </div>
 
@@ -438,7 +452,7 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
             <span className="nb-empty-text">Notebook chats will appear here</span>
           </div>
         ) : (
-          <div className="flex flex-col">
+          <div className="nb-page-chats flex flex-col">
             {chats.map((chat) => (
               <div key={chat.id} className="relative">
                 <button
@@ -524,7 +538,7 @@ export const NotebookPage: React.FC<NotebookPageProps> = ({
           </div>
         )}
 
-        <div className="h-16 shrink-0" />
+        <div className="nb-page-tail h-16 shrink-0" />
       </div>
 
       {isSourcesOpen && <NotebookSourcesDialog notebook={notebook} onClose={() => setIsSourcesOpen(false)} />}

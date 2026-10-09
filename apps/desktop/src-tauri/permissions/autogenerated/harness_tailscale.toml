@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-harness-tailscale"
+description = "Enables the harness_tailscale command without any pre-configured scope."
+commands.allow = ["harness_tailscale"]
+
+[[permission]]
+identifier = "deny-harness-tailscale"
+description = "Denies the harness_tailscale command without any pre-configured scope."
+commands.deny = ["harness_tailscale"]

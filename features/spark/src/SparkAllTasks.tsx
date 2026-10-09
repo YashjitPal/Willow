@@ -5,6 +5,10 @@ import { formatSparkRelativeTime, type SparkTask } from './spark-types';
 import { useSparkAccentVars } from './spark-accent';
 import { useSparkNow } from './useSparkNow';
 import { useSparkTaskWindow } from './use-spark-task-window';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { useThemeMode } from '@willow/core/theme-mode';
+import { GeminiBottomSheet } from '@willow/ui/GeminiBottomSheet';
+import { SparkTaskDeleteDialog, SparkTaskRenameDialog } from './SparkTaskDialogs';
 import './SparkTaskDetail.css';
 import './SparkAllTasks.css';
 
@@ -79,6 +83,8 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
   const deleteTitleId = useId();
   const deleteDescriptionId = useId();
   const now = useSparkNow();
+  const isCompact = useCompactViewport();
+  const { isLight } = useThemeMode();
   const renameTask = renameTaskId
     ? tasks.find((task) => task.id === renameTaskId)
     : undefined;
@@ -97,6 +103,27 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
     chunkSize: 24,
   });
 
+  // At <=960px Gemini's `.goal-list` fades its top once scrolled and its bottom while more
+  // rows remain below — the mask in SparkTaskDetail.css reads these two flags.
+  useEffect(() => {
+    const list = taskListRef.current;
+    if (!list || !isCompact) return;
+    const update = () => {
+      list.style.setProperty('--fade-progress', list.scrollTop > 0 ? '1' : '0');
+      list.style.setProperty('--fade-bottom', list.scrollTop + list.clientHeight < list.scrollHeight - 1 ? '1' : '0');
+    };
+    update();
+    list.addEventListener('scroll', update, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(list);
+    return () => {
+      list.removeEventListener('scroll', update);
+      observer?.disconnect();
+      list.style.removeProperty('--fade-progress');
+      list.style.removeProperty('--fade-bottom');
+    };
+  }, [isCompact, visibleTasks.length]);
+
   useEffect(() => {
     if (!filterOpen) return;
 
@@ -111,7 +138,9 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
       window.requestAnimationFrame(() => filterButtonRef.current?.focus());
     };
 
-    window.addEventListener('pointerdown', closeOnPointerDown);
+    // The narrow layout's bottom sheet closes from its own backdrop, and a drag on its
+    // handle must not count as a tap outside.
+    if (!isCompact) window.addEventListener('pointerdown', closeOnPointerDown);
     window.addEventListener('keydown', closeOnEscape);
     window.requestAnimationFrame(() => {
       filterMenuRef.current
@@ -122,7 +151,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
       window.removeEventListener('pointerdown', closeOnPointerDown);
       window.removeEventListener('keydown', closeOnEscape);
     };
-  }, [filterOpen]);
+  }, [filterOpen, isCompact]);
 
   useEffect(() => {
     if (!openTaskMenuId) return;
@@ -262,6 +291,30 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
     restoreDialogFocus(deleteReturnFocusRef.current);
   };
 
+  const confirmRename = (taskId: string, title: string) => {
+    setRenameTaskId(null);
+    onRenameTask(taskId, title);
+    restoreDialogFocus(renameReturnFocusRef.current);
+  };
+
+  const confirmDelete = (taskId: string) => {
+    const deletedTaskIndex = visibleTasks.findIndex((task) => task.id === taskId);
+    const nextTaskId = visibleTasks[deletedTaskIndex + 1]?.id
+      ?? visibleTasks[deletedTaskIndex - 1]?.id
+      ?? null;
+    setDeleteTaskId(null);
+    onDeleteTask(taskId);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const nextTaskButton = nextTaskId
+          ? taskOpenButtonRefs.current.get(nextTaskId)
+          : null;
+        if (nextTaskButton?.isConnected) nextTaskButton.focus();
+        else filterButtonRef.current?.focus();
+      });
+    });
+  };
+
   const handleFilterMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
     const items = Array.from(
@@ -294,7 +347,19 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
 
   return (
     <section className="spark-all-tasks" aria-label="Spark tasks" style={accentVars}>
+      {/* At 960px and below Gemini's task list is also the new-task page: the Beta badge,
+          a display-m title, then the composer. */}
+      {isCompact && (
+        <div className="spark-top-controls" aria-label="Spark release information">
+          <span className="spark-beta-label">Beta</span>
+        </div>
+      )}
       <div className="spark-all-tasks__content">
+        {isCompact && (
+          <div className="spark-all-tasks__header">
+            <h1 className="spark-all-tasks__heading">Put Willow Spark to work for you</h1>
+          </div>
+        )}
         <div
           className="spark-task-detail__new-composer spark-all-tasks__composer-anchor"
           data-spark-glow-anchor
@@ -339,7 +404,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                 />
               </button>
 
-              {filterOpen && (
+              {filterOpen && !isCompact && (
                 <div
                   ref={filterMenuRef}
                   id={filterMenuId}
@@ -369,6 +434,41 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                     </button>
                   ))}
                 </div>
+              )}
+
+              {/* At 960px and below Gemini lists the filters in a bottom sheet
+                  (`remy-filter-bottom-sheet`): 36px rows, a 20px check kept in place but
+                  hidden on the unselected ones, 16px/24px labels. */}
+              {isCompact && (
+                <GeminiBottomSheet isOpen={filterOpen} onClose={() => setFilterOpen(false)} label="Task filters" isLight={isLight}>
+                  <div
+                    ref={filterMenuRef}
+                    id={filterMenuId}
+                    className="spark-all-tasks__filter-sheet"
+                    role="menu"
+                    aria-label="Task filters"
+                    onKeyDown={handleFilterMenuKeyDown}
+                  >
+                    {TASK_FILTERS.map((candidate) => (
+                      <button
+                        key={candidate}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={filter === candidate}
+                        className="spark-all-tasks__filter-sheet-item"
+                        onClick={() => {
+                          setFilter(candidate);
+                          setFilterOpen(false);
+                        }}
+                      >
+                        <span className="spark-all-tasks__filter-sheet-check" style={{ visibility: filter === candidate ? 'visible' : 'hidden' }}>
+                          <MaterialSymbol {...SYMBOL_PROPS} name="check" size={20} opticalSize={20} />
+                        </span>
+                        <span>{candidate}</span>
+                      </button>
+                    ))}
+                  </div>
+                </GeminiBottomSheet>
               )}
             </div>
 
@@ -413,8 +513,18 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
                   </button>
                   <span className="spark-task-detail__task-meta">
                     <span className="spark-task-detail__task-time">
-                      {formatSparkRelativeTime(task.updatedAt, now) || task.time}
+                      {formatSparkRelativeTime(task.updatedAt, now, isCompact) || task.time}
                     </span>
+                    {/* Gemini's goal card marks a running task, and a finished one not yet
+                        opened, with the 6px pulse dot before the menu. */}
+                    {isCompact && (task.status === 'queued' || task.status === 'running' || (task.status === 'complete' && task.hasUnreadCompletion)) && (
+                      <span className="spark-status-pill spark-status-pill--pulse" aria-label={task.status === 'complete' ? 'Unread' : 'Running'}>
+                        <span
+                          className={`spark-status-pulse-dot${task.status === 'complete' ? ' is-complete' : ''}`}
+                          aria-hidden="true"
+                        />
+                      </span>
+                    )}
                     {task.status === 'needs-input' && (
                       <span className="spark-task-detail__needs-input-badge">Needs input</span>
                     )}
@@ -537,7 +647,23 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
         </section>
       </div>
 
-      {renameTask && typeof document !== 'undefined' && createPortal(
+      {/* At 960px and below these are Gemini's own dialogs, which the home page already
+          renders; the older copies below remain the desktop's. */}
+      {renameTask && isCompact && (
+        <SparkTaskRenameDialog
+          currentTitle={renameTask.title}
+          onCancel={closeRenameDialog}
+          onConfirm={(title) => confirmRename(renameTask.id, title)}
+        />
+      )}
+      {deleteTask && isCompact && (
+        <SparkTaskDeleteDialog
+          onCancel={closeDeleteDialog}
+          onConfirm={() => confirmDelete(deleteTask.id)}
+        />
+      )}
+
+      {renameTask && !isCompact && typeof document !== 'undefined' && createPortal(
         <div
           className="spark-all-tasks__dialog-backdrop"
           role="presentation"
@@ -555,9 +681,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
               event.preventDefault();
               const title = renameDraft.trim();
               if (!title) return;
-              setRenameTaskId(null);
-              onRenameTask(renameTask.id, title);
-              restoreDialogFocus(renameReturnFocusRef.current);
+              confirmRename(renameTask.id, title);
             }}
           >
             <h2 id={renameTitleId}>Rename this thread</h2>
@@ -582,7 +706,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
         document.body,
       )}
 
-      {deleteTask && typeof document !== 'undefined' && createPortal(
+      {deleteTask && !isCompact && typeof document !== 'undefined' && createPortal(
         <div
           className="spark-all-tasks__dialog-backdrop"
           role="presentation"
@@ -609,23 +733,7 @@ export const SparkAllTasks: React.FC<SparkAllTasksProps> = ({
               <button
                 type="button"
                 className="is-danger"
-                onClick={() => {
-                  const deletedTaskIndex = visibleTasks.findIndex((task) => task.id === deleteTask.id);
-                  const nextTaskId = visibleTasks[deletedTaskIndex + 1]?.id
-                    ?? visibleTasks[deletedTaskIndex - 1]?.id
-                    ?? null;
-                  setDeleteTaskId(null);
-                  onDeleteTask(deleteTask.id);
-                  window.requestAnimationFrame(() => {
-                    window.requestAnimationFrame(() => {
-                      const nextTaskButton = nextTaskId
-                        ? taskOpenButtonRefs.current.get(nextTaskId)
-                        : null;
-                      if (nextTaskButton?.isConnected) nextTaskButton.focus();
-                      else filterButtonRef.current?.focus();
-                    });
-                  });
-                }}
+                onClick={() => confirmDelete(deleteTask.id)}
               >
                 Delete
               </button>

@@ -1,0 +1,136 @@
+/*
+ * flow-collection-tile, measured off Flow's live grid. The hotbar is the shared Flow hotbar
+ * (`sb-hotbar`, scene-tile.css); the drop ring and dimming are Flow's drag states (drag.css).
+ */
+
+.ct-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: filter 0.2s ease-out;
+}
+
+/* Flow's drop-target ring lives on this ::after, transparent until a drag hovers the tile. */
+.ct-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 0 rgba(0, 0, 0, 0), inset 0 0 0 0 rgba(0, 0, 0, 0);
+  pointer-events: none;
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.ct-container.is-drop-target::after {
+  box-shadow: inset 0 0 0 1.5px rgb(241, 243, 244), inset 0 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.ct-container.is-dimmed { filter: brightness(0.5) contrast(0.9); }
+
+.ct-preview {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background-image: linear-gradient(1deg, rgb(51, 51, 51) 0.49%, rgb(78, 78, 78) 99.15%);
+}
+
+/* Three slots — the first three items, repeated when there are fewer — crossfading through a blur
+ * while the tile is hovered. */
+.ct-thumb {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: clip;
+  object-fit: cover;
+  opacity: 0;
+  filter: blur(8px);
+  transition: opacity 0.4s ease-in-out, filter 0.4s ease-in-out, scale 0.2s ease-out;
+}
+
+.ct-thumb.is-active {
+  opacity: 1;
+  filter: blur(0);
+}
+
+.ct-title {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  box-sizing: border-box;
+  padding: 48px 76px 16px 20px;
+  color: var(--sb-fg-90);
+  font-family: 'Google Sans', var(--sb-font);
+  font-size: 36px;
+  font-weight: 400;
+  line-height: 45px;
+  pointer-events: none;
+}
+
+.ct-title::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  background-image: linear-gradient(359deg, rgba(0, 0, 0, 0.9) -12.53%, rgba(0, 0, 0, 0.6) 9.84%, rgba(0, 0, 0, 0.35) 44.02%, rgba(0, 0, 0, 0.25) 69.25%, rgba(0, 0, 0, 0) 99.31%);
+  backdrop-filter: blur(5px) contrast(1.2) saturate(1.3);
+  -webkit-mask-image: linear-gradient(to top, #000 0, #000 calc(100% - 48px), transparent 100%);
+  mask-image: linear-gradient(to top, #000 0, #000 calc(100% - 48px), transparent 100%);
+  pointer-events: none;
+}
+
+.ct-title-text {
+  position: relative;
+  display: flow-root;
+  overflow: hidden;
+  line-height: 39.6px;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: 2;
+}
+
+.ct-hover {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear 0.2s;
+}
+
+.ct-container.is-hover .ct-hover,
+.ct-container.is-menu-open .ct-hover {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear;
+}
+
+/* One row per kind, images first; the rows share a left edge, the block hangs off the right. */
+.ct-counts {
+  position: absolute;
+  right: 16px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: rgb(227, 227, 227);
+  font-family: var(--sb-font);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.ct-count-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The collection view's empty state ("Start creating or drop media") reuses the gallery flower. */

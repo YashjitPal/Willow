@@ -1,4 +1,5 @@
 import type { Attachment as AiAttachment } from '@willow/ai/chat';
+import { base64ToBlob } from '@willow/core/attachments';
 import type { SparkTaskAttachment } from './spark-types';
 
 const DB_NAME = 'willow-spark';
@@ -187,6 +188,22 @@ export const resolveSparkTaskAttachments = async (
   }));
 
   return resolved.filter((attachment): attachment is AiAttachment => attachment !== null);
+};
+
+/** An attachment's bytes as a file, for the copy kept beside its task on disk. */
+export const loadSparkAttachmentBlob = async (
+  attachment: SparkTaskAttachment,
+  scopeId: string,
+): Promise<Blob | null> => {
+  const stored = attachment.data !== undefined
+    ? { data: attachment.data, type: attachment.type }
+    : await readPayload(scopeId, attachment.id).catch(() => undefined);
+  if (!stored || typeof stored.data !== 'string') return null;
+  const mimeType = attachment.mimeType || 'application/octet-stream';
+  // Text is stored as itself, everything else as base64.
+  return (stored.type ?? attachment.type) === 'text'
+    ? new Blob([stored.data], { type: mimeType })
+    : base64ToBlob(stored.data, mimeType);
 };
 
 export const deleteSparkAttachmentPayloads = async (

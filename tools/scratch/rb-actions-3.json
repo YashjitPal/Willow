@@ -1,0 +1,7 @@
+[
+  { "name": "navigate", "args": { "url": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf" } },
+  { "name": "click_at", "args": { "x": 500, "y": 500 } },
+  { "name": "go_back", "args": {} },
+  { "name": "navigate", "args": { "url": "https://this-host-does-not-exist.invalid/" } },
+  { "name": "go_back", "args": {} }
+]

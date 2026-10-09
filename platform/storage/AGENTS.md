@@ -35,14 +35,29 @@ Section 11 (Invariants) lists rules that cause data loss when broken.
 | `src/local-fs/disk-deps.ts` | The `DiskDeps` contract the two disk writers below are passed. |
 | `src/local-fs/code-disk.ts` | Writes a project's `Code/` folder: codebase files + chat sessions. |
 | `src/local-fs/media-disk.ts` | Writes/deletes/renames files in a project's `Media/` folder + cover. |
+| `src/local-fs/conversation-files.ts` | A conversation's files in a same-name folder beside its JSON (`Chats/<id>/Attachments/…`): deterministic names, write-once, move (case-only safe) and delete. See ARCHITECTURE.md §6a. |
 | `src/project-contributors.ts` | Registry where features register their project-save writers (sub-folders *inside* a project). |
 | `src/synced-folders.ts` | **Registry where features register a top-level synced folder** (`Gems/`). Start here to make a new feature sync. |
 | `src/local-fs/folder-sync-engine.ts` | The one reconcile algorithm, shared by every registered folder. Pure + unit-tested. |
 | `src/local-fs/synced-folder-driver.ts` | Binds a registered folder to a real directory handle; owns its sync records and per-item locks. |
 | `src/code-chat-storage.ts` | Saves + loads Code projects (code files + chat threads). |
 | `src/media-storage.ts` | Saves + loads Media projects (generated images/video/music). |
+| `src/media-agent-sessions.ts` | Saved Media agent chats per project, in their own `WillowMediaAgentDB` (a store in `WillowMediaDB` would need a version bump that breaks its fixed-version opens). A reply keeps `links` to the characters and scenes it made, for the chat's cards; an attachment can be a character by `characterId`, with no bytes. Deleted with the project. |
+| `src/media-scenes.ts` | Media scenes (the Scenebuilder's clip lists) per project, in their own `WillowMediaScenesDB` for the same reason. A clip points at a gallery item by id; the video itself stays in the project. Deleted with the project. |
+| `src/media-characters.ts` | Media characters per project, in `WillowMediaCharactersDB`. A character points at its portrait and body images by id; they are gallery items with a `characterId`. Deleted with the project. |
+| `src/media-collections.ts` | Media collections per project, in `WillowMediaCollectionsDB`, each recording the folder that holds it on disk (see *Media collections are folders* below). Deleted with the project. |
 | `src/indexeddb/willow-db.ts` | Chat bodies + code sessions with **content-addressed file-snapshot dedup**. |
 | `src/covers.ts` | Project cover-image logic (extract still frame from video as PNG). |
+
+## A conversation's files go beside it
+
+Every saved conversation is one JSON file; what it carries — attachments, an agent's
+screenshots — is a folder of the same name next to it, and the JSON names the file
+instead of holding its bytes. Chat (and notebook chats), Code's chat sessions, Media's
+agent chats and Spark's tasks all do this. The rules that keep it safe — the folder
+follows every rename and move, goes before the file on delete, is written through the
+project queue inside a project, and is never created empty — are in ARCHITECTURE.md §6a.
+A new conversation type should reuse `conversation-files.ts`, not write its own.
 
 ## Making a new feature sync to disk
 
@@ -102,6 +117,46 @@ The reconciler (`syncProjectsFromDisk`) is **disk-authoritative**:
 - **Rename guard**: during an async folder rename, set `renamingRef` and skip
   disk-change-triggered `loadMedia` for ~800ms — the FileSystemObserver fires
   multiple events mid-rename and a partial read would vanish the gallery.
+- **One discovery pass at a time**: `syncProjectsFromDisk` queues behind a running pass.
+  Two passes over a folder with no manifest yet each minted an id for it, and both ids
+  were registered — the same project listed twice.
+
+### Media collections are folders
+
+A Media project folder holds `Images/`, `Videos/`, `Audio/`, `Scenes/`, `Music/` — and one
+folder per collection, `Media/<project>/<collection>/`, with the files of the items in it.
+Collections nest: a collection inside another (`parentId`) has its folder inside the other's,
+`Media/<project>/<a>/<b>/`. A record's `folder` is its own name only; `collectionPath()` joins
+the chain into the path every disk call takes. `refreshLocalMedia` walks the kind folders and
+every other folder, down to `MAX_COLLECTION_DEPTH` (names in `RESERVED_PROJECT_FOLDERS` never
+become collections at the top; inside a collection they are ordinary names), and matches files
+to records in passes: same name in the folder the record names, then same name anywhere (a file
+moved in Explorer), then the legacy prompt match. **Membership is where the file is, and
+nesting is where the folder is.**
+
+- Records are matched to folders **by path** ("a/b", case-insensitive), so a folder renamed or
+  moved to another parent outside the app reads as a new collection there, and the old record
+  as deleted. A folder made outside the app is **adopted** as a collection, its id derived from
+  the path so two concurrent passes write one record, and its parent is the record of the
+  folder it sits in (walked parents first). Two records for one folder are merged into the
+  older, and the collections inside the dropped one are re-parented to it.
+- Moving a collection is a folder move: `renameLocalFSCollectionFolder(from, to)` takes full
+  paths, so the same call renames in place or re-parents, and it refuses to move a folder into
+  itself or a folder inside it.
+- A collection whose folder was seen before (`onDisk`) and is missing from a successful
+  listing was deleted on disk: its record goes, and so do its disk-backed items — a live
+  `blob:` URL does not keep them, unlike a file missing from `Images/`.
+- Collection writes (`ensureLocalFSCollectionFolder`, `moveLocalFSMediaFile`,
+  `renameLocalFSCollectionFolder`, `deleteLocalFSCollectionFolder`) join the project's save
+  queue, and the reconcile serves IndexedDB while a project has queued writes — and also
+  aborts if one started mid-scan — so a half-moved folder is never adopted as a collection.
+- Save, load, rename and delete of a media file take the collection's folder path; an item's
+  record keeps `collectionId`, and the client maps it to the path.
+- `loadLocalFSMediaUrl` returns a URL over the file where it is now. Once the file moves, that
+  URL stops loading; the caller has to read the moved file again (Media's `rereadMovedFiles`).
+- `deleteLocalFSMediaFile` is not queued. Deleting files inside a folder while
+  `deleteLocalFSCollectionFolder` removes it recursively makes the recursive removal fail, so
+  when the whole folder goes, let its files go with it.
 
 Chat sync uses **monotonic revisions + durable `dirty`/`tombstone` records**. A
 failed disk write stays retryable; it is never converted into an external deletion
@@ -131,6 +186,18 @@ is O(chats x keys). `readCodeChats` is the cached read and is safe to call per
 row; the cached object is **shared and must not be mutated**. Writers call
 `scanCodeChats` for a private copy, then `invalidateCodeChatsCache()`. Pinned by
 `apps/studio/test/code-chat-cache.test.mjs`, which counts scans directly.
+
+**A Code chat must never open in Chat.** Chat cannot show one, and its next save
+strips the Code fields. The marker decides, and markers are per scope, so a
+sign-in or sign-out leaves Code chats unmarked until the backfill reads them.
+Three guards:
+- every opener (the Recents row, Search) calls `checkCodeChat`, which reads a
+  chat nothing has read yet in this scope, once, and marks it if its messages are
+  Code (`isCodeChatBody`);
+- Code saves its inbox chats with `saveLocalFSChat(…, { openInChat: false })`, so
+  one never becomes the open chat (`activeChatId`) that Chat loads;
+- `ChatView` hands any Code chat that does become the open chat to Code
+  (`requestCodeChatOpen`) instead of loading it.
 
 ## Content-addressed dedup (code sessions)
 

@@ -444,7 +444,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 required
                 className={`h-12 w-full rounded-full ${
                   isLight 
-                    ? 'bg-[#ffffff] text-[#1f1f1f] placeholder:text-[#747775] border border-[#c4c7c5] focus:border-[#0b57d0]' 
+                    ? 'bg-[#ffffff] text-[#1f1f1f] placeholder:text-[#747775] border border-[#c4c7c5] focus:border-[color:var(--sync-0b57d0,#0b57d0)]' 
                     : 'bg-[#131314] text-white placeholder:text-[#787878] focus:outline-none'
                 } px-5 text-[15px] transition-all`}
               />
@@ -453,7 +453,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 type="submit"
                 className={`h-12 w-full mt-3 rounded-full ${
                   isLight 
-                    ? 'bg-[#0b57d0] hover:bg-[#0842a0] active:bg-[#073888] text-white shadow-sm' 
+                    ? 'bg-[color:var(--sync-0b57d0,#0b57d0)] hover:bg-[color:var(--sync-0842a0,#0842a0)] active:bg-[color:var(--sync-073888,#073888)] text-white shadow-sm' 
                     : 'bg-white hover:bg-[#e6e6e6] active:bg-[#d4d4d4] text-[#121212]'
                 } font-semibold text-[15px] flex items-center justify-center transition-colors`}
               >
@@ -476,7 +476,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   required
                   className={`h-12 w-full rounded-full ${
                     isLight 
-                      ? 'bg-[#ffffff] text-[#1f1f1f] placeholder:text-[#747775] border border-[#c4c7c5] focus:border-[#0b57d0]' 
+                      ? 'bg-[#ffffff] text-[#1f1f1f] placeholder:text-[#747775] border border-[#c4c7c5] focus:border-[color:var(--sync-0b57d0,#0b57d0)]' 
                       : 'bg-[#131314] text-white placeholder:text-[#787878] focus:outline-none'
                   } pl-5 pr-12 text-[15px] transition-all`}
                 />
@@ -503,7 +503,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     required
                     className={`h-12 w-full rounded-full ${
                       isLight 
-                        ? 'bg-[#ffffff] text-[#1f1f1f] placeholder:text-[#747775] border border-[#c4c7c5] focus:border-[#0b57d0]' 
+                        ? 'bg-[#ffffff] text-[#1f1f1f] placeholder:text-[#747775] border border-[#c4c7c5] focus:border-[color:var(--sync-0b57d0,#0b57d0)]' 
                         : 'bg-[#131314] text-white placeholder:text-[#787878] focus:outline-none'
                     } px-5 text-[15px] transition-all`}
                   />
@@ -516,7 +516,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               disabled={isLoading}
               className={`h-12 w-full mt-4 rounded-full ${
                 isLight 
-                  ? 'bg-[#0b57d0] hover:bg-[#0842a0] active:bg-[#073888] text-white shadow-sm' 
+                  ? 'bg-[color:var(--sync-0b57d0,#0b57d0)] hover:bg-[color:var(--sync-0842a0,#0842a0)] active:bg-[color:var(--sync-073888,#073888)] text-white shadow-sm' 
                   : 'bg-white hover:bg-[#e6e6e6] active:bg-[#d4d4d4] text-[#121212]'
               } font-semibold text-[15px] flex items-center justify-center transition-colors disabled:opacity-50`}
             >
@@ -534,7 +534,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <button
                   type="button"
                   onClick={handleForgotPassword}
-                  className={`${isLight ? 'hover:text-[#0b57d0]' : 'hover:text-white'} underline underline-offset-2 transition-colors`}
+                  className={`${isLight ? 'hover:text-[color:var(--sync-0b57d0,#0b57d0)]' : 'hover:text-white'} underline underline-offset-2 transition-colors`}
                 >
                   Forgot password?
                 </button>
@@ -547,7 +547,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setError('');
                   setSuccess('');
                 }}
-                className={`${isLight ? 'hover:text-[#0b57d0]' : 'hover:text-white'} underline underline-offset-2 transition-colors ${isSignUp ? 'w-full text-center' : 'ml-auto'}`}
+                className={`${isLight ? 'hover:text-[color:var(--sync-0b57d0,#0b57d0)]' : 'hover:text-white'} underline underline-offset-2 transition-colors ${isSignUp ? 'w-full text-center' : 'ml-auto'}`}
               >
                 {isSignUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
               </button>

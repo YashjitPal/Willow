@@ -46,7 +46,8 @@ export const VisualEditorSelectMenu: React.FC<VisualEditorSelectMenuProps> = ({
 
           setPosition({
             top: placement === 'bottom' ? rect.bottom + 8 : rect.top - 8,
-            left: rect.left,
+            // Kept 8px inside the screen: on a phone a right-column trigger would push it off.
+            left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
             placement
           });
         }

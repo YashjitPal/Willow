@@ -78,10 +78,12 @@ test('collapsing happens before the length check', () => {
 test('the naming call still reports failure as an empty string', () => {
   // Callers apply the fallback themselves, because the last resort differs by
   // surface. If this ever started returning a title of its own, every call site
-  // below would silently stop using its own.
+  // below would silently stop using its own. The shared naming function ends on
+  // `return ''`, and the title export hands its result straight through.
   const chatTitle = read('platform/storage/src/local-fs/chat-title.ts');
   assert.match(chatTitle, /Returns a short title for a chat, or '' when it cannot produce one/);
-  assert.match(chatTitle, /return '';\s*\};?\s*$/);
+  assert.match(chatTitle,
+    /return '';\s*\};\s*export const generateChatTitleWith[\s\S]*?=> generateNamingTextWith\([^;]*'title'\);/);
 });
 
 for (const fork of ['code']) {

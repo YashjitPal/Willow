@@ -1,0 +1,13 @@
+// Init script build-apk.mjs passes when the Android SDK's path has a space (Windows).
+// CMake then writes the compiler's path in its 8.3 form, and clang++.exe called as
+// CLANG_~1.EXE takes itself for the C driver: it links without libc++. Every native
+// build in the app gets --driver-mode=g++, which makes it the C++ driver again.
+gradle.allprojects { project ->
+  ['com.android.application', 'com.android.library'].each { pluginId ->
+    project.plugins.withId(pluginId) {
+      project.extensions.getByName('androidComponents').finalizeDsl { android ->
+        android.defaultConfig.externalNativeBuild.cmake.cppFlags('--driver-mode=g++')
+      }
+    }
+  }
+}

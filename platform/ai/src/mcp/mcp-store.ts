@@ -21,16 +21,16 @@
 import { atom, map } from 'nanostores';
 import { createHttpTransport } from './http-transport';
 import { createWorkerTransport, scriptToModuleUrl } from './worker-transport';
+import { createProgramTransport, type McpProgramHost } from './program-transport';
 import { McpClient } from './mcp-client';
+import { grantExpired, refreshGrant, signIn, type McpOAuthGrant } from './mcp-oauth';
 import { McpError, qualifiedToolName, type McpToolDescriptor } from './mcp-protocol';
 
 /**
- * How a server is reached.
- *
- * Two kinds, because two are what a browser can do. See `mcp-protocol.ts` for
- * why, and `HELPER-APP.md` for what the third would take.
+ * How a server is reached: at an address, as a script in the tab, or — in the desktop app — as a program on this
+ * computer, which Willow's companion runs. See `mcp-protocol.ts`.
  */
-export type McpServerKind = 'http' | 'worker';
+export type McpServerKind = 'http' | 'worker' | 'program';
 
 export interface McpServerConfig {
   /** Stable id. Becomes the middle of `mcp__<id>__<tool>`, so it stays short. */
@@ -41,8 +41,17 @@ export interface McpServerConfig {
   url?: string;
   /** For `http`. Sent on every request; where a bearer token goes. */
   headers?: Record<string, string>;
+  /** For `http`. A server the user signed in to (`mcp-oauth.ts`): its tokens, refreshed as they run out. */
+  oauth?: McpOAuthGrant;
   /** For `worker`. The module source, stored verbatim. */
   script?: string;
+  /** For `program`. What starts it, as the user typed it, split into the program and its arguments. */
+  command?: string;
+  args?: string[];
+  /** For `program`. Variables it reads, such as a key; over this computer's own. */
+  env?: Record<string, string>;
+  /** For `program`. The folder it starts in; the user's home when unset. */
+  cwd?: string;
   /** Off until the user turns it on. See the note above. */
   enabled: boolean;
 }
@@ -76,6 +85,28 @@ function readStored(): McpServerConfig[] {
 
 export const mcpServers = atom<McpServerConfig[]>(readStored());
 
+/**
+ * How `http` servers are fetched. A web page reaches only servers that allow it (CORS), and most MCP servers were
+ * written for desktop clients that never needed to; the desktop app sets this to go through Willow's companion,
+ * which any server answers. Unset, the window's own `fetch`.
+ */
+let mcpFetch: typeof fetch | undefined;
+
+export function setMcpFetch(fetchImpl: typeof fetch | undefined): void {
+  mcpFetch = fetchImpl;
+}
+
+/** What runs `program` servers: the desktop app's companion. Unset, there is nothing that can. */
+let programHost: McpProgramHost | undefined;
+
+export function setMcpProgramHost(host: McpProgramHost | undefined): void {
+  programHost = host;
+}
+
+/** When each `program` server was last started again after ending on its own, so one that keeps dying is left failed. */
+const restarted = new Map<string, number>();
+const RESTART_AFTER_MS = 60_000;
+
 /** Connection state per server id. Never persisted — it describes right now. */
 export const mcpRuntime = map<Record<string, McpRuntimeEntry>>({});
 
@@ -101,6 +132,20 @@ export async function removeMcpServer(id: string): Promise<void> {
   const next = mcpServers.get().filter((server) => server.id !== id);
   mcpServers.set(next);
   persist(next);
+}
+
+/**
+ * The whole list at once (`settings.json`). A server that went or changed is disconnected; one
+ * still enabled connects again the next time servers are connected, as at startup.
+ */
+export async function replaceMcpServers(next: McpServerConfig[]): Promise<void> {
+  const before = mcpServers.get();
+  mcpServers.set(next);
+  persist(next);
+  for (const server of before) {
+    const now = next.find((entry) => entry.id === server.id);
+    if (!now || JSON.stringify(now) !== JSON.stringify(server)) await disconnectMcpServer(server.id);
+  }
 }
 
 export async function setMcpServerEnabled(id: string, enabled: boolean): Promise<void> {
@@ -136,12 +181,22 @@ export async function connectMcpServer(id: string): Promise<void> {
   setStatus(id, { state: 'connecting' });
 
   let objectUrl: string | undefined;
+  let connected: McpClient | undefined;
 
   try {
     let transport;
     if (server.kind === 'http') {
       if (!server.url) throw new McpError('protocol', 'This server has no address.');
-      transport = createHttpTransport({ url: server.url, headers: server.headers });
+      transport = createHttpTransport({ url: server.url, headers: server.headers, ...(mcpFetch ? { fetchImpl: mcpFetch } : {}), ...(server.oauth ? { auth: signedIn(server.id) } : {}) });
+    } else if (server.kind === 'program') {
+      if (!server.command?.trim()) throw new McpError('program-failed', 'This server has no command.');
+      if (!programHost) throw new McpError('program-failed', 'Programs on this computer run in the Willow desktop app.');
+      transport = createProgramTransport({
+        id: `${server.id}.${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+        label: server.label,
+        spec: { command: server.command, args: server.args ?? [], ...(server.env ? { env: server.env } : {}), ...(server.cwd ? { cwd: server.cwd } : {}) },
+        host: programHost,
+      });
     } else {
       if (!server.script?.trim()) throw new McpError('worker-failed', 'This server has no script.');
       objectUrl = scriptToModuleUrl(server.script);
@@ -149,6 +204,7 @@ export async function connectMcpServer(id: string): Promise<void> {
     }
 
     const client = await McpClient.connect(server.id, transport);
+    connected = client;
     const tools = await client.listTools();
 
     mcpRuntime.setKey(id, {
@@ -162,8 +218,20 @@ export async function connectMcpServer(id: string): Promise<void> {
       client,
       objectUrl,
     });
+
+    // A program that ends after connecting: shown as failed, and started again once while it is on — not twice a minute.
+    transport.onFailure?.((error) => {
+      if (mcpRuntime.get()[id]?.client !== client) return;
+      void client.close();
+      mcpRuntime.setKey(id, { status: { state: 'failed', message: error.message, detail: error.detail, kind: error.kind }, tools: [] });
+      const last = restarted.get(id) ?? 0;
+      if (Date.now() - last < RESTART_AFTER_MS || !mcpServers.get().find((entry) => entry.id === id)?.enabled) return;
+      restarted.set(id, Date.now());
+      void connectMcpServer(id);
+    });
   } catch (error) {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
+    await connected?.close().catch(() => {});
 
     const failure =
       error instanceof McpError
@@ -180,6 +248,67 @@ export async function connectMcpServer(id: string): Promise<void> {
       tools: [],
     });
   }
+}
+
+/**
+ * The tokens of a server the user signed in to, for its transport: the current access token — refreshed first once
+ * it has run out — and a fresh one when the server refuses the current. A refreshed grant is kept, the rotated
+ * refresh token with it; two requests needing one at once share a single refresh.
+ */
+function signedIn(id: string): { token: () => Promise<string | null>; refresh: () => Promise<string | null> } {
+  let refreshing: Promise<string | null> | null = null;
+  const current = () => mcpServers.get().find((entry) => entry.id === id)?.oauth;
+  const refresh = (): Promise<string | null> => {
+    refreshing ??= (async () => {
+      const grant = current();
+      if (!grant?.refreshToken) return null;
+      try {
+        const next = await refreshGrant(grant, mcpFetch ?? globalThis.fetch.bind(globalThis));
+        const server = mcpServers.get().find((entry) => entry.id === id);
+        if (server) upsertMcpServer({ ...server, oauth: next });
+        return next.accessToken;
+      } catch {
+        return null;
+      }
+    })().finally(() => {
+      refreshing = null;
+    });
+    return refreshing;
+  };
+  return {
+    token: async () => {
+      const grant = current();
+      if (!grant) return null;
+      return grantExpired(grant) ? (await refresh()) ?? grant.accessToken : grant.accessToken;
+    },
+    refresh,
+  };
+}
+
+/**
+ * Signs in to an `http` server and connects it. The host supplies the address the sign-in page sends the user back
+ * to and the way to show that page and catch the answer (the desktop app: the companion's loopback, `mcp-signin.ts`);
+ * `client` is the user's own app, for services that do not let apps register themselves. Throws what went wrong as a
+ * sentence (`McpOAuthError`).
+ */
+export async function signInMcpServer(config: McpServerConfig, host: {
+  redirectUri: string;
+  openAndWait: (url: string) => Promise<{ code?: string; state?: string; error?: string; errorDescription?: string }>;
+  client?: { clientId: string; clientSecret?: string };
+}): Promise<void> {
+  if (config.kind !== 'http' || !config.url) throw new McpError('protocol', 'Only a server at a web address can be signed in to.');
+  const grant = await signIn({
+    serverUrl: config.url,
+    fetchImpl: mcpFetch ?? globalThis.fetch.bind(globalThis),
+    clientName: 'Willow',
+    redirectUri: host.redirectUri,
+    ...(host.client ? { client: host.client } : {}),
+    openAndWait: host.openAndWait,
+  });
+  // A key typed in earlier is what the sign-in replaces.
+  const headers = Object.fromEntries(Object.entries(config.headers ?? {}).filter(([name]) => name.toLowerCase() !== 'authorization'));
+  upsertMcpServer({ ...config, headers: Object.keys(headers).length ? headers : undefined, enabled: true, oauth: grant });
+  await connectMcpServer(config.id);
 }
 
 export async function disconnectMcpServer(id: string): Promise<void> {
@@ -268,7 +397,7 @@ export function boundMcpTools(): McpBoundTool[] {
 }
 
 /** A fresh id from a label, unique against what is already configured. */
-export function suggestMcpServerId(label: string): string {
+export function suggestMcpServerId(label: string, reserved: Iterable<string> = []): string {
   const base =
     label
       .toLowerCase()
@@ -276,7 +405,7 @@ export function suggestMcpServerId(label: string): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 24) || 'server';
 
-  const taken = new Set(mcpServers.get().map((server) => server.id));
+  const taken = new Set([...mcpServers.get().map((server) => server.id), ...reserved]);
   if (!taken.has(base)) return base;
 
   let suffix = 2;

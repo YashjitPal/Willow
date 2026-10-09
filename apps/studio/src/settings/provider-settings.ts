@@ -13,14 +13,19 @@
  * lives here, at module scope, and `useProviderSettings` is only a
  * subscription to it.
  *
- * **Keys never leave the device.** They are written to `localStorage` and
- * nowhere else. Willow used to sync them to Firestore, which put a user's
+ * **Keys never leave the device.** They are written to `localStorage`, and to
+ * `settings.json` in the user's folder once one is connected
+ * (`app/register-settings-file.ts`). Willow used to sync them to Firestore, which put a user's
  * third-party credentials in a database the project owner can read; the only
  * thing left of that is `ensureProviderStateLoaded`, which exists purely to
  * delete keys an older build already uploaded.
+ *
+ * They are the device's, not an account's: one slot, read the same signed in or
+ * out (`@willow/auth/device-keys`), so signing out never takes the models away.
  */
 
 import { atom } from 'nanostores';
+import { DEVICE_KEY_SLOT, adoptAccountKeys, splitDeviceKeys } from '@willow/auth/device-keys';
 import { DEFAULT_BASE_URLS, resolveBaseUrl, type ProviderId } from '@willow/ai/providers/endpoints';
 import { DEFAULT_PROFILE_IDS } from '@willow/ai/providers/profiles';
 
@@ -55,13 +60,12 @@ export const DEFAULT_PROVIDER_STATE: ProviderParams = {
   activeProvider: 'gemini',
 };
 
-const GUEST_PROVIDER_SCOPE = 'guest';
-
 const FIRESTORE_PROJECT_ID = 'willow-64095';
 
-const getProviderStorageKeys = (scope: string) => ({
-  providerState: `willow:providerState:${scope}`,
-  apiKeys: `willow:apiKeys:${scope}`,
+/** Where builds before the device slot kept one account's keys. */
+const accountSlotKeys = (uid: string) => ({
+  providerState: `willow:providerState:${uid}`,
+  apiKeys: `willow:apiKeys:${uid}`,
 });
 
 /** True when any provider in this state carries a key. */
@@ -94,7 +98,7 @@ const normalizeProviderState = (value: unknown): ProviderParams | null => {
 
 const migrateProviderStorage = (uid: string) => {
   try {
-    const keys = getProviderStorageKeys(uid);
+    const keys = accountSlotKeys(uid);
 
     /*
      * Recover the per-tab copy an older build wrote. The direction is
@@ -121,9 +125,10 @@ const migrateProviderStorage = (uid: string) => {
   }
 };
 
-const readCachedProviderState = (scope: string): ProviderParams | null => {
+const readCachedProviderState = (uid: string | null): ProviderParams | null => {
+  adoptAccountKeys(uid);
   try {
-    const key = getProviderStorageKeys(scope).providerState;
+    const key = DEVICE_KEY_SLOT.providerState;
     const serialized = localStorage.getItem(key);
     if (!serialized) return null;
     const state = normalizeProviderState(JSON.parse(serialized));
@@ -147,16 +152,12 @@ const readCachedProviderState = (scope: string): ProviderParams | null => {
  * `mapProviderState` in `@willow/auth/use-user-data` splits the same way. Both
  * exist because either store can be the one a reader reaches first.
  */
-export const splitApiKeys = (value: string): string[] => value
-  .split(/[\r\n,]+/)
-  .map((key) => key.trim())
-  .filter(Boolean);
+export const splitApiKeys = splitDeviceKeys;
 
-const cacheProviderState = (scope: string, state: ProviderParams) => {
+const cacheProviderState = (state: ProviderParams) => {
   try {
-    const keys = getProviderStorageKeys(scope);
-    localStorage.setItem(keys.providerState, JSON.stringify(state));
-    localStorage.setItem(keys.apiKeys, JSON.stringify({
+    localStorage.setItem(DEVICE_KEY_SLOT.providerState, JSON.stringify(state));
+    localStorage.setItem(DEVICE_KEY_SLOT.apiKeys, JSON.stringify({
       gemini: splitApiKeys(state.gemini.apiKey),
       openai: splitApiKeys(state.openai.apiKey),
       anthropic: splitApiKeys(state.anthropic.apiKey),
@@ -232,7 +233,8 @@ const syncBaseUrlsIntoModelConfig = (state: ProviderParams, setModelConfig: Mode
 };
 
 /**
- * Point the store at one account, clearing the previous account's keys.
+ * Point the store at one account (or none). The keys read back the same either
+ * way — they are the device's — but the eviction below runs once per account.
  *
  * Called from a layout effect so the swap lands before the browser paints the
  * new account. Idempotent per uid: the second surface to mount sees its own
@@ -246,13 +248,11 @@ export const resetProviderScope = (uid: string | null) => {
   scopeUid = uid;
   loadedScopeUid = undefined;
   editVersion += 1;
-  $providerState.set(DEFAULT_PROVIDER_STATE);
 
   if (uid) migrateProviderStorage(uid);
   // Local storage is the whole source of truth now, signed in or out — nothing
   // arrives later to fill this in.
-  const cachedState = readCachedProviderState(uid ?? GUEST_PROVIDER_SCOPE);
-  if (cachedState) $providerState.set(cachedState);
+  $providerState.set(readCachedProviderState(uid) ?? DEFAULT_PROVIDER_STATE);
 };
 
 /**
@@ -284,7 +284,7 @@ export const ensureProviderStateLoaded = async (
   const adoptRecoveredState = (recovered: ProviderParams) => {
     if (controller.signal.aborted || scopeUid !== uid || editVersion !== loadEditVersion) return;
     $providerState.set(recovered);
-    cacheProviderState(uid, recovered);
+    cacheProviderState(recovered);
     syncBaseUrlsIntoModelConfig(recovered, setModelConfig);
   };
 
@@ -361,6 +361,56 @@ export const ensureProviderStateLoaded = async (
   }
 };
 
+/**
+ * The device's keys and endpoints as stored, whether or not a Models & API surface has loaded them
+ * into `$providerState` yet. A key that reached only the split lists (`useUserData`'s own save
+ * writes nothing else) is read from there.
+ */
+export const readDeviceProviderState = (): ProviderParams => {
+  const state = readCachedProviderState(null) ?? DEFAULT_PROVIDER_STATE;
+  let lists: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DEVICE_KEY_SLOT.apiKeys) ?? 'null') as unknown;
+    if (parsed && typeof parsed === 'object') lists = parsed as Record<string, unknown>;
+  } catch {
+    // An unreadable list adds nothing to the record.
+  }
+  const next: ProviderParams = { ...state };
+  for (const provider of PROVIDER_IDS) {
+    if (next[provider].apiKey.trim()) continue;
+    const listed = lists[provider];
+    const keys = Array.isArray(listed) ? listed.filter((key): key is string => typeof key === 'string' && key.trim() !== '') : [];
+    if (keys.length > 0) next[provider] = { ...next[provider], apiKey: keys.join(', ') };
+  }
+  return next;
+};
+
+/**
+ * Take keys or endpoints from outside Models & API (`settings.json`), written everywhere they are
+ * read from, as an edit on the page is. Endpoints reach the model setup only when `setModelConfig`
+ * is given.
+ */
+export const applyProviderValues = (
+  values: Partial<Record<ProviderId, Partial<ProviderConfig>>>,
+  setModelConfig?: ModelConfigSetter,
+): void => {
+  const current = readDeviceProviderState();
+  const next: ProviderParams = { ...current };
+  for (const provider of PROVIDER_IDS) {
+    const patch = values[provider];
+    if (!patch) continue;
+    next[provider] = {
+      apiKey: typeof patch.apiKey === 'string' ? patch.apiKey : current[provider].apiKey,
+      baseUrl: typeof patch.baseUrl === 'string' ? patch.baseUrl : current[provider].baseUrl,
+    };
+  }
+  editVersion += 1;
+  $providerState.set(next);
+  cacheProviderState(next);
+  if (setModelConfig) syncBaseUrlsIntoModelConfig(next, setModelConfig);
+  window.dispatchEvent(new Event('apikeys-updated'));
+};
+
 /** Write one provider's key and endpoint, everywhere they are read from. */
 export const updateProviderConfig = async (
   provider: ProviderId,
@@ -375,7 +425,7 @@ export const updateProviderConfig = async (
 
   editVersion += 1;
   $providerState.set(newState);
-  cacheProviderState(uid ?? GUEST_PROVIDER_SCOPE, newState);
+  cacheProviderState(newState);
   /*
    * Sync baseUrl into modelConfig so streaming callers can access it. This runs
    * unconditionally: when the field is cleared we must overwrite the previous

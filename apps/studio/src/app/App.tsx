@@ -1,39 +1,65 @@
 
 import React, { useState, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@nanostores/react';
 import { AUTO_MODEL } from '@willow/ai/models/auto-select';
 import { Routes, Route, useNavigate, useSearchParams, Link, Navigate, useLocation } from 'react-router-dom';
 import type { ViewType } from '../shell/sidebar/Sidebar';
+import { ShellRouteSync } from './ShellRouteSync';
+import { ShellRequestHandler } from './ShellRequestHandler';
+import { isShellPath, parseShellPath } from './shell-routes';
 import type { Notebook } from '@willow/notebooks/notebook-types';
 import { StudioLayout } from '../shell/StudioLayout';
+import { DesktopFrame } from '../shell/rail/DesktopFrame';
+import { navigateRail } from '../shell/rail/rail-navigation';
+import type { RailDestinationId } from '../shell/rail/AppRail';
+import { $railReturns, noteRailPlace, noteSparkPlace } from '../shell/rail/rail-returns';
+import { $harnessTab, closeHarnessTab } from '@willow/harness/harness-store';
 import { CodeWorkspaceSkeleton } from '@willow/code/CodeHomeSkeleton';
+import { TabLoading } from './TabLoading';
+import { $codeScreenChats, $codeScreenProjects, $runningCodeScreens } from '@willow/code/workbench/code-turn-activity';
+import { $codeResume, registerCodeTurnTakeover } from '@willow/code/workbench/code-turn-jobs';
+import { atom, type WritableAtom } from 'nanostores';
+import { designTurnRunning } from '@willow/design/design-store';
+import { $mediaWorkRunning, MediaBackgroundContext } from '@willow/media/media-background';
+import { $mediaResume, registerMediaWorkTakeover } from '@willow/media/media-jobs';
 import { TopLoadingBar } from '@willow/ui/TopLoadingBar';
 import { topLoadingReasons } from '@willow/ui/top-loading-store';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { SquarePen, Glasses } from 'lucide-react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@willow/core/layout';
+import { applyWorkspaceSync } from '@willow/core/workspace-sync';
 import { BackgroundProvider, useBackground } from '../shell/BackgroundContext';
+import { SettingsFileBridge } from './SettingsFileBridge';
+import { PinnedChatsSettingsSection } from './PinnedChatsSettingsSection';
+import { ShellActiveContext } from '../shell/shell-active';
 import { ChatEmbeddingIndexer, SearchChatsPage } from '../shell/SearchChats';
 import { UserDataProvider } from '@willow/auth/UserDataContext';
 import { LocalFSProvider, useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
-import { pendingCodeChatOpen } from '@willow/storage/code-chat-open-store';
+import { clearCodeChatOpen, pendingCodeChatOpen, type CodeChatOpenRequest } from '@willow/storage/code-chat-open-store';
 import { migrateProjectKinds, rebuildMediaIndex } from '@willow/storage/media-storage';
 import { useDrive } from '@willow/storage/adapters/use-drive';
 import { mergeDriveProjectsIntoRegistry } from '@willow/storage/adapters/drive-discovery';
 import { isProjectSaveBlocked, PROJECTS_UPDATED_EVENT, readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { agentBuilderDraftFlush } from '@willow/agent-builder/agent-builder-store';
 import { sparkLocation } from '@willow/spark/spark-store';
-import { startNotebookChat } from '@willow/notebooks/notebook-chat-store';
+import { $chatNotebookId, startNotebookChat } from '@willow/notebooks/notebook-chat-store';
+import { $chatGemId } from '@willow/gems/gem-chat-store';
+import { hydrateGems, resolveGem } from '@willow/gems/gems-store';
+import { chatSelectionEpoch } from '@willow/storage/local-fs/chat-selection-store';
 import type { StudioExperience } from '@willow/core/types';
 import { experimentsStore, isExperimentEnabled } from '@willow/core/experiments-store';
+import { collectSavedModelsInCatalogOrder, liveModelId, migrateRetiredSavedModels, migrateSelectedModelId } from '@willow/core/model-catalog';
+import { isDesktopApp } from '@willow/core/desktop-bridge';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { PROFILE_SCHEMA_VERSION, createDefaultProviderProfiles, normalizeProviderProfileState } from '@willow/ai/providers/profiles';
 import { CHROME_NATIVE_TRANSCRIPTION_MODEL } from '@willow/ai/transcription';
 import {
   MODEL_CATALOG_UPDATED_EVENT,
   MODEL_CONFIG_STORAGE_KEY,
-  extractModelCatalogSnapshot,
-  mergeModelCatalogSnapshot,
+  adoptModelCatalogSnapshot,
+  createTabCatalogSync,
   type ModelCatalogSnapshot,
 } from './model-catalog-storage';
 
@@ -74,9 +100,12 @@ const FeatureFirstPaintGate: React.FC<{
 // Lazy-load WorkbenchView to prevent WebContainer boot on login page
 const WorkbenchView = React.lazy(() => import('@willow/code/WorkbenchView'));
 const MediaView = React.lazy(() => import('@willow/media/MediaView'));
+const WillowTV = React.lazy(() => import('@willow/media/tv/WillowTV'));
 const DesignView = React.lazy(() => import('@willow/design/DesignView'));
 const WaifuView = React.lazy(() => import('../waifu/WaifuView'));
 const SparkWorkspace = React.lazy(() => import('@willow/spark/SparkWorkspace'));
+/* The desktop pet: in the desktop app only, and loaded only there. */
+const SparkPetsHost = React.lazy(() => import('@willow/spark/pets/SparkPetsHost'));
 const GemsView = React.lazy(() => import('@willow/gems/GemsView'));
 const AllNotebooksPage = React.lazy(() =>
   import('@willow/notebooks/AllNotebooksPage').then((m) => ({ default: m.AllNotebooksPage })),
@@ -98,6 +127,8 @@ const NotebookCreatePage = React.lazy(() =>
  */
 const loadComposer = () => import('@willow/chat/composer/Composer');
 const NotebookComposer = React.lazy(() => loadComposer().then((m) => ({ default: m.InputBar })));
+const NotebookModelPicker = React.lazy(() => import('@willow/chat/MobileModelPicker')
+  .then((m) => ({ default: m.MobileModelPicker })));
 /*
  * Both chunks are requested together.
  *
@@ -124,8 +155,13 @@ const NotebookPage = React.lazy(() => {
  * screen) and `/notebook/<id>` (one notebook) differ by a single character, so a
  * naive `startsWith('/notebook')` tested first swallows both. Gemini uses exactly
  * these paths, so they are matched rather than renamed.
+ *
+ * Not exported, deliberately: this file must export nothing but the App
+ * component. Any other export makes React Refresh reject it, and then every edit
+ * that reaches it — chat.ts, media-storage.ts, LocalFSContext… — fully reloads
+ * every open tab instead of hot-swapping.
  */
-export const matchNotebookRoute = (
+const matchNotebookRoute = (
   pathname: string,
 ): { view: ViewType; notebookId?: string } | null => {
   if (pathname === '/notebooks/create') return { view: 'notebook-create' };
@@ -157,6 +193,7 @@ export const matchNotebookRoute = (
  * tab's real fallback renders it while the code chunk streams in.
  */
 const ChatView = React.lazy(() => import('@willow/chat/ChatView'));
+const ChatTurnTakeover = React.lazy(() => import('@willow/chat/ChatTurnTakeover'));
 const HeroSection = React.lazy(() => import('@willow/media/MediaHome').then((m) => ({ default: m.HeroSection })));
 const BottomPanel = React.lazy(() => import('@willow/media/MediaShowcase').then((m) => ({ default: m.BottomPanel })));
 const SettingsModal = React.lazy(() => import('../settings/SettingsModal').then((m) => ({ default: m.SettingsModal })));
@@ -267,20 +304,360 @@ const WorkbenchRouteGuard: React.FC<{ children: React.ReactNode }> = ({ children
   return <>{children}</>;
 };
 
-const MediaRouteHost: React.FC<{ onOpenSettings: () => void }> = ({ onOpenSettings }) => {
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('projectId');
+/*
+ * A screen that is working stays mounted after the user leaves it, hidden, until
+ * the work settles, plus a moment for its last save to start. Hidden rather than
+ * `display: none`: Code's preview tools need a frame with a size. Opacity, not
+ * just visibility, because a descendant can turn visibility back on; `inert` on
+ * the host keeps every control out of reach and out of the tab order.
+ */
+const KEEP_ALIVE_GRACE_MS = 3000;
+const BACKGROUND_SURFACE_STYLE: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  opacity: 0,
+  visibility: 'hidden',
+  pointerEvents: 'none',
+  zIndex: -1,
+  overflow: 'hidden',
+};
+const VISIBLE_SURFACE_STYLE: React.CSSProperties = { display: 'contents' };
 
-  if (!projectId) {
-    try {
-      const projects = readProjectRegistry() as any[];
-      if (projects.length > 0) {
-        return <Navigate to={`/media?projectId=${encodeURIComponent(projects[0].id)}`} replace />;
-      }
-    } catch {}
+/** The rail's tabs drawn inside the main shell, each kept mounted once opened. Spark's holds Bots too. */
+type ShellTab = 'chat' | 'spark' | 'media' | 'customize';
+const SHELL_TABS: readonly ShellTab[] = ['chat', 'spark', 'media', 'customize'];
+
+const useKeepAlive = (busy: boolean): boolean => {
+  const [lingering, setLingering] = React.useState(busy);
+  React.useEffect(() => {
+    if (busy) {
+      setLingering(true);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setLingering(false), KEEP_ALIVE_GRACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
+  return busy || lingering;
+};
+
+/*
+ * The Code home's place on screen. Its tree renders above the routes, so leaving
+ * the main shell (for the Media editor) does not unmount a turn; this slot moves
+ * the container it renders into into the main area while Code is on screen, and
+ * back to the hidden parking spot when it goes. `moveBefore` keeps the preview
+ * frame running across a move; a browser without it reloads the frame once.
+ */
+const moveInto = (parent: Element, node: Element) => {
+  if (node.parentNode === parent) return;
+  const { moveBefore } = parent as Element & { moveBefore?: (node: Node, child: Node | null) => void };
+  if (moveBefore && node.isConnected && parent.isConnected) moveBefore.call(parent, node, null);
+  else parent.appendChild(node);
+};
+
+const CodeHomeSlot: React.FC<{ container: HTMLElement; parking: React.RefObject<HTMLDivElement | null> }> = ({ container, parking }) => {
+  const slotRef = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    const slot = slotRef.current;
+    if (!slot) return undefined;
+    moveInto(slot, container);
+    return () => {
+      if (parking.current) moveInto(parking.current, container);
+    };
+  }, [container, parking]);
+  return <div ref={slotRef} style={VISIBLE_SURFACE_STYLE} />;
+};
+
+/** Set while a guarded route's element is mounted, so a keeper above the routes shows its screen only once the guard let it through. */
+const $workbenchRouteActive = atom(false);
+const RouteMarker: React.FC<{ store: WritableAtom<boolean> }> = ({ store }) => {
+  React.useLayoutEffect(() => {
+    store.set(true);
+    return () => store.set(false);
+  }, [store]);
+  return null;
+};
+
+type WorkbenchLocation = { pathname: string; search: string; hash: string; state: unknown; key: string };
+
+/* The shell's names for Code's screens (`screenKey`): Code homes, and one per reopened project. */
+const CODE_HOME_SCREEN = 'home';
+const isCodeHomeScreen = (key: string) => key === CODE_HOME_SCREEN || key.startsWith(`${CODE_HOME_SCREEN}:`);
+const projectScreenFor = (projectId: string) => `project:${projectId}`;
+
+/**
+ * A Code home: what the Code item opens. There is one, unless a chat was opened
+ * while the one on show was still working — that chat gets a Code home of its
+ * own, and the working one carries on, hidden, until it is done.
+ */
+interface CodeHomeEntry {
+  key: string;
+  /** What it renders into, wherever that currently sits (see `CodeHomeSlot`). */
+  container: HTMLDivElement;
+  /** A Recents chat for it to open, until it has. */
+  open: CodeChatOpenRequest | null;
+}
+
+const makeCodeHome = (key: string, open: CodeChatOpenRequest | null = null): CodeHomeEntry => {
+  const container = document.createElement('div');
+  container.style.display = 'contents';
+  return { key, container, open };
+};
+
+/** The list with one Code home moved last, which is the one on show. */
+const showCodeHome = (homes: CodeHomeEntry[], key: string): CodeHomeEntry[] => {
+  const home = homes.find((entry) => entry.key === key);
+  return !home || home === homes[homes.length - 1] ? homes : [...homes.filter((entry) => entry !== home), home];
+};
+const projectScreenAt = (search: string) => projectScreenFor(new URLSearchParams(search).get('projectId') ?? search);
+
+/** The Code screens mounted in this tab, which an inherited turn must not open over. */
+type CodeTakeoverGate = { homeMounted: boolean; projectScreens: ReadonlySet<string> };
+
+/**
+ * Lets this tab carry on Code turns a closed tab was running, in a screen of
+ * their own: never over the Code home or a project already open here, which
+ * may be the user's. Renders nothing.
+ */
+const CodeTurnTakeover: React.FC<{ gate: React.MutableRefObject<CodeTakeoverGate> }> = ({ gate }) => {
+  const { chatScopeId } = useLocalFS();
+  const scopeRef = React.useRef(chatScopeId);
+  scopeRef.current = chatScopeId;
+  React.useEffect(() => registerCodeTurnTakeover((job) => {
+    if (job.scopeId !== (scopeRef.current || 'guest')) return false;
+    const { place } = job.payload;
+    if (place.target === 'chat') return !gate.current.homeMounted;
+    return !gate.current.projectScreens.has(projectScreenFor(place.projectId))
+      && !Object.values($codeScreenProjects.get()).includes(place.projectName);
+  }), [gate]);
+  return null;
+};
+
+/** `useKeepAlive` for a set of screens: each busy one, and each for a moment after it stops. */
+const useKeepAliveKeys = (busy: readonly string[]): ReadonlySet<string> => {
+  const releasedAtRef = React.useRef(new Map<string, number>());
+  const lastBusyRef = React.useRef<readonly string[]>([]);
+  const [, wake] = React.useReducer((count: number) => count + 1, 0);
+  const released = releasedAtRef.current;
+  const now = Date.now();
+  for (const key of lastBusyRef.current) if (!busy.includes(key) && !released.has(key)) released.set(key, now);
+  for (const key of busy) released.delete(key);
+  lastBusyRef.current = busy;
+  for (const [key, at] of released) if (now - at >= KEEP_ALIVE_GRACE_MS) released.delete(key);
+  const nextExpiry = released.size > 0 ? Math.min(...released.values()) + KEEP_ALIVE_GRACE_MS : null;
+  React.useEffect(() => {
+    if (nextExpiry === null) return undefined;
+    const timer = window.setTimeout(wake, Math.max(0, nextExpiry - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [nextExpiry]);
+  return new Set([...busy, ...released.keys()]);
+};
+
+interface CodeProjectScreensProps {
+  gate: React.MutableRefObject<CodeTakeoverGate>;
+  /** Shows the Code home that already has a project open. */
+  onOpenCodeHome: (screenKey: string) => void;
+  onSettingsClick: (tab?: string) => void;
+  modelConfig: any;
+  setModelConfig: React.Dispatch<React.SetStateAction<any>>;
+  selectedModelId: string;
+  setSelectedModelId: (id: string) => void;
+}
+
+/*
+ * Reopened Code projects, above the routes for the same reason as Media: one
+ * screen per project, each against its own last location. The one at
+ * `/project1` is on show; any other one stays mounted, hidden, while its turn
+ * runs, and a turn inherited from a closed tab opens its project here, hidden.
+ * Insertion order is DOM order, so a screen never moves, which would reload its
+ * preview.
+ */
+const CodeProjectScreens: React.FC<CodeProjectScreensProps> = ({ gate, onOpenCodeHome, ...workbenchProps }) => {
+  const location = useLocation();
+  const routeActive = useStore($workbenchRouteActive);
+  const running = useStore($runningCodeScreens);
+  const resume = useStore($codeResume);
+  const savingInto = useStore($codeScreenProjects);
+
+  const requested = location.pathname === '/project1' && routeActive ? projectScreenAt(location.search) : null;
+  // A project the Code home is working on opens there: two screens would write one folder.
+  const requestedName = React.useMemo(() => {
+    const projectId = requested ? new URLSearchParams(location.search).get('projectId') : null;
+    return projectId ? readProjectRegistry().find((project) => project.id === projectId)?.name ?? null : null;
+  }, [requested, location.search]);
+  const homeWithProject = requestedName === null
+    ? null
+    : Object.entries(savingInto).find(([key, name]) => isCodeHomeScreen(key) && name === requestedName)?.[0] ?? null;
+  const visible = homeWithProject ? null : requested;
+  const openCodeHomeRef = React.useRef(onOpenCodeHome);
+  openCodeHomeRef.current = onOpenCodeHome;
+  React.useEffect(() => {
+    if (homeWithProject) openCodeHomeRef.current(homeWithProject);
+  }, [homeWithProject]);
+
+  const [locations] = useState(() => new Map<string, WorkbenchLocation>());
+  if (visible) locations.set(visible, location);
+  const resumePlace = resume?.job.payload.place;
+  const resumeProject = resumePlace?.target === 'project' ? resumePlace : null;
+  const resuming = resumeProject ? projectScreenFor(resumeProject.projectId) : null;
+  if (resume && resumeProject && resuming && !locations.has(resuming)) {
+    locations.set(resuming, {
+      pathname: '/project1',
+      search: `?projectId=${encodeURIComponent(resumeProject.projectId)}`,
+      hash: '',
+      state: null,
+      key: `code-resume-${resume.job.id}`,
+    });
   }
+  const busy = running.filter((key) => locations.has(key));
+  // A project left for another of the rail's places waits there as it was (rail-returns.ts).
+  const codeReturn = useStore($railReturns).code;
+  const leftOpen = codeReturn ? projectScreenAt(new URL(codeReturn, window.location.origin).search) : null;
+  const kept = useKeepAliveKeys([
+    ...busy,
+    ...(resuming && !busy.includes(resuming) ? [resuming] : []),
+    ...(leftOpen && leftOpen !== resuming && !busy.includes(leftOpen) && locations.has(leftOpen) ? [leftOpen] : []),
+  ]);
+  for (const key of [...locations.keys()]) {
+    if (key !== visible && !kept.has(key)) locations.delete(key);
+  }
+  gate.current.projectScreens = new Set(locations.keys());
 
-  return <MediaView key={projectId || 'empty'} onOpenSettings={onOpenSettings} />;
+  return (
+    <>
+      {[...locations].map(([screenKey, shown]) => {
+        const isOnShow = screenKey === visible;
+        return (
+          <div
+            key={screenKey}
+            className={isOnShow ? 'willow-frame-fill fixed inset-0 h-screen w-screen overflow-hidden bg-[#0f0f0f]' : undefined}
+            style={isOnShow ? undefined : BACKGROUND_SURFACE_STYLE}
+            inert={!isOnShow}
+            aria-hidden={isOnShow ? undefined : true}
+          >
+            <Suspense fallback={<TabLoading className="h-screen w-screen" />}>
+              <Routes location={shown}>
+                <Route
+                  path="/project1"
+                  element={<WorkbenchView screenKey={screenKey} isOnShow={isOnShow} {...workbenchProps} />}
+                />
+              </Routes>
+            </Suspense>
+          </div>
+        );
+      })}
+    </>
+  );
+};
+
+/** The first project to open when `/media` names none, or null to open the empty editor. */
+const defaultMediaProjectId = (): string | null => {
+  try {
+    const projects = readProjectRegistry() as any[];
+    return projects.length > 0 ? projects[0].id : null;
+  } catch {
+    return null;
+  }
+};
+
+const MediaRouteRedirect: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const { pathname } = useLocation();
+  const fallback = searchParams.get('projectId') ? null : defaultMediaProjectId();
+  if (!fallback) return null;
+  // The same page of Media (/media/tools, a tool, a gallery tab), now naming a project.
+  const next = new URLSearchParams(searchParams);
+  next.set('projectId', fallback);
+  return <Navigate to={{ pathname, search: `?${next.toString()}` }} replace />;
+};
+
+/*
+ * The Media editor, outside the routes so leaving `/media` while it works keeps
+ * the same instance alive. While hidden it is rendered against the last Media
+ * location: its hooks would otherwise read the studio's URL, find no project,
+ * and reset the very project that is still generating.
+ */
+const MediaKeepAlive: React.FC<{ onOpenSettings: (tab?: 'models') => void; modelConfig: unknown }> = ({ onOpenSettings, modelConfig }) => {
+  const location = useLocation();
+  // Work inherited from a closed tab opens its project here, hidden.
+  const resume = useStore($mediaResume);
+  // A project left for another of the rail's places waits there as it was (rail-returns.ts).
+  const leftOpen = useStore($railReturns).media !== null;
+  const keepAlive = useKeepAlive(useStore($mediaWorkRunning) || resume !== null || leftOpen);
+  const isOnMedia = location.pathname.startsWith('/media')
+    && (new URLSearchParams(location.search).has('projectId') || !defaultMediaProjectId());
+  const lastMediaLocationRef = React.useRef<WorkbenchLocation | null>(null);
+  if (isOnMedia) {
+    lastMediaLocationRef.current = location;
+  } else if (resume && lastMediaLocationRef.current?.key !== `media-resume-${resume.job.id}`) {
+    lastMediaLocationRef.current = {
+      pathname: '/media',
+      search: `?projectId=${encodeURIComponent(resume.job.payload.projectId)}`,
+      hash: '',
+      state: null,
+      key: `media-resume-${resume.job.id}`,
+    };
+  }
+  const shown = isOnMedia ? location : keepAlive ? lastMediaLocationRef.current : null;
+  // The editor's loading page is light in the light theme, so what stands before it is too.
+  const { isLight } = useThemeMode();
+
+  // Only while no editor is open in this tab: it holds one project at a time.
+  const { chatScopeId } = useLocalFS();
+  const gateRef = React.useRef({ mounted: false, scopeId: chatScopeId });
+  gateRef.current = { mounted: shown !== null, scopeId: chatScopeId };
+  React.useEffect(() => registerMediaWorkTakeover((job) =>
+    job.scopeId === (gateRef.current.scopeId || 'guest') && !gateRef.current.mounted), []);
+
+  if (!shown) return null;
+  const projectId = new URLSearchParams(shown.search).get('projectId');
+
+  return (
+    <MediaBackgroundContext.Provider value={!isOnMedia}>
+      <div
+        className={isOnMedia ? 'willow-frame-fill fixed inset-0 h-screen w-screen overflow-hidden bg-[#000000]' : undefined}
+        style={isOnMedia ? undefined : BACKGROUND_SURFACE_STYLE}
+        inert={!isOnMedia}
+        aria-hidden={isOnMedia ? undefined : true}
+      >
+        <Suspense fallback={<div className={`h-screen w-screen ${isLight ? 'bg-white' : 'bg-[#000000]'}`} />}>
+          <Routes location={shown}>
+            <Route
+              path="/media/*"
+              element={<MediaView key={projectId || 'empty'} onOpenSettings={onOpenSettings} modelConfig={modelConfig} />}
+            />
+          </Routes>
+        </Suspense>
+      </div>
+    </MediaBackgroundContext.Provider>
+  );
+};
+
+/*
+ * The main shell, kept mounted across the screens outside it — a Media or Code project, Willow TV —
+ * as a hidden layer rendered against its own last address, as the Media editor is beside it: its
+ * tabs are then as the user left them when they come back, rather than built again. Hidden, `inert`
+ * takes it out of reach, what listens on the window for files or Escape checks for that, and
+ * `ShellActiveContext` hands the strip's menus and Ask Willow to the frame on show.
+ */
+const ShellKeepAlive: React.FC<{ onShow: boolean; children: React.ReactNode }> = ({ onShow, children }) => {
+  const location = useLocation();
+  const lastShellLocationRef = React.useRef<WorkbenchLocation | null>(null);
+  if (onShow) lastShellLocationRef.current = location;
+  const shown = onShow ? location : lastShellLocationRef.current;
+  if (!shown) return null;
+  return (
+    <ShellActiveContext.Provider value={onShow}>
+      <div
+        style={onShow ? VISIBLE_SURFACE_STYLE : BACKGROUND_SURFACE_STYLE}
+        inert={!onShow}
+        aria-hidden={onShow ? undefined : true}
+      >
+        <Routes location={shown}>
+          <Route path="*" element={children} />
+        </Routes>
+      </div>
+    </ShellActiveContext.Provider>
+  );
 };
 
 /** Make projects created on another device visible in the normal registry. */
@@ -340,6 +717,7 @@ const App: React.FC = () => {
     if (location.pathname.startsWith('/gems')) return 'gems';
     if (location.pathname === '/usage') return 'usage';
     if (location.pathname === '/gemini-spark' || location.pathname === '/spark-settings') return 'gemini-spark';
+    if (location.pathname === '/projects' && isExperimentEnabled('projects-panel')) return 'projects';
     const notebookRoute = matchNotebookRoute(location.pathname);
     if (notebookRoute) return notebookRoute.view;
     return 'home';
@@ -482,12 +860,11 @@ const App: React.FC = () => {
   // (local-only, same policy as API keys — never sent to Willow servers).
   const DEFAULT_MODEL_CONFIG = {
     gemini: {
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         thinkingLevel: 3, // 3 = high thinking level (0=none, 1=low, 2=medium, 3=high)
         baseUrl: 'https://generativelanguage.googleapis.com',
         savedModels: [
-          { id: 'default-flash-37', name: 'Gemini 3.7 Flash', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.7-flash' },
-          { id: 'default-flash-36', name: 'Gemini 3.6 Flash', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.6-flash' },
+          { id: 'default-flash-38', name: 'Gemini 3.8 Flash', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.8-flash' },
           { id: 'default-flash-35-lite', name: 'Gemini 3.5 Flash Lite', thinkingLevel: 1, thinkingLabel: 'Low', modelId: 'gemini-3.5-flash-lite' },
           { id: 'default-pro-high', name: 'Gemini 3.1 Pro', thinkingLevel: 3, thinkingLabel: 'High', modelId: 'gemini-3.1-pro-preview' }
         ] as Array<{ id: string; name: string; thinkingLevel: number; thinkingLabel?: string; effortLabel?: string; modelId: string }>
@@ -552,13 +929,18 @@ const App: React.FC = () => {
 
   const dedupeSavedModels = (models: any[] = []) => {
     const seen = new Set<string>();
-    return models.filter(m => {
+    return migrateRetiredSavedModels(models).filter(m => {
       const key = `${m.profileId || 'default'}:${m.modelId || m.id}`;
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
     });
   };
+
+  // A system default naming a model Settings no longer offers names the one that replaced it.
+  const liveSystemDefaults = <T extends Record<string, unknown>>(defaults: T): T => Object.fromEntries(
+    Object.entries(defaults).map(([key, value]) => [key, typeof value === 'string' ? liveModelId(value) : value]),
+  ) as T;
 
   const [modelConfig, setModelConfig] = React.useState(() => {
     try {
@@ -575,7 +957,11 @@ const App: React.FC = () => {
         const zhipuai = { ...DEFAULT_MODEL_CONFIG.zhipuai, ...(parsed.zhipuai || {}) };
 
         return {
-          gemini: { ...gemini, savedModels: dedupeSavedModels(gemini.savedModels) },
+          gemini: {
+            ...gemini,
+            model: typeof gemini.model === 'string' ? liveModelId(gemini.model) : gemini.model,
+            savedModels: dedupeSavedModels(gemini.savedModels),
+          },
           openai: { ...openai, savedModels: dedupeSavedModels(openai.savedModels) },
           anthropic: { ...anthropic, savedModels: dedupeSavedModels(anthropic.savedModels) },
           moonshot: { ...moonshot, savedModels: dedupeSavedModels(moonshot.savedModels) },
@@ -584,7 +970,7 @@ const App: React.FC = () => {
           modelOrder: Array.isArray(parsed.modelOrder)
             ? parsed.modelOrder.filter((key: unknown): key is string => typeof key === 'string')
             : [],
-          systemDefaults: {
+          systemDefaults: liveSystemDefaults({
             ...DEFAULT_MODEL_CONFIG.systemDefaults,
             ...(parsed.systemDefaults || {}),
             // The original Gemini transcription value was the shipped default,
@@ -600,7 +986,7 @@ const App: React.FC = () => {
             personalIntelligence: parsed.systemDefaults?.personalIntelligence === 'gemini-3.1-flash-lite'
               ? AUTO_MODEL
               : (parsed.systemDefaults?.personalIntelligence || AUTO_MODEL),
-          },
+          }),
           // Keep the persisted model-config shape consistent with the settings
           // and catalog code. Older builds wrote the normalized profiles under
           // `profiles`; accept that shape while migrating it to `providerProfiles`.
@@ -630,31 +1016,34 @@ const App: React.FC = () => {
   });
 
   const [selectedModelId, setSelectedModelId] = useState(() => {
+    let stored = '';
     try {
-      return localStorage.getItem('selectedModelId') || "";
+      stored = localStorage.getItem('selectedModelId') || '';
     } catch {
-      return "";
+      return '';
     }
+    // A model loaded onto the one that replaced it can have been dropped as its duplicate.
+    let before: ReturnType<typeof collectSavedModelsInCatalogOrder> = [];
+    try {
+      before = collectSavedModelsInCatalogOrder(JSON.parse(localStorage.getItem(MODEL_CONFIG_STORAGE_KEY) || 'null'));
+    } catch { /* nothing to carry over */ }
+    return migrateSelectedModelId(stored, before, collectSavedModelsInCatalogOrder(modelConfig));
   });
+  const [tabCatalogSync] = React.useState(createTabCatalogSync);
   // Persist model config + selection on every change.
   React.useEffect(() => {
+    if (tabCatalogSync.isFromOtherTab(modelConfig)) return;
     try { localStorage.setItem(MODEL_CONFIG_STORAGE_KEY, JSON.stringify(modelConfig)); } catch { /* ignore */ }
   }, [modelConfig]);
   React.useEffect(() => {
-    const applySnapshot = (snapshot: ModelCatalogSnapshot) => {
-      setModelConfig((current: any) => mergeModelCatalogSnapshot(current, snapshot));
-    };
     const onCatalogUpdated = (event: Event) => {
       const snapshot = (event as CustomEvent<ModelCatalogSnapshot>).detail;
-      if (snapshot) applySnapshot(snapshot);
+      if (snapshot) setModelConfig((current: any) => adoptModelCatalogSnapshot(current, snapshot));
     };
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== MODEL_CONFIG_STORAGE_KEY || !event.newValue) return;
-      try {
-        applySnapshot(extractModelCatalogSnapshot(JSON.parse(event.newValue)));
-      } catch {
-        // Ignore malformed writes from another tab.
-      }
+      if (event.key !== MODEL_CONFIG_STORAGE_KEY) return;
+      const stored = localStorage.getItem(MODEL_CONFIG_STORAGE_KEY);
+      setModelConfig((current: any) => tabCatalogSync.adoptStored(current, stored));
     };
     window.addEventListener(MODEL_CATALOG_UPDATED_EVENT, onCatalogUpdated);
     window.addEventListener('storage', onStorage);
@@ -685,33 +1074,116 @@ const App: React.FC = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-  const [studioExperience, setStudioExperience] = useState<StudioExperience>('chat');
+  // A surface's address opens it (`shell-routes.ts`); `?mode=` on `/` still works.
+  const [studioExperience, setStudioExperience] = useState<StudioExperience>(() =>
+    parseShellPath(location.pathname)?.surface === 'spark' ? 'spark' : 'chat');
   const previousSparkLocationKeyRef = React.useRef<string | null>(null);
   const [studioMode, setStudioMode] = useState<'develop' | 'chat' | 'media'>(() => {
+    const surface = parseShellPath(location.pathname)?.surface;
+    if (surface === 'chat') return 'chat';
+    if (surface === 'code') return 'develop';
+    if (surface === 'media') return 'media';
     const modeParam = searchParams.get('mode') || searchParams.get('tab');
     if (modeParam === 'media' || modeParam === 'develop' || modeParam === 'chat') {
       return modeParam;
     }
     return 'chat';
   });
+  const isCodeSurface = currentView === 'home' && studioExperience !== 'spark' && studioMode === 'develop';
+  const isMediaSurface = currentView === 'home' && studioExperience !== 'spark' && studioMode === 'media';
+  // The desktop app's rail is the way to Code and Media, and they have the page to themselves.
+  const isSidebarAway = isDesktopApp() && (isCodeSurface || isMediaSurface);
+  const isDesignSurface = currentView === 'design';
+  const keepDesignAlive = useKeepAlive(useStore(designTurnRunning));
+
+  /*
+   * Code's screens: Code homes in the main shell (`CodeHomeEntry`), and each
+   * reopened project (`CodeProjectScreens`). Each has its own state
+   * (`@willow/code/session`), so any number can be mounted at once: the one on
+   * show, and each other one, hidden, while its turn runs. A turn inherited from
+   * a closed tab mounts the one its conversation needs.
+   */
+  const codeResume = useStore($codeResume);
+  const runningCodeScreens = useStore($runningCodeScreens);
+  const [codeHomes, setCodeHomes] = useState<CodeHomeEntry[]>(() => [makeCodeHome(CODE_HOME_SCREEN)]);
+  const shownCodeHome = codeHomes[codeHomes.length - 1];
+  const workingCodeHomes = runningCodeScreens.filter(isCodeHomeScreen);
+  const keptCodeHomes = useKeepAliveKeys(
+    codeResume?.job.payload.place.target === 'chat' && !workingCodeHomes.includes(shownCodeHome.key)
+      ? [...workingCodeHomes, shownCodeHome.key]
+      : workingCodeHomes,
+  );
+  const isOnMainShell = !/^\/(media|project1|tv)(\/|$)/.test(location.pathname);
+  /*
+   * The main shell is kept mounted once it has been on show (`ShellKeepAlive`), and in it each of the
+   * rail's tabs once opened — the chat, Spark (Bots among it), Media's landing, Customize, the Code
+   * home — so going back to one finds it as it was, not built again. Noted as they render, since what
+   * renders this frame depends on it.
+   */
+  const shellShownRef = React.useRef(false);
+  if (isOnMainShell) shellShownRef.current = true;
+  const shellTab: ShellTab | null = currentView === 'home'
+    ? (studioExperience === 'spark' ? 'spark' : studioMode === 'chat' ? 'chat' : studioMode === 'media' ? 'media' : null)
+    : currentView === 'customize' ? 'customize' : null;
+  const openedShellTabsRef = React.useRef(new Set<ShellTab>());
+  if (shellTab) openedShellTabsRef.current.add(shellTab);
+  const keptShellTabs = SHELL_TABS.filter((tab) => openedShellTabsRef.current.has(tab));
+  const codeHomeOpenedRef = React.useRef(false);
+  if (isCodeSurface && isOnMainShell) codeHomeOpenedRef.current = true;
+  const mountedCodeHomes = codeHomes.filter((home) =>
+    keptCodeHomes.has(home.key) || (home === shownCodeHome && codeHomeOpenedRef.current));
+  const isShownCodeHomeMounted = mountedCodeHomes.includes(shownCodeHome);
+  // An earlier Code home goes once its work is done; the one on show stays in the list.
+  const keptCodeHomesKey = [...keptCodeHomes].sort().join('\n');
+  React.useEffect(() => {
+    setCodeHomes((homes) => {
+      const next = homes.filter((home, index) => index === homes.length - 1 || keptCodeHomes.has(home.key));
+      return next.length === homes.length ? homes : next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keptCodeHomesKey, codeHomes]);
+  const codeParkingRef = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    for (const home of codeHomes) {
+      if (!home.container.isConnected && codeParkingRef.current) codeParkingRef.current.appendChild(home.container);
+    }
+  });
+  const handleCodeHomeOpened = React.useCallback((key: string, epoch: number) => {
+    setCodeHomes((homes) => {
+      const opened = homes.find((home) => home.key === key && home.open?.epoch === epoch);
+      return opened ? homes.map((home) => (home === opened ? { ...home, open: null } : home)) : homes;
+    });
+  }, []);
+  const nextCodeHomeRef = React.useRef(1);
+  const codeTakeoverGateRef = React.useRef<CodeTakeoverGate>({ homeMounted: false, projectScreens: new Set() });
+  codeTakeoverGateRef.current.homeMounted = mountedCodeHomes.length > 0;
 
   React.useEffect(() => {
     const isSparkTask = studioExperience === 'spark' && activeSparkLocation.page === 'task';
+    // An open dot is laid out as a task, so it takes the same collapse.
+    const isSparkDot = studioExperience === 'spark' && activeSparkLocation.page === 'dots' && activeSparkLocation.dotId != null;
     const currentLocationKey = studioExperience === 'spark'
       ? (isSparkTask
         ? `spark:task:${activeSparkLocation.taskId}`
-        : `spark:${activeSparkLocation.page}`)
+        : isSparkDot
+          ? `spark:dot:${activeSparkLocation.dotId}`
+          : `spark:${activeSparkLocation.page}`)
       : null;
     const previousLocationKey = previousSparkLocationKeyRef.current;
 
-    // Collapse once when entering a task. Do not watch isSidebarCollapsed here:
+    // Collapse once when entering a task or a dot. Do not watch isSidebarCollapsed here:
     // after this transition the user must be able to expand the global sidebar.
-    if (isSparkTask && currentLocationKey !== previousLocationKey) {
+    if ((isSparkTask || isSparkDot) && currentLocationKey !== previousLocationKey) {
       setIsSidebarCollapsed(true);
     }
 
     previousSparkLocationKeyRef.current = currentLocationKey;
-  }, [activeSparkLocation.page, activeSparkLocation.page === 'task' ? activeSparkLocation.taskId : null, studioExperience]);
+  }, [
+    activeSparkLocation.page,
+    activeSparkLocation.page === 'task' ? activeSparkLocation.taskId : null,
+    activeSparkLocation.page === 'dots' ? activeSparkLocation.dotId : null,
+    studioExperience,
+  ]);
 
   React.useEffect(() => {
     const modeParam = searchParams.get('mode') || searchParams.get('tab');
@@ -736,14 +1208,31 @@ const App: React.FC = () => {
     return () => window.cancelAnimationFrame(frame);
   }, [studioExperience, studioMode, finishTopLoading]);
 
-  const handleNewChat = () => {
+  // Chat only: New chat leaves Code alone. A Code home left idle unmounts anyway,
+  // so the next visit starts fresh, and one still working carries on, hidden.
+  const resetChatSurface = () => {
     silentChatSurfaceRef.current = true;
     setChatResetKey((k) => k + 1);
     setHasActiveChat(false);
     setIsIncognito(false);
   };
 
+  /*
+   * A new chat belongs to no Gem and no notebook. Both contexts outlive the chat that set
+   * them, so without this a plain chat started after a Gem or notebook one would keep
+   * its instructions and sources. The notebook hand-off re-sets its own after this runs.
+   */
+  const handleNewChat = () => {
+    $chatGemId.set(null);
+    $chatNotebookId.set(null);
+    if (location.pathname.startsWith('/gem/')) navigate('/');
+    resetChatSurface();
+  };
+
   const handleIncognitoChat = () => {
+    $chatGemId.set(null);
+    $chatNotebookId.set(null);
+    if (location.pathname.startsWith('/gem/')) navigate('/');
     silentChatSurfaceRef.current = true;
     setChatResetKey((k) => k + 1);
     setHasActiveChat(false);
@@ -773,6 +1262,39 @@ const App: React.FC = () => {
   }, [chatResetKey]);
 
   const navigate = useNavigate();
+
+  /*
+   * `/gem/<id>` is a new chat with that Gem: the ordinary chat surface, reset, with the
+   * Gem's context set. The reset comes first so it cannot clear what this sets, and
+   * `ChatView` remounts on the reset, so it reads the Gem as it mounts.
+   */
+  const gemRouteId = React.useMemo(() => {
+    const match = /^\/gem\/([^/]+)/.exec(location.pathname);
+    return match ? decodeURIComponent(match[1]) : null;
+  }, [location.pathname]);
+  React.useEffect(() => {
+    if (!gemRouteId) return;
+    // A deleted Gem, or a premade one Willow no longer ships, goes back to the manager.
+    hydrateGems();
+    if (!resolveGem(gemRouteId)) {
+      navigate('/gems', { replace: true });
+      return;
+    }
+    $chatNotebookId.set(null);
+    resetChatSurface();
+    $chatGemId.set(gemRouteId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gemRouteId]);
+
+  // Opening a saved chat leaves the Gem's URL; ChatView restores the chat's own Gem.
+  const chatSelection = useStore(chatSelectionEpoch);
+  const seenChatSelectionRef = React.useRef(chatSelection);
+  React.useEffect(() => {
+    if (chatSelection === seenChatSelectionRef.current) return;
+    seenChatSelectionRef.current = chatSelection;
+    if (location.pathname.startsWith('/gem/')) navigate('/', { replace: true });
+  }, [chatSelection, location.pathname, navigate]);
+
   const viewChangeSequenceRef = React.useRef(0);
   const viewChangeIntentRef = React.useRef<ViewType | null>(null);
   const handleViewChange = React.useCallback(async (view: ViewType): Promise<boolean> => {
@@ -815,6 +1337,7 @@ const App: React.FC = () => {
     else if (view === 'notebook-create') navigate('/notebooks/create');
     else if (view === 'usage') navigate('/usage');
     else if (view === 'gemini-spark') navigate('/gemini-spark');
+    else if (view === 'projects') navigate('/projects');
     /*
      * 'notebook' is intentionally absent: it needs an id, so it is never reached
      * through `handleViewChange`. `openNotebook` navigates to `/notebook/<id>`
@@ -834,9 +1357,12 @@ const App: React.FC = () => {
       location.pathname === '/design' ||
       location.pathname === '/waifu' ||
       location.pathname === '/gems' ||
+      location.pathname.startsWith('/gems/') ||
+      location.pathname.startsWith('/gem/') ||
       location.pathname === '/usage' ||
       location.pathname === '/gemini-spark' ||
       location.pathname === '/spark-settings' ||
+      location.pathname === '/projects' ||
       matchNotebookRoute(location.pathname) !== null
     ) {
       navigate('/', { replace: true });
@@ -852,20 +1378,45 @@ const App: React.FC = () => {
    * request (see `code-chat-open-store`) and none of them switches the mode
    * themselves — the dialog is rendered from StudioLayout and has no route to
    * these setters at all. Routing lives here so there is one owner of the
-   * decision, and `CodeHome` takes the chat id from the same request.
+   * decision, including which Code home opens the chat:
    *
-   * The request is deliberately left in place for `CodeHome` to consume: it is
-   * lazy, so on this path it is still being fetched when this runs.
+   * - one that already has it open is shown as it is, a running turn and all;
+   * - while the one on show is working, the chat gets a new Code home, and the
+   *   working one carries on, hidden, until it is done;
+   * - otherwise the one on show opens it.
+   *
+   * The chosen Code home holds the request until it has opened the chat
+   * (`onOpenHandled`): it is lazy, so it may not be mounted yet.
    */
   const codeChatOpenRequest = useStore(pendingCodeChatOpen);
   const routedCodeChatEpochRef = React.useRef(0);
   React.useEffect(() => {
     if (!codeChatOpenRequest || codeChatOpenRequest.epoch === routedCodeChatEpochRef.current) return;
     routedCodeChatEpochRef.current = codeChatOpenRequest.epoch;
+    const request = codeChatOpenRequest;
+    clearCodeChatOpen();
+    const holder = Object.entries($codeScreenChats.get())
+      .find(([key, chatId]) => isCodeHomeScreen(key) && chatId === request.chatId)?.[0];
+    const freshKey = `${CODE_HOME_SCREEN}:${++nextCodeHomeRef.current}`;
+    setCodeHomes((homes) => {
+      if (holder && homes.some((home) => home.key === holder)) return showCodeHome(homes, holder);
+      const shown = homes[homes.length - 1];
+      if ($runningCodeScreens.get().includes(shown.key)) return [...homes, makeCodeHome(freshKey, request)];
+      return [...homes.slice(0, -1), { ...shown, open: request }];
+    });
     setStudioExperience('chat');
     setStudioMode('develop');
     void handleViewChange('home');
   }, [codeChatOpenRequest, handleViewChange]);
+
+  // A project a Code home has open reopens there (`CodeProjectScreens`).
+  const openCodeHome = React.useCallback((screenKey: string) => {
+    setCodeHomes((homes) => showCodeHome(homes, screenKey));
+    navigate('/', { replace: true });
+    setStudioExperience('chat');
+    setStudioMode('develop');
+    void handleViewChange('home');
+  }, [navigate, handleViewChange]);
 
   /*
    * Bounce off a Labs-gated URL. The sync effects below simply decline to enter
@@ -881,15 +1432,12 @@ const App: React.FC = () => {
       navigate('/', { replace: true });
     } else if (searchParams.get('view') === 'agents' && !isAgentsEnabled) {
       navigate('/', { replace: true });
+    } else if (location.pathname === '/projects' && !isProjectsPanelEnabled) {
+      navigate('/', { replace: true });
     }
-  }, [isAgentsEnabled, isDesignEnabled, isWaifuEnabled, location.pathname, navigate, searchParams]);
+  }, [isAgentsEnabled, isDesignEnabled, isProjectsPanelEnabled, isWaifuEnabled, location.pathname, navigate, searchParams]);
 
-  /*
-   * Projects is the one gated surface with no URL — it is only ever entered from
-   * the sidebar row — so the bounce above cannot cover it. Without this, turning
-   * `projects-panel` off while sitting on the page leaves the shell rendering a
-   * surface that nothing links to any more.
-   */
+  // Turning `projects-panel` off while sitting on the page leaves it, as the bounce above leaves its URL.
   React.useEffect(() => {
     if (currentView === 'projects' && !isProjectsPanelEnabled) commitView('home');
   }, [commitView, currentView, isProjectsPanelEnabled]);
@@ -962,7 +1510,9 @@ const App: React.FC = () => {
         (intent === 'gems' && location.pathname.startsWith('/gems')) ||
         (intent === 'usage' && location.pathname === '/usage') ||
         (intent === 'gemini-spark' && (location.pathname === '/gemini-spark' || location.pathname === '/spark-settings')) ||
-        (intent === 'home' && location.pathname === '/');
+        (intent === 'projects' && location.pathname === '/projects') ||
+        // `/`, or the surface `ShellRouteSync` has already put in its place.
+        (intent === 'home' && isShellPath(location.pathname));
       if (urlMatchesIntent) {
         viewChangeIntentRef.current = null;
       }
@@ -1029,6 +1579,10 @@ const App: React.FC = () => {
       if (currentView !== 'gemini-spark') {
         commitView('gemini-spark');
       }
+    } else if (location.pathname === '/projects' && isProjectsPanelEnabled) {
+      if (currentView !== 'projects') {
+        commitView('projects');
+      }
     } else if (matchNotebookRoute(location.pathname)) {
       const next = matchNotebookRoute(location.pathname)!.view;
       if (currentView !== next) {
@@ -1052,17 +1606,35 @@ const App: React.FC = () => {
       currentView === 'gemini-spark' ||
       currentView === 'notebooks' ||
       currentView === 'notebook-create' ||
-      currentView === 'notebook'
+      currentView === 'notebook' ||
+      currentView === 'projects'
     ) {
       commitView('home');
     }
-  }, [location.pathname, currentView, commitView, isDesignEnabled, isWaifuEnabled]);
+  }, [location.pathname, currentView, commitView, isDesignEnabled, isWaifuEnabled, isProjectsPanelEnabled]);
+
+  // Where the desktop rail's Media and Code buttons go back to (rail-returns.ts).
+  const agentTabInFront = useStore($harnessTab) !== null;
+  React.useEffect(() => {
+    if (isDesktopApp()) noteRailPlace(location.pathname, location.search, !agentTabInFront);
+  }, [location.pathname, location.search, agentTabInFront]);
+  // Bots and Spark each keep the place left there; they share one location in Spark's store.
+  React.useEffect(() => (isDesktopApp() ? sparkLocation.subscribe(noteSparkPlace) : undefined), []);
+  // An agent tab the rail leaves in front while it goes back to a project (rail-navigation.ts) closes
+  // once that project has replaced the shell.
+  React.useEffect(() => {
+    if (!isOnMainShell) closeHarnessTab();
+  }, [isOnMainShell]);
 
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('studio-experience'));
     return () => window.cancelAnimationFrame(frame);
   }, [studioExperience, finishTopLoading]);
-  const { user, userProfile, loading } = useAuth();
+  const { user, userProfile, loading, workspaceColor } = useAuth();
+  // Surfaces cloned from Gemini read its blues through `--sync-*`; on the root, so portals see them.
+  React.useLayoutEffect(() => {
+    applyWorkspaceSync(workspaceColor);
+  }, [workspaceColor]);
   React.useEffect(() => {
     let cancelled = false;
     const sequence = ++viewChangeSequenceRef.current;
@@ -1070,13 +1642,13 @@ const App: React.FC = () => {
       const intendedView = viewChangeIntentRef.current;
       if (intendedView) {
         const urlMatchesIntent = intendedView === 'agents'
-          ? Boolean(user && searchParams.get('view') === 'agents')
+          ? searchParams.get('view') === 'agents'
           : searchParams.get('view') !== 'agents';
         if (currentView === intendedView && urlMatchesIntent) viewChangeIntentRef.current = null;
         return;
       }
 
-      if (user && isAgentsEnabled && searchParams.get('view') === 'agents') {
+      if (isAgentsEnabled && searchParams.get('view') === 'agents') {
         if (!cancelled && sequence === viewChangeSequenceRef.current && currentView !== 'agents') {
           startTopLoading('studio-view');
           commitView('agents');
@@ -1084,13 +1656,6 @@ const App: React.FC = () => {
         return;
       }
       if (currentView !== 'agents') return;
-      if (!user) {
-        if (!cancelled && sequence === viewChangeSequenceRef.current) {
-          startTopLoading('studio-view');
-          commitView('home');
-        }
-        return;
-      }
 
       startTopLoading('studio-view');
       const flushDraft = agentBuilderDraftFlush.get();
@@ -1108,7 +1673,7 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, navigate, searchParams, startTopLoading, user]);
+  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, navigate, searchParams, startTopLoading]);
 
   React.useEffect(() => {
     const frame = window.requestAnimationFrame(() => finishTopLoading('studio-view'));
@@ -1249,10 +1814,6 @@ const App: React.FC = () => {
   }, [user?.email]);
 
   const handlePromptSubmit = (prompt: string, mode: string = 'ship', attachments?: any[]) => {
-    if (!user) {
-      setIsAuthModalOpen(true);
-      return;
-    }
     // Mark that we're navigating to the workbench via React Router (not a page refresh).
     // The 'staging-nav' key keeps its legacy name on purpose: it is a live
     // sessionStorage contract read back in the refresh check above.
@@ -1336,6 +1897,24 @@ const App: React.FC = () => {
     );
   }
 
+  const isMainShellRoute = isOnMainShell;
+  /*
+   * A Media or Code project and Willow TV sit outside the main shell. In the desktop app the
+   * rail stays beside them and takes the shell's own steps, bringing the shell back first.
+   */
+  const surfaceRail: RailDestinationId = location.pathname === '/project1' ? 'code' : 'media';
+  const navigateRailFromSurface = (destination: RailDestinationId) => {
+    navigateRail(destination, {
+      current: surfaceRail,
+      onShell: false,
+      currentView,
+      studioExperience,
+      setCurrentView: handleViewChange,
+      onModeChange: handleStudioModeChange,
+      onStudioExperienceChange: handleStudioExperienceChange,
+      navigate: (to) => navigate(to),
+    });
+  };
   const mainAppShell = (
     <>
       {/*
@@ -1350,10 +1929,11 @@ const App: React.FC = () => {
         */}
       <TopLoadingBar
         active={isTopLoading}
-        leftOffset={isSidebarHidden || isSidebarCollapsed ? 0 : STUDIO_SIDEBAR_EXPANDED_WIDTH}
-        workspaceColor={userProfile?.workspaceColor}
+        leftOffset={isSidebarHidden || isSidebarAway || isSidebarCollapsed ? 0 : STUDIO_SIDEBAR_EXPANDED_WIDTH}
+        workspaceColor={workspaceColor}
       />
-      {hasOpenedSettings && (
+      {/* Kept mounted behind a screen outside the shell, the shell leaves Settings to that screen's own. */}
+      {hasOpenedSettings && isMainShellRoute && (
         <Suspense fallback={null}>
           <SettingsModal
             isOpen={isSettingsOpen}
@@ -1362,15 +1942,6 @@ const App: React.FC = () => {
             setModelConfig={setModelConfig}
             initialTab={settingsInitialTab}
             initialConnector={settingsInitialConnector}
-          />
-        </Suspense>
-      )}
-      {!(currentView === 'home' && studioExperience === 'spark') && (
-        <Suspense fallback={null}>
-          <SparkWorkspace
-            backgroundOnly
-            modelConfig={modelConfig}
-            selectedModelId={selectedModelId}
           />
         </Suspense>
       )}
@@ -1422,8 +1993,141 @@ const App: React.FC = () => {
         isSidebarCollapsed={isSidebarCollapsed}
         setIsSidebarCollapsed={setIsSidebarCollapsed}
         isSidebarHidden={isSidebarHidden}
+        isSidebarAway={isSidebarAway}
         onSignInClick={() => setIsAuthModalOpen(true)}
+        isGemsEditor={/^\/gems\/(create|edit\/)/.test(location.pathname)}
       >
+        {/*
+          * Code and Design sit outside the view switch below, so a turn still running
+          * when the user moves elsewhere keeps its screen mounted, hidden, until it settles.
+          */}
+        {/* The Code home itself renders above the routes; this is where it shows. */}
+        {isShownCodeHomeMounted && isCodeSurface && <CodeHomeSlot container={shownCodeHome.container} parking={codeParkingRef} />}
+        {(isDesignSurface || keepDesignAlive) && (
+          <div
+            style={isDesignSurface ? VISIBLE_SURFACE_STYLE : BACKGROUND_SURFACE_STYLE}
+            inert={!isDesignSurface}
+            aria-hidden={isDesignSurface ? undefined : true}
+          >
+            <Suspense fallback={
+              <StudioLoadingFallback reason="design-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                <TabLoading />
+              </StudioLoadingFallback>
+            }>
+              <DesignView
+                modelConfig={modelConfig}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
+                onAuthRequired={() => setIsSettingsOpen(true)}
+                onWorkspaceActive={isDesignSurface ? setIsSidebarHidden : undefined}
+              />
+            </Suspense>
+          </div>
+        )}
+        {/*
+          * The rail's tabs inside the shell, each mounted from the first time it is opened: the one
+          * on show in place, the rest hidden as a working screen is (`keptShellTabs`).
+          */}
+        {keptShellTabs.map((tab) => (
+          <div
+            key={tab}
+            style={tab === shellTab ? VISIBLE_SURFACE_STYLE : BACKGROUND_SURFACE_STYLE}
+            inert={tab !== shellTab}
+            aria-hidden={tab === shellTab ? undefined : true}
+          >
+            {tab === 'spark' ? (
+              <Suspense fallback={
+                <StudioLoadingFallback reason="spark-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                  <TabLoading />
+                </StudioLoadingFallback>
+              }>
+                <SparkWorkspace
+                  modelConfig={modelConfig}
+                  selectedModelId={selectedModelId}
+                  setSelectedModelId={setSelectedModelId}
+                />
+              </Suspense>
+            ) : tab === 'chat' ? (
+              /*
+               * ChatView is the first thing the user lands on, and its chunk is
+               * still fetching on the very first visit. While it suspends, keep
+               * the main area empty so the sidebar skeletons + background show
+               * through; once ChatView mounts it docks its composer with an empty
+               * thread (its own loading state) and then settles to centre, so the
+               * fallback and the component never fight over the same pixels.
+               */
+              <Suspense fallback={
+                <StudioLoadingFallback reason="chat-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                  <div className="h-full w-full" />
+                </StudioLoadingFallback>
+              }>
+                <ChatView
+                  key={chatResetKey}
+                  modelConfig={modelConfig}
+                  selectedModelId={selectedModelId}
+                  setSelectedModelId={setSelectedModelId}
+                  isAuthenticated={!!user}
+                  onAuthRequired={openModelSettings}
+                  onOpenDriveSettings={openDriveSettings}
+                  isIncognito={isIncognito}
+                  onChatStartedChange={setHasActiveChat}
+                  isSidebarCollapsed={isSidebarCollapsed}
+                  onCollapseSidebar={() => setIsSidebarCollapsed(true)}
+                  onNewChat={handleNewChat}
+                  workspaceColor={workspaceColor}
+                />
+              </Suspense>
+            ) : tab === 'media' ? (
+              <Suspense fallback={
+                <StudioLoadingFallback reason="media-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                  <TabLoading />
+                </StudioLoadingFallback>
+              }>
+                <FeatureFirstPaintGate feature="media">
+                  {/* Media's home scrolls itself: the chat experience's <main> clips. Without a
+                      scrollbar, so the desktop's columns keep their width. */}
+                  <div className="media-home h-full overflow-y-auto overscroll-contain no-scrollbar">
+                    <div className="flex min-h-full flex-col" key="media">
+                      <HeroSection
+                        initialMode="design"
+                        onPromptSubmit={(prompt) => {
+                          sessionStorage.setItem('staging-nav', 'true');
+                          navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
+                        }}
+                        onProjectSelect={(projectId, tempName) => {
+                          sessionStorage.setItem('staging-nav', 'true');
+                          const query = tempName
+                            ? `?projectId=${encodeURIComponent(projectId)}&tempName=${encodeURIComponent(tempName)}`
+                            : `?projectId=${encodeURIComponent(projectId)}`;
+                          navigate(`/media${query}`);
+                        }}
+                        modelConfig={modelConfig}
+                        selectedModelId={selectedModelId}
+                        setSelectedModelId={setSelectedModelId}
+                        onAuthRequired={openModelSettings}
+                        isAuthenticated={!!user}
+                        studioMode="media"
+                        isSidebarCollapsed={isSidebarCollapsed}
+                        isSidebarAway={isSidebarAway}
+                      />
+                      <div className="pb-20">
+                        <BottomPanel onOpenDriveSettings={openDriveSettings} mode="media" />
+                      </div>
+                    </div>
+                  </div>
+                </FeatureFirstPaintGate>
+              </Suspense>
+            ) : (
+              <Suspense fallback={
+                <StudioLoadingFallback reason="customize-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                  <div className="h-full w-full" />
+                </StudioLoadingFallback>
+              }>
+                <CustomizeView />
+              </Suspense>
+            )}
+          </div>
+        ))}
         {currentView === 'search' ? (
           <SearchChatsPage
             modelConfig={modelConfig}
@@ -1436,7 +2140,7 @@ const App: React.FC = () => {
         ) : currentView === 'agents' ? (
           <Suspense fallback={
             <StudioLoadingFallback reason="agents-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-              <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Agents...</div>
+              <TabLoading />
             </StudioLoadingFallback>
           }>
             <FeatureFirstPaintGate feature="agents">
@@ -1449,133 +2153,10 @@ const App: React.FC = () => {
             </FeatureFirstPaintGate>
           </Suspense>
         ) : currentView === 'design' ? (
-          <Suspense fallback={
-            <StudioLoadingFallback reason="design-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-              <div className="h-full w-full bg-[#0f0f0f]" />
-            </StudioLoadingFallback>
-          }>
-            <DesignView
-              modelConfig={modelConfig}
-              selectedModelId={selectedModelId}
-              setSelectedModelId={setSelectedModelId}
-              onAuthRequired={() => setIsSettingsOpen(true)}
-              isAuthenticated={!!user}
-              onWorkspaceActive={setIsSidebarHidden}
-            />
-          </Suspense>
+          null
         ) : currentView === 'home' ? (
-          studioExperience === 'spark' ? (
-            <Suspense fallback={
-              <StudioLoadingFallback reason="spark-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-                <div className="flex h-full w-full items-center justify-center bg-[#0f0f0f] text-sm text-[#888]">Loading Spark...</div>
-              </StudioLoadingFallback>
-            }>
-              <SparkWorkspace
-                modelConfig={modelConfig}
-                selectedModelId={selectedModelId}
-                setSelectedModelId={setSelectedModelId}
-              />
-            </Suspense>
-          ) : studioMode === 'chat' ? (
-            /*
-             * ChatView is the first thing the user lands on, and its chunk is
-             * still fetching on the very first visit. While it suspends, keep
-             * the main area empty so the sidebar skeletons + background show
-             * through; once ChatView mounts it docks its composer with an empty
-             * thread (its own loading state) and then settles to centre, so the
-             * fallback and the component never fight over the same pixels.
-             */
-            <Suspense fallback={
-              <StudioLoadingFallback reason="chat-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-                <div className="h-full w-full" />
-              </StudioLoadingFallback>
-            }>
-              <ChatView
-                key={chatResetKey}
-                modelConfig={modelConfig}
-                selectedModelId={selectedModelId}
-                setSelectedModelId={setSelectedModelId}
-                isAuthenticated={!!user}
-                onAuthRequired={openModelSettings}
-                onOpenDriveSettings={openDriveSettings}
-                isIncognito={isIncognito}
-                onChatStartedChange={setHasActiveChat}
-                isSidebarCollapsed={isSidebarCollapsed}
-                onCollapseSidebar={() => setIsSidebarCollapsed(true)}
-                onNewChat={handleNewChat}
-                workspaceColor={userProfile?.workspaceColor}
-              />
-            </Suspense>
-          ) : studioMode === 'media' ? (
-            <Suspense fallback={
-              <StudioLoadingFallback reason="media-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-                <div className="flex h-full w-full items-center justify-center bg-transparent text-sm text-[#888]">Loading Media...</div>
-              </StudioLoadingFallback>
-          }>
-              <FeatureFirstPaintGate feature="media">
-                <div className="flex min-h-full flex-col" key="media">
-                  <HeroSection
-                    initialMode="design"
-                    onPromptSubmit={(prompt) => {
-                      if (!user) {
-                         setIsAuthModalOpen(true);
-                         return;
-                      }
-                      sessionStorage.setItem('staging-nav', 'true');
-                      navigate(`/media?prompt=${encodeURIComponent(prompt)}`);
-                    }}
-                    onProjectSelect={(projectId, tempName) => {
-                      if (!user) {
-                         setIsAuthModalOpen(true);
-                         return;
-                      }
-                      sessionStorage.setItem('staging-nav', 'true');
-                      const query = tempName
-                        ? `?projectId=${encodeURIComponent(projectId)}&tempName=${encodeURIComponent(tempName)}`
-                        : `?projectId=${encodeURIComponent(projectId)}`;
-                      navigate(`/media${query}`);
-                    }}
-                    modelConfig={modelConfig}
-                    selectedModelId={selectedModelId}
-                    setSelectedModelId={setSelectedModelId}
-                    onAuthRequired={!user ? () => setIsAuthModalOpen(true) : undefined}
-                    isAuthenticated={!!user}
-                    studioMode="media"
-                    isSidebarCollapsed={isSidebarCollapsed}
-                  />
-                  {/* Only show BottomPanel (projects showcase) when authenticated */}
-                  {user && (
-                    <div className="pb-20">
-                      <BottomPanel onOpenDriveSettings={openDriveSettings} mode="media" />
-                    </div>
-                  )}
-                </div>
-              </FeatureFirstPaintGate>
-            </Suspense>
-          ) : (
-            <Suspense fallback={
-              <StudioLoadingFallback reason="code-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-                <CodeWorkspaceSkeleton />
-              </StudioLoadingFallback>
-            }>
-              <CodeWorkspace
-                key={`develop-${chatResetKey}`}
-                chatResetKey={chatResetKey}
-                modelConfig={modelConfig}
-                setModelConfig={setModelConfig}
-                selectedModelId={selectedModelId}
-                setSelectedModelId={setSelectedModelId}
-                isAuthenticated={!!user}
-                onAuthRequired={openModelSettings}
-                onSettingsClick={(tab) => {
-                  if (tab) setSettingsInitialTab(tab as any);
-                  setIsSettingsOpen(true);
-                }}
-                isSidebarCollapsed={isSidebarCollapsed}
-                onWorkspaceActive={setIsSidebarHidden}
-              />
-            </Suspense>
-          )
+          // The chat, Spark and Media's landing are kept tabs, above.
+          null
         ) : currentView === 'personal-intelligence' ? (
           <Suspense fallback={
             <StudioLoadingFallback reason="settings-tab-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
@@ -1625,13 +2206,8 @@ const App: React.FC = () => {
             <ConnectedAppsTab />
           </Suspense>
         ) : currentView === 'customize' ? (
-          <Suspense fallback={
-            <StudioLoadingFallback reason="customize-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
-              <div className="h-full w-full" />
-            </StudioLoadingFallback>
-          }>
-            <CustomizeView />
-          </Suspense>
+          // A kept tab, above.
+          null
         ) : currentView === 'waifu' ? (
           <Suspense fallback={
             <StudioLoadingFallback reason="waifu-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
@@ -1673,8 +2249,37 @@ const App: React.FC = () => {
             <LabsPage />
           </Suspense>
         ) : currentView === 'gems' ? (
-          <Suspense fallback={<StudioLoadingFallback reason="gems-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="flex h-full w-full items-center justify-center bg-[#131314] text-sm text-[#888]">Loading Gems...</div></StudioLoadingFallback>}>
-            <GemsView />
+          <Suspense fallback={<StudioLoadingFallback reason="gems-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
+            <GemsView
+              modelConfig={modelConfig}
+              selectedModelId={selectedModelId}
+              renderPreviewComposer={({ onSubmit, isGenerating, onStop }) => (
+                <Suspense fallback={<div className="h-16 w-full rounded-[32px] bg-[#1e1f21]" />}>
+                  <NotebookComposer
+                    chatVariant
+                    currentMode="chat"
+                    onModeChange={() => {}}
+                    modelConfig={modelConfig}
+                    selectedModelId={selectedModelId}
+                    setSelectedModelId={setSelectedModelId}
+                    onAuthRequired={() => setIsSettingsOpen(true)}
+                    isGenerating={isGenerating}
+                    onStopGenerating={onStop}
+                    onSubmit={(prompt) => onSubmit(prompt)}
+                  />
+                </Suspense>
+              )}
+              renderModelPicker={() => (
+                <Suspense fallback={null}>
+                  <NotebookModelPicker
+                    modelConfig={modelConfig}
+                    selectedModelId={selectedModelId}
+                    setSelectedModelId={setSelectedModelId}
+                    onAuthRequired={() => setIsSettingsOpen(true)}
+                  />
+                </Suspense>
+              )}
+            />
           </Suspense>
         ) : currentView === 'notebooks' ? (
           <Suspense fallback={<StudioLoadingFallback reason="notebooks-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
@@ -1701,6 +2306,16 @@ const App: React.FC = () => {
                */
               onMissing={() => handleViewChange('notebooks')}
               onOpenChat={() => { void handleViewChange('home'); }}
+              renderModelPicker={() => (
+                <Suspense fallback={null}>
+                  <NotebookModelPicker
+                    modelConfig={modelConfig}
+                    selectedModelId={selectedModelId}
+                    setSelectedModelId={setSelectedModelId}
+                    onAuthRequired={() => setIsSettingsOpen(true)}
+                  />
+                </Suspense>
+              )}
               renderComposer={(notebook) => (
                 /*
                  * The fallback carries the composer's own silhouette — 64px tall,
@@ -1716,7 +2331,6 @@ const App: React.FC = () => {
                     modelConfig={modelConfig}
                     selectedModelId={selectedModelId}
                     setSelectedModelId={setSelectedModelId}
-                    isAuthenticated={!!user}
                     onAuthRequired={() => setIsSettingsOpen(true)}
                     onSubmit={(prompt) => { void sendFromNotebook(notebook, prompt); }}
                   />
@@ -1739,10 +2353,87 @@ const App: React.FC = () => {
 
   return (
     <BackgroundProvider>
+      <SettingsFileBridge
+        selectedModelId={selectedModelId}
+        setSelectedModelId={setSelectedModelId}
+        modelConfig={modelConfig}
+        setModelConfig={setModelConfig}
+        liveSystemDefaults={liveSystemDefaults}
+      />
       <UserDataProvider>
         <LocalFSProvider modelConfig={modelConfig}>
           <DriveProjectDiscovery />
+          <PinnedChatsSettingsSection />
           <ChatEmbeddingIndexer modelConfig={modelConfig} />
+          <Suspense fallback={null}>
+            <ChatTurnTakeover modelConfig={modelConfig} />
+          </Suspense>
+          {isDesktopApp() && !isMainShellRoute && (
+            <DesktopFrame
+              current={surfaceRail}
+              onNavigate={navigateRailFromSurface}
+              isIncognito={isIncognito}
+              onNewChat={() => { navigateRailFromSurface('home'); handleNewChat(); }}
+              onTemporaryChat={() => { navigateRailFromSurface('home'); handleIncognitoChat(); }}
+              onSettings={() => setIsSettingsOpen(true)}
+              onToggleSidebar={() => undefined}
+              modelConfig={modelConfig}
+            />
+          )}
+          <MediaKeepAlive
+            modelConfig={modelConfig}
+            onOpenSettings={(tab) => {
+              setSettingsInitialTab(tab);
+              setSettingsInitialConnector(undefined);
+              setIsSettingsOpen(true);
+            }}
+          />
+          <CodeTurnTakeover gate={codeTakeoverGateRef} />
+          <ShellRouteSync
+            currentView={currentView}
+            studioExperience={studioExperience}
+            studioMode={studioMode}
+            isIncognito={isIncognito}
+            codeHomeKey={shownCodeHome.key}
+            setStudioExperience={setStudioExperience}
+            setStudioMode={setStudioMode}
+            onNewChat={handleNewChat}
+          />
+          <ShellRequestHandler
+            onStudioExperienceChange={handleStudioExperienceChange}
+            onViewChange={handleViewChange}
+            onNewChat={handleNewChat}
+          />
+          <CodeProjectScreens
+            gate={codeTakeoverGateRef}
+            onOpenCodeHome={openCodeHome}
+            onSettingsClick={(tab?: string) => {
+              if (tab) setSettingsInitialTab(tab as any);
+              setIsSettingsOpen(true);
+            }}
+            modelConfig={modelConfig}
+            setModelConfig={setModelConfig}
+            selectedModelId={selectedModelId}
+            setSelectedModelId={setSelectedModelId}
+          />
+          {/*
+            * Above the routes so runs, schedules and takeovers keep going in the Media editor too —
+            * until Spark's own workspace is mounted, kept tab that it is, which does the same work.
+            */}
+          {!(shellShownRef.current && keptShellTabs.includes('spark')) && (
+            <Suspense fallback={null}>
+              <SparkWorkspace
+                backgroundOnly
+                modelConfig={modelConfig}
+                selectedModelId={selectedModelId}
+              />
+            </Suspense>
+          )}
+          {isDesktopApp() && (
+            <Suspense fallback={null}>
+              <SparkPetsHost onOpenSpark={() => handleStudioExperienceChange('spark')} />
+            </Suspense>
+          )}
           {showAuthModal && (
             <Suspense fallback={null}>
               <AuthModal
@@ -1752,78 +2443,145 @@ const App: React.FC = () => {
               />
             </Suspense>
           )}
+          {/* The main shell itself, kept mounted beside the screens outside it (`ShellKeepAlive`). */}
+          <ShellKeepAlive onShow={isMainShellRoute}>{mainAppShell}</ShellKeepAlive>
           <Routes>
-           <Route path="/" element={mainAppShell} />
-           <Route path="/search" element={mainAppShell} />
-           <Route path="/personalization-settings" element={mainAppShell} />
-           <Route path="/activity" element={mainAppShell} />
-           <Route path="/saved-info" element={mainAppShell} />
-           <Route path="/memory" element={mainAppShell} />
-           <Route path="/import" element={mainAppShell} />
-           <Route path="/connected-apps" element={mainAppShell} />
-           <Route path="/customize" element={mainAppShell} />
-           <Route path="/models-settings" element={mainAppShell} />
-           <Route path="/labs" element={mainAppShell} />
-           <Route path="/design" element={mainAppShell} />
-           <Route path="/waifu" element={mainAppShell} />
-           <Route path="/gems" element={mainAppShell} />
-           <Route path="/gems/create" element={mainAppShell} />
-           <Route path="/usage" element={mainAppShell} />
-           <Route path="/gemini-spark" element={mainAppShell} />
-           <Route path="/spark-settings" element={mainAppShell} />
+           <Route path="/" element={null} />
+           {/* The shell's own surfaces (`shell-routes.ts`); `ShellRouteSync` keeps them in step. */}
+           <Route path="/app" element={null} />
+           <Route path="/app/:chatId" element={null} />
+          <Route path="/images" element={null} />
+          <Route path="/videos" element={null} />
+           <Route path="/code" element={null} />
+           <Route path="/code/:chatId" element={null} />
+           <Route path="/create" element={null} />
+           <Route path="/spark/*" element={null} />
+           <Route path="/projects" element={null} />
+           <Route path="/search" element={null} />
+           <Route path="/personalization-settings" element={null} />
+           <Route path="/activity" element={null} />
+           <Route path="/saved-info" element={null} />
+           <Route path="/memory" element={null} />
+           <Route path="/import" element={null} />
+           <Route path="/connected-apps" element={null} />
+           <Route path="/customize" element={null} />
+           <Route path="/models-settings" element={null} />
+           <Route path="/labs" element={null} />
+           <Route path="/design" element={null} />
+           <Route path="/waifu" element={null} />
+           <Route path="/gems" element={null} />
+           <Route path="/gems/view" element={null} />
+           <Route path="/gems/create" element={null} />
+           <Route path="/gems/edit/:gemId" element={null} />
+           <Route path="/gem/:gemId" element={null} />
+           <Route path="/usage" element={null} />
+           <Route path="/gemini-spark" element={null} />
+           <Route path="/spark-settings" element={null} />
            {/* Gemini's own notebook paths, matched rather than renamed. */}
-           <Route path="/notebooks" element={mainAppShell} />
-           <Route path="/notebooks/view" element={mainAppShell} />
-           <Route path="/notebooks/create" element={mainAppShell} />
-           <Route path="/notebook/:notebookId" element={mainAppShell} />
-           <Route path="/agents" element={user ? <Navigate to="/?view=agents" replace /> : <Navigate to="/login" replace />} />
+           <Route path="/notebooks" element={null} />
+           <Route path="/notebooks/view" element={null} />
+           <Route path="/notebooks/create" element={null} />
+           <Route path="/notebook/:notebookId" element={null} />
+           <Route path="/agents" element={<Navigate to="/?view=agents" replace />} />
         
         <Route path="/project1" element={
           <WorkbenchRouteGuard>
-            <div className="h-screen w-screen overflow-hidden bg-[#0f0f0f]">
-              {hasOpenedSettings && (
-                <Suspense fallback={null}>
-                  <SettingsModal
-                    isOpen={isSettingsOpen}
-                    onClose={() => { setIsSettingsOpen(false); setSettingsInitialTab(undefined); }}
-                    modelConfig={modelConfig}
-                    setModelConfig={setModelConfig}
-                    initialTab={settingsInitialTab}
-                  />
-                </Suspense>
-              )}
-              <Suspense fallback={<div className="h-screen w-screen bg-[#0f0f0f] flex items-center justify-center text-white">Loading...</div>}>
-                <WorkbenchView
-                  onSettingsClick={(tab?: string) => {
-                    if (tab) setSettingsInitialTab(tab as any);
-                    setIsSettingsOpen(true);
-                  }}
+            {/* The project itself is rendered above the routes; this says the guard let it through. */}
+            <RouteMarker store={$workbenchRouteActive} />
+            {hasOpenedSettings && (
+              <Suspense fallback={null}>
+                <SettingsModal
+                  isOpen={isSettingsOpen}
+                  onClose={() => { setIsSettingsOpen(false); setSettingsInitialTab(undefined); }}
                   modelConfig={modelConfig}
                   setModelConfig={setModelConfig}
-                  selectedModelId={selectedModelId}
-                  setSelectedModelId={setSelectedModelId}
+                  initialTab={settingsInitialTab}
                 />
               </Suspense>
-            </div>
+            )}
           </WorkbenchRouteGuard>
         } />
 
         <Route path="/media/*" element={
           <WorkbenchRouteGuard>
-            <div className="h-screen w-screen overflow-hidden bg-[#000000]">
-              <Suspense fallback={<div className="h-screen w-screen bg-[#000000]" />}>
-                <MediaRouteHost onOpenSettings={() => {
-                  setSettingsInitialTab(undefined);
-                  setSettingsInitialConnector(undefined);
-                  setIsSettingsOpen(true);
-                }} />
+            {/* The editor itself is `MediaKeepAlive`, above the routes. */}
+            <MediaRouteRedirect />
+            {/* Routes outside the main shell mount their own settings window, after the page so it paints on top. */}
+            {hasOpenedSettings && (
+              <Suspense fallback={null}>
+                <SettingsModal
+                  isOpen={isSettingsOpen}
+                  onClose={handleSettingsClose}
+                  modelConfig={modelConfig}
+                  setModelConfig={setModelConfig}
+                  initialTab={settingsInitialTab}
+                  initialConnector={settingsInitialConnector}
+                />
               </Suspense>
-            </div>
+            )}
           </WorkbenchRouteGuard>
         } />
 
-        <Route path="/login" element={mainAppShell} />
+        <Route path="/tv/*" element={
+          <>
+            <Suspense fallback={<div className="h-screen w-screen bg-[#000000]" />}>
+              <WillowTV />
+            </Suspense>
+            {hasOpenedSettings && (
+              <Suspense fallback={null}>
+                <SettingsModal
+                  isOpen={isSettingsOpen}
+                  onClose={handleSettingsClose}
+                  modelConfig={modelConfig}
+                  setModelConfig={setModelConfig}
+                  initialTab={settingsInitialTab}
+                  initialConnector={settingsInitialConnector}
+                />
+              </Suspense>
+            )}
+          </>
+        } />
+
+        <Route path="/login" element={null} />
         </Routes>
+        {/*
+          * Where a Code home waits while it is not on screen — laid out, never
+          * painted or hit — and the Code homes themselves. After the routes, so a
+          * slot that mounts in the same commit has moved one into place before it
+          * measures.
+          */}
+        <div ref={codeParkingRef} style={BACKGROUND_SURFACE_STYLE} inert aria-hidden="true" />
+        {mountedCodeHomes.map((home) => {
+          const isShown = home === shownCodeHome && isCodeSurface && isMainShellRoute;
+          return createPortal(
+            <Suspense fallback={
+              <StudioLoadingFallback reason="code-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
+                <CodeWorkspaceSkeleton />
+              </StudioLoadingFallback>
+            }>
+              <CodeWorkspace
+                screenKey={home.key}
+                isOnShow={isShown}
+                openRequest={home.open}
+                onOpenHandled={(epoch) => handleCodeHomeOpened(home.key, epoch)}
+                modelConfig={modelConfig}
+                setModelConfig={setModelConfig}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
+                isAuthenticated={!!user}
+                onAuthRequired={openModelSettings}
+                onSettingsClick={(tab) => {
+                  if (tab) setSettingsInitialTab(tab as any);
+                  setIsSettingsOpen(true);
+                }}
+                isSidebarCollapsed={isSidebarCollapsed}
+                onWorkspaceActive={isShown ? setIsSidebarHidden : undefined}
+              />
+            </Suspense>,
+            home.container,
+            home.key,
+          );
+        })}
         </LocalFSProvider>
       </UserDataProvider>
     </BackgroundProvider>

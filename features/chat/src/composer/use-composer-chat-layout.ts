@@ -66,10 +66,15 @@ export const useCollapsedChatPaddingRight = ({
         const opticalGap = Math.max(12, modelToMicControlGap + (micRect.width - 24) / 2);
         nextPadding = Math.ceil(occupiedWidthFromModelPill + opticalGap);
       } else {
-        // When model pill is hidden (e.g. mobile/tablet <= 960px):
-        // Reserve width for the trailing controls (mic/live/send button) + gap.
-        const controlsWidth = controlsRect.width;
-        nextPadding = Math.ceil(controlsWidth > 0 ? controlsWidth + 14 : 56);
+        // With the model pill hidden (<= 960px) Gemini's one-line text stops a fixed
+        // distance before the first trailing button: 20px on phones, 28px on tablets,
+        // measured at 390 and 800 with text typed so the send button is showing too.
+        const end = controls.offsetParent instanceof HTMLElement
+          ? controls.offsetParent.getBoundingClientRect().right
+          : controlsRect.right;
+        const start = micRect.width > 0 ? micRect.left : controlsRect.left;
+        const gap = window.matchMedia('(max-width: 768px)').matches ? 20 : 28;
+        nextPadding = Math.ceil(controlsRect.width > 0 ? end - start + gap : 56);
       }
 
       setCollapsedChatPaddingRight((current) => current === nextPadding ? current : nextPadding);

@@ -23,6 +23,11 @@ export interface ImageAttachment {
   name: string;
   file?: File;
   kind?: MediaKind;
+  /**
+   * A character added as an ingredient (Flow's entity reference): `url` is its portrait, and the
+   * generation sends its portrait and body under its name.
+   */
+  characterId?: string;
 }
 
 /**
@@ -45,10 +50,24 @@ export type MediaItem = {
   modelName: string;
   ratio: string;
   timestamp: number;
+  /**
+   * The submission it came from: the items one generation makes (x1 to x4) share it, which is
+   * what batch view groups by (batch/batch-layout.ts). Items from before it existed are grouped
+   * by their timestamps instead.
+   */
+  batchId?: string;
   attachments?: ImageAttachment[];
   /** Flow-style detail-view lineage. Items in one viewer history share this id. */
   historyGroupId?: string;
   historyParentId?: string;
+  /** A character's portrait or body (or a version of one); kept out of the gallery grid. */
+  characterId?: string;
+  /**
+   * The collection it is in (collection-store.ts), shown there instead of at the top of the
+   * project. On disk its file sits in that collection's folder, and the reconcile reads this back
+   * from where the file is.
+   */
+  collectionId?: string;
   favorite?: boolean;
   isSavedToFS?: boolean;
   fsName?: string;

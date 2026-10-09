@@ -50,9 +50,11 @@ test('MediaView scroll animations match Google Flow timing, header fade, and 62p
 });
 
 test('Sidebars match Google Flow 76px/14px top positioning', async () => {
+  // From the page's top in the desktop app's frame, the window's elsewhere.
+  const top = /top: `calc\(\$\{isHeaderVisible \? '76px' : '14px'\} \+ var\(--willow-frame-top, 0px\)\)`/;
   const agentSidebar = await readSource('features/media/src/AgentSidebar.tsx');
-  assert.match(agentSidebar, /top: isHeaderVisible \? '76px' : '14px'/);
+  assert.match(agentSidebar, top);
 
   const musicSidebar = await readSource('features/media/src/music/MusicPlayerSidebar.tsx');
-  assert.match(musicSidebar, /top: isHeaderVisible \? '76px' : '14px'/);
+  assert.match(musicSidebar, top);
 });

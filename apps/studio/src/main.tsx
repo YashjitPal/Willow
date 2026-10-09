@@ -8,6 +8,11 @@ import { GlobalCopyToast } from '@willow/ui/CopyToast';
 import { configureImageProxy } from '@willow/ui/image-source';
 import { startDevicePixelRatioSync } from '@willow/ui/device-pixel-ratio';
 import { handleSpotifyCallback } from '@willow/personal';
+import { isDesktopApp } from '@willow/core/desktop-bridge';
+import { startAndroidPhone } from '@willow/core/android-bridge';
+import { followAndroidBack } from '@willow/harness/harness-android';
+import { ContextMenu } from './shell/rail/ContextMenu';
+import { StripTooltip } from './shell/rail/StripTooltip';
 // Side-effect import: lets features register with platform machinery before
 // anything renders. Must stay above the render call.
 import './app/register-features';
@@ -39,6 +44,13 @@ configureImageProxy(import.meta.env.VITE_IMAGE_PROXY);
 // mid-layout would otherwise fall back to 1 for one frame. Never torn down — it
 // lives as long as the document does. See platform/ui/src/device-pixel-ratio.ts.
 startDevicePixelRatioSync();
+
+// Dev only — `import.meta.hot` is undefined in a build, so this is stripped there.
+// Keeps a tab Chrome froze from reloading itself when it is clicked; see app/hmr-resume.ts.
+if (import.meta.hot) {
+  const hot = import.meta.hot;
+  void import('./app/hmr-resume').then(({ installHmrResume }) => installHmrResume(hot));
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -77,6 +89,11 @@ const dismissBootShell = () => {
 // flow that worked. The popup has already posted its code and called `close()`;
 // this branch is only what stops the closing window from mounting React first.
 if (!isOAuthPopup) {
+  // Willow's Android app (apps/android): the computer's companion and the agents' phone tools
+  // through the phone, and its back gesture over agent tabs. Neither does anything elsewhere.
+  startAndroidPhone();
+  followAndroidBack();
+
   const root = ReactDOM.createRoot(rootElement);
   root.render(
     <React.StrictMode>
@@ -93,6 +110,17 @@ if (!isOAuthPopup) {
         so it needs neither the router nor App state.
       */}
       <GlobalCopyToast />
+      {/*
+        The desktop app's right-click menu and the window strip's tooltips, both drawn in
+        Willow's own look over whatever page is showing (shell/rail). Neither needs the router
+        or App state, so they sit here, beside the tooltips they match.
+      */}
+      {isDesktopApp() && (
+        <>
+          <ContextMenu />
+          <StripTooltip />
+        </>
+      )}
       <AuthProvider>
         <BrowserRouter>
           <App />

@@ -1,0 +1,1202 @@
+/*
+ * Spaces in Willow's design language. codex-spaces.css lays the screens out
+ * as Codex does and spaces-theme.css colours them; this gives them Gemini's
+ * proportions and components, the ones Spark and Bots use: Google Sans Flex
+ * headings, tonal surface containers with 24px corners, pill buttons, Material
+ * filter chips, Gemini's menus, tooltips and dialogs, 8% state layers and
+ * Material motion. The `ws-*` classes are Willow's hooks on the Codex
+ * primitives; Codex's own design variables carry the rest.
+ */
+
+/* ── Proportions: Codex's design variables at Google's scale ────────────── */
+
+.willow-spaces {
+  --ws-ease: cubic-bezier(0.2, 0, 0, 1);
+  --ws-ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ws-state-hover: color-mix(in srgb, var(--ws-on-surface) 8%, transparent);
+  --ws-state-pressed: color-mix(in srgb, var(--ws-on-surface) 12%, transparent);
+  --ws-menu-surface: #1f1f1f;
+  --ws-menu-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  --ws-dialog-surface: #1f1f1f;
+  --ws-card: var(--ws-container-low);
+  --ws-card-hover: var(--ws-container);
+
+  --corner-radius-scale: 1.35;
+  --font-weight-semibold: 500;
+  --font-weight-bold: 600;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-document: 16px;
+  --text-heading-md: 20px;
+  --text-heading-lg: 24px;
+  --padding-row-x: 12px;
+  --padding-row-y: 9px;
+  --radius-button-toolbar: 9999px;
+  --radius-button-action: 9999px;
+
+  --menu-radius: 20px;
+  --menu-gutter: 8px;
+  --app-menu-gutter: 8px;
+  --menu-item-padding: 8px 12px;
+  --menu-font-size: 14px;
+  --menu-line-height: 20px;
+  --menu-item-background-color: var(--ws-state-hover);
+  --menu-separator-background-color: var(--ws-outline-variant);
+  --popover-radius: 20px;
+  --modal-radius: 28px;
+  --modal-container-inner-padding: 24px;
+  --modal-backdrop-background: var(--ws-scrim);
+  --modal-backdrop-fade-background: var(--ws-scrim);
+  --modal-backdrop-fade-filter: none;
+  --modal-backdrop-fade-shadow: var(--ws-shadow-3);
+  --shadow-tooltip: none;
+  --tracking-tooltip: 0.1px;
+
+  /* Every floating surface (popovers, pickers, toolbars, panels) is Gemini's menu surface. */
+  --color-surface-elevated-secondary: var(--ws-menu-surface);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-spaces {
+  --ws-menu-surface: #ffffff;
+  --ws-menu-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+  --ws-dialog-surface: #ffffff;
+}
+
+/* Willow's Tailwind 3 also answers Codex's Tailwind 4 transform classes, adding a `transform`
+ * on top of v4's own `translate`, `rotate` and `scale`: centred dialogs move twice their
+ * offset and a rotated chevron turns all the way round. Only v4's properties apply here. */
+.willow-spaces :is([class*="translate-"], [class*="rotate-"], [class*="scale-"]) {
+  transform: none;
+}
+
+.willow-spaces ::selection {
+  background: color-mix(in srgb, var(--ws-primary) 32%, transparent);
+}
+
+.willow-spaces :focus-visible {
+  outline-color: var(--ws-primary);
+}
+
+/* ── Scrollbars: Willow's own, as its chats and tasks have them ─────────── */
+
+/* `gemini-chat-scrollbar` (apps/studio/index.html) draws with `::-webkit-scrollbar`, which
+ * Chrome ignores once `scrollbar-color` or `scrollbar-width` is set, and Codex sets
+ * `scrollbar-color` on every overflow scroller. */
+@supports selector(::-webkit-scrollbar) {
+  .willow-spaces .gemini-chat-scrollbar.gemini-chat-scrollbar {
+    scrollbar-color: auto;
+    scrollbar-width: auto;
+  }
+}
+
+/* ── Page frame (`ScrollTitledPage`, `TitledPage`) ──────────────────────── */
+
+.willow-spaces .ws-page__header.ws-page__header {
+  padding-top: 48px;
+  padding-bottom: 28px;
+}
+
+.willow-spaces .ws-page__title.ws-page__title {
+  color: var(--ws-on-surface);
+  font-size: 36px;
+  font-weight: 320;
+  line-height: 44px;
+  letter-spacing: 0;
+  font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 320;
+}
+
+.willow-spaces .ws-page__subtitle.ws-page__subtitle {
+  margin-top: 6px;
+  color: var(--ws-on-surface-variant);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.willow-spaces .ws-page__toolbar-title.ws-page__toolbar-title {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.willow-spaces .ws-page__actions .ws-btn.ws-btn:not(.ws-btn--size-inline) {
+  height: 40px;
+  min-height: 40px;
+  padding: 0 18px 0 14px;
+  gap: 8px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.willow-spaces .ws-page__actions .ws-btn--ghost.ws-btn--ghost {
+  border: 1px solid var(--ws-outline-variant);
+  background: transparent;
+  color: var(--ws-on-surface);
+}
+
+.willow-spaces .ws-page__actions .ws-btn--ghost.ws-btn--ghost:not(:disabled):hover {
+  border-color: var(--ws-outline);
+  background: var(--ws-state-hover);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.willow-spaces .ws-btn {
+  font-weight: 500;
+  transition:
+    background-color 150ms var(--ws-ease),
+    border-color 150ms var(--ws-ease),
+    color 150ms var(--ws-ease),
+    box-shadow 150ms var(--ws-ease);
+}
+
+.willow-spaces .ws-btn--primary.ws-btn--primary,
+.willow-spaces .ws-btn--chatgptPrimary.ws-btn--chatgptPrimary,
+.willow-spaces .ws-btn--accent.ws-btn--accent {
+  border-color: transparent;
+  background-color: var(--ws-primary);
+  color: var(--ws-on-primary);
+}
+
+.willow-spaces .ws-btn--primary.ws-btn--primary:not(:disabled):not([aria-disabled="true"]):hover,
+.willow-spaces .ws-btn--chatgptPrimary.ws-btn--chatgptPrimary:not(:disabled):not([aria-disabled="true"]):hover,
+.willow-spaces .ws-btn--accent.ws-btn--accent:not(:disabled):not([aria-disabled="true"]):hover,
+.willow-spaces .ws-btn--primary.ws-btn--primary[data-state="open"] {
+  background-color: color-mix(in srgb, var(--ws-primary) 92%, var(--ws-on-primary));
+  box-shadow: var(--ws-shadow-1);
+}
+
+.willow-spaces .ws-btn--primary.ws-btn--primary:disabled,
+.willow-spaces .ws-btn--chatgptPrimary.ws-btn--chatgptPrimary:disabled {
+  background-color: color-mix(in srgb, var(--ws-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--ws-on-surface) 38%, transparent);
+  opacity: 1;
+}
+
+.willow-spaces .ws-btn--secondary.ws-btn--secondary {
+  background-color: var(--ws-container-high);
+  color: var(--ws-on-surface);
+}
+
+.willow-spaces .ws-btn--secondary.ws-btn--secondary:not(:disabled):not([aria-disabled="true"]):hover {
+  background-color: var(--ws-container-highest);
+}
+
+.willow-spaces .ws-btn--outline.ws-btn--outline,
+.willow-spaces .ws-btn--outlineGhost.ws-btn--outlineGhost {
+  border-color: var(--ws-outline-variant);
+  background-color: transparent;
+}
+
+.willow-spaces .ws-btn--dangerSolid.ws-btn--dangerSolid {
+  background-color: var(--ws-error);
+  color: var(--ws-on-error);
+}
+
+/* ── Tabs: browse tabs are Material filter chips ────────────────────────── */
+
+.willow-spaces .ws-tabs--browse {
+  gap: 8px;
+}
+
+.willow-spaces .ws-tabs--browse .ws-tab.ws-tab {
+  display: inline-flex;
+  height: 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid var(--ws-outline-variant);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ws-on-surface-variant);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  transition: background-color 150ms var(--ws-ease), color 150ms var(--ws-ease), border-color 150ms var(--ws-ease);
+}
+
+.willow-spaces .ws-tabs--browse .ws-tab.ws-tab:hover {
+  background: var(--ws-state-hover);
+  color: var(--ws-on-surface);
+}
+
+.willow-spaces .ws-tabs--browse .ws-tab.ws-tab[aria-selected="true"] {
+  padding-left: 8px;
+  border-color: transparent;
+  background: var(--ws-secondary-container);
+  color: var(--ws-on-secondary-container);
+}
+
+.willow-spaces .ws-tabs--browse .ws-tab.ws-tab[aria-selected="true"]::before {
+  content: "check";
+  width: 18px;
+  height: 18px;
+  font-family: "Material Symbols Rounded";
+  font-size: 18px;
+  line-height: 18px;
+  font-variation-settings: "FILL" 0, "wght" 500, "GRAD" 0, "opsz" 20;
+}
+
+.willow-spaces .ws-tabs--underline .ws-tab[aria-selected="true"],
+.willow-spaces .ws-tabs--text .ws-tab[aria-selected="true"] {
+  color: var(--ws-primary);
+}
+
+.willow-spaces .ws-sticky-header.ws-sticky-header {
+  background: var(--ws-surface);
+}
+
+.willow-spaces .ws-sticky-header.ws-sticky-header::after {
+  background: linear-gradient(to bottom, var(--ws-surface), transparent);
+}
+
+.willow-spaces .ws-controls-row.ws-controls-row {
+  padding-bottom: 12px;
+}
+
+/* ── Space cards ────────────────────────────────────────────────────────── */
+
+.willow-spaces .ws-space-card.ws-space-card {
+  min-height: 156px;
+  padding: 18px 18px 12px;
+  border: 0;
+  border-radius: 24px;
+  background: var(--ws-card);
+  box-shadow: none;
+  transition:
+    background-color 200ms var(--ws-ease),
+    box-shadow 200ms var(--ws-ease),
+    transform 200ms var(--ws-ease);
+}
+
+.willow-spaces .ws-space-card.ws-space-card:hover {
+  background: var(--ws-card-hover);
+  box-shadow: var(--ws-shadow-1);
+  transform: translateY(-2px);
+}
+
+.willow-spaces .ws-space-card.ws-space-card:active {
+  transform: none;
+}
+
+.willow-spaces .ws-space-card__icon.ws-space-card__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: var(--ws-container-high);
+  color: var(--ws-on-surface);
+}
+
+.willow-spaces .ws-space-card:hover .ws-space-card__icon {
+  background: var(--ws-container-highest);
+}
+
+/* A Space's symbol fills its tile, washed in the Space's colour. */
+.willow-spaces .ws-space-card__icon:has(.ws-symbol-tile) {
+  background: transparent;
+}
+
+.willow-spaces .ws-space-card__icon :is(button, span):has(> .ws-symbol-tile),
+.willow-spaces .ws-space-card__icon > .ws-symbol-tile {
+  width: 48px;
+  height: 48px;
+}
+
+.willow-spaces .ws-space-card__icon .ws-symbol-tile {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  font-size: 24px;
+  transition: background-color 200ms var(--ws-ease);
+}
+
+.willow-spaces .ws-space-card:hover .ws-space-card__icon .ws-symbol-tile {
+  background: color-mix(in srgb, currentColor 24%, transparent);
+}
+
+.willow-spaces .ws-space-card__icon .ws-symbol-tile svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* While the root Page owns the symbol, the button is off but the symbol is the Space's
+ * own, so it keeps full strength and a tap opens the card. */
+.willow-spaces .ws-space-card__icon button:disabled {
+  opacity: 1;
+  pointer-events: none;
+}
+
+.willow-spaces .ws-space-card__title.ws-space-card__title {
+  margin-top: 4px;
+  color: var(--ws-on-surface);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 50, "slnt" 0, "wdth" 100, "wght" 400;
+}
+
+.willow-spaces .ws-space-card__meta.ws-space-card__meta {
+  color: var(--ws-on-surface-variant);
+  font-size: 14px;
+}
+
+.willow-spaces .ws-space-card__actions {
+  opacity: 0;
+  transition: opacity 150ms var(--ws-ease);
+}
+
+.willow-spaces .ws-space-card:is(:hover, :focus-within) .ws-space-card__actions,
+.willow-spaces .ws-space-card__actions:has([aria-pressed="true"], [data-state="open"]) {
+  opacity: 1;
+}
+
+.willow-spaces .ws-space-card__members.ws-space-card__members {
+  height: 32px;
+  padding: 0;
+  background: transparent;
+}
+
+.willow-spaces .ws-space-card__members .bg-surface {
+  background: var(--ws-card);
+}
+
+.willow-spaces .ws-space-card:hover .ws-space-card__members .bg-surface {
+  background: var(--ws-card-hover);
+}
+
+.willow-spaces .ws-space-card--welcome.ws-space-card--welcome {
+  background: linear-gradient(135deg, var(--ws-primary-container), var(--ws-secondary-container));
+}
+
+.willow-spaces .ws-space-card--welcome .ws-space-card__title,
+.willow-spaces .ws-space-card--welcome .ws-space-card__meta {
+  color: var(--ws-on-primary-container);
+}
+
+/* ── Page cards: a top-level Page's symbol and how much it holds ───────── */
+
+.willow-spaces .ws-page-card__glyph {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.willow-spaces .ws-space-card__icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.willow-spaces .ws-page-card__meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  color: var(--ws-on-surface-variant);
+}
+
+.willow-spaces .ws-page-row__parent {
+  flex: none;
+  max-width: 40%;
+  margin-inline-start: 2px;
+  color: var(--ws-on-surface-variant);
+  font-size: 13px;
+}
+
+/* ── Dots: the characters working on a Page ─────────────────────────────── */
+
+.willow-spaces .ws-dot-facepile {
+  --ws-dot-ring: var(--ws-surface);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.willow-spaces .ws-dot-facepile__item {
+  display: inline-flex;
+  width: var(--ws-dot-size);
+  height: var(--ws-dot-size);
+  flex: none;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--ws-container-high);
+  box-shadow: 0 0 0 2px var(--ws-dot-ring);
+}
+
+.willow-spaces .ws-dot-facepile__item + :is(.ws-dot-facepile__item, .ws-dot-facepile__more) {
+  margin-inline-start: calc(var(--ws-dot-size) * -0.28);
+}
+
+.willow-spaces .ws-dot-facepile__avatar {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.willow-spaces .ws-dot-facepile__more {
+  display: inline-flex;
+  height: var(--ws-dot-size);
+  min-width: var(--ws-dot-size);
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: var(--ws-container-highest);
+  box-shadow: 0 0 0 2px var(--ws-dot-ring);
+  color: var(--ws-on-surface-variant);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* The ring that separates the characters matches whatever they sit on. */
+.willow-spaces .ws-space-card .ws-dot-facepile {
+  --ws-dot-ring: var(--ws-card);
+}
+
+.willow-spaces .ws-space-card:hover .ws-dot-facepile {
+  --ws-dot-ring: var(--ws-card-hover);
+}
+
+.willow-spaces .ws-row--plain:hover .ws-dot-facepile {
+  --ws-dot-ring: color-mix(in srgb, var(--ws-on-surface) 8%, var(--ws-surface));
+}
+
+.willow-spaces .ws-dots-button .ws-dot-facepile {
+  --ws-dot-ring: var(--ws-secondary-container);
+}
+
+.willow-spaces .ws-share-button.ws-dots-button.ws-share-button {
+  padding-inline: 10px 18px;
+}
+
+.willow-spaces :is(.ws-attribution-avatar, .ws-activity__avatar, .ws-dots-dialog__avatar, .ws-dots-dialog__menu-avatar) {
+  display: inline-flex;
+  flex: none;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--ws-container-high);
+}
+
+.willow-spaces .ws-attribution-avatar {
+  width: 16px;
+  height: 16px;
+}
+
+.willow-spaces .ws-activity__avatar {
+  width: 22px;
+  height: 22px;
+}
+
+.willow-spaces .ws-dots-dialog__menu-avatar {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── "Bots on this page" ────────────────────────────────────────────────── */
+
+.willow-spaces .ws-dots-dialog__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-inline: -8px;
+}
+
+.willow-spaces .ws-dots-dialog__row {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  gap: 14px;
+  padding: 8px;
+  border-radius: 16px;
+  transition: background-color 150ms var(--ws-ease);
+}
+
+.willow-spaces .ws-dots-dialog__row:hover {
+  background: var(--ws-state-hover);
+}
+
+.willow-spaces .ws-dots-dialog__avatar {
+  width: 40px;
+  height: 40px;
+}
+
+.willow-spaces .ws-dots-dialog__name {
+  color: var(--ws-on-surface);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.willow-spaces .ws-dots-dialog__meta {
+  color: var(--ws-on-surface-variant);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.willow-spaces .ws-dots-dialog__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: var(--ws-container);
+  color: var(--ws-on-surface-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* ── Sections and lists ─────────────────────────────────────────────────── */
+
+.willow-spaces .ws-section__title.ws-section__title {
+  color: var(--ws-on-surface);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 28px;
+  font-variation-settings: "ROND" 50, "slnt" 0, "wdth" 100, "wght" 400;
+}
+
+.willow-spaces .ws-section__actions .ws-btn--ghost.ws-btn--ghost {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  color: var(--ws-primary);
+  font-weight: 500;
+}
+
+.willow-spaces .ws-activity.ws-activity {
+  gap: 2px;
+  padding: 8px;
+  border-radius: 24px;
+  background: var(--ws-card);
+}
+
+.willow-spaces .ws-activity .ws-row.ws-row {
+  min-height: 56px;
+  padding-inline: 12px;
+  border-radius: 16px;
+}
+
+.willow-spaces .ws-row--plain.ws-row--plain {
+  border-radius: 12px;
+}
+
+.willow-spaces .ws-row--plain.ws-row--plain::before,
+.willow-spaces .ws-row--plain.ws-row--plain::after {
+  border-color: transparent;
+}
+
+.willow-spaces .ws-row--plain.ws-row--plain:not([aria-disabled="true"]):hover {
+  background: var(--ws-state-hover);
+}
+
+.willow-spaces .ws-row.is-selected.is-selected {
+  background: var(--ws-secondary-container);
+  color: var(--ws-on-secondary-container);
+}
+
+.willow-spaces .ws-row--raised.ws-row--raised:not(.ws-space-card) {
+  border: 0;
+  border-radius: 20px;
+  background: var(--ws-card);
+  box-shadow: none;
+}
+
+.willow-spaces .ws-row--raised.ws-row--raised:not(.ws-space-card):hover {
+  background: var(--ws-card-hover);
+}
+
+.willow-spaces .ws-table-head.ws-table-head {
+  padding-top: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ws-outline-variant);
+  margin-bottom: 4px;
+  color: var(--ws-on-surface-variant);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ── Search ─────────────────────────────────────────────────────────────── */
+
+.willow-spaces .ws-search.ws-search {
+  border: 0;
+  background: var(--ws-container-high);
+  color: var(--ws-on-surface);
+  transition: background-color 150ms var(--ws-ease), box-shadow 150ms var(--ws-ease);
+}
+
+.willow-spaces .ws-search.ws-search:not(.ws-search--sidebar-header) {
+  height: 48px;
+  padding: 0 16px;
+  gap: 12px;
+  border-radius: 24px;
+  font-size: 15px;
+}
+
+.willow-spaces .ws-search.ws-search:focus-within {
+  background: var(--ws-container-lowest);
+  box-shadow: 0 0 0 2px var(--ws-primary);
+}
+
+.willow-spaces .ws-search input::placeholder {
+  color: var(--ws-on-surface-variant);
+}
+
+/* ── Avatars ────────────────────────────────────────────────────────────── */
+
+.willow-spaces .ws-avatar.ws-avatar {
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+/* ── Menus: Gemini's (8px inset, 20px corners, 36px rows at 12px) ───────── */
+
+.willow-spaces .ws-menu.ws-menu {
+  min-width: 200px;
+  padding: 8px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--ws-menu-surface);
+  box-shadow: var(--ws-menu-shadow);
+  color: var(--ws-on-surface);
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin, var(--radix-context-menu-content-transform-origin, top left));
+  animation: ws-menu-in 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+@keyframes ws-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+.willow-spaces .ws-menu [role^="menuitem"] {
+  min-height: 36px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.willow-spaces .ws-menu [role^="menuitem"]:is([data-highlighted], :hover) {
+  background: var(--ws-state-hover);
+}
+
+.willow-spaces .ws-menu [role="separator"] {
+  margin-block: 6px;
+  border-color: var(--ws-outline-variant);
+  opacity: 1;
+}
+
+/* ── Pickers and the selection toolbar: menu surfaces ───────────────────── */
+
+.willow-spaces .ws-picker.ws-picker:not([class*="_compact_"]),
+.willow-spaces .ws-floating-toolbar.ws-floating-toolbar {
+  box-shadow: var(--ws-menu-shadow);
+}
+
+.willow-spaces .ws-picker.ws-picker:not([class*="_compact_"]) {
+  border-radius: var(--menu-radius);
+}
+
+/* ── Tooltips: Gemini's (inverse surface, 12px corners, 12/16 type) ────── */
+
+.willow-spaces .ws-tooltip--tooltip.ws-tooltip--tooltip {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  letter-spacing: 0.1px;
+  box-shadow: none;
+}
+
+.willow-spaces .ws-tooltip--rich.ws-tooltip--rich,
+.willow-spaces .ws-tooltip--entityPreview.ws-tooltip--entityPreview {
+  border: 0;
+  border-radius: 20px;
+  background: var(--ws-menu-surface);
+  box-shadow: var(--ws-menu-shadow);
+}
+
+/* ── Dialogs: Gemini's surface, 28px corners ────────────────────────────── */
+
+.willow-spaces .ws-dialog.ws-dialog {
+  border: 0;
+  border-radius: 28px;
+  background-color: var(--ws-dialog-surface);
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  --color-surface: var(--ws-dialog-surface);
+}
+
+.willow-spaces .ws-dialog--modal.ws-dialog--modal {
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+/* Google's dialog headline: 22px/28px at regular weight. */
+.willow-spaces .ws-dialog__title.ws-dialog__title {
+  color: var(--ws-on-surface);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 28px;
+  letter-spacing: 0;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 100, "wght" 400;
+}
+
+.willow-spaces .codex-dialog-overlay {
+  background-color: var(--ws-scrim);
+  animation: ws-scrim-in 300ms var(--ws-ease);
+}
+
+@keyframes ws-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+
+.willow-spaces input[type="text"]:not([role="combobox"]):not(.ws-bare),
+.willow-spaces input[type="email"],
+.willow-spaces input:not([type]):not(.ws-bare) {
+  caret-color: var(--ws-primary);
+}
+
+/* ── Segmented toggles (list / grid) ────────────────────────────────────── */
+
+.willow-spaces .ws-segmented--toolbar,
+.willow-spaces .ws-view-toggle {
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--ws-outline-variant);
+  border-radius: 9999px;
+}
+
+.willow-spaces :is(.ws-segmented--toolbar, .ws-view-toggle) .ws-btn.ws-btn {
+  width: 40px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--ws-on-surface-variant);
+}
+
+.willow-spaces :is(.ws-segmented--toolbar, .ws-view-toggle) .ws-btn.ws-btn:hover {
+  background: var(--ws-state-hover);
+  color: var(--ws-on-surface);
+}
+
+.willow-spaces :is(.ws-segmented--toolbar, .ws-view-toggle) .ws-btn.ws-btn[aria-pressed="true"] {
+  background: var(--ws-secondary-container);
+  color: var(--ws-on-secondary-container);
+}
+
+/* ── Files and Library (`BrowseLayout`) ─────────────────────────────────── */
+
+.willow-spaces .ws-browse__title.ws-browse__title {
+  min-height: 44px;
+  color: var(--ws-on-surface);
+  font-size: 36px;
+  font-weight: 320;
+  line-height: 44px;
+  font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 320;
+}
+
+.willow-spaces .ws-browse [role="row"],
+.willow-spaces .ws-browse .ws-row--plain {
+  border-radius: 12px;
+}
+
+/* ── Settings: a Site's settings, database and scheduled tabs ───────────── */
+
+.willow-spaces .ws-settings-title.ws-settings-title {
+  color: var(--ws-on-surface);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.willow-spaces .ws-settings-subtitle.ws-settings-subtitle {
+  color: var(--ws-on-surface-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* Groups are tonal cards with inset dividers, as Google's settings are. The default
+ * group's panel colour is an inline style, hence the `!important`. */
+.willow-spaces :is(.ws-settings-group--flat, .ws-settings-group--default, .ws-settings-group--outlined).ws-settings-group {
+  border: 0;
+  border-radius: 24px;
+  background-color: var(--ws-container-low) !important;
+  box-shadow: none;
+}
+
+.willow-spaces .ws-settings-group--flat.ws-settings-group::before,
+.willow-spaces .ws-settings-group--flat.ws-settings-group::after {
+  display: none;
+}
+
+.willow-spaces .ws-settings-group--flat .ws-settings-row {
+  padding-inline: 20px;
+}
+
+.willow-spaces .ws-settings-group--flat > :not(:last-child) {
+  border-bottom-color: var(--ws-outline-variant);
+}
+
+.willow-spaces .ws-settings-row__label.ws-settings-row__label {
+  color: var(--ws-on-surface);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.willow-spaces .ws-settings-row__description.ws-settings-row__description {
+  color: var(--ws-on-surface-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* ── Page editor: the top bar ───────────────────────────────────────────── */
+
+.willow-spaces .ws-control-group.ws-control-group {
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.willow-spaces .ws-floating-control.ws-floating-control {
+  height: 40px;
+  min-width: 40px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ws-on-surface-variant);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 150ms var(--ws-ease), color 150ms var(--ws-ease);
+}
+
+.willow-spaces .ws-floating-control.ws-floating-control:not(:disabled):hover,
+.willow-spaces .ws-floating-control.ws-floating-control[data-state="open"] {
+  background: var(--ws-state-hover);
+  color: var(--ws-on-surface);
+}
+
+.willow-spaces .ws-floating-control--selected.ws-floating-control--selected {
+  background: var(--ws-secondary-container);
+  color: var(--ws-on-secondary-container);
+}
+
+.willow-spaces .ws-floating-control--dropdown.ws-floating-control--dropdown {
+  padding-inline: 12px 8px;
+  color: var(--ws-on-surface);
+  font-size: 16px;
+  font-weight: 400;
+}
+
+/* Three classes: Codex clears every button in a control group at 0,4,0. */
+.willow-spaces .ws-share-button.ws-share-button.ws-share-button {
+  gap: 8px;
+  padding: 0 20px 0 16px;
+  background: var(--ws-secondary-container);
+  color: var(--ws-on-secondary-container);
+}
+
+.willow-spaces .ws-share-button.ws-share-button.ws-share-button:not(:disabled):hover {
+  background: color-mix(in srgb, var(--ws-secondary-container) 92%, var(--ws-on-secondary-container));
+  color: var(--ws-on-secondary-container);
+  box-shadow: var(--ws-shadow-1);
+}
+
+/* ── Side sheets (`SideDrawer`): comments, history, outline ─────────────── */
+
+.willow-spaces .ws-side-drawer__panel.ws-side-drawer__panel {
+  border-radius: 24px;
+  background: var(--ws-container-low);
+  box-shadow: none;
+}
+
+.willow-spaces .ws-panel-header.ws-panel-header {
+  height: 56px;
+  padding-inline: 20px 8px;
+}
+
+.willow-spaces .ws-panel-header__title.ws-panel-header__title {
+  color: var(--ws-on-surface);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+/* ── Page editor: the document ──────────────────────────────────────────── */
+
+.willow-spaces ._PageTitle_1vjxe_2 {
+  font-weight: 400;
+  letter-spacing: -0.25px;
+  font-variation-settings: "ROND" 50, "slnt" 0, "wdth" 100, "wght" 400;
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 500;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 500;
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 table {
+  overflow: hidden;
+  border: 1px solid var(--ws-outline-variant);
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 16px;
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 :is(th, td) {
+  border-width: 0 1px 1px 0;
+  border-style: solid;
+  border-color: var(--ws-outline-variant);
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 tr > :is(th, td):last-child {
+  border-right-width: 0;
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 tr:last-child > :is(th, td) {
+  border-bottom-width: 0;
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 th {
+  background: var(--ws-container-low);
+  font-weight: 500;
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 [data-page-callout="true"] {
+  border-radius: 16px;
+  background-color: var(--ws-container);
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 blockquote {
+  border-inline-start-color: var(--ws-primary);
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 a {
+  color: var(--ws-primary);
+  text-decoration-color: color-mix(in srgb, var(--ws-primary) 40%, transparent);
+}
+
+.willow-spaces ._PageDocument_1vjxe_2 pre {
+  border-radius: 16px;
+  background: var(--ws-container-low);
+}
+
+/* ── Tablet (≤960px): the page fills the screen under Willow's menu band ── */
+
+@media (max-width: 960px) {
+  .willow-spaces {
+    --padding-panel: 24px;
+  }
+
+  .willow-spaces .ws-page__header.ws-page__header {
+    padding-top: 16px;
+    padding-bottom: 24px;
+  }
+
+  .willow-spaces .ws-browse__gutter.ws-browse__gutter {
+    padding-inline: 24px;
+  }
+
+  /* The text lines up with the Page title, as it does at desktop widths. */
+  .willow-spaces ._PageDocumentTheme_1vjxe_2.writing-block-editor {
+    padding-inline: 0;
+  }
+}
+
+/* ── Phone (≤600px): 16px gutters, Spaces as rows ───────────────────────── */
+
+@media (max-width: 600px) {
+  .willow-spaces {
+    --padding-panel: 16px;
+  }
+
+  .willow-spaces .ws-page__header.ws-page__header {
+    padding-top: 8px;
+    padding-bottom: 20px;
+  }
+
+  .willow-spaces .ws-page__title.ws-page__title,
+  .willow-spaces .ws-browse__title.ws-browse__title {
+    font-size: 32px;
+    line-height: 40px;
+  }
+
+  .willow-spaces .ws-page__subtitle.ws-page__subtitle {
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .willow-spaces .ws-page__actions.ws-page__actions {
+    width: 100%;
+  }
+
+  .willow-spaces .ws-browse__gutter.ws-browse__gutter {
+    padding-inline: 16px;
+  }
+
+  .willow-spaces .ws-space-card.ws-space-card {
+    min-height: 0;
+    padding: 12px 8px 12px 12px;
+    border-radius: 20px;
+  }
+
+  .willow-spaces .ws-space-card__body.ws-space-card__body {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 16px;
+  }
+
+  .willow-spaces .ws-space-card__body > :first-child {
+    display: contents;
+  }
+
+  .willow-spaces .ws-space-card__icon.ws-space-card__icon {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .willow-spaces .ws-space-card__body > :last-child {
+    grid-row: 1;
+    grid-column: 2;
+    gap: 0;
+  }
+
+  .willow-spaces .ws-space-card__actions.ws-space-card__actions {
+    grid-row: 1;
+    grid-column: 3;
+  }
+
+  .willow-spaces .ws-space-card__title.ws-space-card__title {
+    margin-top: 0;
+    font-size: 16px;
+  }
+
+  .willow-spaces .ws-space-card__meta.ws-space-card__meta {
+    min-height: 0;
+  }
+
+  .willow-spaces .ws-space-card__members.ws-space-card__members {
+    height: 28px;
+  }
+
+  .willow-spaces .ws-section__title.ws-section__title {
+    font-size: 20px;
+    line-height: 28px;
+  }
+
+  /* Codex's compact Page geometry: a 20px gutter, the disclosure arrows tucked against
+   * the text, and no second inset on the writing block. */
+  .willow-spaces ._PageContent_1vjxe_2 {
+    --page-control-gutter: 20px;
+  }
+
+  .willow-spaces ._PageContent_1vjxe_2 [data-page-heading-disclosure] {
+    padding-inline: 0;
+    inset-inline-end: 100%;
+  }
+
+  /* A side sheet takes the width of the page, inset like a dialog. */
+  .willow-spaces .ws-page-sidebar.ws-page-sidebar {
+    inset-inline-start: 0;
+  }
+
+  .willow-spaces .ws-page-sidebar .ws-side-drawer {
+    flex: 1;
+  }
+
+  .willow-spaces .ws-page-sidebar .ws-side-drawer__panel.ws-side-drawer__panel {
+    width: 100%;
+    box-shadow: var(--ws-shadow-3);
+  }
+}
+
+/* ── Narrow sticky headers: the title over its search, then the chips ───── */
+
+/* Codex's collapsing header sets the title beside the toolbar and leaves narrow widths
+ * to its browser build; side by side, the toolbar's minimum width leaves the title none. */
+@container (width < 48rem) {
+  .willow-spaces ._shell_bomwa_2[data-collapsible] > ._content_bomwa_2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .willow-spaces ._shell_bomwa_2[data-collapsible] > ._content_bomwa_2 > ._headerRow_bomwa_2 > ._title_bomwa_2 {
+    grid-row: 1;
+    grid-column: 1;
+    width: 100%;
+  }
+
+  .willow-spaces ._shell_bomwa_2[data-collapsible] ._title_bomwa_2 > ._titleContent_bomwa_2 {
+    width: auto;
+  }
+
+  /* The view toggle and the page actions share a line; the search takes the next.
+   * At 0,5,0 to meet Codex's expand-search toolbar rule. */
+  .willow-spaces ._shell_bomwa_2[data-collapsible] ._toolbar_bomwa_2._toolbar_bomwa_2 {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    row-gap: 8px;
+    margin-left: 0;
+  }
+
+  .willow-spaces ._shell_bomwa_2[data-collapsible] ._toolbar_bomwa_2 > ._search_bomwa_2 {
+    order: 3;
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .willow-spaces ._shell_bomwa_2[data-collapsible] > ._content_bomwa_2 > ._headerRow_bomwa_2 > ._actions_bomwa_2 {
+    grid-row: 2;
+    grid-column: 1;
+  }
+
+  .willow-spaces ._shell_bomwa_2[data-collapsible] > ._content_bomwa_2 > ._navigation_bomwa_2 {
+    grid-row: 3;
+  }
+}
+
+/* ── Touch: hover affordances stay put ──────────────────────────────────── */
+
+@media (hover: none) {
+  .willow-spaces .ws-space-card__actions {
+    opacity: 1;
+  }
+
+  .willow-spaces .ws-space-card.ws-space-card:hover {
+    background: var(--ws-card);
+    box-shadow: none;
+    transform: none;
+  }
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-spaces .ws-space-card.ws-space-card,
+  .willow-spaces .ws-menu.ws-menu,
+  .willow-spaces .codex-dialog-overlay {
+    animation: none;
+    transition: none;
+  }
+
+  .willow-spaces .ws-space-card.ws-space-card:hover {
+    transform: none;
+  }
+}

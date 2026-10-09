@@ -1,4 +1,17 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useStore } from '@nanostores/react';
+import {
+  authorizeWritesFor,
+  connectionsStore,
+  connectorOptions,
+  connectProducts,
+  providerOf,
+  refreshAuthorizations,
+  scopeUrls,
+  setGmailContentsAllowed,
+  writesAuthorized,
+  type ConnectorId,
+} from '@willow/personal';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import {
   APP_CATEGORIES,
@@ -10,7 +23,17 @@ import {
 } from './connectedAppsData';
 import { useConnections, type CardConnectionState } from './use-connections';
 import { GithubTokenRow } from './GithubTokenRow';
+import { OAuthClientSetup } from './OAuthClientSetup';
+import { ConnectConsentDialog, type ConnectConsentRequest } from './ConnectConsentDialog';
 import './ConnectedAppsTab.css';
+
+interface PendingConsent extends ConnectConsentRequest {
+  confirm: () => void;
+  cancel: () => void;
+}
+
+const logoFor = (cardId: string): string =>
+  APP_CATEGORIES.flatMap((category) => category.apps).find((app) => app.id === cardId)?.logo ?? '';
 
 /**
  * Connected Apps — a clone of gemini.google.com/apps.
@@ -131,8 +154,107 @@ const listNames = (names: string[]): string =>
     ? names[0] ?? ''
     : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
+/**
+ * What Willow may do in the Google account beyond reading the basics, under the Workspace card once it is on:
+ * read email contents, and make changes. Each asks Google from the click that turns it on, and nothing is
+ * awaited before that request, so its window is never blocked as a popup.
+ */
+const GooglePermissions: React.FC = () => {
+  const { enabled } = useStore(connectionsStore);
+  const { gmailContents } = useStore(connectorOptions);
+  const google = enabled.filter((id) => providerOf(id) === 'google');
+  const writable = google.filter((id) => scopeUrls([id], 'write').length > 0);
+  const writableKey = writable.join(',');
+  const [writes, setWrites] = useState<'checking' | 'allowed' | 'off' | 'asking'>('checking');
+  const [contentsBusy, setContentsBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!writableKey) return;
+    let live = true;
+    setWrites('checking');
+    writesAuthorized(writableKey.split(',') as ConnectorId[]).then(
+      (allowed) => live && setWrites(allowed ? 'allowed' : 'off'),
+      () => live && setWrites('off'),
+    );
+    return () => {
+      live = false;
+    };
+  }, [writableKey]);
+
+  if (google.length === 0) return null;
+
+  const toggleContents = () => {
+    setProblem(null);
+    if (gmailContents) {
+      setGmailContentsAllowed(false);
+      void refreshAuthorizations();
+      return;
+    }
+    setGmailContentsAllowed(true);
+    setContentsBusy(true);
+    void connectProducts(google)
+      .then((outcome) => {
+        if (outcome.ok) return;
+        setGmailContentsAllowed(false);
+        setProblem('Google did not allow email contents, so Willow still sees senders and subjects only.');
+      })
+      .finally(() => setContentsBusy(false));
+  };
+
+  const allowWrites = () => {
+    setProblem(null);
+    setWrites('asking');
+    void authorizeWritesFor(writable).then((allowed) => {
+      setWrites(allowed ? 'allowed' : 'off');
+      if (!allowed) setProblem('Google did not allow changes, so Willow still only reads.');
+    });
+  };
+
+  return (
+    <div className="ca-google-permissions">
+      {google.includes('gmail') ? (
+        <div className="ca-permission-row">
+          <div className="ca-permission-copy">
+            <div className="ca-permission-name ca-title-s">Read email contents</div>
+            <div className="ca-permission-detail ca-body-m">
+              Willow and your bots can read what emails say and search all your mail. Off, they see senders and subjects only.
+            </div>
+          </div>
+          <Switch checked={Boolean(gmailContents) || contentsBusy} disabled={contentsBusy} label="Read email contents" onChange={toggleContents} />
+        </div>
+      ) : null}
+      {writable.length ? (
+        <div className="ca-permission-row">
+          <div className="ca-permission-copy">
+            <div className="ca-permission-name ca-title-s">Make changes for you</div>
+            <div className="ca-permission-detail ca-body-m">
+              Willow can add events, tasks and documents{google.includes('gmail') ? ', and send the emails you approve' : ''}. It never deletes anything.
+            </div>
+          </div>
+          {writes === 'allowed' ? (
+            <span className="ca-permission-state ca-label-l">
+              <MaterialSymbol family="google-symbols" name="check" size={18} weight={400} />
+              Allowed
+            </span>
+          ) : (
+            <button className="ca-permission-button ca-label-l" disabled={writes !== 'off'} onClick={allowWrites} type="button">
+              {writes === 'asking' ? 'Waiting for Google…' : 'Allow'}
+            </button>
+          )}
+        </div>
+      ) : null}
+      {problem ? (
+        <div className="ca-permission-problem ca-body-m" role="status">
+          {problem}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 /** The Workspace card: full grid width, description beside a grid of child apps. */
-const ParentCard: React.FC<CardProps> = ({ app, state, onToggle }) => {
+const ParentCard: React.FC<CardProps> = ({ app, extra, state, onToggle }) => {
   const reason = state.disabledReason;
   return (
     <div className="ca-parent-card">
@@ -165,6 +287,7 @@ const ParentCard: React.FC<CardProps> = ({ app, state, onToggle }) => {
           ))}
         </div>
       </div>
+      {extra}
     </div>
   );
 };
@@ -281,7 +404,7 @@ const AppCard: React.FC<CardProps> = ({
 
 export const ConnectedAppsTab: React.FC = () => {
   const {
-    setupHints,
+    setup,
     githubLogin,
     notice,
     dismissNotice,
@@ -290,13 +413,58 @@ export const ConnectedAppsTab: React.FC = () => {
     connectGithubToken,
   } = useConnections();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [consent, setConsent] = useState<PendingConsent | null>(null);
   const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  /*
+   * Turning a card on asks first, as Gemini's Apps page does: its consent popup opens, the
+   * switch reads on while it is up, and nothing is requested until Connect. That click
+   * runs the connection itself, so a provider's sign-in window still opens from a user
+   * gesture. Turning a card off is not asked about, as on Gemini's page.
+   */
   const handleToggle = useCallback(
     (id: string, name: string) => {
-      void toggleConnection(id, name);
+      const current = stateFor(id);
+      if (current.connected || !current.connectable) {
+        void toggleConnection(id, name);
+        return;
+      }
+      setConsent({
+        cardId: id,
+        appName: name,
+        appLogo: logoFor(id),
+        confirm: () => {
+          void toggleConnection(id, name);
+        },
+        cancel: () => {},
+      });
     },
-    [toggleConnection],
+    [stateFor, toggleConnection],
+  );
+
+  /** GitHub connects from its token field, so that is where it asks. `null` means declined. */
+  const connectGithubWithConsent = useCallback(
+    (token: string) => new Promise<boolean | null>((resolve) => {
+      setConsent({
+        cardId: 'github',
+        appName: 'GitHub',
+        appLogo: logoFor('github'),
+        confirm: () => {
+          void connectGithubToken(token).then(resolve, () => resolve(false));
+        },
+        cancel: () => resolve(null),
+      });
+    }),
+    [connectGithubToken],
+  );
+
+  /** The switch reads on while its popup is open and while the connection it started runs. */
+  const displayStateFor = useCallback(
+    (cardId: string): CardConnectionState => {
+      const state = stateFor(cardId);
+      return consent?.cardId === cardId || state.busy ? { ...state, connected: true } : state;
+    },
+    [consent, stateFor],
   );
 
   /*
@@ -358,18 +526,8 @@ export const ConnectedAppsTab: React.FC = () => {
             it a page of dead toggles reads as a bug. One per provider, because
             Google and Spotify are set up independently and a user sent to fix the
             wrong environment variable goes looking for a problem that isn't there. */}
-        {setupHints.map((hint) => (
-          <div className="ca-banner" key={hint} role="status">
-            <MaterialSymbol
-              className="ca-banner-icon"
-              family="google-symbols"
-              name="info"
-              size={20}
-              weight={400}
-            />
-            <div className="ca-banner-text ca-body-m">{hint}</div>
-          </div>
-        ))}
+        {/* A build without its own client ids (the desktop app) is set up with the user's. */}
+        <OAuthClientSetup setup={setup} />
 
         {expiredNames.length > 0 ? (
           <div className="ca-banner ca-banner-attention" role="status">
@@ -419,14 +577,16 @@ export const ConnectedAppsTab: React.FC = () => {
                 const props: CardProps = {
                   app,
                   expanded: expandedIds.has(app.id),
-                  state: stateFor(app.id),
+                  state: displayStateFor(app.id),
                   onToggle: handleToggle,
                   onToggleExpanded: toggleExpanded,
                   // The one card that needs a control of its own. Decided here rather
                   // than in the card, so the card never has to know which app it is.
                   extra:
                     app.id === 'github' ? (
-                      <GithubTokenRow login={githubLogin} onConnect={connectGithubToken} />
+                      <GithubTokenRow login={githubLogin} onConnect={connectGithubWithConsent} />
+                    ) : app.id === 'workspace' && stateFor(app.id).connected ? (
+                      <GooglePermissions />
                     ) : undefined,
                 };
                 return app.children?.length ? (
@@ -477,6 +637,18 @@ export const ConnectedAppsTab: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {consent ? (
+        <ConnectConsentDialog
+          appLogo={consent.appLogo}
+          appName={consent.appName}
+          cardId={consent.cardId}
+          key={consent.cardId}
+          onCancel={consent.cancel}
+          onClosed={() => setConsent(null)}
+          onConfirm={consent.confirm}
+        />
+      ) : null}
     </div>
   );
 };

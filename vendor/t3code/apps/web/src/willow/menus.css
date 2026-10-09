@@ -1,0 +1,630 @@
+/*
+ * T3's menus, selects, popovers and tooltips drawn as Willow's own, by T3's data-slot names.
+ *
+ * The card is Willow's menu card — features/chat PlusDropdownMenu's `MenuCard` and
+ * apps/studio ConversationActionsMenu: #1f1f1f / #ffffff (with a 10% hairline in light), 20px
+ * corners, 8px in, `0 0 20px` at 28% / 4%. Rows are its 36px rows: 8px in, 8px gaps, 12px
+ * corners, a 20px glyph slot, 13px/17px labels in #e6e6e6 / #1f1f1f, the row's own fill at 8% / 6%
+ * under the pointer and 12% / 10% pressed. A ticked row carries ModelsMenu's check in front of
+ * its label. It moves as Willow's menu pane does (see Motion below).
+ *
+ * Tooltips are platform/ui Tooltip.css: 12px corners, 8px 16px in, 12px/16px, #e6e6e6 on dark
+ * and #000000 on light, shown at once on hover, scaling in from 0.8 over 150ms and out over 75ms.
+ */
+
+:root {
+  --willow-menu-surface: #ffffff;
+  --willow-menu-text: #1f1f1f;
+  --willow-menu-icon: #000000;
+  --willow-menu-border: rgb(0 0 0 / 10%);
+  --willow-menu-shadow: 0 0 20px rgb(0 0 0 / 4%);
+  --willow-menu-hover: rgb(0 0 0 / 6%);
+  --willow-menu-pressed: rgb(0 0 0 / 10%);
+  --willow-menu-selected: #f2f0f0;
+  --willow-menu-divider: rgb(0 0 0 / 8%);
+  --willow-muted-text: rgb(0 0 0 / 55%);
+  /* Older rules read the highlight under this name. */
+  --willow-menu-highlight: var(--willow-menu-hover);
+}
+
+:root.dark {
+  --willow-menu-surface: #1f1f1f;
+  --willow-menu-text: #e6e6e6;
+  --willow-menu-icon: rgb(227 227 227);
+  --willow-menu-border: transparent;
+  --willow-menu-shadow: 0 0 20px rgb(0 0 0 / 28%);
+  --willow-menu-hover: rgb(230 230 230 / 8%);
+  --willow-menu-pressed: rgb(230 230 230 / 12%);
+  --willow-menu-selected: #171717;
+  --willow-menu-divider: rgb(255 255 255 / 12%);
+  --willow-muted-text: rgb(255 255 255 / 55%);
+}
+
+/* ── The card ─────────────────────────────────────────────────────────────── */
+
+:is(
+  [data-slot="menu-popup"],
+  [data-slot="menu-sub-content"],
+  [data-slot="select-popup"],
+  [data-slot="combobox-popup"],
+  [data-slot="autocomplete-popup"],
+  [data-slot="popover-popup"],
+  [data-slot="preview-card-popup"],
+  .willow-menu-card
+) {
+  border: 1px solid var(--willow-menu-border);
+  border-radius: 20px;
+  background: var(--willow-menu-surface);
+  box-shadow: var(--willow-menu-shadow);
+  color: var(--willow-menu-text);
+  font-family: var(--font-sans);
+  font-variation-settings: var(--willow-text-axes);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition: none;
+}
+
+:is(
+  [data-slot="menu-popup"],
+  [data-slot="menu-sub-content"],
+  [data-slot="select-popup"],
+  [data-slot="combobox-popup"],
+  [data-slot="autocomplete-popup"],
+  [data-slot="popover-popup"],
+  [data-slot="preview-card-popup"]
+)::before {
+  display: none;
+}
+
+/* T3's details card brings its own surface; the popover around it is only a position. */
+[data-slot="popover-popup"]:has([data-thread-details-panel]) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* That card is Willow's menu card, its sections 8px in and split by the menu's hairline. */
+[data-thread-details-card] {
+  border: 1px solid var(--willow-menu-border);
+  border-radius: 20px;
+  background: var(--willow-menu-surface);
+  box-shadow: var(--willow-menu-shadow);
+  color: var(--willow-menu-text);
+}
+
+[data-thread-details-card] section {
+  padding: 8px;
+}
+
+[data-thread-details-card] section + section {
+  border-top-color: var(--willow-menu-divider);
+}
+
+/* A row with focus is highlighted as a menu row is, never ringed. */
+[data-thread-details-card] :is(button, a, [role="combobox"]):focus-visible {
+  outline: none;
+  box-shadow: none;
+  background: var(--willow-menu-hover);
+}
+
+/*
+ * T3's glass surfaces (frosted, translucent, a 10% rim) are Willow's opaque cards wherever T3
+ * still draws them itself: the menu card for its floating cards and hover cards, the dialog for
+ * its floating editors.
+ */
+.dropdown-glass:not([data-slot="toast-popup"], [data-slot="tooltip-popup"]) {
+  border-color: var(--willow-menu-border);
+  background: var(--willow-menu-surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.dialog-glass {
+  border-color: transparent;
+  background: #ffffff;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.dark .dialog-glass {
+  background: #1f1f1f;
+}
+
+/* ── Motion ───────────────────────────────────────────────────────────────── */
+
+/*
+ * Menus, submenus, right-click menus, pickers and popovers move as Willow's menu pane does
+ * (apps/studio MenuPanel and Sidebar.css `willow-mat-menu-*`, Gemini's mat-menu): fading and
+ * growing in from 80% over 120ms cubic-bezier(0, 0, 0.2, 1) from where they open, and out as a
+ * 100ms linear fade after 25ms. Selects are Willow's settings dropdowns
+ * (apps/studio index.html `dropdownOpen` / `dropdownClose`). Hover cards appear and leave at
+ * once, as Willow's source-chip card does. The composer's plus and model menus keep their own
+ * (composer.css).
+ */
+:is(
+  [data-slot="menu-popup"],
+  [data-slot="menu-sub-content"],
+  [data-slot="combobox-popup"],
+  [data-slot="autocomplete-popup"],
+  [data-slot="popover-popup"]
+) {
+  transform-origin: var(--transform-origin);
+  animation: willow-mat-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+:is(
+  [data-slot="menu-popup"],
+  [data-slot="menu-sub-content"],
+  [data-slot="combobox-popup"],
+  [data-slot="autocomplete-popup"],
+  [data-slot="popover-popup"]
+)[data-ending-style] {
+  animation: willow-mat-menu-exit 100ms linear 25ms forwards;
+}
+
+@keyframes willow-mat-menu-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes willow-mat-menu-exit {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+[data-slot="select-popup"] {
+  animation: willow-dropdown-open 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[data-slot="select-popup"][data-side="top"] {
+  animation-name: willow-dropdown-open-up;
+}
+
+[data-slot="select-popup"][data-ending-style] {
+  animation: willow-dropdown-close 150ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[data-slot="select-popup"][data-side="top"][data-ending-style] {
+  animation-name: willow-dropdown-close-up;
+}
+
+@keyframes willow-dropdown-open {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(-6px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes willow-dropdown-close {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(0.95) translateY(-6px);
+  }
+}
+
+@keyframes willow-dropdown-open-up {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(6px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes willow-dropdown-close-up {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(0.95) translateY(6px);
+  }
+}
+
+/* The plus menu's own: in from half size at a quarter opacity over 100ms, gone at once. */
+@keyframes willow-gem-menu-in {
+  0% {
+    opacity: 0.25;
+    transform: scale(0.5);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+:is([data-slot="menu-popup"], [data-slot="menu-sub-content"]) > div {
+  padding: 8px;
+}
+
+/* ── Rows ─────────────────────────────────────────────────────────────────── */
+
+:is(
+  [data-slot="menu-item"],
+  [data-slot="menu-checkbox-item"],
+  [data-slot="menu-radio-item"],
+  [data-slot="menu-sub-trigger"],
+  [data-slot="select-item"],
+  [data-slot="combobox-item"],
+  [data-slot="autocomplete-item"]
+) {
+  min-height: 36px;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--willow-menu-text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  letter-spacing: normal;
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:is(
+  [data-slot="menu-item"],
+  [data-slot="menu-checkbox-item"],
+  [data-slot="menu-radio-item"],
+  [data-slot="menu-sub-trigger"],
+  [data-slot="select-item"],
+  [data-slot="combobox-item"],
+  [data-slot="autocomplete-item"]
+):is([data-highlighted], [data-popup-open]) {
+  background: var(--willow-menu-hover);
+  color: var(--willow-menu-text);
+}
+
+:is(
+  [data-slot="menu-item"],
+  [data-slot="menu-checkbox-item"],
+  [data-slot="menu-radio-item"],
+  [data-slot="menu-sub-trigger"],
+  [data-slot="select-item"],
+  [data-slot="combobox-item"],
+  [data-slot="autocomplete-item"]
+):active {
+  background: var(--willow-menu-pressed);
+}
+
+/* A row that explains itself in a tooltip wears the tooltip's slot; it is still a menu row. */
+:is([data-slot="menu-popup"], [data-slot="menu-sub-content"])
+  [role="menuitem"][data-slot="tooltip-trigger"] {
+  min-height: 36px;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+:is([data-slot="menu-popup"], [data-slot="menu-sub-content"])
+  [role="menuitem"][data-slot="tooltip-trigger"]
+  svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Gemini's Delete reads as every other row does. */
+[data-slot="menu-item"][data-variant="destructive"] {
+  color: var(--willow-menu-text);
+}
+
+/* The 20px glyph slot, in Willow's menu weight. */
+:is(
+    [data-slot="menu-item"],
+    [data-slot="menu-checkbox-item"],
+    [data-slot="menu-radio-item"],
+    [data-slot="menu-sub-trigger"],
+    [data-slot="select-item"],
+    [data-slot="combobox-item"]
+  )
+  svg {
+  width: 20px;
+  height: 20px;
+  color: var(--willow-menu-icon);
+  opacity: 1;
+}
+
+:is(
+    [data-slot="menu-popup"],
+    [data-slot="menu-sub-content"],
+    [data-slot="select-popup"],
+    [data-slot="combobox-popup"]
+  )
+  .willow-icon-glyph {
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 320,
+    "GRAD" 0,
+    "opsz" 20;
+}
+
+/* The submenu's chevron is Willow's Luminous one. */
+[data-slot="menu-sub-trigger"] > svg:last-child {
+  margin-inline-end: -2px;
+}
+
+[data-slot="menu-sub-trigger"] > svg:last-child .willow-icon-glyph {
+  font-family: "Luminous Symbols";
+  font-variation-settings:
+    "FILL" 0,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 20,
+    "wght" 320;
+}
+
+/*
+ * A ticked radio row: ModelsMenu's check (Luminous `check`, 20px at 320) in the row's leading
+ * slot, never a fill. Rows that bring their own indicator keep it.
+ */
+[data-slot="menu-radio-item"][data-checked] {
+  background: transparent;
+}
+
+[data-slot="menu-radio-item"]:not(:has([data-slot="menu-radio-item-indicator"]))::before {
+  content: "";
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  color: var(--willow-menu-icon);
+  font-family: "Luminous Symbols";
+  font-size: 20px;
+  font-style: normal;
+  font-weight: 320;
+  line-height: 20px;
+  font-variation-settings:
+    "FILL" 0,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 20,
+    "wght" 320;
+  font-feature-settings: "liga";
+  letter-spacing: 0;
+  text-align: center;
+}
+
+[data-slot="menu-radio-item"][data-checked]:not(
+    :has([data-slot="menu-radio-item-indicator"])
+  )::before {
+  content: "check";
+}
+
+[data-slot="menu-radio-item"] {
+  gap: 8px;
+}
+
+:is(
+    [data-slot="menu-radio-item-indicator"],
+    [data-slot="select-item-indicator"],
+    [data-slot="combobox-item-indicator"]
+  )
+  svg {
+  width: 20px;
+  height: 20px;
+}
+
+:is(
+  [data-slot="menu-label"],
+  [data-slot="select-group-label"],
+  [data-slot="combobox-group-label"],
+  [data-slot="autocomplete-group-label"]
+) {
+  padding: 8px 8px 4px;
+  color: var(--willow-muted-text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+[data-slot="menu-separator"],
+[data-slot="select-separator"],
+[data-slot="combobox-separator"] {
+  height: 0;
+  margin: 8px;
+  border-top: 0.8px solid var(--willow-menu-divider);
+  background: none;
+}
+
+[data-slot="menu-shortcut"] {
+  color: var(--willow-muted-text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/*
+ * Willow's three-dot menus (apps/studio ConversationActionsMenu): T3's "more" buttons become its
+ * 36px round trigger, a 24px Luminous `more_vert` at 300 with a wash of #c4c7c5 at 8% under the
+ * pointer (black at 6% in light) and the same while its menu is open.
+ */
+:is(button, [role="button"]):has(> svg[data-willow-icon="more_vert"]) {
+  position: relative;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 6px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  box-shadow: none;
+  color: #1f1f1f;
+}
+
+:root.dark :is(button, [role="button"]):has(> svg[data-willow-icon="more_vert"]) {
+  color: #e6e6e6;
+}
+
+:is(button, [role="button"]):has(> svg[data-willow-icon="more_vert"])::before {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border-radius: 9999px;
+  background: #000000;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms;
+}
+
+:root.dark :is(button, [role="button"]):has(> svg[data-willow-icon="more_vert"])::before {
+  background: rgb(196 199 197);
+}
+
+:is(button, [role="button"]):has(> svg[data-willow-icon="more_vert"]):is(
+    :hover,
+    [data-popup-open]
+  )::before {
+  opacity: 0.06;
+}
+
+:root.dark
+  :is(button, [role="button"]):has(> svg[data-willow-icon="more_vert"]):is(
+    :hover,
+    [data-popup-open]
+  )::before {
+  opacity: 0.08;
+}
+
+:is(button, [role="button"]) > svg[data-willow-icon="more_vert"] {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  color: inherit;
+  opacity: 1;
+}
+
+svg[data-willow-icon="more_vert"] .willow-icon-glyph {
+  font-family: "Luminous Symbols";
+  font-variation-settings:
+    "FILL" 0,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 24,
+    "wght" 300;
+}
+
+/* ── Tooltips ─────────────────────────────────────────────────────────────── */
+
+[data-slot="tooltip-popup"] {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: #000000;
+  box-shadow: none;
+  color: rgb(242 240 240);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  font-variation-settings: var(--willow-text-axes);
+  transform-origin: var(--transform-origin);
+  transition: none;
+  animation: willow-tooltip-show 150ms cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+.dark [data-slot="tooltip-popup"] {
+  background: rgb(230 230 230);
+  color: rgb(23 23 23);
+}
+
+[data-slot="tooltip-popup"][data-ending-style] {
+  animation: willow-tooltip-hide 75ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+[data-slot="tooltip-popup"]::before {
+  display: none;
+}
+
+/* A tooltip's shortcut follows its words, dimmed to 55%, as Codex's does ("Queue ⏎"). */
+[data-willow-tooltip-shortcut] {
+  margin-inline-start: 8px;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Willow's tooltip is drawn afresh at each trigger; it never glides from one to the next. */
+[data-slot="tooltip-positioner"] {
+  transition: none;
+}
+
+@keyframes willow-tooltip-show {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes willow-tooltip-hide {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    [data-slot="menu-popup"],
+    [data-slot="menu-sub-content"],
+    [data-slot="select-popup"],
+    [data-slot="combobox-popup"],
+    [data-slot="autocomplete-popup"],
+    [data-slot="popover-popup"],
+    [data-slot="tooltip-popup"]
+  ),
+  :is(
+    [data-slot="menu-popup"],
+    [data-slot="menu-sub-content"],
+    [data-slot="select-popup"],
+    [data-slot="combobox-popup"],
+    [data-slot="autocomplete-popup"],
+    [data-slot="popover-popup"],
+    [data-slot="tooltip-popup"]
+  )[data-ending-style] {
+    animation: none;
+  }
+}

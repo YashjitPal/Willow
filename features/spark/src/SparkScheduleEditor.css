@@ -105,7 +105,7 @@
 .spark-schedule-editor__weekdays button:focus-visible,
 .spark-schedule-editor__instructions-heading button:focus-visible,
 .spark-schedule-editor__disclaimer button:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
@@ -120,8 +120,8 @@
   padding: 0 20px;
   border: 0;
   border-radius: 9999px;
-  background: #a8c7fa;
-  color: #062e6f;
+  background: var(--sync-a8c7fa, #a8c7fa);
+  color: var(--sync-062e6f, #062e6f);
   font-size: 15px;
   font-weight: 370;
   line-height: 20px;
@@ -130,7 +130,7 @@
 }
 
 .spark-schedule-editor__create:hover:not(:disabled) {
-  background: #b8d2ff;
+  background: var(--sync-b8d2ff, #b8d2ff);
 }
 
 .spark-schedule-editor__create:disabled {
@@ -196,8 +196,8 @@
 
 .spark-schedule-editor__field input:focus,
 .spark-schedule-editor__panel textarea:focus {
-  border-color: #a8c7fa;
-  box-shadow: inset 0 0 0 1px #a8c7fa;
+  border-color: var(--sync-a8c7fa, #a8c7fa);
+  box-shadow: inset 0 0 0 1px var(--sync-a8c7fa, #a8c7fa);
 }
 
 .spark-schedule-editor__enabled-row {
@@ -254,11 +254,11 @@
 }
 
 .spark-schedule-editor__toggle.is-checked {
-  background: #a8c7fa;
+  background: var(--sync-a8c7fa, #a8c7fa);
 }
 
 .spark-schedule-editor__toggle.is-checked > span {
-  background: #062e6f;
+  background: var(--sync-062e6f, #062e6f);
   transform: translateX(16px);
 }
 
@@ -323,8 +323,8 @@
 }
 
 .spark-schedule-editor__select select:focus-visible {
-  border-color: #a8c7fa;
-  box-shadow: inset 0 0 0 1px #a8c7fa;
+  border-color: var(--sync-a8c7fa, #a8c7fa);
+  box-shadow: inset 0 0 0 1px var(--sync-a8c7fa, #a8c7fa);
 }
 
 .spark-schedule-editor__select select option {
@@ -375,7 +375,7 @@
 }
 
 .spark-schedule-editor__weekdays button.is-selected {
-  background: #192967;
+  background: var(--sync-192967, #192967);
   color: #e3e3e3;
 }
 
@@ -528,7 +528,7 @@
   border: 0;
   border-radius: 20px;
   background: transparent;
-  color: #a8c7fa;
+  color: var(--sync-a8c7fa, #a8c7fa);
   font-size: 14px;
   font-weight: 560;
   cursor: pointer;
@@ -536,7 +536,7 @@
 
 .spark-schedule-editor__delete-dialog button:hover,
 .spark-schedule-editor__discard-dialog button:hover {
-  background: rgba(168, 199, 250, 0.08);
+  background: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
 }
 
 .spark-schedule-editor__delete-dialog button.is-danger {
@@ -548,86 +548,108 @@
 }
 
 .spark-schedule-editor__discard-dialog button.is-primary {
-  background: #a8c7fa;
-  color: #062e6f;
+  background: var(--sync-a8c7fa, #a8c7fa);
+  color: var(--sync-062e6f, #062e6f);
 }
 
 .spark-schedule-editor__discard-dialog button.is-primary:hover {
-  background: #b8d2ff;
+  background: var(--sync-b8d2ff, #b8d2ff);
 }
 
 .spark-schedule-editor__delete-dialog button:focus-visible,
 .spark-schedule-editor__discard-dialog button:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
-@media (max-width: 680px) {
+/*
+ * At 960px and below Gemini's editor keeps the desktop card and its sentence-style
+ * when-to-run row, measured at 390x844: `schedule-editor` sits 28px in from each side,
+ * its 56px `editor-actions-header` starts at the top (`padding: 10px 0`), and the narrow
+ * theme draws the hairlines and unselected day circles at #141414 and the links at
+ * #e0e0e0.
+ */
+@media (max-width: 960px) {
   .spark-schedule-editor {
-    padding-top: 24px;
-  }
-
-  .spark-schedule-editor__run-grid {
-    grid-template-columns: 120px 104px;
-    justify-content: space-between;
-  }
-
-  .spark-schedule-editor__weekdays {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-content: start;
-    margin-top: 4px;
-  }
-
-  .spark-schedule-editor__time {
-    grid-column: 2;
-  }
-}
-
-@media (max-width: 480px) {
-  .spark-schedule-editor {
-    padding: 8px 0 32px;
+    padding-top: 0;
   }
 
   .spark-schedule-editor__content {
-    width: 100%;
+    width: min(660px, calc(100% - 56px));
   }
 
   .spark-schedule-editor__header {
     min-height: 56px;
-    margin: 0;
-    padding: 4px 12px 8px;
+    margin-bottom: 0;
+    padding: 10px 0;
   }
 
-  .spark-schedule-editor__back {
-    gap: 8px;
-    font-size: 20px;
-  }
-
-  .spark-schedule-editor__panel {
-    min-height: calc(100vh - 68px);
-    padding: 24px 16px 20px;
-    border-radius: 0;
-  }
-
-  .spark-schedule-editor__run-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .spark-schedule-editor__weekdays {
-    width: 100%;
-    grid-template-columns: repeat(7, minmax(30px, 1fr));
-    gap: 4px;
+  .spark-schedule-editor__field input,
+  .spark-schedule-editor__panel textarea {
+    border-color: #141414;
   }
 
   .spark-schedule-editor__weekdays button {
-    width: 100%;
-    max-width: 36px;
-    justify-self: center;
+    background: #141414;
   }
 
-  .spark-schedule-editor__panel textarea {
-    min-height: 208px;
+  .spark-schedule-editor__ask-link,
+  .spark-schedule-editor__disclaimer button {
+    color: #e0e0e0;
+  }
+
+  /* Spark's 92% width throughout, carrying each element's own weight. */
+  .spark-schedule-editor {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-schedule-editor__when legend,
+  .spark-schedule-editor__instructions-heading > label,
+  .spark-schedule-editor__weekdays button,
+  .spark-schedule-editor__ask-note,
+  .spark-schedule-editor__disclaimer {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  }
+
+  /* Two classes, to clear the editor's `button { font: inherit }` reset. */
+  .spark-schedule-editor .spark-schedule-editor__back {
+    font-size: 17px;
+    line-height: 24px;
+  }
+
+  .spark-schedule-editor .spark-schedule-editor__create {
+    min-width: 90px;
+    font-size: 15px;
+    font-weight: 370;
+    line-height: 20px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  }
+
+  .spark-schedule-editor .spark-schedule-editor__create:disabled {
+    background: rgba(224, 224, 224, 0.12);
+  }
+
+  /* `.schedule-detail-card` is the editor's width plus its own hairline, 336px at 390. */
+  .spark-schedule-editor__panel {
+    margin-right: -1.6px;
+  }
+
+  /* The `mat-select` fields are fixed: 116px for the frequency, 130px for the time, with
+   * the 24px triangle 8px down and 9px in. */
+  .spark-schedule-editor__select:not(.spark-schedule-editor__time) {
+    width: 116px;
+  }
+
+  .spark-schedule-editor__time {
+    width: 130px;
+  }
+
+  .spark-schedule-editor__select-arrow {
+    position: absolute;
+    top: 8px;
+    right: 9px;
+    color: #e3e3e3;
+    pointer-events: none;
   }
 }
 
@@ -719,8 +741,8 @@
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__field input:focus,
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__panel textarea:focus {
-  border-color: #0b57d0;
-  box-shadow: inset 0 0 0 1px #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
+  box-shadow: inset 0 0 0 1px var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__enabled-row {
@@ -765,8 +787,8 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__select select:focus-visible {
-  border-color: #0b57d0;
-  box-shadow: inset 0 0 0 1px #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
+  box-shadow: inset 0 0 0 1px var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__select select option {
@@ -788,8 +810,8 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__weekdays button.is-selected {
-  background: #c2e7ff;
-  color: #001d35;
+  background: var(--sync-c2e7ff, #c2e7ff);
+  color: var(--sync-001d35, #001d35);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__ask-note {
@@ -797,7 +819,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__ask-link {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__panel textarea {
@@ -811,7 +833,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__disclaimer button {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__dialog-backdrop {
@@ -837,25 +859,25 @@
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete-dialog button,
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete-dialog button:hover,
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button:hover {
-  background: rgba(11, 87, 208, 0.08);
+  background: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button.is-primary {
-  background: #0b57d0;
+  background: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button.is-primary:hover {
-  background: #0842a0;
+  background: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__delete-dialog button:focus-visible,
 :is(.light-theme, [data-theme="light"]) .spark-schedule-editor__discard-dialog button:focus-visible {
-  outline: 2px solid #0b57d0;
+  outline: 2px solid var(--sync-0b57d0, #0b57d0);
 }
 

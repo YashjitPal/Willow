@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { flushSync, createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -22,7 +22,8 @@ import {
   Palette,
   Image as ImageIcon,
   FlaskConical,
-  Target,
+  Hammer,
+  BookOpen,
   X,
   Globe,
   Terminal,
@@ -34,9 +35,12 @@ import {
   Library,
   Layout,
   Component,
-  FileText
+  FileText,
+  Monitor
 } from 'lucide-react';
 import { AgentIcon } from '@willow/ui/AgentIcon';
+import { isCompactViewport, useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { GeminiBottomSheet, GeminiSheetItem, GeminiSheetList } from '@willow/ui/GeminiBottomSheet';
 import {
   enterVisualEdit,
   exitVisualEdit,
@@ -72,18 +76,19 @@ import { ALL_TOOLS } from './WorkbenchTopBar';
 import '@willow/studio/settings/SettingsModal.css';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { streamChat, ChatMessage as AiChatMessage, prewarmClient, isAbortError } from '@willow/ai/chat';
-import { runComputerUseTest, type TestUpdate, type ConversationMessage } from '@willow/ai/computer-use/session';
-import { sandpackStore } from '../runtime/sandpack/sandpack-store';
-import { workbenchStore, parseAIResponse, parseResponseForDisplay, type ChatSegment } from '../runtime/sandpack/index';
+import { CODE_TOOLS, type CodeToolId } from '../harness/code-tools';
+import { BUILTIN_SKILLS } from '../harness/builtin-skills';
+import { parseResponseForDisplay, type ChatSegment } from '../runtime/sandpack/index';
 import { saveCodeSessions, loadCodeSessions, renameCodeSessions } from '@willow/storage/indexeddb/willow-db';
-import { BOLT_SYSTEM_PROMPT } from '../runtime/sandpack/system-prompt';
-import { testStore } from '@willow/ai/computer-use/test-store';
+import { isOwnPreviewMessage, useCodeSession } from '../session/code-session';
 import { VisualEditMenu } from './visual-edit-menu';
 import { UnsavedChangesBar } from './UnsavedChangesBar';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { workflowList as agentWorkflowList, requestedWorkflowId, backendStatus as abBackendStatus } from '@willow/agent-builder/agent-builder-store';
-import { newChatSignal } from '@willow/core/new-chat-signal';
 import { deriveFallbackTitle, FALLBACK_CHAT_TITLE } from '@willow/core/fallback-title';
+import { setCodeScreenChat, setCodeScreenRunning } from './code-turn-activity';
+import { $codeResume, codeProjectId, startCodeTurnJob, type CodeTurnJob, type CodeTurnPlace } from './code-turn-jobs';
+import type { BackgroundJobHandle } from '@willow/core/background-jobs';
 import { addDesignNode, focusDesignNode, selectedDesignNodeIds, designNodesStore } from '@willow/design/design-store';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { useDrive } from '@willow/storage/adapters/use-drive';
@@ -91,43 +96,15 @@ import { markCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/co
 import { isTempChatId } from '@willow/storage/local-fs/chat-metadata';
 import { latestResumedSnapshot, sanitizeResumedCodeMessages } from './resume-code-chat';
 
-// ── The Agent tool ───────────────────────────────────────────────────────
-// An optional second generation path: the vendored Codex harness, reached by
-// selecting "Agent" in the Tools menu. Everything below is inert while
-// `agentEngaged` is false — the legacy loop above is untouched and still runs
-// every turn by default. See features/code/src/agent/harness/AGENTS.md.
-import { runCodexTurn, type WorkbenchFiles } from '../agent/harness-bridge';
-import {
-  agentEngaged,
-  collaborationMode,
-  dismissUserInput,
-  effectiveEffort,
-  goalIsRunning,
-  nextTurnId,
-  requestUserInputSink,
-  setAgentEngaged,
-  setCollaborationMode,
-  setThreadGoal,
-  setUltraEngaged,
-  threadGoal,
-  turnCalls,
-  ultraEngaged,
-} from '../agent/agent-store';
-import type { Message } from '../agent/harness/runtime/protocol';
-import { LiveTurnActivity, SettledTurnActivity } from '../agent/ui/TurnActivity';
-import {
-  expandCommand,
-  matchCommandSubmission,
-  matchSlashCommands,
-  type SlashCommand,
-} from '../agent/slash-commands';
-import { EFFORT_LABEL } from '../agent/harness/overlay/effort';
-import { enabledSkills } from '@willow/core/skill-library';
+// ── The harness ──────────────────────────────────────────────────────────
+// Every Code turn runs on it: see features/code/src/harness/AGENTS.md.
+import { runWorkbenchTurn, type ImageAsset } from '../harness/run-turn';
+import { LiveTurnTimeline, TurnTimeline } from '../harness/ui/TurnTimeline';
+import { LiveThinkingRow } from '../harness/ui/ThinkingRow';
+import type { TurnMode, TurnStep } from '../harness/protocol';
+import type { HistoryEntry } from '../harness/context';
+import { enabledSkills, ensureSkillsHydrated, skillLibrary } from '@willow/core/skill-library';
 import { boundMcpTools, connectEnabledMcpServers } from '@willow/ai/mcp/mcp-store';
-// Every rule in here is scoped under `.cb-root`, which only the harness's own
-// components render — so importing it unconditionally changes nothing when the
-// Agent tool is off.
-import '../agent/agent.css';
 
 
 import { GeminiLogo, AnnotateIcon, VisualEditsIcon } from './sidebar-icons';
@@ -137,6 +114,7 @@ import { DESIGN_SYSTEM_PROMPT, extractDesignCode, generateDesignFileName } from 
 import { buildFollowUpSuggestionsPrompt, buildSessionTitlePrompt } from './sidebar-prompts';
 import { GlobalErrorToasts } from './GlobalErrorToasts';
 import { MAX_IMAGE_SIZE_BYTES, fileToBase64, getUniqueImagePath, readFileText } from './attachment-files';
+import { splitChatFiles } from './chat-files';
 import { collectSavedModels, getShortName } from './model-labels';
 
 interface SidebarProps {
@@ -165,35 +143,57 @@ interface SidebarProps {
   isGeneratingName?: boolean;
   onSettingsClick?: (tab?: string) => void;
   onProjectHydrated?: () => void;
+  /**
+   * A tool picked on the landing composer, so the opening turn honours it —
+   * "Plan" there means the first reply is a plan rather than a build.
+   */
+  initialToolId?: string | null;
 }
 
+/** An attachment as the turn receives it: base64 for an image, text otherwise. */
+interface ProcessedAttachment {
+  type: 'image' | 'text' | 'file';
+  mimeType: string;
+  data: string;
+  name?: string;
+}
 
-/**
- * The empty slash-command result, hoisted so its identity is stable.
- *
- * `matchSlashCommands` is skipped entirely when the Agent tool is off, and a
- * fresh `[]` there would be a new array on every keystroke.
- */
-const EMPTY_SLASH_MATCHES: SlashCommand[] = [];
+/** A `$skill` being typed at the caret, for the mention menu. */
+const SKILL_MENTION_AT_CARET = /(^|\s)\$([A-Za-z0-9_-]*)$/;
 
 
-const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, resumeChatId, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, onProjectHydrated }) => {
+const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt, initialAttachments, resumeChatId, activeTab, onTabChange, isChatMode, onHomeClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId, isResizing, projectName, isProjectPromoted = true, isGeneratingName, onSettingsClick, onProjectHydrated, initialToolId = null }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const codeSession = useCodeSession();
+  const { workbench: workbenchStore, test: testStore, harness } = codeSession;
   console.log('🔵🔵🔵 [Sidebar] COMPONENT RENDERING 🔵🔵🔵');
   const isCompact = width < 405;
-  /*
-   * The Agent tool's master switch.
-   *
-   * Declared up here because almost everything harness-related reads it — the
-   * slash menu, the send routing, the model menu's Ultra rung — and they are
-   * spread the length of this component.
-   *
-   * Read from the store rather than compared against `selectedToolId` so a pick
-   * made on the landing composer, where the first prompt is usually typed, is
-   * authoritative on the very first render here.
-   */
-  const isAgent = useStore(agentEngaged);
+  // Below 961px the sidebar and the preview take turns filling the screen.
+  const isNarrowScreen = useCompactViewport();
+
+  // Read by the harness mid-turn, when these may have changed since the turn began.
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const layoutRef = useRef({ isNarrowScreen, isCollapsed });
+  layoutRef.current = { isNarrowScreen, isCollapsed };
+
+  /** Brings the preview into view for the agent's preview tools. */
+  const showPreviewForHarness = (force: boolean) => {
+    // Tabs whose panel covers the preview.
+    if (['code', 'agent-builder', 'canvas-screens', 'canvas-elements'].includes(activeTabRef.current)) onTabChange('preview');
+    // On a narrow screen only a frame with no size at all takes the chat's place.
+    if (force && layoutRef.current.isNarrowScreen && !layoutRef.current.isCollapsed) onToggle();
+  };
+
+  /** A project file by path: the transcript shows images the agent generated from the project itself. */
+  const resolveProjectAsset = (path: string) => workbenchStore.getFile(path);
+
+  /** Opens a design the agent made on the Design canvas. */
+  const openDesign = (nodeId: string) => {
+    onTabChange('canvas-screens');
+    focusDesignNode(nodeId);
+  };
 
   /*
    * Bring up MCP servers the user has enabled.
@@ -246,84 +246,38 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const [promptValue, setPromptValue] = useState('');
 
   /*
-   * Agent tool: the collaboration mode and the thread goal.
+   * The `$skill` mention menu.
    *
-   * Both are sticky, as upstream's are: a mode holds until it is changed, and a
-   * goal persists across turns — which is the entire point of one, since the
-   * harness keeps steering turns at it until the objective is true.
+   * Typing `$` followed by letters offers the installed skills; picking one
+   * inserts `$Name`, which the harness resolves and reads before acting. The
+   * library is the one Customize → Skills and Spark → Skills publish into.
    */
-  const mode = useStore(collaborationMode);
-  const goal = useStore(threadGoal);
+  const librarySkills = useStore(skillLibrary);
+  // Willow's own skills (app testing) are offered beside the user's.
+  const skills = React.useMemo(
+    () => [...BUILTIN_SKILLS, ...librarySkills.filter((skill) => !BUILTIN_SKILLS.some((builtin) => builtin.id === skill.id))],
+    [librarySkills],
+  );
+  const skillMentionQuery = SKILL_MENTION_AT_CARET.exec(promptValue)?.[2];
+  const skillMatches = React.useMemo(() => {
+    if (skillMentionQuery === undefined) return [];
+    const query = skillMentionQuery.toLowerCase();
+    return skills
+      .filter((skill) => skill.enabled)
+      .filter((skill) => !query || skill.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(query.replace(/[^a-z0-9]/g, '')) || skill.id.toLowerCase().includes(query))
+      .slice(0, 6);
+  }, [skills, skillMentionQuery]);
+  const [skillIndex, setSkillIndex] = useState(0);
+  useEffect(() => setSkillIndex(0), [skillMentionQuery]);
 
-  /**
-   * An objective typed this turn, before the goal exists.
-   *
-   * `/goal <objective>` has to reach `startCodexGeneration`, which runs after
-   * several `await`s — so it cannot be read back off the composer, which has
-   * already been cleared. A ref rather than state because nothing renders from
-   * it and a re-render between the two would be wasted.
-   */
-  const pendingGoalObjectiveRef = useRef<string | null>(null);
-  const setPendingGoalObjective = (objective: string | null): void => {
-    pendingGoalObjectiveRef.current = objective;
-  };
-
-  /*
-   * Agent tool: slash commands.
-   *
-   * Most expand into the composer rather than doing anything themselves, so the
-   * user can edit before sending and the harness stays the only thing deciding
-   * what runs. Four are actions: `/clear`, and the three that change mode.
-   *
-   * Gated on the Agent tool. With it off `slashMatches` is always empty, which
-   * makes both the menu and the keydown interception below dead code — typing a
-   * `/` in the legacy composer behaves exactly as it always has.
-   */
-  const slashMatches = isAgent ? matchSlashCommands(promptValue) : EMPTY_SLASH_MATCHES;
-  const [slashIndex, setSlashIndex] = useState(0);
-  useEffect(() => setSlashIndex(0), [promptValue]);
-
-  const applySlashCommand = useCallback((command: SlashCommand) => {
-    if (command.action === 'clear') {
-      setPromptValue('');
-      handleNewChat();
-      return;
-    }
-
-    /*
-     * The mode commands, which are not templates.
-     *
-     * `/plan` and `/code` take effect immediately — there is nothing to send,
-     * the mode *is* the change. `/goal` needs an objective, so it leaves the
-     * composer primed for one and `handleSendMessage` picks it up.
-     */
-    if (command.action === 'plan-mode' || command.action === 'default-mode') {
-      setCollaborationMode(command.action === 'plan-mode' ? 'plan' : 'default');
-      setPromptValue('');
-      return;
-    }
-
-    if (command.action === 'goal-mode') {
-      setPromptValue('/goal ');
-      requestAnimationFrame(() => {
-        const node = textareaRef.current;
-        if (!node) return;
-        node.focus();
-        node.setSelectionRange(node.value.length, node.value.length);
-      });
-      return;
-    }
-
-    const { text, caret } = expandCommand(command);
-    setPromptValue(text);
-
-    // The caret goes where the user has to type next; without this it lands at
-    // the end and they have to click back into the middle of the template.
+  const applySkillMention = useCallback((skillName: string) => {
+    const handle = skillName.replace(/[^A-Za-z0-9_-]/g, '');
+    setPromptValue((value) => value.replace(SKILL_MENTION_AT_CARET, (_match, lead: string) => `${lead}$${handle} `));
     requestAnimationFrame(() => {
       const node = textareaRef.current;
       if (!node) return;
       node.focus();
-      node.setSelectionRange(caret, caret);
+      node.setSelectionRange(node.value.length, node.value.length);
     });
   }, []);
 
@@ -363,10 +317,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     }
   }, [activeTab, sidebarView, hasUnsaved, onTabChange]);
 
-  // Robust Visual Edit Exit: Ensure we exit mode whenever sidebar view changes OR on unmount
+  // Robust Visual Edit Exit: Ensure we exit mode whenever sidebar view changes OR on unmount.
+  // Visual edit mode is one per tab and belongs to the screen on show, so a hidden
+  // screen (one kept working in the background) neither leaves it nor holds it.
+  const isOnShow = useStore(codeSession.onShow);
   useEffect(() => {
     // Skip if the exit modal is open - we don't want to exit while confirming
-    if (showExitModal) return;
+    if (showExitModal || !codeSession.onShow.get()) return;
     // If we are NOT in visual edit view, force exit mode
     // This catches cases like switching tools, clicking "Design" text, etc.
     if (sidebarView !== 'visual-edit') {
@@ -374,16 +331,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
          exitVisualEdit();
        }
     }
-  }, [sidebarView, showExitModal]);
+  }, [sidebarView, showExitModal, codeSession]);
+
+  useEffect(() => {
+    if (isOnShow || sidebarView !== 'visual-edit') return;
+    setSidebarViewRaw('chat');
+    exitVisualEdit();
+  }, [isOnShow, sidebarView]);
 
   // Cleanup on unmount to ensure mode doesn't persist if component destroyed
   useEffect(() => {
     return () => {
-       if (isVisualEditMode.get()) {
+       if (codeSession.onShow.get() && isVisualEditMode.get()) {
          exitVisualEdit();
        }
     };
-  }, []);
+  }, [codeSession]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
@@ -391,7 +354,32 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const messageRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const streamingContentRef = useRef<HTMLDivElement>(null);
   const [responseAreaMinHeight, setResponseAreaMinHeight] = useState<number | undefined>(undefined);
-  const [needsScrollPadding, setNeedsScrollPadding] = useState(false);
+  // The prompt box's real height, measured: suggestions, the tool header and a growing textarea all change it.
+  const [footerHeight, setFooterHeight] = useState(210);
+  React.useLayoutEffect(() => {
+    const footer = footerRef.current;
+    if (!footer) return;
+    let last = footer.offsetHeight;
+    const measure = () => {
+      const next = footer.offsetHeight;
+      const container = chatScrollRef.current;
+      // Read before the padding grows: someone reading the end of the thread keeps
+      // seeing it as the suggestions slide in, instead of having it slip under them.
+      const atBottom = !!container && container.scrollHeight - container.scrollTop - container.clientHeight < 4;
+      const grew = next > last;
+      last = next;
+      if (grew && atBottom && !isScrollingToTop.current) {
+        flushSync(() => setFooterHeight(next));
+        container!.scrollTop = container!.scrollHeight;
+      } else {
+        setFooterHeight(next);
+      }
+    };
+    setFooterHeight(last);
+    const observer = new ResizeObserver(measure);
+    observer.observe(footer);
+    return () => observer.disconnect();
+  }, []);
   const [showLeftGradient, setShowLeftGradient] = useState(false);
   const [messageReactions, setMessageReactions] = useState<{ [key: string]: 'like' | 'dislike' | null }>({});
   const [fileListExpanded, setFileListExpanded] = useState(false); // Lifted state for file list expansion
@@ -403,26 +391,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const $selectedElement = useStore(selectedElement);
   const selectedEls = useStore(selectedElements);
   
-  // Selected tool state (independent from tabs)
-  //
-  // Seeded from the Agent store so a pick made on the landing composer — which
-  // is where the first prompt is usually typed — is still selected once the
-  // workbench takes over. Any other tool starts unselected, as before.
-  const [selectedToolId, setSelectedToolId] = useState<string | null>(
-    () => (agentEngaged.get() ? 'agent' : null),
-  );
-
-  /*
-   * ...and kept in step with it afterwards, for the same reason the landing
-   * composer is: the two hold separate tool state, so whichever one the user did
-   * not touch would otherwise show a pill that disagrees with what actually runs.
-   */
-  useEffect(() => {
-    setSelectedToolId((current) => {
-      if (isAgent) return 'agent';
-      return current === 'agent' ? null : current;
-    });
-  }, [isAgent]);
+  // Selected tool state (independent from tabs). Seeded from the landing
+  // composer, so a tool picked there still applies once the workbench takes over.
+  const [selectedToolId, setSelectedToolId] = useState<string | null>(initialToolId);
   const [globalErrors, setGlobalErrors] = useState<{id: string; message: string; isClosing: boolean; action?: 'set-api-key'}[]>([]);
 
   const addGlobalError = useCallback((message: string, action?: 'set-api-key') => {
@@ -445,6 +416,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const lastPreviewErrorRef = useRef<string>('');
   useEffect(() => {
     const handlePreviewError = (event: MessageEvent) => {
+      if (!isOwnPreviewMessage(codeSession, event)) return;
       if (event.data?.type === 'PREVIEW_ERROR' && event.data.message) {
         if (event.data.message === lastPreviewErrorRef.current) return;
         lastPreviewErrorRef.current = event.data.message;
@@ -454,7 +426,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     };
     window.addEventListener('message', handlePreviewError);
     return () => window.removeEventListener('message', handlePreviewError);
-  }, [addGlobalError]);
+  }, [addGlobalError, codeSession]);
   
   // Attachments State
   interface Attachment {
@@ -598,15 +570,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     hasCodeChanges?: boolean;
     filesSnapshot?: Record<string, string>; // State of codebase immediately after this message
     /**
-     * Agent tool only: the Codex harness turn that produced this message.
-     *
-     * The harness keeps its tool calls and sub-agents in `agent-store` rather
-     * than on the message, because they stream in while the message body is
-     * still empty. This id is the join between the two. Absent on every message
-     * the legacy loop produced, which is what makes the timeline components
-     * fall back to plain rendering.
+     * The harness turn behind an assistant message: its prose and its work, in
+     * order. Saved with the message, so a reopened chat shows the same
+     * transcript. Absent on messages from before the harness, which render from
+     * `content` as they always did.
      */
-    codexTurnId?: string;
+    steps?: TurnStep[];
+    /** Set on a Plan mode reply, which offers "Implement plan". */
+    harnessMode?: TurnMode;
 
     timestamp: number;
     attachments?: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[];
@@ -614,14 +585,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   }
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentStreamingResponse, setCurrentStreamingResponse] = useState('');
-  /**
-   * The Codex turn in flight, or null when the Agent tool is not driving.
-   *
-   * Held separately from `messages` because the assistant message is only
-   * appended once the turn settles, while its tool cards need to render from
-   * the first patch onward.
-   */
-  const [activeCodexTurn, setActiveCodexTurn] = useState<string | null>(null);
 
   // Design mode (canvas-screens) — separate chat state
   const [designMessages, setDesignMessages] = useState<ChatMessage[]>([]);
@@ -687,6 +650,41 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   );
   const [designChatTitle, setDesignChatTitle] = useState<string | null>(null);
   const inboxSaveRef = useRef<Promise<unknown>>(Promise.resolve());
+  // The conversation this screen has open, under the id its Recents row has. A project's
+  // chat is in the project, not in Recents, so there is none to publish once promoted.
+  useEffect(() => {
+    setCodeScreenChat(codeSession.screenKey, isProjectPromoted ? null : codeChatTitle || codeChatSessionId);
+  }, [codeSession, codeChatTitle, codeChatSessionId, isProjectPromoted]);
+  useEffect(() => () => setCodeScreenChat(codeSession.screenKey, null), [codeSession]);
+
+  // Where this conversation lives, for a turn another tab may have to pick up.
+  // Promotion and naming both move it, so the running turn's job is told.
+  const place = useMemo((): CodeTurnPlace | null => {
+    if (!isProjectPromoted) return { target: 'chat', chatId: codeChatTitle || codeChatSessionId };
+    const projectId = projectName ? codeProjectId(projectName) : null;
+    return projectId && projectName ? { target: 'project', projectId, projectName, sessionId: currentSessionId } : null;
+  }, [isProjectPromoted, codeChatTitle, codeChatSessionId, projectName, currentSessionId]);
+  const placeRef = useRef(place);
+  placeRef.current = place;
+  const turnJobRef = useRef<BackgroundJobHandle<CodeTurnJob> | null>(null);
+  useEffect(() => {
+    if (place) turnJobRef.current?.update({ place });
+  }, [place]);
+  // Unmounting is leaving the turn behind (another project, New chat): not for
+  // another tab to pick up, and not to write into whatever the store holds next.
+  // A closed tab never unmounts, so its turn still carries on elsewhere.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      turnJobRef.current?.finish();
+      turnJobRef.current = null;
+    };
+  }, []);
+  // The conversation has been read back (a reopened chat or a project's sessions),
+  // which is what a turn inherited from another tab waits for.
+  const [isSessionHydrated, setIsSessionHydrated] = useState(false);
   const resumeStartedRef = useRef(false);
   /**
    * Set once a reopened chat's restore has finished, which is what the session
@@ -706,8 +704,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
    */
   const resumedMessagesRef = useRef<ChatMessage[] | null>(null);
 
-  const { chatScopeId, isLocalFolderConnected, loadLocalFSProject, loadLocalFSChat, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
+  const { chatScopeId, isLocalFolderConnected, localChats, loadLocalFSProject, loadLocalFSChat, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
+  // Read when naming, so a chat saved elsewhere does not start another naming request.
+  const localChatsRef = useRef(localChats);
+  localChatsRef.current = localChats;
   const { loadLatestProject } = useDrive();
+
+  // Spark's skills load with the Spark tab; the `$` menu needs them before then.
+  useEffect(() => {
+    ensureSkillsHydrated(chatScopeId || 'guest');
+  }, [chatScopeId]);
 
   // Generate chat title using Gemini 3.1 Flash Lite once we have user and assistant responses (Code Chat)
   useEffect(() => {
@@ -725,9 +731,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         // Naming used to stop here when the model gave nothing back, so a quota
         // error left the chat on its session id for the rest of the session.
         if (!title) title = deriveFallbackTitle(userMsg, FALLBACK_CHAT_TITLE);
+        // An inbox chat is renamed to its title, and the rename is refused when
+        // another chat already has that name: the file would keep its old name
+        // while the Code marker moved, and the chat would open in Chat.
+        const taken = (name: string) => {
+          const lower = name.toLowerCase();
+          return sessions.some(s => s.name.toLowerCase() === lower) || localChatsRef.current.some(chatId => chatId.toLowerCase() === lower);
+        };
         let uniqueTitle = title;
         let counter = 1;
-        while (sessions.some(s => s.name.toLowerCase() === uniqueTitle.toLowerCase())) {
+        while (taken(uniqueTitle)) {
           uniqueTitle = `${title} (${counter})`;
           counter++;
         }
@@ -753,10 +766,16 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
     if (!isProjectPromoted) {
       markCodeChat(chatScopeId, activeId);
-      const inboxMessages = messages.map((message) => ({ ...message, willowMode: 'code' }));
+      // Reopening an inbox chat reads its bytes from this JSON, so they stay in it;
+      // the files beside it are the copy you can open.
+      const { messages: inboxMessages, files } = splitChatFiles(
+        messages.map((message) => ({ ...message, willowMode: 'code' })),
+        { keepInline: true },
+      );
       inboxSaveRef.current = inboxSaveRef.current
         .catch(() => {})
-        .then(() => saveLocalFSChat(activeId, inboxMessages, codeChatTitle ? codeChatSessionId : null));
+        // Never the open chat: Chat would load it, and its next save would strip the Code fields.
+        .then(() => saveLocalFSChat(activeId, inboxMessages, codeChatTitle ? codeChatSessionId : null, files, { openInChat: false }));
       return;
     }
 
@@ -764,7 +783,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     void (async () => {
       await inboxSaveRef.current.catch(() => {});
       if (isLocalFolderConnected) {
-        await saveLocalFSProjectChat(projectName, activeId, messages);
+        // The session id's file and folder become the title's once it has one.
+        const { messages: diskMessages, files } = splitChatFiles(messages, { keepInline: false });
+        await saveLocalFSProjectChat(projectName, activeId, diskMessages, codeChatTitle ? codeChatSessionId : null, files);
       }
       unmarkCodeChat(chatScopeId, activeId);
       await deleteLocalFSChat(activeId);
@@ -801,18 +822,18 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   useEffect(() => {
     if (isLocalFolderConnected && designMessages.length > 0 && projectName) {
       const activeId = designChatTitle || designChatSessionId;
-      void saveLocalFSProjectChat(projectName, activeId, designMessages, designChatTitle ? designChatSessionId : null);
+      const { messages: diskMessages, files } = splitChatFiles(designMessages, { keepInline: false });
+      void saveLocalFSProjectChat(projectName, activeId, diskMessages, designChatTitle ? designChatSessionId : null, files);
     }
   }, [designMessages, designChatTitle, designChatSessionId, isLocalFolderConnected, projectName, saveLocalFSProjectChat]);
 
-  const [currentThinkingTime, setCurrentThinkingTime] = useState(0);
   const thinkingTimeRef = useRef(0); // Ref to capture accurate final thinking time
   const thinkingStartTimeRef = useRef<number | null>(null); // Timestamp when thinking started
   const [isCurrentlyGenerating, setIsCurrentlyGenerating] = useState(!!prompt);
-  const [isCurrentlyThinking, setIsCurrentlyThinking] = useState(!!prompt);
+  useEffect(() => { setCodeScreenRunning(codeSession.screenKey, isCurrentlyGenerating); }, [codeSession, isCurrentlyGenerating]);
+  useEffect(() => () => setCodeScreenRunning(codeSession.screenKey, false), [codeSession]);
   const isCurrentlyThinkingRef = useRef(false); // Ref to avoid stale closure in streaming callback
   const { apiKeys, loading: userDataLoading } = useUserDataContext();
-  const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
   // Abort provider requests when the Code mode stop button is pressed.
   const generationAbortControllerRef = useRef<AbortController | null>(null);
   // Monotonic guard so an older run cannot clear state or append output after
@@ -927,7 +948,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       const rect = triggerRef.current.getBoundingClientRect();
       setPopoverPosition({
         top: rect.bottom + window.scrollY,
-        left: rect.left + window.scrollX,
+        // The popover is w-72 (288px); kept 8px inside the screen, which only bites on a phone.
+        left: Math.max(8, Math.min(rect.left + window.scrollX, window.innerWidth - 288 - 8)),
       });
     }
   }, []);
@@ -1013,6 +1035,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         setCurrentSessionId(sessionId);
       }
       resumeSettledRef.current = true;
+      setIsSessionHydrated(true);
       onProjectHydrated?.();
     })();
   }, [resumeChatId, loadLocalFSChat, onProjectHydrated]);
@@ -1084,7 +1107,10 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         if (!restoredDurableProject && sorted[0].filesSnapshot && Object.keys(sorted[0].filesSnapshot).length > 0) {
           workbenchStore.restoreFromSnapshot(sorted[0].activeSnapshotId || '', sorted[0].filesSnapshot);
         }
-        if (!cancelled) onProjectHydrated?.();
+        if (!cancelled) {
+          setIsSessionHydrated(true);
+          onProjectHydrated?.();
+        }
         return;
       }
 
@@ -1109,6 +1135,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         setSessions([]);
       }
       setCurrentSessionId(initialId);
+      setIsSessionHydrated(true);
       onProjectHydrated?.();
     })();
 
@@ -1361,15 +1388,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       
       setCurrentStreamingResponse('');
       setIsCurrentlyGenerating(false);
-      setIsCurrentlyThinking(false);
       isCurrentlyThinkingRef.current = false;
-      setCurrentThinkingTime(0);
       thinkingTimeRef.current = 0;
       thinkingStartTimeRef.current = null;
-      if (thinkingTimerRef.current) {
-        clearInterval(thinkingTimerRef.current);
-        thinkingTimerRef.current = null;
-      }
       
     }
     
@@ -1425,8 +1446,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
        activeTab === 'canvas-elements')
       ? 56
       : 20;
-
-  const responseHasCodeChanges = (response: string) => parseAIResponse(response).length > 0;
 
   // Generate prompt suggestions based on conversation
   const generateSuggestions = useCallback(async () => {
@@ -1579,11 +1598,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     }
   }, [messages, generateSuggestions]);
 
-  // Keep thinking ref in sync with state
-  useEffect(() => {
-    isCurrentlyThinkingRef.current = isCurrentlyThinking;
-  }, [isCurrentlyThinking]);
-  
   // Pre-warm SDK clients as soon as API keys are available
   useEffect(() => {
     if (apiKeys.gemini?.[0]) prewarmClient('gemini', apiKeys.gemini[0]);
@@ -1625,36 +1639,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     setMessages([]);
     setCurrentStreamingResponse('');
     setPromptValue('');
-
-    /*
-     * A goal belongs to a thread, not to the app.
-     *
-     * Upstream's `ThreadGoal` carries a `thread_id` and its runtime is
-     * registered per thread. Left standing across a new chat, a goal about the
-     * previous conversation's work would keep starting continuation turns
-     * against a project it no longer describes — and the objective is what
-     * those turns are steered by, so they would pursue the wrong thing
-     * confidently.
-     *
-     * The collaboration mode is deliberately *not* reset. It is a preference
-     * rather than thread data, upstream persists it across sessions, and the
-     * composer shows which one is active.
-     */
-    setThreadGoal(null);
-    setPendingGoalObjective(null);
-    dismissUserInput();
+    harness.clear();
 
     // Clear thinking state
     setIsCurrentlyGenerating(false);
-    setIsCurrentlyThinking(false);
     isCurrentlyThinkingRef.current = false;
-    setCurrentThinkingTime(0);
     thinkingTimeRef.current = 0;
     thinkingStartTimeRef.current = null;
-    if (thinkingTimerRef.current) {
-      clearInterval(thinkingTimerRef.current);
-      thinkingTimerRef.current = null;
-    }
 
     // Keep suggestions (do not clear them)
     // Removed: setSuggestions([]);
@@ -1684,9 +1675,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     onTabChange('preview');
   }, [isCurrentlyGenerating, sidebarView, onTabChange, currentSessionId, messages, activeSnapshotId, projectName, getFilesSnapshot]);
 
-  // Listen for new chat signal from collapsed TopBar
+  // Listen for this screen's collapsed TopBar asking for a new chat
   useEffect(() => {
-    const unsub = newChatSignal.listen(() => {
+    const unsub = codeSession.newChat.listen(() => {
       handleNewChat();
     });
     return unsub;
@@ -1888,7 +1879,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       shouldFireInitialGenRef.current = true;
 
       // Reset stores for fresh session
-      sandpackStore.reset();
+      workbenchStore.reset();
       testStore.reset();
 
       // Clear animation tracking refs
@@ -1939,18 +1930,9 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
         // Set generating/thinking status immediately
         setIsCurrentlyGenerating(true);
-        setIsCurrentlyThinking(true);
         isCurrentlyThinkingRef.current = true;
-        setCurrentThinkingTime(0);
         thinkingTimeRef.current = 0;
         thinkingStartTimeRef.current = Date.now();
-
-        // Start timer immediately
-        if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-        thinkingTimerRef.current = setInterval(() => {
-          thinkingTimeRef.current += 1;
-          setCurrentThinkingTime(thinkingTimeRef.current);
-        }, 1000);
       };
 
       processInitialAttachments();
@@ -1997,73 +1979,72 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           }
         }
 
-        /*
-         * The opening turn takes the same fork as every later one.
-         *
-         * This is the handoff from the landing composer, and it does not go
-         * through `handleSendMessage`, so the routing there does not cover it.
-         * Missing this is invisible in the worst way: the Agent tool reads as
-         * selected, and the first prompt — the one that builds the project —
-         * quietly runs the legacy loop instead.
-         *
-         * Read from the store rather than the `isAgent` render value: this fires
-         * from an effect whose deps do not include it, so the closure could be
-         * a render behind.
-         */
-        if (agentEngaged.get()) {
-          startCodexGeneration(prompt, []);
-        } else {
-          startAiGeneration(prompt, [], true, processedAttachments); // true = UI already started
-        }
+        // The landing composer's handoff: same harness, no history yet, and the
+        // tool picked there decides the mode of this opening turn.
+        void startHarnessGeneration(prompt, processedAttachments, {
+          history: [],
+          mode: initialToolId === 'plan' ? 'plan' : 'build',
+          tool: initialToolId as CodeToolId | null,
+        });
       };
 
       fireInitialGeneration();
     }
   }, [prompt, messages]);
 
-  const handleSendMessage = async (text: string) => {
-    if (hasUnsaved) return; // Block sending when unsaved changes exist
-    if (!text.trim() && attachments.length === 0) return;
-
-    /*
-     * Agent tool: a mode command submitted as a whole line.
-     *
-     * `/goal ship the checkout flow` is a complete instruction someone can type
-     * and send without touching the menu, and `matchSlashCommands` stops
-     * matching at the first space — so submission is the only place it can be
-     * caught. Handled before anything else because a mode change is not a
-     * message: nothing is added to the transcript and no turn starts.
-     */
-    if (isAgent) {
-      const submitted = matchCommandSubmission(text);
-      if (submitted?.command.action === 'plan-mode') {
-        setCollaborationMode('plan');
-        setPromptValue('');
+  /*
+   * A turn another tab was running in this conversation when it closed: once the
+   * conversation has been read back, send its message again under the same job.
+   * Its question is on disk already — the save effect writes a user message the
+   * moment it is sent — and the reply is only appended when a turn ends, so a
+   * conversation ending on the user's message is exactly an interrupted turn.
+   */
+  const codeResume = useStore($codeResume);
+  const resumedJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!codeResume || resumedJobRef.current === codeResume.job.id || !isSessionHydrated || isCurrentlyGenerating) return;
+    const { place: wanted, mode, tool, selectedModelId: jobModelId } = codeResume.job.payload;
+    const here = placeRef.current;
+    const isHere = wanted.target === 'chat'
+      ? here?.target === 'chat' && here.chatId === wanted.chatId
+      : here?.target === 'project' && here.projectName === wanted.projectName;
+    if (!isHere) return;
+    if (wanted.target === 'project' && wanted.sessionId && currentSessionId !== wanted.sessionId) {
+      const session = sessions.find((candidate) => candidate.id === wanted.sessionId);
+      if (session) {
+        setCurrentSessionId(session.id);
+        setMessages(session.messages);
         return;
-      }
-      if (submitted?.command.action === 'default-mode') {
-        setCollaborationMode('default');
-        setPromptValue('');
-        return;
-      }
-      if (submitted?.command.action === 'goal-mode') {
-        // A bare `/goal` with no objective is a request for the affordance, not
-        // a goal. Leave the composer primed rather than starting an empty one —
-        // upstream's `validate_thread_goal_objective` rejects it anyway.
-        if (!submitted.argument) {
-          setPromptValue('/goal ');
-          return;
-        }
-        setPendingGoalObjective(submitted.argument);
-        setPromptValue('');
-        // Fall through with the objective as the prompt: the first goal turn is
-        // an ordinary turn that happens to have a goal attached.
-        text = submitted.argument;
       }
     }
+    resumedJobRef.current = codeResume.job.id;
+    const question = messages[messages.length - 1];
+    if (question?.role !== 'user') {
+      codeResume.settle();
+      return;
+    }
+    setIsCurrentlyGenerating(true);
+    setCurrentStreamingResponse('');
+    isCurrentlyThinkingRef.current = true;
+    thinkingTimeRef.current = 0;
+    thinkingStartTimeRef.current = Date.now();
+    void startHarnessGeneration(question.content, (question.attachments ?? []) as ProcessedAttachment[], {
+      history: messages.slice(0, -1),
+      mode,
+      tool: tool as CodeToolId | null,
+      jobId: codeResume.job.id,
+      selectedModelId: jobModelId,
+    });
+    codeResume.settle();
+  }, [codeResume, isSessionHydrated, isCurrentlyGenerating, messages, currentSessionId, sessions]);
+
+  const handleSendMessage = async (text: string, options: { mode?: TurnMode; tool?: CodeToolId | null } = {}) => {
+    if (hasUnsaved) return; // Block sending when unsaved changes exist
+    if (!text.trim() && attachments.length === 0) return;
+    if (isCurrentlyGenerating) return;
 
     // Process attachments
-    const processedAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [];
+    const processedAttachments: ProcessedAttachment[] = [];
     
     for (const att of attachments) {
         if (!att.file) continue;
@@ -2092,24 +2073,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         }
     }
 
-    // Prepare image asset paths (don't store yet - only store if AI uses them in code)
-    const imageAssetPaths: { name: string; path: string; dataUrl: string }[] = [];
     const currentFiles = workbenchStore.files.get();
-
-    for (const att of processedAttachments) {
-      if (att.type === 'image' && att.data) {
-        const approxBytes = att.data.length * 0.75;
-        if (approxBytes > MAX_IMAGE_SIZE_BYTES) {
-          console.warn(`[Sidebar] Image ${att.name} too large (${(approxBytes / 1024 / 1024).toFixed(1)} MB), skipping`);
-          continue;
-        }
-
-        const dataUrl = `data:${att.mimeType};base64,${att.data}`;
-        const imagePath = getUniqueImagePath(att.name || 'image.png', currentFiles);
-        imageAssetPaths.push({ name: att.name || 'image.png', path: imagePath, dataUrl });
-        console.log(`[Sidebar] Prepared image asset path: ${att.name} -> ${imagePath}`);
-      }
-    }
 
     const userMessage: ChatMessage = {
       id: Math.random().toString(36).substring(7),
@@ -2150,8 +2114,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       setAttachments([]); // Clear attachments
       setRemovingIds(new Set());
       setIsCurrentlyGenerating(true);
-      setIsCurrentlyThinking(true);
-      setCurrentThinkingTime(0);
       setCurrentStreamingResponse('');
     });
 
@@ -2163,495 +2125,154 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     thinkingTimeRef.current = 0;
     thinkingStartTimeRef.current = Date.now();
 
-    if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-    thinkingTimerRef.current = setInterval(() => {
-      thinkingTimeRef.current += 1;
-      setCurrentThinkingTime(thinkingTimeRef.current);
-    }, 1000);
-
-    // Route based on activeTab, selectedToolId, or isTestMode
+    // The design canvas keeps its own chat; everything else, Test included, is one harness turn.
     if (activeTab === 'canvas-screens') {
-      // Design mode — isolated design generation
       await startDesignGeneration(text);
-    } else if (selectedToolId === 'test' || isTestMode) {
-      // In test mode, run the test
-      await startTestGeneration(text);
-    } else if (isAgent) {
-      /*
-       * Agent tool: the Codex harness runs this turn instead of the loop below.
-       *
-       * The only place the two paths diverge. Everything before this point —
-       * the user message, the attachments, the thinking timer — is shared, and
-       * with the tool off this branch is skipped entirely.
-       */
-      await startCodexGeneration(text, imageAssetPaths);
     } else {
-      // Normal code generation - Trigger generation with history
-      const history: AiChatMessage[] = messages.map(m => ({
-          role: m.role,
-          content: m.content
-      }));
-      // Pass processedAttachments for the NEW message
-      await startAiGeneration(text, history, true, processedAttachments, imageAssetPaths);
+      await startHarnessGeneration(text, processedAttachments, { mode: options.mode, tool: options.tool });
     }
   };
 
+  /** Attached images, as assets the app may import. The turn keeps the ones it uses. */
+  const toImageAssets = (attachmentsForTurn: ProcessedAttachment[]): ImageAsset[] => {
+    const taken: Record<string, unknown> = { ...workbenchStore.files.get() };
+    const assets: ImageAsset[] = [];
+    for (const att of attachmentsForTurn) {
+      if (att.type !== 'image' || !att.data) continue;
+      const approxBytes = att.data.length * 0.75;
+      if (approxBytes > MAX_IMAGE_SIZE_BYTES) {
+        console.warn(`[Sidebar] Image ${att.name} too large (${(approxBytes / 1024 / 1024).toFixed(1)} MB), skipping`);
+        continue;
+      }
+      const path = getUniqueImagePath(att.name || 'image.png', taken);
+      taken[path] = true;
+      assets.push({ name: att.name || 'image.png', path, dataUrl: `data:${att.mimeType};base64,${att.data}` });
+    }
+    return assets;
+  };
+
   /**
-   * Runs one turn on the Codex harness — the Agent tool's generation path.
+   * Runs one turn on the harness. Every Code message goes through here.
    *
-   * A sibling of `startAiGeneration`, not a replacement for it. Everything the
-   * legacy loop does here — the bolt system prompt, the codebase context block,
-   * the streaming artifact parser — belongs to that loop and is deliberately
-   * absent: the harness builds its own prompt from the vendored Codex text,
-   * sends a file manifest rather than the whole codebase, and applies edits as
-   * V4A patches instead of whole-file rewrites.
-   *
-   * Attachments are not forwarded. `runCodexTurn` has no channel for them, so a
-   * turn started with images attached sends the prose only. Images the user
-   * dropped are still written into the project as assets below, exactly as in
-   * the legacy path.
-   *
-   * See features/code/src/agent/harness/AGENTS.md.
+   * The sidebar owns the message list; the harness owns everything the turn
+   * does, and times its thinking over every round. Its live transcript streams
+   * through `LiveTurnTimeline`, and when the turn settles its steps are saved on
+   * the assistant message, so the same transcript renders after a reload.
    */
-  const startCodexGeneration = async (
+  const startHarnessGeneration = async (
     text: string,
-    imageAssetPaths: { name: string; path: string; dataUrl: string }[] = [],
+    attachmentsForTurn: ProcessedAttachment[] = [],
+    options: { mode?: TurnMode; history?: ChatMessage[]; tool?: CodeToolId | null; jobId?: string; selectedModelId?: string } = {},
+  ) => {
+    const tool = options.tool !== undefined ? options.tool : (selectedToolId as CodeToolId | null);
+    const mode: TurnMode = options.mode ?? (tool === 'plan' ? 'plan' : 'build');
+    const turnModelId = options.selectedModelId ?? selectedModelId;
+    // A saved conversation's turn is also a background job, so another tab can
+    // carry it on if this one closes (`code-turn-jobs.ts`).
+    const place = placeRef.current;
+    const job = place && isLocalFolderConnected
+      ? startCodeTurnJob(options.jobId, chatScopeId || 'guest', { place, mode, tool, selectedModelId: turnModelId })
+      : null;
+    turnJobRef.current = job;
+    try {
+      await runHarnessGeneration(text, attachmentsForTurn, { history: options.history, tool, mode, selectedModelId: turnModelId });
+    } finally {
+      if (turnJobRef.current === job) turnJobRef.current = null;
+      job?.finish();
+    }
+  };
+
+  const runHarnessGeneration = async (
+    text: string,
+    attachmentsForTurn: ProcessedAttachment[],
+    options: { mode?: TurnMode; history?: ChatMessage[]; tool?: CodeToolId | null; selectedModelId?: string },
   ) => {
     generationAbortControllerRef.current?.abort();
     const abortController = new AbortController();
     generationAbortControllerRef.current = abortController;
     const runId = ++generationRunIdRef.current;
     const isCurrentRun = () => generationRunIdRef.current === runId;
+    const tool = options.tool !== undefined ? options.tool : (selectedToolId as CodeToolId | null);
+    const mode: TurnMode = options.mode ?? (tool === 'plan' ? 'plan' : 'build');
 
-    const turnId = nextTurnId();
-    setActiveCodexTurn(turnId);
-
-    let responseText = '';
-    const assistantId = Math.random().toString(36).substring(7);
-
-    workbenchStore.isGenerating.set(true);
-
-    // The harness owns the turn; the sidebar owns the message body. Prose
-    // arrives through `onText` and everything else lands in the activity store.
-    const harnessHistory: Message[] = messages.map((message) => ({
-      id: message.id,
+    const history: HistoryEntry[] = (options.history ?? messages).map((message) => ({
       role: message.role,
-      blocks: [{ type: 'text' as const, id: message.id, content: message.content }],
-      createdAt: message.timestamp,
+      content: message.content,
+      steps: message.steps,
+      mode: message.harnessMode,
+      attachments: message.attachments?.map((attachment) => ({ name: attachment.name, type: attachment.type })),
     }));
 
-    await runCodexTurn({
-      turnId,
+    const result = await runWorkbenchTurn({
       prompt: text,
-      history: harnessHistory,
-      workbench: workbenchStore as unknown as WorkbenchFiles,
-      modelConfig,
-      selectedModelId,
-      apiKeys,
-      effort: codexEffort,
-      /*
-       * Plan mode and Goal mode, as upstream defines them.
-       *
-       * `mode` selects the vendored `<collaboration_mode>` document and, with
-       * it, the whole of Plan mode's behaviour: `update_plan` refused, mutation
-       * declined, `request_user_input` available, the plan delivered as a
-       * `<proposed_plan>` block.
-       *
-       * `goal` is separate and composes with the mode — a goal is normally
-       * pursued in Default mode. `resume` is what makes continuations survive a
-       * reload, and it is only passed while the goal is still live: handing
-       * back a `complete` goal would let `create_goal` fire against a finished
-       * one.
-       */
+      attachments: attachmentsForTurn,
+      imageAssets: toImageAssets(attachmentsForTurn),
+      history,
       mode,
-      goal:
-        pendingGoalObjectiveRef.current || goalIsRunning(goal)
-          ? {
-              objective: pendingGoalObjectiveRef.current ?? undefined,
-              resume: goalIsRunning(goal) ? goal : null,
-            }
-          : undefined,
-      onGoal: setThreadGoal,
-      requestUserInput: requestUserInputSink,
-      /*
-       * The shared skill library — the skills the user added in Spark → Skills.
-       *
-       * Read at send time rather than through `useStore`: this is not rendered,
-       * and subscribing would re-render the whole sidebar every time Spark
-       * touched its state. The harness wants a snapshot for the turn anyway.
-       *
-       * The scope is passed because the library loads itself on first read.
-       * Spark's own state is only hydrated by `SparkWorkspace`, so without this
-       * the Agent would silently get no skills in any session where the user
-       * had not opened the Spark tab — and would start working later for no
-       * visible reason.
-       */
+      selectedTool: tool,
+      modelConfig,
+      selectedModelId: options.selectedModelId ?? selectedModelId,
+      apiKeys,
+      // Read at send time, as a snapshot for the turn. Passing the scope lets
+      // the library load itself when Spark has not been opened this session.
       skills: enabledSkills(chatScopeId || 'guest'),
-      /*
-       * Tools from MCP servers the user has connected and enabled.
-       *
-       * Read at send time, like the skills above: this is not rendered, and a
-       * subscription would re-render the sidebar on every connection status
-       * change. A turn wants a snapshot anyway.
-       */
-      mcpTools: boundMcpTools(),
+      connectors: mode === 'build' ? boundMcpTools() : [],
+      environment: {
+        showPreview: showPreviewForHarness,
+        requestStop: () => abortController.abort(),
+      },
       signal: abortController.signal,
-      onText: (chunk) => {
-        if (abortController.signal.aborted || !isCurrentRun()) return;
-
-        // The first token ends the thinking phase, exactly as in the legacy loop.
-        if (isCurrentlyThinkingRef.current) {
-          const elapsedMs = thinkingStartTimeRef.current
-            ? Date.now() - thinkingStartTimeRef.current
-            : 0;
-          thinkingTimeRef.current = Math.ceil(elapsedMs / 1000);
-          setCurrentThinkingTime(thinkingTimeRef.current);
-          isCurrentlyThinkingRef.current = false;
-          setIsCurrentlyThinking(false);
-          if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-        }
-
-        responseText += chunk;
-        setCurrentStreamingResponse(responseText);
-      },
-      onDone: ({ reason, error, text: finalText }) => {
-        if (!isCurrentRun()) return;
-
-        // Consumed. Leaving it set would start a *second* goal on the next
-        // ordinary message, with the previous turn's objective.
-        setPendingGoalObjective(null);
-
-        // The harness's cleaned transcript, not the raw stream: file contents
-        // the model wrote as prose have been re-sent as a patch, and the
-        // original block is replaced so the message does not show the same file
-        // twice.
-        responseText = finalText || responseText;
-
-        if (reason === 'cancelled') {
-          // A question left outstanding would block every later turn behind a
-          // prompt whose card is no longer on screen.
-          dismissUserInput();
-          setCurrentStreamingResponse('');
-          setIsCurrentlyGenerating(false);
-          setIsCurrentlyThinking(false);
-          setActiveCodexTurn(null);
-          if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-          workbenchStore.isGenerating.set(false);
-          return;
-        }
-
-        if (reason === 'error' && error) {
-          const isApiKeyError = /api.?key/i.test(error) && /missing|not configured/i.test(error);
-          addGlobalError(error, isApiKeyError ? 'set-api-key' : undefined);
-        }
-
-        // A turn changed code if the harness emitted an edit, which is more
-        // reliable than pattern-matching the prose for artifact tags.
-        const edits = turnCalls(turnId).filter(
-          (call) => call.kind === 'edit' || call.kind === 'create' || call.kind === 'delete',
-        );
-
-        const assistantMessage: ChatMessage = {
-          id: assistantId,
-          role: 'assistant',
-          content: responseText,
-          thinkingTime: thinkingTimeRef.current,
-          hasCodeChanges: edits.length > 0,
-          codexTurnId: turnId,
-          timestamp: Date.now(),
-        };
-
-        setMessages((prev) => [...prev, assistantMessage]);
-        setCurrentStreamingResponse('');
-        setCurrentThinkingTime(0);
-        setIsCurrentlyGenerating(false);
-        setIsCurrentlyThinking(false);
-        setActiveCodexTurn(null);
-
-        // Only keep images the model actually referenced.
-        for (const img of imageAssetPaths) {
-          if (responseText.includes(img.path)) workbenchStore.setFile(img.path, img.dataUrl);
-        }
-
-        if (assistantMessage.hasCodeChanges) {
-          const snapshot: Record<string, string> = {};
-          Object.entries(workbenchStore.files.get()).forEach(([path, file]: [string, any]) => {
-            snapshot[path] = file.content;
-          });
-          setMessages((prev) =>
-            prev.map((msg) => (msg.id === assistantId ? { ...msg, filesSnapshot: snapshot } : msg)),
-          );
-          workbenchStore.activeSnapshotId.set(assistantId);
-        }
-
-        workbenchStore.isGenerating.set(false);
-      },
+      session: codeSession,
+      isLive: () => isMountedRef.current,
     });
 
     if (generationAbortControllerRef.current === abortController) {
       generationAbortControllerRef.current = null;
     }
-  };
+    if (!isCurrentRun()) return;
+    isCurrentlyThinkingRef.current = false;
+    const thinkingTime = result.thinkingMs > 0 ? Math.max(1, Math.round(result.thinkingMs / 1000)) : 0;
 
-  const startAiGeneration = async (text: string, history: AiChatMessage[], uiAlreadyStarted: boolean, currentAttachments: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[] = [], imageAssetPaths: { name: string; path: string; dataUrl: string }[] = []) => {
-    generationAbortControllerRef.current?.abort();
-    const abortController = new AbortController();
-    generationAbortControllerRef.current = abortController;
-    const runId = ++generationRunIdRef.current;
-    const isCurrentRun = () => generationRunIdRef.current === runId;
-
-    if (!uiAlreadyStarted) {
-      setIsCurrentlyGenerating(true);
-      setIsCurrentlyThinking(true);
-      setCurrentThinkingTime(0);
-      thinkingTimeRef.current = 0;
-      setCurrentStreamingResponse('');
-
-      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-      thinkingTimerRef.current = setInterval(() => {
-        thinkingTimeRef.current += 1;
-        setCurrentThinkingTime(thinkingTimeRef.current);
-      }, 1000);
+    if (result.reason === 'error' && result.error) {
+      const isApiKeyError = /api.?key/i.test(result.error) && /missing|not configured|invalid/i.test(result.error);
+      addGlobalError(result.error, isApiKeyError ? 'set-api-key' : undefined);
     }
 
-    try {
-      // Find selected provider and model
-      let provider: 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai' = 'gemini';
-      let modelId = '';
-
-      const allSavedModels = [
-        ...(modelConfig.gemini?.savedModels || []).map((m: any) => ({ ...m, provider: 'gemini' })),
-        ...(modelConfig.openai?.savedModels || []).map((m: any) => ({ ...m, provider: 'openai' })),
-        ...(modelConfig.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'anthropic' })),
-        ...(modelConfig.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'moonshot' })),
-        ...(modelConfig.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'spacexai' })),
-        ...(modelConfig.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'zhipuai' }))
-      ];
-
-      const baseModelId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
-      const selected = allSavedModels.find(m => m.id === selectedModelId || m.id === baseModelId);
-      const selectedThinkingLevel = selectedModelId?.includes('::effort-')
-        ? Number(selectedModelId.split('::effort-')[1])
-        : (selected?.thinkingLevel || 0);
-      if (selected) {
-        provider = selected.provider as 'gemini' | 'openai' | 'anthropic' | 'moonshot' | 'spacexai' | 'zhipuai';
-        modelId = selected.modelId;
-      } else {
-        // Fallback to default
-        provider = 'gemini';
-        modelId = (modelConfig.gemini?.model) || 'gemini-3.6-flash';
-      }
-
-      console.log(`Starting AI generation with ${provider} (${modelId})`);
-
-      /* Endpoint, wire format and tool policy come from the live profile, never
-         from the saved model — see `resolveProviderBinding`. */
-      const selectedWithEffort = selected ? { ...selected, thinkingLevel: selectedThinkingLevel } : undefined;
-      const binding = resolveProviderBinding(modelConfig, provider, selectedWithEffort);
-      const bucketKeys = apiKeysForBinding(binding, provider, apiKeys);
-      const apiKey = bucketKeys[0];
-      if (!apiKey) {
-        console.error(`Missing API key for provider ${provider}. Available keys:`, apiKeys);
-        throw new Error(`API Key for ${provider} is missing. Please add it in settings.`);
-      }
-
-      // Add system prompt for Ship mode to get boltArtifact format
-      const systemMessage: AiChatMessage = {
-        role: 'user',
-        content: `<system>${BOLT_SYSTEM_PROMPT}</system>\n\nRemember: Always respond with <boltArtifact> tags containing <boltAction> tags for files and commands.`
-      };
-      
-      // Update history to match new AiChatMessage structure if needed, but for now just casting/passing
-      // effectively, we want to construct the FINAL history that streamChat uses.
-      
-      // Build user content with image asset context if images were stored
-      let userContent = text;
-      if (imageAssetPaths.length > 0) {
-        const imageLines = imageAssetPaths.map(img =>
-          `- "${img.name}" is available at import path "${img.path}"`
-        ).join('\n');
-        userContent += `\n\n[Available image assets in the project - use these import paths to reference the attached images in code:\n${imageLines}\nUsage: import variableName from '${imageAssetPaths[0].path}'; then use variableName as the src value or in url().]`;
-      }
-
-      // Build codebase context from current project files so AI knows existing code
-      const currentFiles = workbenchStore.files.get();
-      const fileEntries = Object.entries(currentFiles);
-      let codebaseContext = '';
-      if (fileEntries.length > 0) {
-        // Keep prompts bounded. Sending an entire growing workbench eventually
-        // causes provider truncation/400s and makes reopening a mature project
-        // unreliable. Prefer source files, cap each file, then cap the total.
-        const MAX_CONTEXT_CHARS = 180_000;
-        const MAX_FILE_CHARS = 40_000;
-        const rankedEntries = fileEntries
-          .filter(([, file]: [string, any]) => file?.content !== undefined)
-          .sort(([a], [b]) => {
-            const score = (path: string) => /(^|[\\/])(src|app|components|lib)([\\/]|$)/i.test(path) ? 0 : /(^|[\\/])(public|assets|node_modules)([\\/]|$)/i.test(path) ? 2 : 1;
-            return score(a) - score(b);
-          });
-        let contextChars = 0;
-        const fileContents = rankedEntries.map(([path, file]: [string, any]) => {
-          if (contextChars >= MAX_CONTEXT_CHARS) return '';
-          const source = String(file.content);
-          const content = source.length > MAX_FILE_CHARS
-            ? `${source.slice(0, MAX_FILE_CHARS)}\n/* ...file truncated for context... */`
-            : source;
-          const entry = `### ${path}\n\`\`\`\n${content}\n\`\`\``;
-          const remaining = MAX_CONTEXT_CHARS - contextChars;
-          contextChars += Math.min(entry.length, remaining);
-          return entry.length <= remaining
-            ? entry
-            : `${entry.slice(0, Math.max(0, remaining))}\n/* ...remaining files omitted for context... */`;
-        }).filter(Boolean).join('\n\n');
-        if (fileContents) {
-          codebaseContext = `\n\nHere is the current project codebase. When the user asks for changes, ONLY modify the files and sections they mention. Do NOT rewrite or re-output files that don't need changes.\n\n${fileContents}`;
-        }
-      }
-
-      const fullHistory = [
-          systemMessage,
-          // Inject codebase context so AI always knows existing code (even after "new chat")
-          ...(codebaseContext ? [{
-            role: 'user' as const,
-            content: `[EXISTING PROJECT FILES — for reference only, do not rewrite unless asked]${codebaseContext}`
-          }, {
-            role: 'assistant' as const,
-            content: 'I can see the existing project files. I\'ll only modify what you ask for and keep everything else intact. What would you like me to change?'
-          }] : []),
-          ...history,
-          {
-              role: 'user' as const,
-              content: userContent,
-              attachments: currentAttachments
-          }
-      ];
-
-      let responseText = '';
-      
-      // Create streaming parser for realtime file creation
-      const messageParser = workbenchStore.createMessageParser();
-      workbenchStore.isGenerating.set(true);
-      
-      await streamChat(
-        fullHistory,
-        {
-          provider,
-          model: modelId,
-          apiKey,
-          thinkingLevel: selectedThinkingLevel,
-          signal: abortController.signal,
-          apiKeyFallbacks: bucketKeys.slice(1),
-          ...binding,
-        },
-        (token) => {
-          if (abortController.signal.aborted || !isCurrentRun()) return;
-          // Use ref to avoid stale closure - state may not be updated yet
-          if (isCurrentlyThinkingRef.current) {
-            // Calculate actual elapsed time from start timestamp (more accurate than interval)
-            const elapsedMs = thinkingStartTimeRef.current ? Date.now() - thinkingStartTimeRef.current : 0;
-            const elapsedSeconds = Math.ceil(elapsedMs / 1000); // Round up to nearest second
-            thinkingTimeRef.current = elapsedSeconds;
-            setCurrentThinkingTime(elapsedSeconds);
-
-            // Update ref and state
-            isCurrentlyThinkingRef.current = false;
-            setIsCurrentlyThinking(false);
-            if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-          }
-          responseText += token;
-          setCurrentStreamingResponse(responseText);
-
-          // Parse streaming content - this triggers file creation in realtime
-          messageParser.parse(token);
-        },
-        () => {
-          // onStart logic handled above
-        }
-      );
-
-      if (!isCurrentRun()) return;
+    const hasTranscript = result.steps.length > 0;
+    if (hasTranscript) {
+      const assistantId = Math.random().toString(36).substring(7);
       const assistantMessage: ChatMessage = {
+        id: assistantId,
+        role: 'assistant',
+        content: result.text,
+        steps: result.steps,
+        // A plan, whether asked for or proposed by the agent, waits for "Implement plan".
+        harnessMode: mode === 'plan' || result.awaitingApproval ? 'plan' : undefined,
+        thinkingTime,
+        hasCodeChanges: result.committed,
+        filesSnapshot: result.snapshot ?? undefined,
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      if (result.committed) workbenchStore.activeSnapshotId.set(assistantId);
+    } else if (result.reason === 'finished') {
+      // A reply with nothing in it still gets an answer on screen.
+      setMessages((prev) => [...prev, {
         id: Math.random().toString(36).substring(7),
         role: 'assistant',
-        content: responseText,
-        thinkingTime: thinkingTimeRef.current, // Use ref for accurate value
-        hasCodeChanges: responseHasCodeChanges(responseText),
-        timestamp: Date.now()
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
-      setCurrentStreamingResponse('');
-      setCurrentThinkingTime(0);
-      setIsCurrentlyGenerating(false);
-      setIsCurrentlyThinking(false);
-
-      // Store only images that the AI actually referenced in its code
-      if (imageAssetPaths.length > 0) {
-        for (const img of imageAssetPaths) {
-          if (responseText.includes(img.path)) {
-            workbenchStore.setFile(img.path, img.dataUrl);
-            console.log(`[Sidebar] Stored referenced image asset: ${img.path}`);
-          }
-        }
-      }
-
-      // Process AI response with bolt.diy workbench
-      if (!isCurrentRun()) return;
-      workbenchStore.isGenerating.set(true);
-      try {
-        await workbenchStore.processAIResponse(responseText);
-        console.log('[Sidebar] Processed AI response with workbenchStore');
-      } catch (err) {
-        console.error('[Sidebar] Error processing response:', err);
-      }
-      if (!isCurrentRun()) return;
-
-      // Flush any pending file edits (for batched edits during subsequent generations)
-      await workbenchStore.flushPendingEdits();
-      if (!isCurrentRun()) return;
-
-      if (assistantMessage.hasCodeChanges) {
-        const snapshot: Record<string, string> = {};
-        Object.entries(workbenchStore.files.get()).forEach(([path, file]: [string, any]) => {
-          snapshot[path] = file.content;
-        });
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantMessage.id ? { ...msg, filesSnapshot: snapshot } : msg
-        ));
-        workbenchStore.activeSnapshotId.set(assistantMessage.id);
-      }
-
-      workbenchStore.isGenerating.set(false);
-
-    } catch (error: any) {
-      if (!isCurrentRun()) return;
-      console.error('Chat error:', error);
-      const errMsg = error.message || 'An error occurred during generation';
-      if (isAbortError(error)) {
-        setCurrentStreamingResponse('');
-        setIsCurrentlyGenerating(false);
-        setIsCurrentlyThinking(false);
-        if (thinkingTimerRef.current) {
-          clearInterval(thinkingTimerRef.current);
-          thinkingTimerRef.current = null;
-        }
-        return;
-      }
-      const isApiKeyError = /api.?key/i.test(errMsg) && /missing/i.test(errMsg);
-      addGlobalError(errMsg, isApiKeyError ? 'set-api-key' : undefined);
-      setIsCurrentlyGenerating(false);
-      setIsCurrentlyThinking(false);
-      setNeedsScrollPadding(true);
-      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-    } finally {
-      // Always clear the global generating flag so the preview can never get
-      // stuck on the loading animation after a stream error/abort. Without this,
-      // a failed generation left isGenerating=true forever (showFullLoading).
-      if (isCurrentRun()) workbenchStore.isGenerating.set(false);
-      if (generationAbortControllerRef.current === abortController) {
-        generationAbortControllerRef.current = null;
-      }
+        content: '',
+        steps: [{ id: 'empty-reply', kind: 'notice', tone: 'warning', text: 'The model sent back an empty reply. Try sending your message again.' }],
+        thinkingTime,
+        timestamp: Date.now(),
+      }]);
     }
+
+    setCurrentStreamingResponse('');
+    setIsCurrentlyGenerating(false);
+    // Cleared after the message above renders, so the live transcript never blinks out first.
+    setTimeout(() => {
+      if (isCurrentRun()) harness.clear();
+    }, 0);
   };
 
   const startDesignGeneration = async (text: string) => {
@@ -2764,13 +2385,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           if (abortController.signal.aborted || !isCurrentRun()) return;
           if (isCurrentlyThinkingRef.current) {
             const elapsedMs = thinkingStartTimeRef.current ? Date.now() - thinkingStartTimeRef.current : 0;
-            const elapsedSeconds = Math.ceil(elapsedMs / 1000);
-            thinkingTimeRef.current = elapsedSeconds;
-            setCurrentThinkingTime(elapsedSeconds);
-
+            thinkingTimeRef.current = Math.ceil(elapsedMs / 1000);
             isCurrentlyThinkingRef.current = false;
-            setIsCurrentlyThinking(false);
-            if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
           }
           fullResponse += token;
           // Don't update designStreamingResponse — we show the response only once complete
@@ -2786,7 +2402,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       if (code) {
         // Save to codebase
         const fileName = generateDesignFileName(text);
-        sandpackStore.setFile(`/Designs/${fileName}.tsx`, code);
+        workbenchStore.setFile(`/Designs/${fileName}.tsx`, code);
 
         const node = addDesignNode({ prompt: text, code, fileName });
         designNodeId = node.id;
@@ -2808,10 +2424,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
           designNodeId: designNodeId ?? undefined
         }]);
         setDesignStreamingResponse('');
-        setCurrentThinkingTime(0);
         setIsCurrentlyGenerating(false);
-        setIsCurrentlyThinking(false);
-        if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
       });
       if (generationAbortControllerRef.current === abortController) {
         generationAbortControllerRef.current = null;
@@ -2821,241 +2434,12 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       if (!isCurrentRun()) return;
       const errMsg = error.message || 'Design generation failed';
       if (!isAbortError(error)) addGlobalError(errMsg);
-      setCurrentThinkingTime(0);
       setIsCurrentlyGenerating(false);
-      setIsCurrentlyThinking(false);
-      setNeedsScrollPadding(true);
-      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
       if (generationAbortControllerRef.current === abortController) {
         generationAbortControllerRef.current = null;
       }
     }
   };
-
-  // === TEST MODE FUNCTIONS ===
-  const startTestGeneration = async (testPrompt: string) => {
-    console.log('Starting Test Mode generation with:', testPrompt);
-    const iframe = testStore.getIframeRef();
-    if (!iframe) {
-      // Add error message - no preview available
-      const errorMessage: ChatMessage = {
-        id: Math.random().toString(36).substring(7),
-        role: 'assistant',
-        hasCodeChanges: false,
-        content: '⚠️ Cannot run test: Preview not available. Please generate some code first, then try testing again.',
-        timestamp: Date.now()
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      return;
-    }
-
-    // Create the assistant message immediately with a unique ID
-    const messageId = Math.random().toString(36).substring(7);
-    
-    // Track plan text (shown first, before indicators)
-    let planText = '';
-    
-    // Track whether testing has started (after plan is complete)
-    let testingStarted = false;
-    
-    // Track actions for the indicator (starts empty, populated when testing begins)
-    const actionsLog: string[] = [];
-    let currentAction = '';
-    
-    // Helper to build the indicator JSON (only shown after testing starts)
-    const buildIndicator = () => {
-      if (!testingStarted || actionsLog.length === 0) return '';
-      return `<test-indicator>${JSON.stringify({ actions: actionsLog, current: currentAction })}</test-indicator>`;
-    };
-    
-    // Initial message is empty - plan text will be added
-    const initialMessage: ChatMessage = {
-      id: messageId,
-      role: 'assistant',
-      content: '',  // Will be populated by plan
-      timestamp: Date.now(),
-      isGenerating: true,  // Mark as generating to hide action buttons
-      hasCodeChanges: false
-    };
-    
-    // Smoothly add the assistant message without waiting (states already handled in handleSendMessage)
-    setMessages(prev => [...prev, initialMessage]);
-
-    // Start test state
-    testStore.enterTestMode();
-    testStore.startTest();
-
-    try {
-      if (!apiKeys?.gemini?.[0]) {
-        throw new Error('Gemini API Key missing. Please add it in Settings -> Models & API.');
-      }
-      const apiKey = apiKeys.gemini[0];
-
-      testStore.setStatus('testing');
-      console.log('[Test] Starting Computer Use agent loop...');
-      
-      // Run the Computer Use agent loop
-      const result = await runComputerUseTest(
-        apiKey,
-        testPrompt,
-        iframe,
-        (update: TestUpdate) => {
-          console.log('[Test] Update:', update.type, update.message);
-          
-          // NOTE: Don't stop thinking animation here - keep it running until test is complete
-          
-          // Update action based on update type
-          switch (update.type) {
-            case 'plan':
-              // Intro text received - show it WITHOUT indicator
-              planText = update.message;
-              // Keep thinking animation running!
-              break;
-              
-            case 'thinking':
-              // Only update indicator if testing has started
-              if (testingStarted) {
-                if (currentAction !== 'Analysis') {
-                  currentAction = 'Analysis';
-                  if (actionsLog[actionsLog.length - 1] !== 'Analysis') {
-                    actionsLog.push('Analysis');
-                  }
-                }
-              }
-              break;
-              
-            case 'screenshot':
-              // Screenshot means testing has started
-              if (!testingStarted) {
-                testingStarted = true;
-                currentAction = 'Analysis';
-                actionsLog.push('Analysis');
-                
-              }
-              testStore.setStatus('capturing');
-              currentAction = 'Capture';
-              if (actionsLog[actionsLog.length - 1] !== 'Capture') {
-                actionsLog.push('Capture');
-              }
-              break;
-              
-            case 'action':
-              testingStarted = true;
-              testStore.setStatus('executing-action');
-              testStore.setCurrentAction(update.actionName || update.message);
-              currentAction = update.actionType || 'Action';
-              actionsLog.push(currentAction);
-              break;
-              
-            case 'complete':
-              testStore.setStatus('complete');
-              testStore.setThought(null);
-              break;
-              
-            case 'error':
-              currentAction = 'Error';
-              actionsLog.push('Error');
-              testStore.setThought('Error!');
-              break;
-              
-            case 'text':
-              // AI commentary during testing - ignore for now
-              break;
-          }
-          
-          // Update message: Plan text + indicator (if testing started)
-          const updatedContent = planText + (testingStarted ? '\n\n' + buildIndicator() : '');
-          
-          setMessages(prev => prev.map(msg =>
-            msg.id === messageId
-              ? { ...msg, content: updatedContent, thinkingTime: thinkingTimeRef.current, isGenerating: true, hasCodeChanges: false }
-              : msg
-          ));
-        },
-        // Pass conversation history for context (exclude the current message being built)
-        messages.map(msg => ({ role: msg.role, content: msg.content })) as ConversationMessage[],
-        () => testStore.isCancelled.get(),
-        testStore.getAbortSignal()
-      );
-
-      console.log('[Test] Agent loop complete:', result);
-
-      // Build final message: Intro + Indicator (persists!) + Conclusion
-      // Just use the AI's natural explanation (it already states pass/fail)
-      
-      // Strip emojis from the model's explanation to keep it clean
-      const cleanExplanation = (result.explanation || 'Test completed.')
-        .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '');
-
-      const conclusionText = '\n\n' + cleanExplanation.trim();
-
-      // Set result in store
-      testStore.setResult({
-        passed: result.passed,
-        summary: result.explanation.substring(0, 200) + '...',
-        suggestion: result.passed ? undefined : 'Review the test output for details.',
-      });
-
-      // Final message: Plan + Indicator (stays visible!) + Conclusion
-      const finalContent = planText + '\n\n' + buildIndicator() + conclusionText;
-      
-      // Update message with isGenerating: false to show action buttons
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId 
-          ? { ...msg, content: finalContent, thinkingTime: thinkingTimeRef.current, isGenerating: false, hasCodeChanges: false }
-          : msg
-      ));
-      
-      setCurrentStreamingResponse('');
-      setIsCurrentlyGenerating(false);
-      
-      // Stop thinking animation now that test is complete
-      if (thinkingTimerRef.current) {
-        clearInterval(thinkingTimerRef.current);
-      }
-      setIsCurrentlyThinking(false);
-      
-      testStore.setStatus('complete');
-      testStore.setCurrentAction(null);
-      testStore.exitTestMode();
-      
-    } catch (error: any) {
-      console.error('[Test] Error:', error);
-      
-      // Check if this was an abort/cancellation
-      const wasCancelled = error.name === 'AbortError' || testStore.isCancelled.get();
-      
-      // Update the message with error state (same pattern as successful completion)
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId 
-          ? { 
-              ...msg, 
-              content: wasCancelled 
-                ? '*Test cancelled by user.*' 
-                : `❌ Test Error: ${error.message || 'Failed to run test.'}`,
-              thinkingTime: thinkingTimeRef.current,
-              isGenerating: false,
-              hasCodeChanges: false
-            }
-          : msg
-      ));
-
-      setIsCurrentlyGenerating(false);
-      setIsCurrentlyThinking(false);
-      setNeedsScrollPadding(true);
-      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-      testStore.setStatus('idle');
-      testStore.setCurrentAction(null);
-      testStore.exitTestMode(); // Disable test mode on error too
-    }
-  };
-
-
-  useEffect(() => {
-    return () => {
-      if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current);
-    };
-  }, []);
 
   // Scroll logic - useLayoutEffect runs BEFORE browser paint, eliminating flash
   const lastPromptIds = useRef<{ default: string | null; design: string | null }>({ default: null, design: null });
@@ -3102,7 +2486,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   useEffect(() => {
     if (activeConversationMessages.length === 0) {
       setResponseAreaMinHeight(undefined);
-      setNeedsScrollPadding(false);
       lastPromptIds.current[activeConversationMode] = null;
     }
   }, [activeConversationMessages.length, activeConversationMode]);
@@ -3128,7 +2511,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                 0,
                 container.clientHeight - currentTargetVisualOffset - syncMsgEl.offsetHeight - syncGap,
               ));
-              setNeedsScrollPadding(false);
             }
 
             // CRITICAL: Temporarily force overflow to auto so scroll can work
@@ -3156,7 +2538,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                       container.clientHeight - targetVisualOffset - msgEl.offsetHeight - gap;
                     flushSync(() => {
                       setResponseAreaMinHeight(Math.max(0, preMinH));
-                      setNeedsScrollPadding(false);
                     });
 
                     // Hand the movement to the browser, exactly as Chat does. The
@@ -3230,7 +2611,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       // smooth one, which cancels it -- the bubble reached the anchor in a single
       // frame and the slide-up was gone. Height changes never move the anchor
       // sideways, so they need the reserve recomputed and nothing else.
-      const repark = widthChanged && isPinnedToAnchor.current && !needsScrollPadding;
+      const repark = widthChanged && isPinnedToAnchor.current;
       flushSync(() => {
         setResponseAreaMinHeight(Math.max(0, minH));
       });
@@ -3244,49 +2625,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     activeConversationMessages,
     currentTargetVisualOffset,
     responseAreaMinHeight,
-    needsScrollPadding,
     parkOnAnchor,
   ]);
-
-  // Detect when response content overflows the allocated min-height.
-  // When it does, re-enable bottom padding so the user can scroll past the input box.
-  useEffect(() => {
-    if (responseAreaMinHeight === undefined || needsScrollPadding) return;
-
-    const checkOverflow = () => {
-      // Check streaming content during generation
-      const streamingEl = streamingContentRef.current;
-      if (streamingEl && streamingEl.scrollHeight > responseAreaMinHeight + 5) {
-        setNeedsScrollPadding(true);
-        return;
-      }
-
-      // Check last assistant message after generation completes
-      const lastMsg = activeConversationMessages[activeConversationMessages.length - 1];
-      if (lastMsg?.role === 'assistant') {
-        const el = messageRefs.current[lastMsg.id];
-        if (el && el.scrollHeight > responseAreaMinHeight + 5) {
-          setNeedsScrollPadding(true);
-        }
-      }
-    };
-
-    const observer = new ResizeObserver(checkOverflow);
-
-    if (streamingContentRef.current) {
-      observer.observe(streamingContentRef.current);
-    }
-
-    const lastMsg = activeConversationMessages[activeConversationMessages.length - 1];
-    if (lastMsg?.role === 'assistant' && messageRefs.current[lastMsg.id]) {
-      observer.observe(messageRefs.current[lastMsg.id]!);
-    }
-
-    // Initial check
-    checkOverflow();
-
-    return () => observer.disconnect();
-  }, [responseAreaMinHeight, needsScrollPadding, activeConversationMessages, isCurrentlyGenerating]);
 
   // Tabs scroll check (renamed from scrollContainerRef)
   const handleScroll = () => {
@@ -3320,35 +2660,14 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     currentThinkingLevel = Number(selectedModelId.split('::effort-')[1]);
   }
 
-  /*
-   * Agent tool: reasoning effort on Codex's own ladder.
-   *
-   * Effort is part of the harness — upstream carries it as
-   * `model_reasoning_effort` — and its ladder ends one rung past Willow's, at
-   * Ultra. The numeric levels are still chosen through the shared model menu;
-   * the menu's `extraEfforts` prop adds the Ultra row.
-   *
-   * Only the Ultra flag is stored — the numeric levels already live on the
-   * selected model — and it is stored rather than held locally because the
-   * landing composer offers the same choice. Both are `&& isAgent`: with the
-   * tool off there is no Codex ladder, so the row is hidden and the pill shows
-   * whatever it always showed.
-   */
-  const isUltra = useStore(ultraEngaged) && isAgent;
-  const codexEffort = effectiveEffort(isUltra, currentThinkingLevel);
-
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
   // No-thinking selections add nothing to the pill — see use-composer-models.
-  // Ultra is not a level on `activeModel`, so it is named here instead; without
-  // this the pill would keep showing whichever level Ultra was chosen over.
   const activeEffortRecord = activeModel
     ? { ...activeModel, thinkingLevel: currentThinkingLevel }
     : undefined;
-  const activeEffortDisplayLabel = isUltra
-    ? EFFORT_LABEL.ultra
-    : activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
-      ? getThinkingEffortLabel(activeEffortRecord)
-      : '';
+  const activeEffortDisplayLabel = activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
+    ? getThinkingEffortLabel(activeEffortRecord)
+    : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)
     .join(' ');
@@ -3398,39 +2717,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     }
   }, [isToolsMenuOpen, shouldRenderToolsMenu]);
 
-  const TOOLS = [
-    { id: 'plan', label: 'Plan', icon: FileText },
-    { id: 'image', label: 'Image', icon: ImageIcon },
-    { id: 'design', label: 'Design', icon: Palette },
-    { id: 'annotate', label: 'Annotate', icon: AnnotateIcon },
-    { id: 'prototype', label: 'Visual Edits', icon: VisualEditsIcon },
-    { id: 'test', label: 'Test', icon: FlaskConical },
-    /*
-     * The Codex harness.
-     *
-     * Selecting it swaps this turn's generation path — `startCodexGeneration`
-     * instead of `startAiGeneration` — and turns on the composer affordances
-     * that only mean something to the harness: slash commands and the Ultra
-     * effort rung. Tools are single-select, so picking Agent clears Test, and
-     * clearing Agent puts the composer back exactly as it was.
-     */
-    { id: 'agent', label: 'Agent', icon: AgentIcon }
-  ];
+  // Every tool is something the agent can do; picking one tells it to do that for the message.
+  const TOOL_ICONS: Record<CodeToolId, React.ComponentType<{ size?: number; className?: string }>> = {
+    plan: FileText,
+    image: ImageIcon,
+    design: Palette,
+    annotate: AnnotateIcon,
+    prototype: VisualEditsIcon,
+    test: FlaskConical,
+  };
+  const TOOLS = CODE_TOOLS.map((tool) => ({ id: tool.id, label: tool.label, icon: TOOL_ICONS[tool.id] }));
 
   const currentTool = selectedToolId ? TOOLS.find(t => t.id === selectedToolId) : null;
 
   const handleToolSelect = (toolId: string) => {
-    console.log('[Sidebar] handleToolSelect called with:', toolId);
     setSelectedToolId(toolId);
-    // Mirror into the store the harness and the landing composer both read.
-    setAgentEngaged(toolId === 'agent');
     setIsToolsMenuOpen(false);
-    // Note: Tools are now independent from tabs - no onTabChange calls
-    // Design and Prototype still change tabs since they have dedicated panels
-    if (toolId === 'design') onTabChange('design');
-    if (toolId === 'prototype') onTabChange('design');
-    // Test tool: test mode activates when AI starts analyzing (not on tool select)
-    // So we don't call enterTestMode() here
   };
 
   const handleToolReset = (e: React.MouseEvent) => {
@@ -3440,12 +2742,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
       testStore.cancelTest(); // This sets isCancelled flag and exits test mode
     }
     setSelectedToolId(null);
-    setAgentEngaged(false);
     // Don't change tabs - tools are independent from tabs
   };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      // Below 961px the menu is a bottom sheet with its own scrim, and a tap on one of its rows lands outside this ref.
+      if (isCompactViewport()) return;
       if (toolsMenuRef.current && !toolsMenuRef.current.contains(event.target as Node)) {
         setIsToolsMenuOpen(false);
       }
@@ -3472,6 +2775,17 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
   const showContextHeader = !!headerTool;
   const displayTool = headerTool || lastHeaderToolRef.current;
+
+  /*
+   * Room for the prompt box under the thread, exactly its measured height, in one place:
+   * the reply streaming in, or the newest reply, holds it as its own bottom padding.
+   * Under its screen-filling minimum height that padding costs nothing; once the reply
+   * outgrows it, it is what lets the last line scroll clear of the prompt box. With no
+   * reply below the last prompt (an error, an empty chat), the thread holds it instead.
+   */
+  const threadShown = isChatMode || (activeTab !== 'design' && activeTab !== 'agents');
+  const newestConversationMessage = activeConversationMessages[activeConversationMessages.length - 1];
+  const replyHoldsFooterSpace = threadShown && (isCurrentlyGenerating || newestConversationMessage?.role === 'assistant');
 
 
   const handleTabsScroll = () => {
@@ -3795,7 +3109,22 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   document.body
                 )}
               </div>
-              <button onClick={() => sidebarView === 'visual-edit' ? handleExitVisualEdit(onToggle) : onToggle()} className="p-1.5 hover:text-white transition-colors"><PanelLeftClose size={16} /></button>
+              {isNarrowScreen ? (
+                /*
+                 * Collapsing is how the preview gets the screen, so the control says so. It
+                 * leaves visual editing on: the preview is where elements get picked.
+                 */
+                <button
+                  onClick={onToggle}
+                  className="code-preview-pill ml-1 flex h-8 items-center gap-1.5 rounded-full bg-[#27272a] px-3 text-[13px] font-medium text-gray-200 transition-colors hover:bg-[#3f3f46] hover:text-white"
+                  aria-label="Show preview"
+                >
+                  <Monitor size={14} />
+                  <span>Preview</span>
+                </button>
+              ) : (
+                <button onClick={() => sidebarView === 'visual-edit' ? handleExitVisualEdit(onToggle) : onToggle()} className="p-1.5 hover:text-white transition-colors"><PanelLeftClose size={16} /></button>
+              )}
             </div>
           </div>
         </div>
@@ -3803,11 +3132,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
 
       <div
         ref={chatScrollRef}
-        className={`flex-1 space-y-8 min-h-0 hover-scrollbar overflow-y-auto
-          ${responseAreaMinHeight !== undefined && !needsScrollPadding
-            ? 'pb-0'
-            : (showContextHeader ? 'pb-[290px]' : 'pb-[210px]')
-          }
+        className={`code-transcript${isChatMode ? ' is-chat' : ''} flex-1 space-y-8 min-h-0 hover-scrollbar overflow-y-auto
           ${isChatMode
             ? 'pl-0 pr-0 pt-[76px] scroll-pt-[76px]' // Scrollbar at far right in Chat Mode
             : (activeTab === 'design' || activeTab === 'agents' || activeTab === 'canvas')
@@ -3819,10 +3144,11 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         style={{
           // During resize or when not generating: let browser maintain scroll position (auto)
           // During active scroll animation or when generating: disable anchoring (none)
-          overflowAnchor: (isResizing || !isCurrentlyGenerating) ? 'auto' : 'none'
+          overflowAnchor: (isResizing || !isCurrentlyGenerating) ? 'auto' : 'none',
+          paddingBottom: replyHoldsFooterSpace ? 0 : footerHeight,
         }}
       >
-        <div className={isChatMode ? 'max-w-[800px] mx-auto px-[27px] pr-[40px]' : ''}>
+        <div className={isChatMode ? 'code-transcript-column max-w-[800px] mx-auto px-[27px] pr-[40px]' : ''}>
           {activeTab === 'design' && !isChatMode ? (
             <div className="space-y-4">
                {/* Spacer to maintain vertical position of cards precisely matching Visual Edits header height */}
@@ -3834,6 +3160,8 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                     enterVisualEdit();
                     setSidebarView('visual-edit');
                     // onTabChange('preview'); // Keep preview switch to ensure elements are visible
+                    // Below 961px the preview is the other pane, and elements are picked there.
+                    if (isNarrowScreen && !isCollapsed) onToggle();
                   }}
                   className="group bg-[#27272a] rounded-2xl p-[18px] cursor-pointer hover:ring-1 hover:ring-white/20 transition-shadow duration-200"
                 >
@@ -4105,7 +3433,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                                 ))}
                             </div>
                         )}
-                        <div className="bg-[#27272a] text-gray-200 px-4 py-3 rounded-2xl text-[15px] leading-relaxed shadow-sm">
+                        <div className="code-user-bubble bg-[#27272a] text-gray-200 px-4 py-3 rounded-2xl text-[15px] leading-relaxed shadow-sm">
                            {msg.content}
                         </div>
                     </div>
@@ -4115,13 +3443,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                     className="space-y-4"
                     style={{
                       // Dynamic min-height fills the full remaining visible space for scroll.
-                      // paddingBottom pushes content above the footer overlay so buttons stay visible.
-                      // When needsScrollPadding is true (long response), pb on the scroll container handles it instead.
+                      // paddingBottom is the prompt box's height (see replyHoldsFooterSpace): inside the
+                      // min-height while the reply is short, and what clears the last line once it is long.
                       minHeight: lastAssistantMinHeight !== undefined
                         ? `${lastAssistantMinHeight}px`
                         : undefined,
-                      paddingBottom: isLastAssistantMessage && responseAreaMinHeight !== undefined && !needsScrollPadding
-                        ? `${footerRef.current?.offsetHeight || 210}px`
+                      paddingBottom: isLastAssistantMessage && replyHoldsFooterSpace && !isCurrentlyGenerating
+                        ? `${footerHeight}px`
                         : undefined
                     }}
                   >
@@ -4143,32 +3471,36 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                     ) : null}
 
                     {/*
-                      * The turn's timeline, for messages the Agent tool produced.
-                      *
-                      * The narration and the cards it refers to collapse
-                      * together, leaving the closing paragraph — which is the
-                      * answer — on its own.
-                      *
-                      * `fallback` is the whole stored message, used for every
-                      * message the legacy loop produced (no `codexTurnId`) and
-                      * for harness turns no longer in the session store, e.g.
-                      * after a reload where only the message text survives. So
-                      * this renders byte-identically to what it replaced
-                      * whenever the Agent tool was not involved.
+                      * A harness turn renders from its saved steps: prose and
+                      * work in the order they happened. A message from before
+                      * the harness has no steps and renders from its content,
+                      * exactly as it always did.
                       */}
-                    <SettledTurnActivity
-                      turnId={msg.codexTurnId}
-                      renderText={(text, streaming) => (
-                        <div className="text-gray-300 text-[15px] leading-[1.65]">
-                          {renderFormattedContent(text, streaming)}
-                        </div>
+                    <div className="text-gray-300 text-[15px] leading-[1.65]">
+                      {msg.steps ? (
+                        <TurnTimeline steps={msg.steps} renderText={renderTextContent} resolveAsset={resolveProjectAsset} onOpenDesign={openDesign} />
+                      ) : (
+                        renderFormattedContent(msg.content, msg.isGenerating)
                       )}
-                      fallback={
-                        <div className="text-gray-300 text-[15px] leading-[1.65]">
-                          {renderFormattedContent(msg.content, msg.isGenerating)}
-                        </div>
-                      }
-                    />
+                    </div>
+
+                    {/* A plan waits for a go-ahead; this is it. */}
+                    {msg.harnessMode === 'plan' && isLastAssistantMessage && !isCurrentlyGenerating && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedToolId(null);
+                            void handleSendMessage('Implement the plan.', { mode: 'build', tool: null });
+                          }}
+                          disabled={hasUnsaved}
+                          className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#27272a] hover:bg-[#3f3f46] text-[13px] font-medium text-gray-200 hover:text-white transition-colors"
+                        >
+                          <Hammer size={14} />
+                          <span>Implement plan</span>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Design Indicator - clickable design card for design mode messages */}
                     {msg.designNodeId && !msg.isGenerating && (
@@ -4295,54 +3627,28 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
             })}
 
             {/* Current Streaming / Thinking UI - Only for NORMAL messages (not test mode) */}
-            {isCurrentlyGenerating && !testStore.isTestMode.get() && (
+            {isCurrentlyGenerating && (
               <div
                 ref={streamingContentRef}
                 className="space-y-4"
                 style={{
                   // Dynamic min-height fills the full remaining visible space for scroll.
-                  // paddingBottom pushes content above the footer overlay.
+                  // paddingBottom is the prompt box's height, as on the newest reply.
                   minHeight: responseAreaMinHeight !== undefined
                     ? `${responseAreaMinHeight}px`
                     : undefined,
-                  paddingBottom: responseAreaMinHeight !== undefined && !needsScrollPadding
-                    ? `${footerRef.current?.offsetHeight || 210}px`
-                    : undefined
+                  paddingBottom: `${footerHeight}px`
                 }}
               >
-                <div className="flex items-center gap-2.5" style={{ color: '#81888f' }}>
-                  <Lightbulb size={18} />
-                  {isCurrentlyThinking ? (
-                    <TextShimmer className="text-[15.15px] font-medium" duration={1.5}>
-                      Thinking
-                    </TextShimmer>
-                  ) : (
-                    <span className="text-[15.15px] font-medium">
-                      Thought for {Math.round(currentThinkingTime)}s
-                    </span>
-                  )}
+                {/* Until the whole turn is done; the saved reply then shows "Thought for Ns". */}
+                <LiveThinkingRow />
+
+                {/* The turn in flight: prose and work, as they happen. */}
+                <div className="text-gray-300 text-[15px] leading-[1.65]">
+                  <LiveTurnTimeline renderText={renderTextContent} resolveAsset={resolveProjectAsset} onOpenDesign={openDesign} />
                 </div>
 
-                {/*
-                  * The live timeline — the narration and every tool call, in
-                  * the order they happened. Renders nothing at all unless a
-                  * Codex turn is in flight, so the legacy streaming block below
-                  * is the only thing on screen when the Agent tool is off.
-                  */}
-                <LiveTurnActivity
-                  turnId={activeCodexTurn}
-                  onStop={() => generationAbortControllerRef.current?.abort()}
-                  renderText={(text, streaming) => (
-                    <div className="text-gray-300 text-[15px] leading-[1.65]">
-                      {renderFormattedContent(text, streaming)}
-                    </div>
-                  )}
-                />
-
-                {/* Suppressed for harness turns only: the timeline above already
-                  * renders the prose, so leaving this on would show it twice. */}
-                {!activeCodexTurn
-                  && (activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse) && (
+                {(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse) && (
                   <div className="text-gray-300 text-[15px] leading-[1.65]">
                     {renderFormattedContent(activeConversationMode === 'design' ? designStreamingResponse : currentStreamingResponse, true)}
                   </div>
@@ -4625,39 +3931,32 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                  </div>
                </div>
 
-               {/*
-                 * The Agent tool's slash-command menu.
-                 *
-                 * Anchored above the composer and only ever open while the
-                 * draft is a bare `/word`, so it cannot appear mid-sentence.
-                 * `slashMatches` is hard-empty unless the tool is selected, so
-                 * this renders nothing at all otherwise.
-                 */}
-               {slashMatches.length > 0 && (
-                 <div className="cb-root absolute bottom-full left-0 right-0 z-50 mb-2">
-                   <div
-                     className="overflow-hidden rounded-xl border border-[hsl(var(--cb-line))] bg-[hsl(var(--cb-overlay))] p-1"
-                     style={{ boxShadow: '0 18px 44px -12px rgba(0,0,0,0.7)' }}
-                   >
-                     {slashMatches.map((command, index) => (
-                       <button
-                         key={command.name}
-                         type="button"
-                         onMouseEnter={() => setSlashIndex(index)}
-                         onClick={() => applySlashCommand(command)}
-                         className={`flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors duration-100 ${
-                           index === slashIndex ? 'bg-[hsl(var(--cb-ink)/0.07)]' : ''
-                         }`}
-                       >
-                         <span className="font-mono text-[12.5px] font-medium text-[hsl(var(--cb-ink))]">
-                           {command.name}
-                         </span>
-                         <span className="min-w-0 flex-1 truncate text-[11.5px] text-[hsl(var(--cb-ink-faint))]">
-                           {command.hint}
-                         </span>
-                       </button>
-                     ))}
-                   </div>
+               {/* `$` mentions a skill; the menu is styled like the Tools dropdown. */}
+               {skillMatches.length > 0 && (
+                 <div
+                   className="absolute bottom-full left-0 right-0 z-50 mb-2 bg-[#1c1c1c] rounded-xl overflow-hidden settings-fade-in"
+                   style={{ boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset' }}
+                   role="listbox"
+                   aria-label="Skills"
+                 >
+                   {skillMatches.map((skill, index) => (
+                     <button
+                       key={skill.id}
+                       type="button"
+                       role="option"
+                       aria-selected={index === skillIndex}
+                       onMouseEnter={() => setSkillIndex(index)}
+                       onMouseDown={(event) => event.preventDefault()}
+                       onClick={() => applySkillMention(skill.name)}
+                       className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors text-[13px] ${index === skillIndex ? 'bg-[#27272a] text-white' : 'text-gray-300'}`}
+                     >
+                       <BookOpen size={16} className="shrink-0 text-gray-400" />
+                       <span className="font-medium shrink-0">{skill.name}</span>
+                       <span className="min-w-0 flex-1 truncate text-[12px] text-gray-500">
+                         {skill.shortDescription || skill.description}
+                       </span>
+                     </button>
+                   ))}
                  </div>
                )}
 
@@ -4669,30 +3968,28 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   value={promptValue}
                   onChange={(e) => setPromptValue(e.target.value)}
                   onKeyDown={(e) => {
-                    // The slash menu claims the arrow keys, Tab and Enter while
-                    // it is open, so a command can be picked without the message
-                    // being sent underneath it. Never entered with the Agent
-                    // tool off — `slashMatches` is empty then.
-                    if (slashMatches.length > 0) {
+                    // The skill menu claims the arrow keys, Tab and Enter while it
+                    // is open, so a skill can be picked without sending the message.
+                    if (skillMatches.length > 0) {
                       if (e.key === 'ArrowDown') {
                         e.preventDefault();
-                        setSlashIndex((index) => (index + 1) % slashMatches.length);
+                        setSkillIndex((index) => (index + 1) % skillMatches.length);
                         return;
                       }
                       if (e.key === 'ArrowUp') {
                         e.preventDefault();
-                        setSlashIndex((index) => (index - 1 + slashMatches.length) % slashMatches.length);
+                        setSkillIndex((index) => (index - 1 + skillMatches.length) % skillMatches.length);
                         return;
                       }
                       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
                         e.preventDefault();
-                        const picked = slashMatches[slashIndex];
-                        if (picked) applySlashCommand(picked);
+                        const picked = skillMatches[skillIndex];
+                        if (picked) applySkillMention(picked.name);
                         return;
                       }
                       if (e.key === 'Escape') {
                         e.preventDefault();
-                        setPromptValue('');
+                        setPromptValue((value) => `${value} `);
                         return;
                       }
                     }
@@ -4747,7 +4044,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                         <Plus size={18} />
                      </button>
                      <div className="relative" ref={toolsMenuRef}>
-                        {shouldRenderToolsMenu && (
+                        {shouldRenderToolsMenu && !isNarrowScreen && (
                           <div 
                              style={{
                                boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset',
@@ -4766,6 +4063,13 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                              ))}
                           </div>
                         )}
+                        <GeminiBottomSheet isOpen={isNarrowScreen && isToolsMenuOpen} onClose={() => setIsToolsMenuOpen(false)} label="Tools">
+                          <GeminiSheetList label="Tools">
+                            {TOOLS.map((tool) => (
+                              <GeminiSheetItem key={tool.id} glyph={<tool.icon size={22} />} label={tool.label} onSelect={() => handleToolSelect(tool.id)} />
+                            ))}
+                          </GeminiSheetList>
+                        </GeminiBottomSheet>
                         <button
                            onClick={() => !currentTool && setIsToolsMenuOpen(!isToolsMenuOpen)}
                            disabled={hasUnsaved}
@@ -4803,49 +4107,6 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                              </>
                            )}
                         </button>
-
-                        {/*
-                          * The collaboration-mode and goal indicators.
-                          *
-                          * Upstream puts both in the TUI footer
-                          * (`CollaborationModeIndicator::Plan`,
-                          * `GoalStatusIndicator`), and they are not decoration:
-                          * Plan mode silently declines every edit, so a user who
-                          * cannot see that they are in it experiences the agent
-                          * refusing to work. Same for a goal — it starts turns
-                          * nobody sent.
-                          *
-                          * Both are click-to-exit, because the mode document
-                          * says the user can "easily switch out of Plan mode",
-                          * and a mode with no visible way out is a trap.
-                          */}
-                        {isAgent && mode === 'plan' && (
-                          <button
-                            onClick={() => setCollaborationMode('default')}
-                            disabled={hasUnsaved}
-                            title="In Plan mode — exploring and designing, changing nothing. Click to start building."
-                            className="flex h-[36px] shrink-0 items-center gap-2 rounded-full bg-[#a8c7fa]/15 px-3 text-[13px] font-medium text-[#a8c7fa] transition-colors hover:bg-[#a8c7fa]/25"
-                          >
-                            <FileText size={15} />
-                            {!isCompact && <span>Plan</span>}
-                            <X size={13} className="opacity-60" />
-                          </button>
-                        )}
-
-                        {isAgent && goalIsRunning(goal) && goal && (
-                          <button
-                            onClick={() => setThreadGoal(null)}
-                            disabled={hasUnsaved}
-                            title={`Goal (${goal.status}): ${goal.objective}\n\nClick to stop pursuing it.`}
-                            className="flex h-[36px] min-w-0 shrink items-center gap-2 rounded-full bg-[#3b82f6]/15 px-3 text-[13px] font-medium text-[#93c5fd] transition-colors hover:bg-[#3b82f6]/25"
-                          >
-                            <Target size={15} className="shrink-0" />
-                            {!isCompact && (
-                              <span className="truncate max-w-[140px]">{goal.objective}</span>
-                            )}
-                            <X size={13} className="shrink-0 opacity-60" />
-                          </button>
-                        )}
                      </div>
                   </div>
                   
@@ -4881,33 +4142,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                             onClose={() => setIsModelsMenuOpen(false)}
                             modelConfig={modelConfig}
                             selectedId={selectedModelId}
-                            /*
-                              * Ultra, appended to the thinking-effort list for
-                              * every model — but only while the Agent tool is on.
-                              *
-                              * It is not one of Willow's numeric levels: upstream
-                              * lowers it to the model's own ceiling on the wire and
-                              * uses it to turn on proactive sub-agent delegation. So
-                              * it is held in the Agent store rather than written into
-                              * `selectedModelId` — a non-model id there would leave
-                              * the Code tab unable to resolve the selection — and it
-                              * means nothing to the legacy loop, which is why the row
-                              * is absent when the tool is off.
-                              */
-                            extraEfforts={isAgent ? [
-                              {
-                                id: 'codex-ultra',
-                                label: EFFORT_LABEL.ultra,
-                                badge: 'Sub-agents',
-                                selected: isUltra,
-                                onSelect: () => setUltraEngaged(true),
-                              },
-                            ] : undefined}
                             onSelect={(id) => {
-                              // Picking a level clears Ultra: the two are one radio
-                              // group, so leaving it on would keep delegating after
-                              // the user asked for something else.
-                              setUltraEngaged(false);
                               setSelectedModelId(id);
                               const baseId = id ? id.split('::effort-')[0] : '';
                               const sel = ALL_MODELS.find(m => m.id === id || m.id === baseId);
@@ -4928,27 +4163,37 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                             }}
                             onAuthRequired={onSettingsClick ? (() => onSettingsClick('models')) : undefined}
                             geminiStyle
+                            mobile={isNarrowScreen}
                           />
                         )}
                       </div>
                        {isCurrentlyGenerating ? (
                          <button 
                            onClick={() => {
-                              // Abort the active provider request. Merely clearing
-                              // the local loading flag allowed late stream tokens
-                              // to mutate the workbench after the user stopped.
-                              generationRunIdRef.current += 1;
-                              generationAbortControllerRef.current?.abort();
                               if (testStore.isTestMode.get()) testStore.cancelTest();
-                              setCurrentStreamingResponse('');
-                              setIsCurrentlyGenerating(false);
-                              setIsCurrentlyThinking(false);
-                              if (thinkingTimerRef.current) {
-                                clearInterval(thinkingTimerRef.current);
-                                thinkingTimerRef.current = null;
+                              const runId = generationRunIdRef.current;
+                              const resetNow = () => {
+                                // Ends the run outright, so nothing late from it can
+                                // touch the transcript or the workbench.
+                                generationRunIdRef.current += 1;
+                                harness.clear();
+                                setCurrentStreamingResponse('');
+                                setIsCurrentlyGenerating(false);
+                                isCurrentlyThinkingRef.current = false;
+                                workbenchStore.isGenerating.set(false);
+                              };
+                              const controller = generationAbortControllerRef.current;
+                              if (!controller) {
+                                resetNow();
+                                return;
                               }
-                              workbenchStore.isGenerating.set(false);
-                              sandpackStore.isGenerating.set(false);
+                              // The run winds itself down: the harness keeps the work it
+                              // finished and records the turn as stopped. If it has not
+                              // settled shortly, it is ended here instead.
+                              controller.abort();
+                              setTimeout(() => {
+                                if (generationRunIdRef.current === runId && generationAbortControllerRef.current === controller) resetNow();
+                              }, 4000);
                            }}
                            className="w-[38px] h-[38px] rounded-full bg-[#3b82f6]/20 text-[#3b82f6] hover:bg-[#3b82f6]/30 transition-colors flex items-center justify-center shadow-md flex-shrink-0"
                          >

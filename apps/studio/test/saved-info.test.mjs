@@ -338,8 +338,12 @@ it('withholds saved info from a temporary chat', () => {
   // (`personalTool`, for one), and pinning its exact shape only fails whenever
   // an unrelated flag is added. What matters is that the temporary flag is what
   // decides `personalize`.
-  assert.match(source, /chatSystemPromptFor\(provider, \{[^}]*personalize: !isIncognito\b/,
+  // The text turn's prompt is built in `chat-turn-setup.ts`, from the flag ChatView passes.
+  const setup = codeOnly(read('features', 'chat', 'src', 'chat-turn-setup.ts'));
+  assert.match(setup, /chatSystemPromptFor\(provider, \{[^}]*personalize: !isIncognito\b/,
     'a temporary text turn is personalized again');
+  assert.match(source, /buildChatTurnSetup\(\{[^}]*\bisIncognito,/,
+    'the send no longer tells the turn setup it is a temporary chat');
   assert.match(source, /voiceAgentSystemPrompt\(\{ personalize: !isIncognito \}\)/,
     'a temporary voice session is personalized again');
 });
@@ -483,7 +487,7 @@ it('keeps working with no folder connected', async () => {
   store.clearSavedInstructions();
 });
 
-it('reads and writes one known path under the workspace', async () => {
+it('reads and writes one known path under the chosen folder', async () => {
   const { PERSONAL_DIR, SAVED_INFO_FILE, SAVED_INFO_DISK_VERSION } = await importTs(diskModule);
 
   // These name a folder the user sees in their file manager, next to Chats,
@@ -505,18 +509,23 @@ it('reads and writes one known path under the workspace', async () => {
   // The rule this module exists to hold. Creating a workspace folder on a read
   // path is what made every cached chat look externally deleted once before.
   assert.ok(!/create: true/.test(body('readSavedInfoFromDisk')),
-    'the read path creates folders again — a missing file will fabricate a workspace');
+    'the read path creates folders again — a missing file will fabricate a folder');
   assert.ok(!/create: true/.test(body('deleteSavedInfoFromDisk')),
     'the delete path creates the folder it is about to delete from');
 
   const write = body('writeSavedInfoToDisk');
-  for (const created of ['getSanitizedWorkspaceName(), { create: true }', 'PERSONAL_DIR, { create: true }']) {
+  for (const created of ['PERSONAL_DIR, { create: true }', 'SAVED_INFO_FILE, { create: true }']) {
     assert.ok(write.includes(created),
       `the write path no longer creates ${created} — the first instruction would have nowhere to go`);
   }
+  // `Personal/` sits directly in the chosen folder. The workspace-name level
+  // that used to sit between them was removed app-wide; bringing it back here
+  // alone would put saved info somewhere nothing else in the folder looks.
+  assert.ok(!/getSanitizedWorkspaceName/.test(write),
+    'the write path goes through a workspace-named folder again — Personal/ belongs directly in the chosen folder');
 });
 
-it('waits for the real workspace name before it can write a folder', () => {
+it('attaches only once auth settles, and only to a connected, authorized folder', () => {
   const source = codeOnly(read('platform', 'storage', 'src', 'local-fs', 'LocalFSContext.tsx'));
 
   assert.match(source, /attachSavedInfoDisk\(/,
@@ -524,15 +533,25 @@ it('waits for the real workspace name before it can write a folder', () => {
 
   const at = source.indexOf('void attachSavedInfoDisk({');
   assert.ok(at > 0, 'the attach call is gone');
-  const effect = source.slice(source.lastIndexOf('useEffect(() => {', at), at);
+  // Through the dependency array, so a value read only there is caught too.
+  const end = source.indexOf(']);', at);
+  assert.ok(end > at, 'the attach effect has no dependency array');
+  const effect = source.slice(source.lastIndexOf('useEffect(() => {', at), end);
 
-  // getSanitizedWorkspaceName answers "My Willow" until the profile loads, and
-  // attaching runs a migration write. Attaching early names a junk folder after
-  // the fallback and then syncs into it.
+  // Attaching runs a one-time migration write, so it waits for auth to settle
+  // and for a folder it may write to.
   assert.match(effect, /if \(isAuthLoading\) return;/,
     'saved info attaches while auth is still loading');
-  assert.match(effect, /if \(user && !userProfile\) return;/,
-    'saved info attaches before the signed-in profile resolves, so it can write to a fallback-named folder');
   assert.match(effect, /!isLocalFolderConnected \|\| !isLocalFolderAuthorized/,
     'saved info attaches without a connected, authorized folder');
+
+  // It used to wait for `userProfile` as well: the path went through a folder
+  // named by getSanitizedWorkspaceName, which answers "My Willow" until the
+  // profile loads, so an early attach minted a junk folder and synced into it.
+  // That level was removed on purpose and the disk module is handed only the
+  // folder handle, so there is no name to wait for and none belongs here.
+  assert.match(effect, /const deps = \{ getActiveHandle \};/,
+    'saved info is handed more than the chosen folder — its path depends on something else again');
+  assert.doesNotMatch(effect, /getSanitizedWorkspaceName|userProfile/,
+    'saved info depends on the workspace name again — that folder level was removed, Personal/ sits directly in the chosen folder');
 });

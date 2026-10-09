@@ -1,0 +1,55 @@
+/* The secret's form inside a help card, and the profile row's picture of the screen. */
+
+.dot-computer-secret {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dot-computer-secret__input {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: #131314;
+  color: #e3e3e3;
+  font-size: 14px;
+  outline: none;
+}
+
+.dot-computer-secret__input:focus {
+  border-color: var(--sync-a8c7fa, #a8c7fa);
+}
+
+.dot-computer-secret .spark-dots-approval__actions {
+  margin-top: 0;
+}
+
+.dot-computer-preview {
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  cursor: pointer;
+}
+
+.dot-computer-preview:disabled {
+  cursor: default;
+}
+
+.dot-computer-preview.has-picture {
+  background: #1e1f20;
+}
+
+.dot-computer-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer-secret__input {
+  border-color: rgba(0, 0, 0, 0.16);
+  background: #ffffff;
+  color: #1f1f1f;
+}

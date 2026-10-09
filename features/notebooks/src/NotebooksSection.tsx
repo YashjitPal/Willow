@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { useThemeMode } from '@willow/core/theme-mode';
 import { SectionHeader, SidebarItem } from '@willow/studio/shell/sidebar/SidebarPrimitives';
 
+import { NotebookActionsMenu, type NotebookActionsTarget } from './NotebookActionsMenu';
+import { MENU_TRIGGER_ATTR, rectOf } from './NotebookMenu';
 import { notebooksHydratedStore, notebooksStore } from './notebooks-store';
 import { hydrateNotebooks, subscribeToNotebookWrites } from './notebooks-store';
 import type { Notebook } from './notebook-types';
@@ -30,7 +34,9 @@ import type { Notebook } from './notebook-types';
  * for a pinned notebook. Gemini renders its row menu with `hide-pin-icon`, and
  * probing confirmed the `.project-item-pin-icon` element is absent rather than
  * merely hidden. Pinning still matters — it sorts the notebook to the top — but
- * the pin glyph itself only appears on the card in the grid.
+ * the pin glyph itself only appears on the card in the grid. The exception is the
+ * narrow drawer, where the always-visible touch trigger draws `push_pin` in place of
+ * the three dots while the notebook is pinned.
  */
 export interface NotebooksSectionProps {
   isCollapsed: boolean;
@@ -63,6 +69,9 @@ export interface NotebooksSectionProps {
  */
 const SIDEBAR_NOTEBOOK_LIMIT = 4;
 
+/** Below 961px the drawer lists Gemini's two, measured at 800x1280 and 390x844. */
+const COMPACT_NOTEBOOK_LIMIT = 2;
+
 export const NotebooksSection: React.FC<NotebooksSectionProps> = ({
   isCollapsed,
   activeNotebookId,
@@ -77,6 +86,15 @@ export const NotebooksSection: React.FC<NotebooksSectionProps> = ({
   const notebooks = useStore(notebooksStore);
   const isHydrated = useStore(notebooksHydratedStore);
   const [isExpanded, setIsExpanded] = useState(true);
+  const isCompact = useCompactViewport();
+  const { isLight } = useThemeMode();
+  /*
+   * The narrow drawer's own row menu. Gemini's touch drawer shows each notebook's
+   * trigger all the time — its pin while pinned, three dots otherwise — and hangs
+   * Pin / Rename / Delete from it. The shell's `onNotebookMenu`, when wired, wins.
+   */
+  const [rowMenu, setRowMenu] = useState<NotebookActionsTarget | null>(null);
+  const hasCompactMenu = isCompact && !onNotebookMenu;
 
   // One hydrate on mount plus a subscription, so a write from the card grid or
   // the create screen reaches the sidebar without either knowing it exists.
@@ -89,7 +107,7 @@ export const NotebooksSection: React.FC<NotebooksSectionProps> = ({
   // unread list. Same reasoning as the Recents header's hydration gate.
   if (!isHydrated) return null;
 
-  const visible = notebooks.slice(0, SIDEBAR_NOTEBOOK_LIMIT);
+  const visible = notebooks.slice(0, isCompact ? COMPACT_NOTEBOOK_LIMIT : SIDEBAR_NOTEBOOK_LIMIT);
 
   return (
     <>
@@ -133,9 +151,35 @@ export const NotebooksSection: React.FC<NotebooksSectionProps> = ({
               isCollapsed={isCollapsed}
               active={activeNotebookId === notebook.id}
               onClick={() => onOpenNotebook(notebook.id)}
-              keepActionsVisible={openMenuNotebookId === notebook.id}
+              keepActionsVisible={openMenuNotebookId === notebook.id || rowMenu?.notebookId === notebook.id}
               actions={
-                onNotebookMenu ? (
+                hasCompactMenu ? (
+                  <button
+                    type="button"
+                    {...MENU_TRIGGER_ATTR}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      const anchor = rectOf(event.currentTarget);
+                      setRowMenu((open) => (open?.notebookId === notebook.id ? null : { notebookId: notebook.id, anchor }));
+                    }}
+                    aria-label={`More options for ${notebook.title}`}
+                    aria-haspopup="menu"
+                    aria-expanded={rowMenu?.notebookId === notebook.id}
+                    className={`sidebar-row-menu-btn relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 ${
+                      isLight ? 'text-[#1f1f1f]' : 'text-[#e0e0e0]'
+                    } before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08]`}
+                  >
+                    <MaterialSymbol
+                      name={notebook.pinned ? 'push_pin' : 'more_vert'}
+                      family="luminous"
+                      size={20}
+                      weight={320}
+                      roundness={100}
+                      opticalSize={20}
+                      className="relative"
+                    />
+                  </button>
+                ) : onNotebookMenu ? (
                   /*
                    * 24x24, transparent, fully round, revealed by `visibility`
                    * rather than opacity — Gemini keeps `opacity: 1` in both
@@ -189,6 +233,14 @@ export const NotebooksSection: React.FC<NotebooksSectionProps> = ({
           )}
         </div>
       </div>
+      {hasCompactMenu && (
+        <NotebookActionsMenu
+          target={rowMenu}
+          onClose={() => setRowMenu(null)}
+          align="start"
+          menuClassName="nb-menu--drawer"
+        />
+      )}
     </>
   );
 };

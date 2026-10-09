@@ -30,6 +30,7 @@ export const DeleteNotebookDialog: React.FC<{
     headingAs="h1"
     title="Delete notebook everywhere?"
     width={512}
+    message
     onDismiss={onClose}
     actions={(
       <>
@@ -40,7 +41,7 @@ export const DeleteNotebookDialog: React.FC<{
   >
     <p>
       This notebook, including all sources and chats, will be permanently deleted from
-      Gemini Apps on all your devices.
+      Willow on all your devices.
     </p>
   </GeminiDialog>
 );

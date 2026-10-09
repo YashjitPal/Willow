@@ -367,11 +367,11 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .usage-link {
-  color: rgb(11, 87, 208);
+  color: var(--sync-0b57d0, rgb(11, 87, 208));
 }
 
 :is(.light-theme, [data-theme="light"]) .usage-link:hover {
-  color: rgb(8, 66, 160);
+  color: var(--sync-0842a0, rgb(8, 66, 160));
 }
 
 :is(.light-theme, [data-theme="light"]) .usage-current-card,
@@ -423,5 +423,62 @@
 
 :is(.light-theme, [data-theme="light"]) .usage-popover-text {
   color: rgb(68, 71, 70);
+}
+
+/*
+ * At 960px and below, measured off /usage at 390x844 and 800x1280. The page scrolls in a
+ * region that starts under the 68px top bar, on Gemini's black surface; only the section
+ * holding the content paints #0f0f0f, and only as tall as that content. The desktop's fixed
+ * 824/800px column becomes the page width, and the cards and the PRO pill move to the
+ * narrow layout's #141414. The link is on-surface #e0e0e0 with a 1.2px dotted underline.
+ */
+@media (max-width: 960px) {
+  .usage-limits-root {
+    height: calc(100% - 68px);
+    min-height: 0;
+    margin-top: 68px;
+  }
+
+  .dark-theme .usage-limits-root {
+    background: #000000;
+  }
+
+  .usage-limits-container {
+    width: auto;
+    background: rgb(15, 15, 15);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .usage-limits-container {
+    background: transparent;
+  }
+
+  .usage-header,
+  .usage-windows-region,
+  .usage-current-card,
+  .usage-weekly-card {
+    width: auto;
+  }
+
+  .usage-pro-badge,
+  .usage-current-card,
+  .usage-weekly-card {
+    background: rgb(20, 20, 20);
+  }
+
+  .usage-link {
+    color: rgb(224, 224, 224);
+    text-decoration: underline 1.2px dotted;
+    text-underline-offset: 3.45px;
+  }
+}
+
+/* Where the popover no longer fits beside its button (it would end past 436px), Gemini drops
+ * it 8.4px below the button and slides it left to stay 4.8px inside the screen; at 800px it
+ * still opens beside the button. 28px is the title group's inset, 256px the popover. */
+@media (max-width: 435.98px) {
+  .usage-popover {
+    top: 30.4px;
+    left: min(119.2px, calc(100vw - 288.8px));
+  }
 }
 

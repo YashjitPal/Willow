@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Willow</title>
+    <style>
+      /*
+       * What the page shows until Willow's server answers: the frame Willow's page sits in
+       * (apps/studio/src/shell/rail/AppRail.css: the workspace colour's tint, the rail's column,
+       * the rounded page), with the Media tab's "Loading..." (features/media FlowLoadingPage,
+       * flow-loading-page.css) letter by letter in the page, all in the theme and colour Willow
+       * was last in (tabs.rs sets __WILLOW_LIGHT__ and __WILLOW_FRAME__). The rail's buttons
+       * come with Willow. Willow's own first paint carries it on in step (apps/studio/index.html,
+       * #willow-boot). The letters are in the system's face: Willow's web fonts are not there
+       * yet, and a face arriving midway would change them.
+       */
+      :root {
+        color-scheme: dark;
+      }
+
+      html.light {
+        color-scheme: light;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #0f0f0f;
+        user-select: none;
+        cursor: default;
+      }
+
+      html.light,
+      html.light body {
+        background: #faf9f9;
+      }
+
+      /* Mica shows through wherever the frame lays only its tint (tabs.rs `mica`). */
+      html.mica,
+      html.mica body {
+        background: transparent;
+      }
+
+      .frame {
+        display: flex;
+        height: 100%;
+        background-color: color-mix(in srgb, var(--frame-shell, #202020) 35%, #202020);
+      }
+
+      html.light .frame {
+        background-color: color-mix(in srgb, var(--frame-shell, #f3f3f3) 35%, #f3f3f3);
+      }
+
+      html.mica .frame {
+        background-color: color-mix(in srgb, var(--frame-shell) 35%, transparent);
+      }
+
+      .rail {
+        width: 52px;
+        flex-shrink: 0;
+      }
+
+      main {
+        display: flex;
+        flex: 1 1 auto;
+        min-width: 0;
+        margin: 8px 4px 4px 0;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px 12px 4px 12px;
+        background: #0f0f0f;
+        box-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.06), 0 4px 16px 0 rgb(0 0 0 / 0.05);
+      }
+
+      html.light main {
+        background: #faf9f9;
+        box-shadow: 0 0 0 0.5px rgb(13 13 13 / 0.04), 0 4px 16px 0 rgb(0 0 0 / 0.05);
+      }
+
+      .letters {
+        display: flex;
+        opacity: 0.25;
+        color: #fff;
+        font: 400 24px/32px system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+
+      html.light .letters {
+        color: #000;
+      }
+
+      .letters span {
+        display: inline-block;
+        animation: letter 1.6s ease-in-out infinite;
+      }
+
+      @keyframes letter {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.2;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .letters span {
+          animation: none;
+        }
+      }
+    </style>
+    <script>
+      (function () {
+        var root = document.documentElement;
+        root.classList.toggle('light', window.__WILLOW_LIGHT__ === true);
+        root.classList.toggle('mica', window.__WILLOW_MATERIAL__ === 'mica');
+        var frame = window.__WILLOW_FRAME__;
+        if (frame && /^#[0-9a-f]{6}$/i.test(frame.color)) root.style.setProperty('--frame-shell', frame.color);
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="rail"></div>
+      <main role="status" aria-label="Loading...">
+        <div class="letters" aria-hidden="true"><span>L</span><span>o</span><span>a</span><span>d</span><span>i</span><span>n</span><span>g</span><span>...</span></div>
+      </main>
+    </div>
+    <script>
+      // Each letter 100ms after the one before, timed from the clock rather than this page's
+      // start, so Willow's first paint picks the letters up where they are.
+      const now = Date.now();
+      document.querySelectorAll('.letters span').forEach((letter, index) => {
+        letter.style.animationDelay = `${-((((now - index * 100) % 1600) + 1600) % 1600)}ms`;
+      });
+    </script>
+  </body>
+</html>

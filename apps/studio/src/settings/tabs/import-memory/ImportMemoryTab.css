@@ -26,8 +26,8 @@
   --im-outline-low: #444746;
   --im-outline-variant: #444746;
   --im-surface-container-highest: #333537;
-  --im-primary: #a8c7fa;
-  --im-on-primary: #062e6f;
+  --im-primary: var(--sync-a8c7fa, #a8c7fa);
+  --im-on-primary: var(--sync-062e6f, #062e6f);
 
   --im-spacing-xs: 4px;
   --im-spacing-s: 8px;
@@ -495,7 +495,7 @@
   --im-outline-low: #c4c7c5;
   --im-outline-variant: #c4c7c5;
   --im-surface-container-highest: #e3e3e3;
-  --im-primary: #0b57d0;
+  --im-primary: var(--sync-0b57d0, #0b57d0);
   --im-on-primary: #ffffff;
 }
 
@@ -516,7 +516,7 @@
 
 :is(.light-theme, [data-theme="light"]) .import-memory__card--input.import-memory__card--focused,
 :is(.light-theme, [data-theme="light"]) .import-memory__card--input.import-memory__card--has-content {
-  border: 1.6px solid #0b57d0;
+  border: 1.6px solid var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .import-memory__pill--outlined {
@@ -530,17 +530,17 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .import-memory__pill--copied {
-  color: #0b57d0;
-  border-color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .import-memory__pill--filled {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
 :is(.light-theme, [data-theme="light"]) .import-memory__pill--filled:hover {
-  background-color: #0842a0;
+  background-color: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .import-memory__pill--filled:disabled {
@@ -549,6 +549,6 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .import-memory__link {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 

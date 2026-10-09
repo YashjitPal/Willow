@@ -306,6 +306,39 @@
   }
 }
 
+/*
+ * Below 961px Labs follows the Gemini-matched settings pages it is drawn after, Personal
+ * Intelligence first: the page starts under the 68px top bar on black and drops the 68px
+ * it held inside, and the headings take Gemini's narrow type axes. The cards keep their
+ * desktop surface, as Personal Intelligence's do.
+ */
+@media (max-width: 960px) {
+  .labs-page-container {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+
+  .dark-theme .labs-page-container {
+    --lp-surface: #000000;
+  }
+
+  .labs-page-container .lp-page-content {
+    margin-top: 0;
+  }
+
+  .labs-page-container .lp-display-s {
+    font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
+  }
+
+  .labs-page-container .lp-page-description {
+    color: var(--lp-on-surface);
+  }
+
+  .labs-page-container .lp-title-l {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+}
+
 /* Light Theme overrides matching Gemini 1:1 */
 :is(.light-theme, [data-theme="light"]) .labs-page-container,
 .light-theme .labs-page-container,

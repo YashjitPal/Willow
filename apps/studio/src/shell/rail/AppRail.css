@@ -1,0 +1,501 @@
+/*
+ * Codex's app shell around Willow: a 52px navigation rail on the shell colour,
+ * and Willow itself on a rounded page beside it. Every number is Codex's, read
+ * from its webview stylesheet (Windows desktop window):
+ *
+ *   shell      Mica on Windows 11 (the window's material) under the workspace colour;
+ *              elsewhere that colour alone, as dark as Codex's #1a2227 or at #f3f3f3
+ *   page       inset 8px top (the titlebar gap under its menu bar), 4px right and
+ *              bottom; radius 12px, 4px bottom-right; a 0.5px stroke and the card
+ *              shadow (`--app-shell-page-surface-shadow`)
+ *   rail       px 8, pt (52 - 36) / 2 under the page's top edge, pb 4, gap 8
+ *   buttons    36x36 ghost, radius 10px (`--control-radius-md` in the desktop app),
+ *              20px icons; #8f8f8f at rest, the text colour on hover and selected
+ *   Explore    opens 150ms into a hover, 228px wide, 8px padding, radius 16px,
+ *              4px from the rail; rows 5px 8px with 16px icons, radius 12px
+ *
+ * Its tooltips and its context menu are Willow's own (platform/ui Tooltip, MenuPanel),
+ * as Willow's buttons and menus have them.
+ *
+ * The rail and the page stay at every width, as Codex's do, down to the window's
+ * smallest (480px, Codex's own). Willow's narrow layout (<= 960px) turns its sidebar
+ * into a drawer, which opens over the page beside the rail (at the end of this part).
+ */
+
+/* Read by the fixed-position pieces of Willow that line up with its page. */
+:root:has(.willow-frame) {
+  --willow-frame-top: 8px;
+  --willow-frame-left: 52px;
+  --willow-frame-right: 4px;
+  --willow-frame-bottom: 4px;
+  --willow-frame-radius: 12px;
+  --willow-frame-center-shift: 24px;
+  /* The page's box and corners, for what is laid over it rather than inside it. */
+  --willow-frame-inset: var(--willow-frame-top) var(--willow-frame-right) var(--willow-frame-bottom) var(--willow-frame-left);
+  --willow-frame-page-radius: var(--willow-frame-radius) var(--willow-frame-radius) 4px var(--willow-frame-radius);
+}
+
+/*
+ * --willow-frame-shell is the workspace colour's (`frameShell` in workspace-theme), laid as a
+ * light tint over the grey Mica falls back to (#202020, #f3f3f3); the strip (shell/tabs.html)
+ * lays the same.
+ */
+.willow-frame {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: color-mix(in srgb, var(--willow-frame-shell, #202020) var(--willow-frame-tint, 35%), #202020);
+}
+
+.willow-frame--light {
+  background-color: color-mix(in srgb, var(--willow-frame-shell, #f3f3f3) var(--willow-frame-tint, 35%), #f3f3f3);
+}
+
+/*
+ * Windows 11: Mica behind the window, as Codex's shell is (`backgroundMaterial: 'mica'`,
+ * the page see-through around its surfaces). Codex lays nothing over the material there,
+ * so the workspace colour is only a light tint on it, and the strip (shell/tabs.html) lays
+ * the same. Willow's page keeps its surface.
+ */
+.willow-frame--mica {
+  background-color: color-mix(in srgb, var(--willow-frame-shell) var(--willow-frame-tint, 35%), transparent);
+}
+
+:root:has(.willow-frame--mica),
+:root:has(.willow-frame--mica) body {
+  background: transparent;
+}
+
+.willow-frame--mica .willow-frame__page {
+  background-color: var(--studio-surface, #0f0f0f);
+}
+
+.willow-frame__page {
+  position: relative;
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 8px 4px 4px 0;
+  overflow: hidden;
+  border-radius: 12px 12px 4px 12px;
+  box-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.06), 0 4px 16px 0 rgb(0 0 0 / 0.05);
+}
+
+.willow-frame--light .willow-frame__page {
+  box-shadow: 0 0 0 0.5px rgb(13 13 13 / 0.04), 0 4px 16px 0 rgb(0 0 0 / 0.05);
+}
+
+/* Willow's full-window surfaces fill the page instead. */
+.willow-frame__page .h-screen {
+  height: 100%;
+}
+
+.willow-frame__page .w-screen {
+  width: 100%;
+}
+
+/*
+ * Willow's surfaces that are fixed over the whole window — a Media or Code project, which sit
+ * outside the main shell, and the Design canvas — are laid over the page in the frame instead,
+ * the rail beside them as beside the rest of Willow. Pages written in their own stylesheets do
+ * the same with `--willow-frame-inset` and `--willow-frame-page-radius`.
+ */
+:root:has(.willow-frame) .willow-frame-fill {
+  inset: var(--willow-frame-inset);
+  width: auto;
+  height: auto;
+  border-radius: var(--willow-frame-page-radius);
+}
+
+:root:has(.willow-frame) .willow-frame-fill .h-screen {
+  height: 100%;
+}
+
+:root:has(.willow-frame) .willow-frame-fill .w-screen {
+  width: 100%;
+}
+
+.willow-rail {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 8px 4px;
+  user-select: none;
+}
+
+/*
+ * Willow's narrow layout pins its drawer, the scrim behind it and the button that opens it
+ * to the window's left edge, which here is the rail's. In the frame they are placed in the
+ * page instead, whose layout clips the drawer while it is put away.
+ */
+@media (max-width: 960px) {
+  .willow-frame__page .studio-sidebar {
+    position: absolute !important;
+    height: 100% !important;
+  }
+
+  .willow-frame__page .studio-sidebar-mobile-scrim,
+  .willow-frame__page .studio-sidebar-mobile-open {
+    position: absolute;
+  }
+}
+
+/* ── Colours ─────────────────────────────────────────────────────────────── */
+
+.willow-rail-theme {
+  --rail-icon: #8f8f8f;
+  --rail-icon-active: #ffffff;
+  --rail-fill: rgb(255 255 255 / 0.1);
+  --rail-fill-current: rgb(255 255 255 / 0.05);
+  --rail-fill-pressed: rgb(255 255 255 / 0.16);
+  --rail-divider: rgb(255 255 255 / 0.12);
+  --rail-ring: color-mix(in oklab, #339cff 70%, transparent);
+  --rail-surface: #181818;
+  --rail-surface-text: #ffffff;
+  --rail-surface-stroke: rgb(255 255 255 / 0.12);
+}
+
+.willow-rail-theme--light {
+  --rail-icon-active: #0d0d0d;
+  --rail-fill: rgb(0 0 0 / 0.05);
+  --rail-fill-current: rgb(0 0 0 / 0.025);
+  --rail-fill-pressed: rgb(13 13 13 / 0.12);
+  --rail-divider: rgb(13 13 13 / 0.1);
+  --rail-ring: #339cff;
+  --rail-surface: #ffffff;
+  --rail-surface-text: #0d0d0d;
+  --rail-surface-stroke: rgb(13 13 13 / 0.1);
+}
+
+/* ── The rail ────────────────────────────────────────────────────────────── */
+
+.willow-rail__list {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: -2px;
+  padding: 2px;
+  overflow-y: auto;
+  scroll-padding-block: 2px;
+  scrollbar-width: none;
+}
+
+.willow-rail__list::-webkit-scrollbar {
+  display: none;
+}
+
+.willow-rail__pins {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.willow-rail__separator {
+  width: 24px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--rail-divider);
+}
+
+.willow-rail__item {
+  --rail-press-scale: 0.96;
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--rail-icon);
+  cursor: pointer;
+  line-height: 1;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.willow-rail__item::before,
+.willow-rail__item::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+}
+
+.willow-rail__item::before {
+  background-color: var(--rail-fill);
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+.willow-rail__item::after {
+  pointer-events: none;
+  transition: transform 0.15s ease;
+}
+
+.willow-rail__item > svg {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+@media (hover: hover) {
+  .willow-rail__item:hover {
+    color: var(--rail-icon-active);
+  }
+
+  .willow-rail__item:hover::before {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.willow-rail__item[data-selected] {
+  color: var(--rail-icon-active);
+}
+
+.willow-rail__item[data-selected]::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.willow-rail__item[aria-expanded="true"] {
+  color: var(--rail-icon-active);
+}
+
+.willow-rail__item[aria-expanded="true"]::before {
+  opacity: 0.6;
+  transform: scale(1);
+}
+
+.willow-rail__item:active::before {
+  background-color: var(--rail-fill-pressed);
+  opacity: 1;
+  transform: scale(var(--rail-press-scale));
+}
+
+.willow-rail__item:active::after {
+  transform: scale(var(--rail-press-scale));
+}
+
+.willow-rail__item:focus {
+  outline: none;
+}
+
+.willow-rail__item:focus-visible::after {
+  outline: 2px solid var(--rail-ring);
+  outline-offset: -1px;
+}
+
+.willow-rail__item[data-draggable] {
+  touch-action: none;
+}
+
+.willow-rail__pins[data-dragging] .willow-rail__item {
+  transition: opacity 0.15s ease, color 0.15s ease, transform 250ms ease;
+}
+
+/* ── Explore ─────────────────────────────────────────────────────────────── */
+
+.willow-rail-explore {
+  position: fixed;
+  z-index: 3500;
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: column;
+  overflow-y: auto;
+  border-radius: 16px;
+  background-color: var(--rail-surface);
+  box-shadow: 0 0 0 0.5px var(--rail-surface-stroke), 0 8px 16px -4px #0000001f;
+  color: var(--rail-surface-text);
+  font-size: 13px;
+  line-height: calc(1.25 / 0.875);
+  outline: none;
+  user-select: none;
+}
+
+.willow-rail-explore {
+  width: 228px;
+  max-width: calc(100vw - 16px);
+  max-height: min(400px, calc(100vh - 16px));
+  padding: 8px;
+}
+
+.willow-rail-explore[data-state="closed"] {
+  pointer-events: none;
+}
+
+.willow-rail-explore[data-animated][data-state="open"] {
+  animation: willow-rail-explore-in 0.25s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.willow-rail-explore[data-animated][data-state="closed"] {
+  animation: willow-rail-explore-out 0.2s cubic-bezier(0.8, 0, 0.4, 1) forwards;
+}
+
+@keyframes willow-rail-explore-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0);
+  }
+}
+
+@keyframes willow-rail-explore-out {
+  from {
+    opacity: 1;
+    transform: translate(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-rail-explore[data-animated] {
+    animation: none !important;
+  }
+}
+
+.willow-rail-explore__row {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  padding-inline-end: 4px;
+  border-radius: 12px;
+}
+
+.willow-rail-explore__row[data-current] {
+  background-color: var(--rail-fill-current);
+}
+
+.willow-rail-explore__row:focus-within {
+  background-color: var(--rail-fill);
+}
+
+.willow-rail-explore__open {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+  outline: none;
+}
+
+.willow-rail-explore__open {
+  flex: 1 1 auto;
+}
+
+.willow-rail-explore__open > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.willow-rail-explore__label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-rail-explore__pin-slot {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.willow-rail-explore__pin-slot[data-reveal] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.willow-rail-explore__row:hover .willow-rail-explore__pin-slot[data-reveal],
+.willow-rail-explore__row:has(:focus-visible) .willow-rail-explore__pin-slot[data-reveal] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .willow-rail-explore__pin-slot[data-reveal] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.willow-rail-explore__pin {
+  position: relative;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--rail-icon);
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.willow-rail-explore__pin::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: var(--rail-fill);
+  content: "";
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.willow-rail-explore__pin > svg {
+  position: relative;
+  width: 14px;
+  height: 14px;
+}
+
+.willow-rail-explore__pin:not(:disabled):hover {
+  color: var(--rail-icon-active);
+}
+
+.willow-rail-explore__pin:not(:disabled):hover::before {
+  opacity: 1;
+}
+
+.willow-rail-explore__pin:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.willow-rail-explore__pin:focus {
+  outline: none;
+}
+
+.willow-rail-explore__pin:focus-visible {
+  outline: 2px solid var(--rail-ring);
+  outline-offset: -1px;
+}

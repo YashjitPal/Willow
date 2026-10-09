@@ -1,0 +1,199 @@
+/*
+ * A bot's triggers in Material 3 (m3.css): in the profile, rows in the side panel's type (14/20 titles, 12/16
+ * on-surface-variant detail) with 40px icon buttons and a switch; in the conversation, an outlined card (12px
+ * corners, outline-variant) beside the bot's bubbles.
+ */
+
+.dot-triggers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dot-trigger {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-trigger + .dot-trigger {
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.dot-trigger__icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.dot-trigger.is-paused .dot-trigger__icon,
+.dot-trigger.is-ended .dot-trigger__icon {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-trigger__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dot-trigger__name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot-trigger__when,
+.dot-trigger__state {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.dot-trigger__problem {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--md-sys-color-error);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* Under the description, 28px text buttons whose label starts on the text's edge. */
+.dot-trigger__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  margin: 2px 0 0 -8px;
+  --md-text-button-container-height: 28px;
+  --md-text-button-leading-space: 8px;
+  --md-text-button-trailing-space: 10px;
+  --md-text-button-with-leading-icon-leading-space: 8px;
+  --md-text-button-with-leading-icon-trailing-space: 10px;
+  --md-text-button-label-text-size: 12px;
+  --md-text-button-label-text-color: var(--md-sys-color-on-surface-variant);
+  --md-text-button-icon-color: var(--md-sys-color-on-surface-variant);
+  --md-text-button-icon-size: 18px;
+}
+
+.dot-trigger__action-icon {
+  display: inline-flex;
+}
+
+.dot-trigger__confirm {
+  --md-text-button-label-text-color: var(--md-sys-color-error);
+}
+
+.dot-trigger__switch {
+  display: flex;
+  flex: none;
+  padding-top: 4px;
+  --md-switch-track-height: 24px;
+  --md-switch-track-width: 40px;
+  --md-switch-handle-width: 14px;
+  --md-switch-handle-height: 14px;
+  --md-switch-selected-handle-width: 18px;
+  --md-switch-selected-handle-height: 18px;
+  --md-switch-pressed-handle-width: 20px;
+  --md-switch-pressed-handle-height: 20px;
+  --md-switch-state-layer-size: 32px;
+}
+
+.dot-triggers__ended-toggle {
+  align-self: flex-start;
+  margin-top: 4px;
+  --md-text-button-container-height: 32px;
+}
+
+/* ── The card in the conversation ─────────────────────────────────────── */
+
+.dot-trigger-card {
+  max-width: 420px;
+  --md-outlined-card-container-shape: 16px;
+  --md-outlined-card-outline-color: var(--md-sys-color-outline-variant);
+  --md-switch-track-height: 24px;
+  --md-switch-track-width: 40px;
+  --md-switch-handle-width: 14px;
+  --md-switch-handle-height: 14px;
+  --md-switch-selected-handle-width: 18px;
+  --md-switch-selected-handle-height: 18px;
+  --md-switch-state-layer-size: 32px;
+}
+
+.dot-trigger-card md-outlined-card {
+  display: block;
+}
+
+.dot-trigger-card__body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--md-sys-color-on-surface);
+}
+
+.dot-trigger-card__icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.dot-trigger-card.is-paused .dot-trigger-card__icon,
+.dot-trigger-card.is-ended .dot-trigger-card__icon {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-trigger-card__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dot-trigger-card__title {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.dot-trigger-card__line {
+  color: var(--md-sys-color-on-surface);
+  font-size: 13px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.dot-trigger-card__line.is-muted,
+.dot-trigger-card.is-removed .dot-trigger-card__line {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.dot-trigger-card.is-removed .dot-trigger-card__body {
+  color: var(--md-sys-color-on-surface-variant);
+}

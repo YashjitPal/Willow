@@ -4,10 +4,13 @@ import type { MessageCitations, GroundingSource } from '@willow/ai/grounding';
 import type { CodeExecution } from '@willow/ai/code-execution';
 import { WEB_SEARCH_TOOL_NAME, formatWebSearchResult } from '@willow/ai/web-search-tool';
 import type { ChatMessage as AiChatMessage } from '@willow/ai/chat';
-import { runPersonalTool } from '@willow/personal';
+import { connectorForAction, connectorForRead, runPersonalTool } from '@willow/personal';
 import { declaredToolNames } from './personal-tools';
 import { createCanvasToolExecutor, type CanvasToolHost } from './canvas/canvas-runtime';
 import { isCanvasToolCall } from './canvas/canvas-tools';
+import { createMediaToolExecutor, isMediaToolCall, type MediaToolHost } from './media/media-tools';
+import { createResearchToolExecutor, isResearchToolCall, type ResearchToolHost } from './research/research-tools';
+import { createLibraryToolExecutor, isLibraryToolCall, type LibraryToolHost } from './library/library-tools';
 import { type ChatMsg, hasSavedMessageContent, serializeChatMessage } from './chat-message';
 import {
   formatUpstreamError,
@@ -95,6 +98,19 @@ export interface ChatTurnRunnerDeps {
    */
   canvasHost?: Omit<CanvasToolHost, 'contentLength' | 'publish'>;
   /**
+   * Image / video / music declarations: the composer tool the user attached, or all three
+   * on a turn sent with no tool. `mediaHost` is absent exactly when this is empty.
+   */
+  mediaTools?: { functionDeclarations: any[] }[];
+  /** The generators and options the media executor needs, minus what only the runner knows. */
+  mediaHost?: Pick<MediaToolHost, 'options' | 'generate' | 'newId'>;
+  /** `create_research_plan`, on a turn sent with the Deep research chip; `researchHost` with it. */
+  researchTools?: { functionDeclarations: any[] }[];
+  researchHost?: Pick<ResearchToolHost, 'query' | 'newId'>;
+  /** `create_schedule` and `create_skill`, on a turn that can save them; `libraryHost` with them. */
+  libraryTools?: { functionDeclarations: any[] }[];
+  libraryHost?: Omit<LibraryToolHost, 'publish'>;
+  /**
    * Willow's OWN web search, declared as a client tool.
    *
    * Present only when the endpoint cannot search for itself — see
@@ -133,6 +149,9 @@ const buildAssistantMessage = (record: ChatTurnRecord, content: string, wasStopp
   citations: record.citations,
   codeExecutions: record.codeExecutions?.length ? record.codeExecutions : undefined,
   canvasRefs: record.canvasRefs?.length ? record.canvasRefs : undefined,
+  media: record.media?.length ? record.media : undefined,
+  research: record.research,
+  created: record.created?.length ? record.created : undefined,
 });
 
 const buildThread = (record: ChatTurnRecord, assistant: ChatMsg): any[] =>
@@ -250,16 +269,69 @@ export const runChatTurn = async (
   };
   let runCanvasTool = makeCanvasExecutor();
 
+  /*
+   * Media, per attempt for the same reason. Its cards are visible from the moment a call
+   * starts — the waiting state IS the card — so both `publish` and `update` tell the view.
+   */
+  const makeMediaExecutor = () => {
+    const host = deps.mediaHost;
+    if (!host) return null;
+    return createMediaToolExecutor({
+      ...host,
+      signal: record.abort.signal,
+      contentLength: () => record.content.length,
+      publish: (item) => {
+        record.media = [...(record.media ?? []), item];
+        record.listener?.onPhase(record);
+        void checkpoint(record, deps);
+      },
+      update: (id, patch) => {
+        record.media = (record.media ?? []).map((item) => (item.id === id ? { ...item, ...patch } : item));
+        record.listener?.onPhase(record);
+        void checkpoint(record, deps);
+      },
+    });
+  };
+  let runMediaTool = makeMediaExecutor();
+
+  /* The plan card shows the moment the call lands, before the model's sentence. */
+  const runResearchTool = deps.researchHost
+    ? createResearchToolExecutor({
+      ...deps.researchHost,
+      publish: (plan) => {
+        record.research = plan;
+        record.listener?.onPhase(record);
+        void checkpoint(record, deps);
+      },
+    })
+    : null;
+
+  /* The card shows the moment the save lands, before the model's sentence about it. */
+  const runLibraryTool = deps.libraryHost
+    ? createLibraryToolExecutor({
+      ...deps.libraryHost,
+      publish: (item) => {
+        record.created = [...(record.created ?? []), item];
+        record.listener?.onPhase(record);
+        void checkpoint(record, deps);
+      },
+    })
+    : null;
+
   const resetForRetry = () => {
     record.content = '';
     record.thinkingText = '';
     record.citations = undefined;
     record.codeExecutions = undefined;
     record.canvasRefs = undefined;
+    record.media = undefined;
+    record.research = undefined;
+    // Kept: what was saved stays saved, and the executor answers a repeat with the same item.
     record.phase = 'thinking';
     record.isThinking = true;
     record.thinkStartedAt = Date.now();
     runCanvasTool = makeCanvasExecutor();
+    runMediaTool = makeMediaExecutor();
     record.listener?.onText('');
     record.listener?.onThinking(record);
     record.listener?.onPhase(record);
@@ -297,7 +369,13 @@ export const runChatTurn = async (
       /* Canvas plus Willow's own search, when this endpoint needs one supplied.
          Both are client function declarations and both are answered below, so they
          travel together — the adapters know nothing about which is which. */
-      toolDeclarations: [...(deps.canvasTools ?? []), ...(deps.webSearchTools ?? [])],
+      toolDeclarations: [
+        ...(deps.canvasTools ?? []),
+        ...(deps.mediaTools ?? []),
+        ...(deps.researchTools ?? []),
+        ...(deps.libraryTools ?? []),
+        ...(deps.webSearchTools ?? []),
+      ],
       baseUrl: options.baseUrl,
       apiFormat: options.apiFormat,
       toolPolicy: options.toolPolicy,
@@ -337,6 +415,28 @@ export const runChatTurn = async (
           return { status: 'error', error: 'This conversation is no longer active.' };
         }
         return runCanvasTool(name, args);
+      }
+
+      /* Media, gated on its executor exactly as Canvas is on its own. */
+      if (runMediaTool && isMediaToolCall(name)) {
+        if (!isCurrent(record, deps)) {
+          return { status: 'error', error: 'This conversation is no longer active.' };
+        }
+        return runMediaTool(name, args);
+      }
+
+      if (runResearchTool && isResearchToolCall(name)) {
+        if (!isCurrent(record, deps)) {
+          return { status: 'error', error: 'This conversation is no longer active.' };
+        }
+        return runResearchTool(name, args);
+      }
+
+      if (runLibraryTool && isLibraryToolCall(name)) {
+        if (!isCurrent(record, deps)) {
+          return { status: 'error', error: 'This conversation is no longer active.' };
+        }
+        return runLibraryTool(name, args);
       }
 
       /*
@@ -389,7 +489,22 @@ export const runChatTurn = async (
         };
       }
 
-      const result = await runPersonalTool(name, args);
+      /* A connected app's tool shows on the thinking row while it runs, as Gemini's
+         "Connecting to <app>" does, and the row goes back to the thoughts after. */
+      const app = connectorForRead(name) ?? connectorForAction(name);
+      if (app && isCurrent(record, deps)) {
+        record.connectingApp = app;
+        record.listener?.onPhase(record);
+      }
+      let result: Awaited<ReturnType<typeof runPersonalTool>>;
+      try {
+        result = await runPersonalTool(name, args);
+      } finally {
+        if (app && record.connectingApp === app) {
+          record.connectingApp = undefined;
+          if (isCurrent(record, deps)) record.listener?.onPhase(record);
+        }
+      }
       if (!result) {
         return {
           status: 'error',

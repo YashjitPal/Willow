@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import type {
@@ -9,6 +9,7 @@ import type {
   SparkActivityEntry,
   SparkTaskAttachment,
   SparkGeneratedFile,
+  SparkCreatedItem,
   SparkPlanStep,
   SparkSubAgent,
 } from './spark-store';
@@ -26,10 +27,16 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { SparkComposer } from './SparkComposer';
 import { SparkQuestionPanel } from './SparkQuestionPanel';
+import { SparkApprovalPanel } from './SparkApprovalPanel';
+import { SparkTaskFolderCrumb, useSparkAccessChip } from './SparkNativeBar';
+import { sparkPendingApprovals } from './spark-projects';
+import { commandGroupLabel, isCommandGroupRunning, isCommandRow, type SparkToolEntry } from './spark-command-rows';
+import { formatSparkScheduleTrigger } from './SparkScheduleEditor';
 import { formatSparkRelativeTime } from './spark-types';
 import type { SparkSubAgentCall } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import './SparkTaskDetail.css';
 import { SYMBOL_PROPS, SparkAttachmentPills } from './spark-composer-chips';
 import workingAnimationTemplate from './gemini-working-animation/template.svg?raw';
@@ -39,6 +46,20 @@ import {
   isSparkRootResponseStreaming,
   isSparkTurnResponseStreaming,
 } from './spark-response-lifecycle';
+import { SparkBrowserPermissionCard } from './remote-browser/SparkBrowserPermissionCard';
+import { SparkRemoteBrowserPane } from './remote-browser/SparkRemoteBrowserPane';
+import { GEMINI_DOCS_LOGO, SparkFileViewer, usesDocsIcon } from './SparkFileViewer';
+import { closeSparkFile, openSparkFile, sparkOpenFiles } from './spark-open-file';
+import { sparkTaskListCollapseRequest } from './spark-task-layout';
+import { ConfirmationCard } from '@willow/ui/ConfirmationCard';
+import { librarySchedules, SCHEDULE_CARD_DISCLAIMER, scheduleCardBody, skillCardBody } from '@willow/core/spark-library';
+import { skillLibrary } from '@willow/core/skill-library';
+import {
+  closeRemoteBrowserPane,
+  openRemoteBrowserPane,
+  remoteBrowserSessions,
+} from './remote-browser/remote-browser-store';
+import { hasOpenedRemoteBrowser, isAwaitingBrowserPermission } from './remote-browser/browser-requests';
 
 type SparkTaskFilter = 'Recent' | 'Scheduled' | 'Needs input' | 'In progress' | 'Completed';
 
@@ -212,7 +233,8 @@ export interface SparkTaskDetailProps {
   ) => boolean;
   /** Aborts the task's in-flight run. Drives the composer's stop button. */
   onStopTask: (taskId: string) => void;
-  onRespondToApproval?: (taskId: string, allowed: boolean) => void;
+  /** Allow / Don't allow on a browser permission card. */
+  onRespondToBrowserRequest?: (taskId: string, requestId: string, allowed: boolean) => void;
   onResponseReactionChange: (
     taskId: string,
     turnId: string | null,
@@ -220,7 +242,6 @@ export interface SparkTaskDetailProps {
   ) => void;
   onRetryTask: (taskId: string) => void;
   onRetryTurn: (taskId: string, turnId: string) => void;
-  computerUse?: React.ReactNode;
   /** Forwarded to the composer so its model pill and task execution agree. */
   modelConfig?: any;
   selectedModelId?: string;
@@ -359,11 +380,8 @@ const SparkAssistantResponse: React.FC<{
   );
 };
 
-const GEMINI_DOCS_LOGO = 'https://www.gstatic.com/images/branding/productlogos/docs_2026/v2/web-96dp/logo_docs_2026_color_2x_web_96dp.png';
-
 const getGeneratedFileIcon = (file: SparkGeneratedFile) => {
-  const lower = file.name.toLowerCase();
-  if (file.mimeType.startsWith('text/') || file.mimeType === 'application/vnd.google-apps.document' || /\.(doc|docx)$/.test(lower)) {
+  if (usesDocsIcon(file)) {
     return <img src={GEMINI_DOCS_LOGO} alt="" aria-hidden="true" className="spark-task-detail__generated-file-icon" />;
   }
   return (
@@ -373,35 +391,59 @@ const getGeneratedFileIcon = (file: SparkGeneratedFile) => {
   );
 };
 
+/*
+ * Gemini's `a.remy-output-artifact-card.has-link.embeddable`: the whole card is what
+ * opens the file in the side panel, and its "Open" pill (`open-button-visual`) is only
+ * a picture of a button inside it.
+ */
 const SparkGeneratedFileCard: React.FC<{
   file: SparkGeneratedFile;
-  onClose: (id: string) => void;
-}> = ({ file, onClose }) => (
+  onOpen: (file: SparkGeneratedFile) => void;
+}> = ({ file, onOpen }) => (
   <div className="spark-task-detail__generated-file-wrapper">
-    <div className="spark-task-detail__generated-file-card" data-test-id="spark-generated-file-card">
-      <div className="spark-task-detail__generated-file-icon-container">
+    <button
+      type="button"
+      className="spark-task-detail__generated-file-card"
+      data-test-id="spark-generated-file-card"
+      onClick={() => onOpen(file)}
+    >
+      <span className="spark-task-detail__generated-file-icon-container">
         {getGeneratedFileIcon(file)}
-      </div>
-      <div className="spark-task-detail__generated-file-text-container">
+      </span>
+      <span className="spark-task-detail__generated-file-text-container">
         <span className="spark-task-detail__generated-file-title" title={file.name}>{file.name}</span>
         <span className="spark-task-detail__generated-file-subtitle">
           Created {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(file.createdAt))}
         </span>
-      </div>
-      <button
-        type="button"
-        className="spark-task-detail__generated-file-close"
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onClose(file.id);
-        }}
-      >
-        Close
-      </button>
-    </div>
+      </span>
+      <span className="spark-task-detail__generated-file-open">Open</span>
+    </button>
   </div>
 );
+
+/*
+ * A schedule or a skill this turn saved, on Gemini's `remy-confirmation-card.draft-approval`.
+ * It reads the record as it is now while it exists (the user may have edited it since), and
+ * the snapshot the run kept once it is gone.
+ */
+const SparkCreatedCard: React.FC<{ item: SparkCreatedItem }> = ({ item }) => {
+  const schedules = useStore(librarySchedules);
+  const skills = useStore(skillLibrary);
+  if (item.kind === 'schedule') {
+    const schedule = schedules.find((candidate) => candidate.id === item.recordId) ?? item;
+    return (
+      <div className="spark-task-detail__created-card" data-test-id="spark-created-schedule">
+        <ConfirmationCard title={schedule.title} body={scheduleCardBody(schedule)} disclaimer={SCHEDULE_CARD_DISCLAIMER} />
+      </div>
+    );
+  }
+  const skill = skills.find((candidate) => candidate.id === item.recordId) ?? item;
+  return (
+    <div className="spark-task-detail__created-card" data-test-id="spark-created-skill">
+      <ConfirmationCard title={skill.name} body={skillCardBody(skill)} />
+    </div>
+  );
+};
 
 const SparkProgressMarker: React.FC<{ complete: boolean }> = ({ complete }) => complete ? (
   <MaterialSymbol family="google-symbols" name="check" size={12} weight={400} opticalSize={12} className="spark-task-detail__progress-marker is-complete" />
@@ -426,21 +468,8 @@ const taskStatus = (task: SparkTask) => task.status;
 
 const isTaskComplete = (task: SparkTask) => taskStatus(task) === 'complete';
 
-/**
- * Whether the task is waiting on the browser-permission decision.
- *
- * The `approval` object is required, not just the status. `needs-input` used to
- * be enough, and once `request_user_input` started using the same status to say
- * "waiting on the user", asking a question raised the "Let Gemini browse for
- * you" card — a card about an entirely different decision, for a capability
- * Willow has not built yet.
- *
- * Two things share one status because both genuinely are "waiting on you"; what
- * distinguishes them is *what* is being asked, and only the browser flow
- * attaches an `approval`.
- */
-const needsApproval = (task: SparkTask) =>
-  taskStatus(task) === 'needs-input' && Boolean(task.approval);
+/** Waiting on the browser permission card. See `isAwaitingBrowserPermission`. */
+const needsApproval = isAwaitingBrowserPermission;
 
 const getStatusLabel = (task: SparkTask) => {
   switch (taskStatus(task)) {
@@ -777,7 +806,8 @@ const SparkProcessingState: React.FC<{
     );
   }
 
-  const heading = title || 'Thinking it through…';
+  // Gemini's header names the phase, not the work: the work is in the rows beneath.
+  const heading = phase ? 'Thinking it through…' : 'Thoughts';
   const showAgentWorking = phase === 'thinking' || phase === 'planning' || phase === 'working';
 
   return (
@@ -832,6 +862,15 @@ const SparkProcessingState: React.FC<{
                   hasLeadingGap={index > 0}
                   isLast={index === activityGroups.length - 1}
                 />
+              ) : group.kind === 'commands' ? (
+                <SparkCommandGroup
+                  key={group.id}
+                  entries={group.entries}
+                  running={isCommandGroupRunning(group.entries, Boolean(phase), index === activityGroups.length - 1)}
+                  resetVersion={parallelResetVersion}
+                  hasLeadingGap={index > 0}
+                  isLast={index === activityGroups.length - 1}
+                />
               ) : (
                 <div
                   key={group.entry.id}
@@ -840,7 +879,7 @@ const SparkProcessingState: React.FC<{
                   <span className="spark-task-detail__processing-node">
                     <SparkToolIcon tool={group.entry.tool} createdFile={createdFile} />
                   </span>
-                  <span>{getTimelineToolLabel(group.entry.tool)}</span>
+                  <span>{timelineRowLabel(group.entry.tool, group.entry.label)}</span>
                 </div>
               ))}
                 </div>
@@ -940,6 +979,79 @@ const SparkSubagentGroup: React.FC<{
   );
 };
 
+/**
+ * Commands run back to back on this computer, as one row of the timeline. It is the
+ * sub-agent group's row: its icon, a label naming the state ("Running command",
+ * then "Ran commands"), and the chevron that opens the commands themselves on the
+ * dotted sub-timeline beneath, one line each. Collapsed until opened, and folded
+ * again when the turn finishes, as the parallel-task row is.
+ */
+const SparkCommandGroup: React.FC<{
+  entries: readonly SparkToolEntry[];
+  running: boolean;
+  resetVersion: number;
+  hasLeadingGap: boolean;
+  isLast: boolean;
+}> = ({ entries, running, resetVersion, hasLeadingGap, isLast }) => {
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
+  const previousResetVersionRef = useRef(resetVersion);
+  useEffect(() => {
+    if (previousResetVersionRef.current !== resetVersion) {
+      setExpanded(false);
+      previousResetVersionRef.current = resetVersion;
+    }
+  }, [resetVersion]);
+
+  return (
+    <div className={`spark-task-detail__subagent-group spark-task-detail__command-group${hasLeadingGap ? ' has-leading-gap' : ''}${isLast ? ' is-last-activity' : ''}`}>
+      <button
+        type="button"
+        className="spark-task-detail__subagent-header"
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <span className="spark-task-detail__subagent-header-content">
+          <span className="spark-task-detail__processing-node">
+            <SparkToolIcon tool="command" />
+          </span>
+          <span>{commandGroupLabel(entries, running)}</span>
+          <MaterialSymbol
+            family="luminous"
+            name="expand_more"
+            size={20}
+            weight={320}
+            roundness={100}
+            opticalSize={20}
+            className={`spark-task-detail__subagent-chevron${expanded ? ' is-expanded' : ''}`}
+          />
+        </span>
+      </button>
+      <div
+        id={detailsId}
+        className={`spark-task-detail__subagent-content-wrapper${expanded ? ' is-expanded' : ''}`}
+        aria-hidden={!expanded}
+      >
+        <div className="spark-task-detail__subagent-content">
+          <div className="spark-task-detail__subagent-details">
+            {entries.map((entry) => (
+              <div className="spark-task-detail__subagent-line spark-task-detail__command-line" key={entry.id}>
+                <span className="spark-task-detail__subagent-line-icon" aria-hidden="true">
+                  <SparkToolIcon tool="command" />
+                </span>
+                <span className="spark-task-detail__command-text" title={entry.label}>{entry.label}</span>
+                {entry.status === 'error' && <span className="spark-task-detail__command-note">Failed</span>}
+                {entry.status === 'cancelled' && <span className="spark-task-detail__command-note">Not run</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 type SparkSubagentTimelineGroup =
   | { id: string; kind: 'narration'; entries: Extract<SparkSubAgent['timeline'][number], { kind: 'narration' }>[] }
   | { id: string; kind: 'tool'; entry: Extract<SparkSubAgent['timeline'][number], { kind: 'tool' }> };
@@ -955,12 +1067,12 @@ const groupSparkSubagentTimeline = (
       if (previous?.kind === 'narration') previous.entries.push(entry);
       else groups.push({ id: entry.id, kind: 'narration', entries: [entry] });
     } else {
-      const tool = callsById.get(entry.callId)?.kind;
-      const previousTool = previous?.kind === 'tool' ? callsById.get(previous.entry.callId)?.kind : undefined;
+      const call = callsById.get(entry.callId);
+      const previousCall = previous?.kind === 'tool' ? callsById.get(previous.entry.callId) : undefined;
       // Same-label collapse as the task timeline; see the note in
       // `groupSparkActivity`. A subagent searching three times in a row is one
       // row, and a work-log line between two searches still splits them.
-      if (tool && previousTool && getTimelineToolLabel(tool) === getTimelineToolLabel(previousTool)) return;
+      if (call && previousCall && timelineRowLabel(call.kind, call.label) === timelineRowLabel(previousCall.kind, previousCall.label)) return;
       groups.push({ id: entry.id, kind: 'tool', entry });
     }
   });
@@ -1062,11 +1174,16 @@ const SparkSubagentItem: React.FC<{
                   }
                   const call = callsById.get(group.entry.callId);
                   if (!call) return null;
-                  return <div className="spark-task-detail__subagent-line" key={group.id}>
+                  // A command a delegated agent ran reads as the command group's lines do.
+                  const isCommand = call.kind === 'command' && Boolean(call.label);
+                  return <div className={`spark-task-detail__subagent-line${isCommand ? ' spark-task-detail__command-line' : ''}`} key={group.id}>
                     <span className="spark-task-detail__subagent-line-icon" aria-hidden="true">
                       <SparkToolIcon tool={call.kind} />
                     </span>
-                    <span>{getTimelineToolLabel(call.kind)}</span>
+                    {isCommand
+                      ? <span className="spark-task-detail__command-text" title={call.label}>{call.label}</span>
+                      : <span>{timelineRowLabel(call.kind, call.label)}</span>}
+                    {isCommand && call.status === 'error' && <span className="spark-task-detail__command-note">Failed</span>}
                   </div>;
                 })}
               </div>
@@ -1094,6 +1211,7 @@ type SparkNarrationEntry = Extract<SparkActivityEntry, { kind: 'narration' }>;
 type SparkGroupedActivity =
   | { id: string; kind: 'narration'; entries: SparkNarrationEntry[] }
   | { id: string; kind: 'tool'; entry: Extract<SparkActivityEntry, { kind: 'tool' }> }
+  | { id: string; kind: 'commands'; entries: SparkToolEntry[] }
   | { id: string; kind: 'subagents' };
 
 const groupSparkActivity = (activity: readonly SparkActivityEntry[]): SparkGroupedActivity[] => {
@@ -1107,6 +1225,13 @@ const groupSparkActivity = (activity: readonly SparkActivityEntry[]): SparkGroup
     }
     if (entry.kind === 'subagents') {
       groups.push({ id: entry.id, kind: 'subagents' });
+      return;
+    }
+    // Commands the desktop app ran share one collapsible row while they run back to back,
+    // the way delegated tasks share theirs. A line the model writes between two starts a new one.
+    if (isCommandRow(entry)) {
+      if (last?.kind === 'commands') last.entries.push(entry);
+      else groups.push({ id: entry.id, kind: 'commands', entries: [entry] });
       return;
     }
     /*
@@ -1132,7 +1257,7 @@ const groupSparkActivity = (activity: readonly SparkActivityEntry[]): SparkGroup
     if (
       entry.kind === 'tool'
       && last?.kind === 'tool'
-      && getTimelineToolLabel(last.entry.tool) === getTimelineToolLabel(entry.tool)
+      && timelineRowLabel(last.entry.tool, last.entry.label) === timelineRowLabel(entry.tool, entry.label)
     ) return;
     groups.push({ id: entry.id, kind: 'tool', entry });
   });
@@ -1321,10 +1446,18 @@ const GEMINI_APP_TOOL_LOGOS: Record<string, string> = {
   'google-chat': 'https://www.gstatic.com/images/branding/productlogos/chat_2026/v2/web-96dp/logo_chat_2026_color_2x_web_96dp.png',
   workspace: 'https://www.gstatic.com/lamda/images/logo_workspace_2026_844db1cfe6c6bb65dd11a.png',
   'google-workspace-search': 'https://www.gstatic.com/lamda/images/logo_workspace_2026_844db1cfe6c6bb65dd11a.png',
+  // These five are the logos Gemini's Connected apps cards carry; its tool rows draw the same
+  // product logos as those cards wherever both were seen (Drive, Docs, Keep, Gmail).
+  'google-calendar': 'https://www.gstatic.com/images/branding/productlogos/calendar_2026/v2/web-96dp/logo_calendar_2026_color_2x_web_96dp.png',
+  'google-tasks': 'https://www.gstatic.com/images/branding/productlogos/tasks_2026/v2/web-96dp/logo_tasks_2026_color_2x_web_96dp.png',
+  youtube: 'https://www.gstatic.com/images/branding/productlogos/youtube/v9/192px.svg',
+  'youtube-music': 'https://www.gstatic.com/chromecast/thirdparty/yt_music_icon.png',
+  github: 'https://www.gstatic.com/lamda/images/tools/logo_github_dark_018b0501d5dc2dd3e532c.svg',
 };
 
 const getToolCapabilityLabel = (tool: string): { icon: string; label: string } => {
-  if (tool === 'computer') return { icon: 'monitor', label: 'Computer' };
+  if (tool === 'computer' || tool.startsWith(COMPUTER_TOOL_PREFIX)) return { icon: 'monitor', label: 'Computer' };
+  if (tool.startsWith(CREATED_TOOL_PREFIX)) return { icon: 'build', label: tool.slice(CREATED_TOOL_PREFIX.length) || 'Created' };
   if (tool.startsWith('skill:')) return { icon: 'build', label: tool.slice(6) || 'Skill' };
   if (tool.startsWith('mcp:')) return { icon: 'extension', label: tool.slice(4) || 'MCP tool' };
   const known = TASK_CAPABILITY_LABELS[tool];
@@ -1345,6 +1478,7 @@ const normalizeCapabilityTool = (tool: string): string => {
   const lower = raw.toLowerCase();
   if (lower.startsWith('skill:')) return `skill:${raw.slice(6).trim()}`;
   if (lower.startsWith('mcp:')) return `mcp:${raw.slice(4).trim()}`;
+  if (lower.startsWith(COMPUTER_TOOL_PREFIX)) return 'computer';
   if (lower === 'google_search' || lower === 'grounding') return 'web_search';
   const nativeAliases: Record<string, string> = {
     read: 'files',
@@ -1404,6 +1538,27 @@ const QUESTION_TOOL_PREFIX = 'request_user_input:';
 export const questionTimelineTool = (answered: boolean, count: number): string =>
   `${QUESTION_TOOL_PREFIX}${answered ? 'asked' : 'asking'}:${count}`;
 
+/**
+ * A `computer` call's timeline row. Gemini labels it with the step itself —
+ * "Find Alan Turing's birth date" — beside the `monitor` glyph, so the step's
+ * title rides in the stored tool name, the same way the question record's state does.
+ */
+const COMPUTER_TOOL_PREFIX = 'computer:';
+
+export const computerTimelineTool = (title: string): string => `${COMPUTER_TOOL_PREFIX}${title}`;
+
+/**
+ * A saved schedule's or skill's row: Gemini's generic `build` glyph beside the run's own
+ * words, "Created weekly science fact schedule", carried in the stored tool name.
+ */
+const CREATED_TOOL_PREFIX = 'created:';
+
+export const createdTimelineTool = (label: string): string => `${CREATED_TOOL_PREFIX}${label}`;
+
+const createdTimelineLabel = (tool: string): string | null => (
+  tool.startsWith(CREATED_TOOL_PREFIX) ? tool.slice(CREATED_TOOL_PREFIX.length) || 'Created' : null
+);
+
 const questionTimelineLabel = (tool: string): string | null => {
   if (!tool.startsWith(QUESTION_TOOL_PREFIX)) return null;
   const [state, rawCount] = tool.slice(QUESTION_TOOL_PREFIX.length).split(':');
@@ -1412,9 +1567,29 @@ const questionTimelineLabel = (tool: string): string | null => {
   return `Asking ${count === 1 ? 'question' : 'questions'}`;
 };
 
+const computerTimelineLabel = (tool: string): string | null => (
+  tool.startsWith(COMPUTER_TOOL_PREFIX) ? tool.slice(COMPUTER_TOOL_PREFIX.length) || 'Remote browser' : null
+);
+
+/** Gemini's row for reading a skill, word for word. */
+const skillTimelineLabel = (tool: string): string | null => (
+  tool.startsWith('skill:') ? `Check resources for ${tool.slice(6)} skill` : null
+);
+
 const getTimelineToolLabel = (tool: string): string => (
   questionTimelineLabel(tool)
+  ?? computerTimelineLabel(tool)
+  ?? createdTimelineLabel(tool)
+  ?? skillTimelineLabel(tool)
   ?? (isFileTimelineTool(tool) ? 'Files' : getToolCapabilityLabel(normalizeCapabilityTool(tool)).label)
+);
+
+/**
+ * A connected app's or MCP server's row reads as the step itself: "Listing recently modified files in Drive".
+ * So does a command the desktop app ran on this computer, which carries the command.
+ */
+const timelineRowLabel = (tool: string, label?: string): string => (
+  label && (tool.startsWith('app:') || tool.startsWith('mcp:') || tool === 'command') ? label : getTimelineToolLabel(tool)
 );
 
 const SparkActivityClock: React.FC = () => (
@@ -1465,7 +1640,8 @@ const SparkCapabilityIcon: React.FC<{
   tool: string;
   icon: string;
   createdFile?: SparkGeneratedFile;
-}> = ({ tool, icon }) => {
+  weight?: number;
+}> = ({ tool, icon, weight = 320 }) => {
   if (tool === 'web_search') {
     return (
       <span className="spark-task-detail__capability-icon-host" aria-hidden="true">
@@ -1498,7 +1674,7 @@ const SparkCapabilityIcon: React.FC<{
         family="google-symbols"
         name={icon}
         size={24}
-        weight={320}
+        weight={weight}
         roundness={100}
         opticalSize={24}
         className="spark-task-detail__capability-icon"
@@ -1520,6 +1696,12 @@ const SparkResponseActions: React.FC<{
   onReactionChange,
   onRetry,
 }) => {
+  // At 960px and below Gemini's `actions-container-v2.mobile` carries 24px glyphs at
+  // weight 300 in 36px buttons, and its menu is content-sized with 40px rows.
+  const isCompact = useCompactViewport();
+  const glyph = isCompact
+    ? { size: 24, opticalSize: 24, weight: 300 }
+    : { size: 20, opticalSize: 20, weight: SYMBOL_PROPS.weight };
   const [copied, setCopied] = useState(false);
   const [menuPhase, setMenuPhase] = useState<'closed' | 'open' | 'closing'>('closed');
   const [menuPosition, setMenuPosition] = useState<ResponseMenuPosition>({
@@ -1558,11 +1740,15 @@ const SparkResponseActions: React.FC<{
 
     const rect = trigger.getBoundingClientRect();
     const menuWidth = 240;
-    const menuHeight = 88;
-    const left = Math.min(
-      Math.max(8, rect.left - 8),
-      Math.max(8, window.innerWidth - menuWidth - 8),
-    );
+    const menuHeight = isCompact ? 96 : 88;
+    // Compact: aligned with the trigger, then pulled back to the screen edge once its
+    // content width is known (the layout effect below).
+    const left = isCompact
+      ? rect.left
+      : Math.min(
+        Math.max(8, rect.left - 8),
+        Math.max(8, window.innerWidth - menuWidth - 8),
+      );
     const opensAbove = rect.top >= menuHeight + 16;
     setMenuPosition(opensAbove
       ? {
@@ -1607,6 +1793,14 @@ const SparkResponseActions: React.FC<{
       window.removeEventListener('scroll', closeOnViewportChange, true);
     };
   }, [menuPhase]);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!isCompact || menuPhase !== 'open' || !menu) return;
+    // offsetWidth, not the client rect: the entrance animation starts the menu scaled down.
+    const overflow = menuPosition.left + menu.offsetWidth - document.documentElement.getBoundingClientRect().width;
+    if (overflow > 0) menu.style.left = `${Math.max(0, menuPosition.left - overflow)}px`;
+  }, [isCompact, menuPhase, menuPosition.left]);
 
   useEffect(() => () => {
     if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
@@ -1665,9 +1859,8 @@ const SparkResponseActions: React.FC<{
         >
           <MaterialSymbol
             {...SYMBOL_PROPS}
+            {...glyph}
             name="thumb_up"
-            size={20}
-            opticalSize={20}
             fill={reaction === 'like'}
           />
         </button>
@@ -1681,9 +1874,8 @@ const SparkResponseActions: React.FC<{
         >
           <MaterialSymbol
             {...SYMBOL_PROPS}
+            {...glyph}
             name="thumb_down"
-            size={20}
-            opticalSize={20}
             fill={reaction === 'dislike'}
           />
         </button>
@@ -1695,10 +1887,9 @@ const SparkResponseActions: React.FC<{
         >
           <MaterialSymbol
             {...SYMBOL_PROPS}
+            {...glyph}
             name={copied ? 'check' : 'copy'}
-            size={20}
-            opticalSize={20}
-            weight={copied ? 400 : SYMBOL_PROPS.weight}
+            weight={copied ? 400 : glyph.weight}
           />
         </button>
         <button
@@ -1712,7 +1903,7 @@ const SparkResponseActions: React.FC<{
           title="More"
           onClick={() => menuPhase === 'open' ? closeMenu() : openMenu()}
         >
-          <MaterialSymbol {...SYMBOL_PROPS} name="more_horiz" size={20} opticalSize={20} />
+          <MaterialSymbol {...SYMBOL_PROPS} {...glyph} name="more_horiz" />
         </button>
       </div>
 
@@ -1736,7 +1927,7 @@ const SparkResponseActions: React.FC<{
         >
           <button type="button" role="menuitem" onClick={() => runMenuAction(onRetry)}>
             <span className="spark-task-detail__response-menu-icon">
-              <MaterialSymbol {...SYMBOL_PROPS} name="refresh" size={20} opticalSize={20} />
+              <MaterialSymbol {...SYMBOL_PROPS} {...glyph} name="refresh" />
             </span>
             <span>Retry</span>
           </button>
@@ -1748,7 +1939,7 @@ const SparkResponseActions: React.FC<{
             })}
           >
             <span className="spark-task-detail__response-menu-icon">
-              <MaterialSymbol {...SYMBOL_PROPS} name="flag" size={20} opticalSize={20} />
+              <MaterialSymbol {...SYMBOL_PROPS} {...glyph} name="flag" />
             </span>
             <span>Report legal issue</span>
           </button>
@@ -1756,6 +1947,163 @@ const SparkResponseActions: React.FC<{
         document.body,
       )}
     </>
+  );
+};
+
+const subscribeRemoteBrowsers = (onChange: () => void) => remoteBrowserSessions.listen(onChange);
+
+/*
+ * The task's remote browser as the page around the pane sees it: whether there is
+ * one, and whether its pane is open. The session itself changes with every page,
+ * screenshot and pointer move, and only the pane needs to redraw for those.
+ */
+const useRemoteBrowserPane = (taskId: string): 'none' | 'closed' | 'open' =>
+  useSyncExternalStore(subscribeRemoteBrowsers, () => {
+    const session = remoteBrowserSessions.get()[taskId];
+    if (!session) return 'none';
+    return session.paneOpen ? 'open' : 'closed';
+  });
+
+/* At 960px and below: whether the pane fills the screen or sits in the overlay's card. */
+const useRemoteBrowserFullscreen = (taskId: string): boolean =>
+  useSyncExternalStore(subscribeRemoteBrowsers, () => remoteBrowserSessions.get()[taskId]?.fullscreen ?? true);
+
+const subscribeOpenFiles = (onChange: () => void) => sparkOpenFiles.listen(onChange);
+
+/* Which created file the task's side panel shows, if any (`spark-open-file.ts`). */
+const useOpenFileId = (taskId: string): string | null =>
+  useSyncExternalStore(subscribeOpenFiles, () => sparkOpenFiles.get()[taskId] ?? null);
+
+/*
+ * Gemini's `computer-use-header-button` (a 16px weight-330 `monitor` in #c4c7c5): it
+ * appears once the task's browser has opened, is hidden while the pane is showing,
+ * and opens a one-item menu. Hiding keeps it mounted, so it can fade back in when the
+ * pane closes. The menu's state lives here: its fade-out runs while the pane opens,
+ * and redrawing the whole task for it would stall the pane's growth.
+ */
+const SparkRemoteBrowserMenu: React.FC<{
+  hidden: boolean;
+  onOpen: () => void;
+  onView: () => void;
+}> = ({ hidden, onOpen, onView }) => {
+  const [open, setOpen] = useState(false);
+  // Material's `_mat-menu-exit`: the menu fades for 100ms, after 25ms, before it unmounts.
+  const [closing, setClosing] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const close = useCallback(() => setClosing(true), []);
+
+  useEffect(() => {
+    if (!closing) return undefined;
+    /*
+     * Gemini's menu is an overlay, so it fades where it opened while the header it
+     * came from slides away under the opening pane. This one lives in that header,
+     * so it is held in place for the fade.
+     */
+    const menu = menuRef.current;
+    const origin = menu?.getBoundingClientRect();
+    let shiftX = 0;
+    let shiftY = 0;
+    let frame = 0;
+    const hold = () => {
+      if (!menu || !origin) return;
+      const rect = menu.getBoundingClientRect();
+      shiftX += origin.left - rect.left;
+      shiftY += origin.top - rect.top;
+      menu.style.translate = `${shiftX}px ${shiftY}px`;
+      frame = window.requestAnimationFrame(hold);
+    };
+    frame = window.requestAnimationFrame(hold);
+    const timer = window.setTimeout(() => {
+      setOpen(false);
+      setClosing(false);
+    }, 125);
+    return () => {
+      window.clearTimeout(timer);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [closing]);
+
+  // One item, closed by an outside press or Escape.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      close();
+      buttonRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus());
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, close]);
+
+  return (
+    <span className="spark-task-detail__browser-menu-anchor">
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`spark-task-detail__header-icon${open && !closing ? ' is-open' : ''}${hidden ? ' is-hidden' : ''}`}
+        aria-label="Open remote browser and remote computer menu"
+        aria-haspopup="menu"
+        aria-expanded={open && !closing}
+        aria-controls={open ? menuId : undefined}
+        aria-hidden={hidden || undefined}
+        tabIndex={hidden ? -1 : undefined}
+        onClick={() => {
+          onOpen();
+          if (open) close();
+          else setOpen(true);
+        }}
+      >
+        {/* `monitor` is absent from Willow's Luminous subset (probed: 140px
+          * advance at 20px, i.e. the ligature fails); Google Symbols has it. */}
+        <MaterialSymbol
+          family="google-symbols"
+          name="monitor"
+          size={16}
+          weight={330}
+          roundness={100}
+          opticalSize={16}
+        />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          id={menuId}
+          className={`spark-task-detail__task-menu spark-task-detail__browser-menu${closing ? ' is-closing' : ''}`}
+          role="menu"
+          aria-label="Remote browser and remote computer"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              close();
+              onView();
+            }}
+          >
+            <MaterialSymbol
+              family="google-symbols"
+              name="monitor"
+              size={20}
+              weight={320}
+              variationSettings={'"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320'}
+            />
+            <span>View remote browser</span>
+          </button>
+        </div>
+      )}
+    </span>
   );
 };
 
@@ -1771,11 +2119,10 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   onEditMessage,
   onSubmitFollowUp,
   onStopTask,
-  onRespondToApproval,
+  onRespondToBrowserRequest,
   onResponseReactionChange,
   onRetryTask,
   onRetryTurn,
-  computerUse,
   modelConfig,
   selectedModelId,
   setSelectedModelId,
@@ -1791,25 +2138,22 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
    * `SparkPendingQuestion`.
    */
   const pendingQuestion = useStore(sparkPendingQuestions)[currentTask.id];
-  const followUpBlocked = isTaskActive(currentTask)
-    || needsApproval(currentTask)
-    || Boolean(currentTask.approval && currentTask.approvalDecision !== 'allowed');
-
+  const pendingApproval = useStore(sparkPendingApprovals)[currentTask.id]?.[0];
+  // In the desktop app: while the task has full access, a chip in its composer turns it off.
+  const accessChip = useSparkAccessChip(currentTask.id);
+  const remoteBrowserPane = useRemoteBrowserPane(currentTask.id);
+  const remoteBrowserFullscreen = useRemoteBrowserFullscreen(currentTask.id);
+  const openFileId = useOpenFileId(currentTask.id);
   /*
-   * The subset of `followUpBlocked` that has to lock the box outright.
+   * A working task keeps the box live so a reply can be drafted while Spark
+   * finishes, and the send slot becomes stop — the same split Chat draws between
+   * `disabled` and `isGenerating`. Sending is still refused until the run ends, in
+   * `SparkComposer.submit`, in `InputBar`'s submit path and here.
    *
-   * A task that is merely still working no longer does: the box stays live so a
-   * reply can be drafted while Spark finishes, and the send slot becomes stop —
-   * the same split Chat draws between `disabled` and `isGenerating`. Sending is
-   * still refused until the run ends, in `SparkComposer.submit`, in `InputBar`'s
-   * submit path and in `submitFollowUp` below, because the store rejects a turn
-   * appended to a running task.
-   *
-   * Waiting on an approval is different and keeps the hard lock: there is no run
-   * to stop, and the thing to do is answer the prompt above the composer.
+   * A permission card does not lock it either, as in Gemini: writing instead of
+   * answering turns the request down (`submitFollowUp` in `SparkWorkspace`).
    */
-  const followUpLocked = needsApproval(currentTask)
-    || Boolean(currentTask.approval && currentTask.approvalDecision !== 'allowed');
+  const followUpBlocked = isTaskActive(currentTask);
   const recentTasks = tasks;
   const [followUpDraft, setFollowUpDraft] = useState('');
   const [followUpPlusOpen, setFollowUpPlusOpen] = useState(false);
@@ -1817,7 +2161,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const [followUpAttachmentError, setFollowUpAttachmentError] = useState('');
   const [isFollowUpSubmitting, setIsFollowUpSubmitting] = useState(false);
   const [followUpTool, setFollowUpTool] = useState<string | null>(null);
-  const [dismissedGeneratedFileIds, setDismissedGeneratedFileIds] = useState<Set<string>>(new Set());
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [thinkingPanelTarget, setThinkingPanelTarget] = useState<SparkThinkingPanelTarget | null>(null);
   const [taskFilter, setTaskFilter] = useState<SparkTaskFilter>('Recent');
@@ -1830,13 +2173,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const [dialogTaskId, setDialogTaskId] = useState(currentTask.id);
   const [renameDraft, setRenameDraft] = useState(currentTask.title);
   const [displayTitle, setDisplayTitle] = useState(currentTask.title);
-  const [approvalResponse, setApprovalResponse] = useState<boolean | null>(() => (
-    currentTask.approvalDecision === 'allowed'
-      ? true
-      : currentTask.approvalDecision === 'denied'
-        ? false
-        : null
-  ));
   const statusPanelRef = useRef<HTMLElement>(null);
   const statusPopoverRef = useRef<HTMLDivElement>(null);
   const statusButtonRef = useRef<HTMLButtonElement>(null);
@@ -1851,7 +2187,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const taskDetailActiveRef = useRef(true);
   const currentTaskIdRef = useRef(currentTask.id);
   const followUpFileInputRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const followUpZoneRef = useRef<HTMLDivElement>(null);
   const recentListRef = useRef<HTMLDivElement>(null);
@@ -1868,15 +2203,12 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const taskMenuId = useId();
   const statusPanelHeadingId = useId();
   const statusPopoverHeadingId = useId();
-  const approvalTitleId = useId();
-  /* The remote-browser pane is open by default whenever there is one, matching Gemini,
-   * and the header's monitor glyph toggles it. */
-  const [isSidePanelOpen, setIsSidePanelOpen] = useState(true);
   const followUpErrorId = useId();
   const renameTitleId = useId();
   const deleteTitleId = useId();
   const deleteDescriptionId = useId();
   const now = useSparkNow();
+  const isCompact = useCompactViewport();
   currentTaskIdRef.current = currentTask.id;
   const followUpDictation = useSparkDictation({ value: followUpDraft, onChange: setFollowUpDraft });
   const dialogTask = recentTasks.find((candidate) => candidate.id === dialogTaskId) ?? currentTask;
@@ -1920,13 +2252,13 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   }, []);
 
   useLayoutEffect(() => {
-    const panel = panelRef.current;
+    const scroller = conversationRef.current;
     const followUpZone = followUpZoneRef.current;
-    if (!panel || !followUpZone) return;
+    if (!scroller || !followUpZone) return;
 
     const updateConversationInset = () => {
       const inset = Math.ceil(followUpZone.getBoundingClientRect().height + 20);
-      panel.style.setProperty('--spark-followup-inset', `${inset}px`);
+      scroller.style.setProperty('--spark-followup-inset', `${inset}px`);
     };
 
     updateConversationInset();
@@ -1934,7 +2266,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
       window.addEventListener('resize', updateConversationInset);
       return () => {
         window.removeEventListener('resize', updateConversationInset);
-        panel.style.removeProperty('--spark-followup-inset');
+        scroller.style.removeProperty('--spark-followup-inset');
       };
     }
 
@@ -1942,7 +2274,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     observer.observe(followUpZone);
     return () => {
       observer.disconnect();
-      panel.style.removeProperty('--spark-followup-inset');
+      scroller.style.removeProperty('--spark-followup-inset');
     };
   }, []);
 
@@ -1953,7 +2285,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     setFollowUpFiles([]);
     setFollowUpAttachmentError('');
     setFollowUpTool(null);
-    setDismissedGeneratedFileIds(new Set());
     setStatusOpen(false);
     setTaskMenuOpen(false);
     setThinkingPanelTarget(null);
@@ -1964,13 +2295,6 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     setDialogTaskId(currentTask.id);
     setRenameDraft(currentTask.title);
     setDisplayTitle(currentTask.title);
-    setApprovalResponse(
-      currentTask.approvalDecision === 'allowed'
-        ? true
-        : currentTask.approvalDecision === 'denied'
-          ? false
-          : null,
-    );
   }, [currentTask.id, followUpDictation.stopDictation]);
 
   useEffect(() => {
@@ -1979,17 +2303,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   }, [currentTask.title]);
 
   useEffect(() => {
-    setApprovalResponse(
-      currentTask.approvalDecision === 'allowed'
-        ? true
-        : currentTask.approvalDecision === 'denied'
-          ? false
-          : null,
-    );
-  }, [currentTask.approvalDecision, currentTask.status]);
-
-  useEffect(() => {
-    const isStatusPopoverOpen = !libraryCollapsed && statusOpen;
+    const isStatusPopoverOpen = (!libraryCollapsed || isCompact) && statusOpen;
     if (!isStatusPopoverOpen && !taskMenuOpen && !taskFilterOpen && !listTaskMenuTaskId) return;
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -2034,15 +2348,15 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [libraryCollapsed, statusOpen, taskMenuOpen, taskFilterOpen, listTaskMenuTaskId]);
+  }, [isCompact, libraryCollapsed, statusOpen, taskMenuOpen, taskFilterOpen, listTaskMenuTaskId]);
 
   useEffect(() => {
-    if (libraryCollapsed || !statusOpen) return;
+    if ((libraryCollapsed && !isCompact) || !statusOpen) return;
     const frame = window.requestAnimationFrame(() => {
       statusPopoverRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [libraryCollapsed, statusOpen]);
+  }, [isCompact, libraryCollapsed, statusOpen]);
 
   useEffect(() => {
     if (!listTaskMenuTaskId) return;
@@ -2306,9 +2620,20 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     const scroller = conversationRef.current;
     if (!scroller) return;
 
+    /*
+     * Written onto the element, with the state catching up once the resizing stops:
+     * opening or closing the remote browser resizes the panel every frame for 450ms,
+     * and a state update per frame drew the whole task each time, stalling that motion.
+     */
+    let settle = 0;
     const sync = () => {
       const reserve = measureAnchorReserve(scroller, anchoredTurnId);
-      if (reserve !== null) setAnchorReserve(reserve);
+      if (reserve !== null) {
+        const floor = scroller.querySelector<HTMLElement>(`[data-spark-reserve="${CSS.escape(anchoredTurnId)}"]`);
+        if (floor) floor.style.minHeight = `${reserve}px`;
+        window.clearTimeout(settle);
+        settle = window.setTimeout(() => setAnchorReserve(reserve), 200);
+      }
       updateScrollFade(scroller);
     };
 
@@ -2333,20 +2658,15 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
       }
     }
     // Only the scroller. The turn no longer needs watching — CSS floors it.
-    if (typeof ResizeObserver === 'undefined') return;
+    if (typeof ResizeObserver === 'undefined') return () => window.clearTimeout(settle);
     const observer = new ResizeObserver(sync);
     observer.observe(scroller);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(settle);
+    };
   }, [anchoredTurnId]);
 
-
-  /* Keyed to the hard lock, not to `followUpBlocked`: a working task leaves the
-   * box usable, so there is no reason to cut dictation off mid-sentence. */
-  useEffect(() => {
-    if (!followUpLocked) return;
-    followUpDictation.stopDictation();
-    setFollowUpPlusOpen(false);
-  }, [followUpLocked, followUpDictation.stopDictation]);
 
   const handleTaskMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
@@ -2440,24 +2760,17 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     restoreFocus(renameReturnFocusRef.current);
   };
 
-  const respondToApproval = (allowed: boolean) => {
-    if (!onRespondToApproval) return;
-    onRespondToApproval(currentTask.id, allowed);
-    setApprovalResponse(allowed);
-  };
+  /** The card's answer handler, only while its request is still waiting. */
+  const browserRequestHandler = (requestId: string, pending: boolean) => (
+    pending && onRespondToBrowserRequest
+      ? (allowed: boolean) => onRespondToBrowserRequest(currentTask.id, requestId, allowed)
+      : undefined
+  );
 
   const scheduledHeading = schedule?.title || currentTask.scheduledLabel || 'Scheduled run';
   const scheduledTime = currentTask.scheduledTime || currentTask.time || 'Today';
-  const approval = currentTask.approval;
-  const approvalTitle = approval?.title || 'Let Gemini interact with websites for you?';
-  const approvalDescription = approval?.description
-    || 'To work on your tasks, Gemini will need to use a browser:';
-  const approvalPlan = approval?.prompt || currentTask.prompt || 'Continue this task using a browser.';
   const terminalResponseFallback = getTerminalResponseFallback(currentTask);
-  const response = currentTask.response
-    || (needsApproval(currentTask)
-      ? 'I need your approval before I can continue with this task.'
-      : terminalResponseFallback);
+  const response = currentTask.response || terminalResponseFallback;
   const hasVisibleResponse = Boolean(response);
   const rootResponseStreaming = isSparkRootResponseStreaming(currentTask);
   const currentProcessingTools = (currentTask.usedTools ?? currentTask.tools ?? [])
@@ -2496,8 +2809,12 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     ...(currentTask.turns ?? []).flatMap((turn) => turn.generatedFiles ?? []),
   ].map((file) => [file.path, file])).values());
   const latestGeneratedFile = generatedFiles[generatedFiles.length - 1];
-  const rootGeneratedFiles = (currentTask.generatedFiles ?? [])
-    .filter((file) => !dismissedGeneratedFileIds.has(file.id));
+  const rootGeneratedFiles = currentTask.generatedFiles ?? [];
+  // Every card's own file, not one per path: an earlier turn's card for a rewritten path still opens.
+  const openFile = openFileId
+    ? [...rootGeneratedFiles, ...(currentTask.turns ?? []).flatMap((turn) => turn.generatedFiles ?? [])]
+      .find((file) => file.id === openFileId) ?? null
+    : null;
   const latestWorkTitle = [...(currentTask.turns ?? [])]
     .reverse()
     .find((turn) => turn.activityTitle)?.activityTitle
@@ -2524,20 +2841,14 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
   const uniqueTaskCapabilities = Array.from(
     new Map(taskCapabilities.map((capability) => [capability.label, capability])).values(),
   );
-  const followUpPlaceholder = needsApproval(currentTask)
-    ? 'Respond above to continue'
-    : isTaskActive(currentTask)
-      // The box takes a draft while Spark works, so this no longer says "wait".
-      ? 'Draft your next message'
-      : currentTask.approval && currentTask.approvalDecision !== 'allowed'
-        ? 'Browser access is required to continue'
-        : 'What can we do next?';
+  // Gemini's box reads the same in every state and at every width.
+  const followUpPlaceholder = 'Ask a follow-up';
   const filteredTasks = useMemo(() => recentTasks.filter((recentTask) => {
     switch (taskFilter) {
       case 'Scheduled':
         return Boolean(recentTask.scheduledLabel);
       case 'Needs input':
-        return needsApproval(recentTask);
+        return taskStatus(recentTask) === 'needs-input';
       case 'In progress':
         return isTaskActive(recentTask);
       case 'Completed':
@@ -2552,7 +2863,9 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     if (!list) return;
 
     const updateFade = () => updateScrollFade(list);
-    updateFade();
+    // Not as the list collapses: it is about to be hidden, and this read would force
+    // the page's layout in the middle of the click that opens the remote browser.
+    if (!libraryCollapsed) updateFade();
 
     if (typeof ResizeObserver === 'undefined') {
       window.addEventListener('resize', updateFade);
@@ -2592,13 +2905,236 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     libraryCollapsed,
   ]);
 
-  const isLibraryCollapsed = libraryCollapsed;
-  const isProgressPanelOpen = isLibraryCollapsed;
-  const isStatusPopoverOpen = !isLibraryCollapsed && statusOpen;
+  /*
+   * Gemini collapses the task list when the remote browser opens — the browser
+   * takes two thirds of the width and the chat narrows beside it — and leaves it
+   * collapsed when the browser closes, so the side panel falls back to Progress.
+   * A created file opens in the same panel the same way (`showing-embedded-doc`).
+   */
+  const isRemoteBrowserOpen = remoteBrowserPane === 'open' && !isCompact;
+  // At 960px and below the same panel opens full-screen in Gemini's `mobile-side-panel-overlay`.
+  const isRemoteBrowserOverlayOpen = remoteBrowserPane === 'open' && isCompact;
+  // A browser the run opens over a file is the newer of the two; the effect below closes the file.
+  const shownFile = remoteBrowserPane === 'open' ? null : openFile;
+  const isFileOpen = shownFile !== null && !isCompact;
+  const isFileOverlayOpen = shownFile !== null && isCompact;
+  const isLibraryCollapsed = libraryCollapsed || isRemoteBrowserOpen || isFileOpen;
+  // There is no list pane to collapse at 960px and below, so a collapse carried over from a
+  // wider window must not leave the side panel open and the pill hidden there.
+  const isProgressPanelOpen = isLibraryCollapsed && !isCompact && !isRemoteBrowserOpen && !isFileOpen;
+  /*
+   * Gemini's remote browser, an open file and Progress are one side panel, so moving
+   * between them is a single card changing width (980px ⇄ 300px, opaque throughout),
+   * or not changing it at all. Willow keeps an element for each; when they swap, the
+   * incoming one is flagged so its starting style is the outgoing one's width rather
+   * than nothing. The flag only matters as an element starts, so the panel as of the
+   * last commit is enough to decide it.
+   *
+   * Not state: a state update made while rendering runs this whole component a
+   * second time, and in the click that opens the pane that second run is what kept
+   * the first frame waiting.
+   */
+  const sidePanel = isFileOpen ? 'file' : isRemoteBrowserOpen ? 'browser' : isProgressPanelOpen ? 'progress' : null;
+  const committedSidePanelRef = useRef<'file' | 'browser' | 'progress' | null>(null);
+  const previousSidePanel = committedSidePanelRef.current;
+  const sidePanelHandoff = previousSidePanel && sidePanel && previousSidePanel !== sidePanel ? sidePanel : null;
+  // The browser and a file grow out of Progress, and take each other's place at their width.
+  const widePanelHandoff = previousSidePanel === 'progress' ? ' is-taking-over' : ' is-replacing';
+  useLayoutEffect(() => {
+    committedSidePanelRef.current = sidePanel;
+  });
+  // The list stays collapsed after the browser or a file closes. The clicks set this with
+  // the change itself; this is for a pane the agent's run opened.
+  useEffect(() => {
+    if (isRemoteBrowserOpen || isFileOpen) setLibraryCollapsed(true);
+  }, [isRemoteBrowserOpen, isFileOpen]);
+  const listCollapseRequest = useStore(sparkTaskListCollapseRequest);
+  useEffect(() => {
+    if (listCollapseRequest !== currentTask.id) return;
+    sparkTaskListCollapseRequest.set(null);
+    if (!isCompact) setLibraryCollapsed(true);
+  }, [currentTask.id, isCompact, listCollapseRequest]);
+  useEffect(() => {
+    if (remoteBrowserPane === 'open') closeSparkFile(currentTask.id);
+  }, [currentTask.id, remoteBrowserPane]);
+  const closeRemoteBrowser = () => {
+    setLibraryCollapsed(true);
+    closeRemoteBrowserPane(currentTask.id);
+  };
+  const openGeneratedFile = (file: SparkGeneratedFile) => {
+    setStatusOpen(false);
+    if (!isCompact) setLibraryCollapsed(true);
+    if (remoteBrowserPane === 'open') closeRemoteBrowserPane(currentTask.id);
+    openSparkFile(currentTask.id, file.id);
+  };
+  const closeGeneratedFile = () => {
+    if (!isCompact) setLibraryCollapsed(true);
+    closeSparkFile(currentTask.id);
+  };
+  useEffect(() => {
+    if (!isFileOverlayOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Kept mounted behind another tab (`inert`), Spark leaves the Escape to the tab on show.
+      if (event.key === 'Escape' && !conversationRef.current?.closest('[inert]')) closeSparkFile(currentTask.id);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [currentTask.id, isFileOverlayOpen]);
+  const isStatusPopoverOpen = !isProgressPanelOpen && statusOpen;
+  const canViewRemoteBrowser = remoteBrowserPane !== 'none' || hasOpenedRemoteBrowser(currentTask);
+  useEffect(() => {
+    if (!isRemoteBrowserOverlayOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Taken over, the keyboard belongs to the remote page.
+      if (event.key !== 'Escape' || remoteBrowserSessions.get()[currentTask.id]?.inControl) return;
+      // Kept mounted behind another tab (`inert`), Spark leaves the Escape to the tab on show.
+      if (conversationRef.current?.closest('[inert]')) return;
+      closeRemoteBrowserPane(currentTask.id);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [currentTask.id, isRemoteBrowserOverlayOpen]);
+  const viewRemoteBrowser = () => {
+    setStatusOpen(false);
+    if (!isCompact) setLibraryCollapsed(true);
+    closeSparkFile(currentTask.id);
+    openRemoteBrowserPane(currentTask.id, currentTask.remoteBrowser);
+  };
+
+  /*
+   * The task list's rows, made again only when what they show changes. They were
+   * rebuilt on every render of this component — each streamed token, each keystroke,
+   * and the click that opens the browser, where they were the biggest single part of
+   * the work before its first frame. Their own handlers use only setters and refs;
+   * the two callbacks from the workspace are read through a ref, so a kept row never
+   * calls a stale one.
+   */
+  const rowCallbacksRef = useRef({ onOpenTask, onTogglePin });
+  useLayoutEffect(() => {
+    rowCallbacksRef.current = { onOpenTask, onTogglePin };
+  });
+  const currentTaskId = currentTask.id;
+  const libraryRows = useMemo(() => filteredTasks.map((recentTask) => {
+    const selected = recentTask.id === currentTaskId;
+    const menuOpen = listTaskMenuTaskId === recentTask.id;
+    return (
+      <div
+        key={recentTask.id}
+        role="listitem"
+        className={`spark-task-detail__task-row${selected ? ' is-selected' : ''}${recentTask.hasUnreadCompletion ? ' is-unread' : ''}${menuOpen ? ' is-menu-open' : ''}`}
+      >
+        <button
+          type="button"
+          className="spark-task-detail__task-open"
+          aria-current={selected ? 'page' : undefined}
+          onClick={() => rowCallbacksRef.current.onOpenTask(recentTask.id)}
+        >
+          <span className="spark-task-detail__task-copy">
+            {recentTask.isNaming ? (
+              <>
+                <span className="spark-task-detail__task-naming-ghost" aria-label="Naming task" />
+                <span className="spark-task-detail__task-description">Initialising task&hellip;</span>
+              </>
+            ) : (
+              <>
+                <span className="spark-task-detail__task-title">{recentTask.title}</span>
+                <span className="spark-task-detail__task-description">
+                  {recentTask.scheduledLabel && (
+                    <MaterialSymbol {...SYMBOL_PROPS} name="schedule" size={16} opticalSize={16} />
+                  )}
+                  <span>{recentTask.description || recentTask.progressLabel || 'Spark task'}</span>
+                </span>
+              </>
+            )}
+          </span>
+        </button>
+        <span className="spark-task-detail__task-meta">
+          <span className="spark-task-detail__task-time">
+            {formatSparkRelativeTime(recentTask.updatedAt, now, isCompact) || recentTask.time}
+          </span>
+          {needsApproval(recentTask) && (
+            <span className="spark-task-detail__needs-input-badge">Needs input</span>
+          )}
+          {taskStatus(recentTask) === 'failed' && (
+            <span className="spark-status-pill spark-status-pill--failed">Failed</span>
+          )}
+          {recentTask.isPinned && (
+            <MaterialSymbol
+              {...SYMBOL_PROPS}
+              name="push_pin"
+              size={16}
+              opticalSize={16}
+              className="spark-task-detail__pinned-icon"
+            />
+          )}
+          <button
+            type="button"
+            className="spark-task-detail__row-menu-button"
+            aria-label={`Open actions for ${recentTask.title}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-controls={menuOpen ? listTaskMenuId : undefined}
+            onClick={(event) => {
+              listTaskMenuButtonRef.current = event.currentTarget;
+              setTaskFilterOpen(false);
+              setStatusOpen(false);
+              setTaskMenuOpen(false);
+              setListTaskMenuTaskId((openTaskId) => (
+                openTaskId === recentTask.id ? null : recentTask.id
+              ));
+            }}
+          >
+            <MaterialSymbol {...SYMBOL_PROPS} name="more_vert" size={20} opticalSize={20} />
+          </button>
+        </span>
+        {menuOpen && (
+          <div
+            ref={listTaskMenuRef}
+            id={listTaskMenuId}
+            className="spark-task-detail__list-task-menu"
+            role="menu"
+            aria-label={`Actions for ${recentTask.title}`}
+            onKeyDown={handleTaskMenuKeyDown}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => openRenameDialog(recentTask, listTaskMenuButtonRef.current)}
+            >
+              <MaterialSymbol {...SYMBOL_PROPS} name="edit" size={20} opticalSize={20} />
+              <span>Rename</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const returnFocus = listTaskMenuButtonRef.current;
+                setListTaskMenuTaskId(null);
+                rowCallbacksRef.current.onTogglePin(recentTask.id);
+                restoreFocus(returnFocus);
+              }}
+            >
+              <MaterialSymbol {...SYMBOL_PROPS} name="push_pin" size={20} opticalSize={20} />
+              <span>{recentTask.isPinned ? 'Unpin' : 'Pin'}</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="is-danger"
+              onClick={() => openDeleteDialog(recentTask, listTaskMenuButtonRef.current)}
+            >
+              <MaterialSymbol {...SYMBOL_PROPS} name="delete" size={20} opticalSize={20} />
+              <span>Delete</span>
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }), [filteredTasks, currentTaskId, listTaskMenuTaskId, now, isCompact, listTaskMenuId]);
 
   return (
     <div
-      className={`spark-task-detail${isLibraryCollapsed ? ' is-library-collapsed' : ''}${isProgressPanelOpen ? ' is-progress-open' : ''}${computerUse ? ' has-computer-use' : ''}`}
+      className={`spark-task-detail${isLibraryCollapsed ? ' is-library-collapsed' : ''}${isProgressPanelOpen ? ' is-progress-open' : ''}${isRemoteBrowserOpen ? ' has-remote-browser' : ''}${isFileOpen ? ' has-open-file' : ''}`}
       /* `--spark-task-detail-accent` comes from `sparkAccentVars` now, so the All
        * Tasks route can light its matching wash from the same one place. */
       style={accentVars}
@@ -2673,123 +3209,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
               aria-label="Task list"
               onScroll={(event) => updateScrollFade(event.currentTarget)}
             >
-              {filteredTasks.map((recentTask) => {
-                const selected = recentTask.id === currentTask.id;
-                const menuOpen = listTaskMenuTaskId === recentTask.id;
-                return (
-                  <div
-                    key={recentTask.id}
-                    role="listitem"
-                    className={`spark-task-detail__task-row${selected ? ' is-selected' : ''}${recentTask.hasUnreadCompletion ? ' is-unread' : ''}${menuOpen ? ' is-menu-open' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      className="spark-task-detail__task-open"
-                      aria-current={selected ? 'page' : undefined}
-                      onClick={() => onOpenTask(recentTask.id)}
-                    >
-                      <span className="spark-task-detail__task-copy">
-                        {recentTask.isNaming ? (
-                          <>
-                            <span className="spark-task-detail__task-naming-ghost" aria-label="Naming task" />
-                            <span className="spark-task-detail__task-description">Initialising task&hellip;</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="spark-task-detail__task-title">{recentTask.title}</span>
-                            <span className="spark-task-detail__task-description">
-                              {recentTask.scheduledLabel && (
-                                <MaterialSymbol {...SYMBOL_PROPS} name="schedule" size={16} opticalSize={16} />
-                              )}
-                              <span>{recentTask.description || recentTask.progressLabel || 'Spark task'}</span>
-                            </span>
-                          </>
-                        )}
-                      </span>
-                    </button>
-                    <span className="spark-task-detail__task-meta">
-                      <span className="spark-task-detail__task-time">
-                        {formatSparkRelativeTime(recentTask.updatedAt, now) || recentTask.time}
-                      </span>
-                      {needsApproval(recentTask) && (
-                        <span className="spark-task-detail__needs-input-badge">Needs input</span>
-                      )}
-                      {taskStatus(recentTask) === 'failed' && (
-                        <span className="spark-status-pill spark-status-pill--failed">Failed</span>
-                      )}
-                      {recentTask.isPinned && (
-                        <MaterialSymbol
-                          {...SYMBOL_PROPS}
-                          name="push_pin"
-                          size={16}
-                          opticalSize={16}
-                          className="spark-task-detail__pinned-icon"
-                        />
-                      )}
-                      <button
-                        type="button"
-                        className="spark-task-detail__row-menu-button"
-                        aria-label={`Open actions for ${recentTask.title}`}
-                        aria-haspopup="menu"
-                        aria-expanded={menuOpen}
-                        aria-controls={menuOpen ? listTaskMenuId : undefined}
-                        onClick={(event) => {
-                          listTaskMenuButtonRef.current = event.currentTarget;
-                          setTaskFilterOpen(false);
-                          setStatusOpen(false);
-                          setTaskMenuOpen(false);
-                          setListTaskMenuTaskId((openTaskId) => (
-                            openTaskId === recentTask.id ? null : recentTask.id
-                          ));
-                        }}
-                      >
-                        <MaterialSymbol {...SYMBOL_PROPS} name="more_vert" size={20} opticalSize={20} />
-                      </button>
-                    </span>
-                    {menuOpen && (
-                      <div
-                        ref={listTaskMenuRef}
-                        id={listTaskMenuId}
-                        className="spark-task-detail__list-task-menu"
-                        role="menu"
-                        aria-label={`Actions for ${recentTask.title}`}
-                        onKeyDown={handleTaskMenuKeyDown}
-                      >
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => openRenameDialog(recentTask, listTaskMenuButtonRef.current)}
-                        >
-                          <MaterialSymbol {...SYMBOL_PROPS} name="edit" size={20} opticalSize={20} />
-                          <span>Rename</span>
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            const returnFocus = listTaskMenuButtonRef.current;
-                            setListTaskMenuTaskId(null);
-                            onTogglePin(recentTask.id);
-                            restoreFocus(returnFocus);
-                          }}
-                        >
-                          <MaterialSymbol {...SYMBOL_PROPS} name="push_pin" size={20} opticalSize={20} />
-                          <span>{recentTask.isPinned ? 'Unpin' : 'Pin'}</span>
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="is-danger"
-                          onClick={() => openDeleteDialog(recentTask, listTaskMenuButtonRef.current)}
-                        >
-                          <MaterialSymbol {...SYMBOL_PROPS} name="delete" size={20} opticalSize={20} />
-                          <span>Delete</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {libraryRows}
               {!filteredTasks.length && (
                 <p className="spark-task-detail__empty-list">
                   No {taskFilter === 'Recent' ? '' : `${taskFilter.toLowerCase()} `}tasks yet.
@@ -2809,6 +3229,11 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             title=""
             onClick={() => {
               setStatusOpen(false);
+              if (isRemoteBrowserOpen) {
+                closeRemoteBrowserPane(currentTask.id);
+                setLibraryCollapsed(false);
+                return;
+              }
               setLibraryCollapsed((collapsed) => !collapsed);
             }}
           >
@@ -2822,7 +3247,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
           </button>
         </div>
 
-        <section ref={panelRef} className="spark-task-detail__panel" aria-label={`Task: ${displayTitle}`}>
+        <section className="spark-task-detail__panel" aria-label={`Task: ${displayTitle}`}>
           <header className="spark-task-detail__header">
             <button
               type="button"
@@ -2831,8 +3256,10 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
               title="Back"
               onClick={onBack}
             >
-              <MaterialSymbol {...SYMBOL_PROPS} name="arrow_back" size={20} opticalSize={20} />
+              {/* Only shown at 960px and below, where Gemini's back is a 32px chevron. */}
+              <MaterialSymbol {...SYMBOL_PROPS} name="chevron_left" size={32} opticalSize={32} />
             </button>
+            <SparkTaskFolderCrumb taskId={currentTask.id} />
             {currentTask.isNaming ? (
               <span className="spark-task-detail__header-naming-ghost" aria-label="Naming task" />
             ) : (
@@ -2841,30 +3268,18 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             <div className="spark-task-detail__header-actions">
               <span className="spark-task-detail__beta-pill">Beta</span>
 
-              {/* Gemini puts a `monitor` glyph here (16px, weight 330, #c4c7c5) that
-                * shows and hides the remote-browser pane. */}
-              {computerUse && (
-                <button
-                  type="button"
-                  className={`spark-task-detail__header-icon${isSidePanelOpen ? ' is-open' : ''}`}
-                  aria-label={isSidePanelOpen ? 'Hide remote browser' : 'Show remote browser'}
-                  aria-pressed={isSidePanelOpen}
-                  title={isSidePanelOpen ? 'Hide remote browser' : 'Show remote browser'}
-                  onClick={() => setIsSidePanelOpen((open) => !open)}
-                >
-                  {/* `monitor` is absent from Willow's Luminous subset (probed: 140px
-                    * advance at 20px, i.e. the ligature fails); Google Symbols has it. */}
-                  <MaterialSymbol
-                    family="google-symbols"
-                    name="monitor"
-                    size={16}
-                    weight={330}
-                    roundness={100}
-                    opticalSize={16}
-                  />
-                </button>
+              {canViewRemoteBrowser && (
+                <SparkRemoteBrowserMenu
+                  key={currentTask.id}
+                  hidden={isRemoteBrowserOpen}
+                  onOpen={() => {
+                    setTaskMenuOpen(false);
+                    setStatusOpen(false);
+                  }}
+                  onView={viewRemoteBrowser}
+                />
               )}
-              <span className={`spark-task-detail__status-pill-wrapper${isProgressPanelOpen ? ' is-hidden' : ''}`}>
+              <span className={`spark-task-detail__status-pill-wrapper${isProgressPanelOpen || isRemoteBrowserOpen ? ' is-hidden' : ''}`}>
                 <button
                   ref={statusButtonRef}
                   type="button"
@@ -2914,7 +3329,106 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
             </div>
           </header>
 
-          {isStatusPopoverOpen && (
+          {/*
+            * At 960px and below the pill opens Gemini's `mobile-side-panel-overlay` instead:
+            * the side panel's sections full-screen on black under a 48px close bar, with the
+            * task's schedule listed between Progress and Files. It opens and closes on the
+            * spot; Gemini animates neither edge.
+            */}
+          {isStatusPopoverOpen && isCompact && (
+            <div
+              ref={statusPopoverRef}
+              id={statusPopoverId}
+              className="spark-task-detail__progress-overlay"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={statusPopoverHeadingId}
+              tabIndex={-1}
+            >
+              <div className="spark-task-detail__progress-overlay-header">
+                <button
+                  type="button"
+                  className="spark-task-detail__progress-overlay-close"
+                  aria-label="Close"
+                  onClick={() => {
+                    setStatusOpen(false);
+                    restoreFocus(statusButtonRef.current);
+                  }}
+                >
+                  <MaterialSymbol {...SYMBOL_PROPS} name="close" size={24} opticalSize={24} weight={300} />
+                </button>
+              </div>
+              <div className="spark-task-detail__progress-overlay-scroll">
+                <section className="spark-task-detail__progress-overlay-section">
+                  <h2 id={statusPopoverHeadingId} className="spark-task-detail__progress-overlay-title">Progress</h2>
+                  <div className="spark-task-detail__progress-overlay-content spark-task-detail__progress-overlay-summary">
+                    {latestPlan.length ? <SparkProgressPlan steps={latestPlan} /> : (
+                      <>
+                        {latestWorkTitle && <SparkProgressMarker complete={isTaskComplete(currentTask)} />}
+                        <span>{getProgressSummary(latestWorkTitle)}</span>
+                      </>
+                    )}
+                  </div>
+                </section>
+
+                {schedule && (
+                  <section className="spark-task-detail__progress-overlay-section">
+                    <h2 className="spark-task-detail__progress-overlay-title">Schedules</h2>
+                    <div className="spark-task-detail__progress-overlay-content spark-task-detail__progress-overlay-list">
+                      <div className="spark-task-detail__progress-overlay-schedule">
+                        <span className="spark-task-detail__progress-overlay-schedule-title">{schedule.title}</span>
+                        <span className="spark-task-detail__progress-overlay-schedule-trigger">
+                          {formatSparkScheduleTrigger(schedule, true)}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                <section className="spark-task-detail__progress-overlay-section">
+                  <h2 className={`spark-task-detail__progress-overlay-title${generatedFiles.length ? '' : ' is-empty'}`}>Files</h2>
+                  {generatedFiles.length > 0 && (
+                    <div className="spark-task-detail__progress-overlay-content spark-task-detail__progress-overlay-list">
+                      {generatedFiles.map((file) => (
+                        <button
+                          key={file.id}
+                          type="button"
+                          className="spark-task-detail__progress-overlay-row"
+                          onClick={() => openGeneratedFile(file)}
+                        >
+                          {getGeneratedFileIcon(file)}
+                          <span>{file.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="spark-task-detail__progress-overlay-section">
+                  <h2 className={`spark-task-detail__progress-overlay-title${uniqueTaskCapabilities.length ? '' : ' is-empty'}`}>
+                    Skills &amp; apps
+                  </h2>
+                  {uniqueTaskCapabilities.length > 0 && (
+                    <div className="spark-task-detail__progress-overlay-content spark-task-detail__progress-overlay-list">
+                      {uniqueTaskCapabilities.map((capability) => (
+                        <div key={capability.label} className="spark-task-detail__progress-overlay-row">
+                          <SparkCapabilityIcon
+                            tool={capability.tool}
+                            icon={capability.icon}
+                            createdFile={latestGeneratedFile}
+                            weight={300}
+                          />
+                          <span>{capability.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+            </div>
+          )}
+
+          {isStatusPopoverOpen && !isCompact && (
             <div
               ref={statusPopoverRef}
               id={statusPopoverId}
@@ -2939,10 +3453,15 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 {generatedFiles.length ? (
                   <div className="spark-task-detail__popover-file-list">
                     {generatedFiles.map((file) => (
-                      <div key={file.id} className="spark-task-detail__popover-file">
+                      <button
+                        key={file.id}
+                        type="button"
+                        className="spark-task-detail__popover-file"
+                        onClick={() => openGeneratedFile(file)}
+                      >
                         {getGeneratedFileIcon(file)}
                         <span>{file.name}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 ) : null}
@@ -3050,20 +3569,15 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   </div>
                 )}
 
-                {(((isTaskActive(currentTask) && !currentTask.response) && !hasProcessingState) || needsApproval(currentTask)) && (
+                {isTaskActive(currentTask) && !currentTask.response && !hasProcessingState && (
                   <div className="spark-task-detail__working-row" aria-live="polite">
-                    {!needsApproval(currentTask) && (
-                      <MaterialSymbol
-                        {...SYMBOL_PROPS}
-                        name="progress_activity"
-                        size={20}
-                        opticalSize={20}
-                      />
-                    )}
-                    <span>{currentTask.progressLabel || (needsApproval(currentTask) ? 'Waiting for your approval' : 'Working on your task')}</span>
-                    {needsApproval(currentTask) && (
-                      <MaterialSymbol {...SYMBOL_PROPS} name="chevron_right" size={18} opticalSize={18} />
-                    )}
+                    <MaterialSymbol
+                      {...SYMBOL_PROPS}
+                      name="progress_activity"
+                      size={20}
+                      opticalSize={20}
+                    />
+                    <span>{currentTask.progressLabel || 'Working on your task'}</span>
                   </div>
                 )}
 
@@ -3094,69 +3608,22 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                   </div>
                 )}
 
-                {rootGeneratedFiles.map((file) => (
-                  <SparkGeneratedFileCard
-                    key={file.id}
-                    file={file}
-                    onClose={(id) => setDismissedGeneratedFileIds((ids) => new Set([...ids, id]))}
-                  />
+                {(currentTask.createdItems ?? []).map((item) => (
+                  <SparkCreatedCard key={item.id} item={item} />
                 ))}
 
-                {needsApproval(currentTask) && approvalResponse === null && (
-                  <section className="spark-task-detail__approval-card" aria-labelledby={approvalTitleId}>
-                    <h3 id={approvalTitleId}>{approvalTitle}</h3>
-                    <div className="spark-task-detail__approval-body">
-                      <p>{approvalDescription}</p>
-                      <ul>
-                        <li>Gemini may make mistakes, including unexpected data sharing. Supervise sensitive tasks.</li>
-                        <li>
-                          <a
-                            href="https://support.google.com/gemini/answer/16596215"
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Review risks
-                          </a>{' '}
-                          and manage browser data in Willow Spark Settings.
-                        </li>
-                      </ul>
-                      <p className="spark-task-detail__approval-plan-heading">
-                        <strong>Review the plan based on your task and context</strong>
-                      </p>
-                    </div>
-                    <div className="spark-task-detail__approval-plan">
-                      <p>{approvalPlan}</p>
-                    </div>
-                    <div className="spark-task-detail__approval-actions">
-                      <button
-                        type="button"
-                        disabled={!onRespondToApproval}
-                        onClick={() => respondToApproval(false)}
-                      >
-                        Don&apos;t allow
-                      </button>
-                      <button
-                        type="button"
-                        className="is-primary"
-                        disabled={!onRespondToApproval}
-                        onClick={() => respondToApproval(true)}
-                      >
-                        Allow
-                      </button>
-                    </div>
-                  </section>
-                )}
+                {rootGeneratedFiles.map((file) => (
+                  <SparkGeneratedFileCard key={file.id} file={file} onOpen={openGeneratedFile} />
+                ))}
 
-                {approvalResponse !== null && (
-                  <div className="spark-task-detail__approval-result" aria-live="polite">
-                    <MaterialSymbol
-                      {...SYMBOL_PROPS}
-                      name={approvalResponse ? 'check_circle' : 'block'}
-                      size={20}
-                      opticalSize={20}
-                    />
-                    <span>{approvalResponse ? 'Allowed. Spark can continue this task.' : 'Action not allowed.'}</span>
-                  </div>
+                {currentTask.browserRequest && (
+                  <SparkBrowserPermissionCard
+                    request={currentTask.browserRequest}
+                    onRespond={browserRequestHandler(
+                      currentTask.browserRequest.id,
+                      currentTask.browserRequest.status === 'pending' && needsApproval(currentTask),
+                    )}
+                  />
                 )}
 
                 {hasRootResponseActions && (
@@ -3176,8 +3643,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
               {(currentTask.turns ?? []).map((turn, index, turns) => {
                 const isLatestTurn = index === turns.length - 1;
                 const turnIsStreaming = isSparkTurnResponseStreaming(currentTask, turn);
-                const turnIsPending = isLatestTurn
-                  && (turnIsStreaming || needsApproval(currentTask));
+                const turnIsPending = isLatestTurn && turnIsStreaming;
                 const turnFallback = turnIsPending ? '' : getTerminalResponseFallback(currentTask, true);
                 const turnResponse = turn.response || turnFallback;
                 return (
@@ -3202,6 +3668,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                          once the reply is taller than it, so the thread then
                          grows normally. */
                       style={anchoredTurnId === turn.id ? { minHeight: anchorReserve } : undefined}
+                      data-spark-reserve={anchoredTurnId === turn.id ? turn.id : undefined}
                     >
                       {((turn.activityLog?.length ?? 0) > 0 || (turn.subagents?.length ?? 0) > 0 || turn.activityPhase || turn.activityTitle || turnIsPending) && (
                         <SparkProcessingState
@@ -3227,18 +3694,25 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                           />
                         </div>
                       )}
-                      {(turn.generatedFiles ?? [])
-                        .filter((file) => !dismissedGeneratedFileIds.has(file.id))
-                        .map((file) => (
-                          <SparkGeneratedFileCard
-                            key={file.id}
-                            file={file}
-                            onClose={(id) => setDismissedGeneratedFileIds((ids) => new Set([...ids, id]))}
-                          />
-                        ))}
+                      {(turn.createdItems ?? []).map((item) => (
+                        <SparkCreatedCard key={item.id} item={item} />
+                      ))}
+                      {(turn.generatedFiles ?? []).map((file) => (
+                        <SparkGeneratedFileCard key={file.id} file={file} onOpen={openGeneratedFile} />
+                      ))}
+                      {turn.browserRequest && (
+                        <SparkBrowserPermissionCard
+                          request={turn.browserRequest}
+                          onRespond={browserRequestHandler(
+                            turn.browserRequest.id,
+                            turn.browserRequest.status === 'pending' && isLatestTurn && needsApproval(currentTask),
+                          )}
+                        />
+                      )}
                       {turnResponse && !turnIsPending && responseActionsReady(turn.id, turnResponse) && (
                         <SparkResponseActions
                           responseText={turnResponse}
+                          needsInput={Boolean(turn.browserRequest && isLatestTurn && needsApproval(currentTask))}
                           reaction={turn.reaction ?? null}
                           onReactionChange={(reaction) => {
                             onResponseReactionChange(currentTask.id, turn.id, reaction);
@@ -3246,16 +3720,16 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                           onRetry={() => onRetryTurn(currentTask.id, turn.id)}
                         />
                       )}
-                      {!turnResponse && needsApproval(currentTask) && (
-                        <div className="spark-task-detail__working-row" aria-live="polite">
-                          <span>Waiting for your approval</span>
-                        </div>
-                      )}
                     </article>
                   </React.Fragment>
                 );
               })}
 
+              {/* Gemini's narrow view ends the thread with its disclaimer rather than
+                  printing it under the composer. */}
+              {isCompact && (
+                <p className="spark-task-detail__thread-disclaimer">Willow is AI and can make mistakes.</p>
+              )}
             </div>
           </div>
 
@@ -3271,24 +3745,22 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 * than layering above it also means the existing follow-up lock
                 * needs no change — the box was already disabled during a run.
                 */}
-              {pendingQuestion ? (
+              {pendingApproval ? (
+                <SparkApprovalPanel taskId={currentTask.id} />
+              ) : pendingQuestion ? (
                 <SparkQuestionPanel taskId={currentTask.id} />
               ) : (
                 <SparkComposer
                   onSubmitFiles={submitFollowUp}
-                  /*
-                   * Only the states with nothing to stop lock the box. A working
-                   * task keeps it live and turns send into stop, which is a
-                   * deliberate deviation from Gemini — it locks the whole box —
-                   * and matches what Chat does, as asked for by name.
-                   */
-                  disabled={isFollowUpSubmitting || followUpLocked}
+                  /* A working task keeps the box live and turns send into stop, as Gemini's does. */
+                  disabled={isFollowUpSubmitting}
                   isGenerating={isTaskActive(currentTask)}
                   onStopGenerating={() => onStopTask(currentTask.id)}
                   placeholder={followUpPlaceholder}
                   modelConfig={modelConfig}
                   selectedModelId={selectedModelId}
                   setSelectedModelId={setSelectedModelId}
+                  leadingChip={accessChip}
                 />
               )}
               {followUpAttachmentError && (
@@ -3384,7 +3856,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
         <aside
           ref={statusPanelRef}
           id={statusPanelId}
-          className={`spark-task-detail__progress-panel${isProgressPanelOpen ? ' is-open' : ''}`}
+          className={`spark-task-detail__progress-panel${isProgressPanelOpen ? ' is-open' : ''}${sidePanelHandoff === 'progress' ? ' is-taking-over' : ''}`}
           aria-hidden={!isProgressPanelOpen}
           aria-labelledby={statusPanelHeadingId}
           inert={!isProgressPanelOpen || undefined}
@@ -3419,10 +3891,15 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 <div className="spark-task-detail__progress-panel-content">
                   <div className="spark-task-detail__progress-panel-file-list">
                     {generatedFiles.map((file) => (
-                      <div key={file.id} className="spark-task-detail__progress-panel-file">
+                      <button
+                        key={file.id}
+                        type="button"
+                        className="spark-task-detail__progress-panel-file"
+                        onClick={() => openGeneratedFile(file)}
+                      >
                         {getGeneratedFileIcon(file)}
                         <span>{file.name}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -3454,15 +3931,92 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
         </aside>
 
         {/*
-          * Gemini's `remy-side-panel`: a second rounded card beside the chat pane
-          * rather than a block inside the thread. Measured in the split view at
-          * 567.1×809.6 against a 285.1px chat pane, both #1f1f1f at 28px corners with
-          * an 8px gutter between them.
+          * Gemini's `remy-side-panel.showing-computer-use`: a second rounded card
+          * beside the chat pane, twice its width (980 against 496 at 1536×826), on
+          * the same #1f1f1f at 28px corners with an 8px gutter.
           */}
-        {computerUse && isSidePanelOpen && !isProgressPanelOpen && (
-          <section className="spark-task-detail__side-panel" aria-label="Remote browser">
-            {computerUse}
+        {isRemoteBrowserOpen && (
+          <section className={`spark-task-detail__side-panel${sidePanelHandoff === 'browser' ? widePanelHandoff : ''}`} aria-label="Remote browser">
+            {/* Gemini's viewer joins the card about 265ms into its growth, near full
+              * width (the header and disclaimer show from the start), so the page never
+              * zooms with the card — and nothing resizes it frame by frame meanwhile. */}
+            <SparkRemoteBrowserPane
+              taskId={currentTask.id}
+              onClose={closeRemoteBrowser}
+              viewerDelayMs={265}
+            />
           </section>
+        )}
+
+        {/*
+          * Narrow, Gemini's pane fills the screen with its own close, and only after a
+          * take-over is handed back does it become that card under the 48px close bar of
+          * the full-screen overlay, the frame the status pill's Progress panel uses here.
+          */}
+        {isRemoteBrowserOverlayOpen && remoteBrowserFullscreen && (
+          <div className="spark-task-detail__progress-overlay" role="dialog" aria-modal="true" aria-label="Remote computer">
+            <SparkRemoteBrowserPane taskId={currentTask.id} onClose={() => closeRemoteBrowserPane(currentTask.id)} compact fullscreen />
+          </div>
+        )}
+        {isRemoteBrowserOverlayOpen && !remoteBrowserFullscreen && (
+          <div className="spark-task-detail__progress-overlay" role="dialog" aria-modal="true" aria-label="Remote browser">
+            <div className="spark-task-detail__progress-overlay-header">
+              <button
+                type="button"
+                className="spark-task-detail__progress-overlay-close"
+                aria-label="Close panel"
+                onClick={() => closeRemoteBrowserPane(currentTask.id)}
+              >
+                <MaterialSymbol {...SYMBOL_PROPS} name="close" size={24} opticalSize={24} weight={300} />
+              </button>
+            </div>
+            <section className="spark-task-detail__browser-overlay-panel">
+              <SparkRemoteBrowserPane taskId={currentTask.id} onClose={() => closeRemoteBrowserPane(currentTask.id)} compact />
+            </section>
+          </div>
+        )}
+
+        {/*
+          * Gemini's `remy-side-panel.showing-embedded-doc`: the file in the same card the
+          * browser takes, on the same clock. Its card grows from nothing as the list goes
+          * (Gemini's starts at `flex: 0 0 0%`), and stays empty until it has, as Gemini's
+          * does while the Docs embed loads.
+          */}
+        {isFileOpen && shownFile && (
+          <section
+            className={`spark-task-detail__side-panel is-file${sidePanelHandoff === 'file' ? widePanelHandoff : ''}`}
+            aria-label={shownFile.name}
+          >
+            <SparkFileViewer
+              file={shownFile}
+              onClose={closeGeneratedFile}
+              revealDelayMs={previousSidePanel === 'browser' ? 0 : 450}
+              refreshKey={`${currentTask.status}:${currentTask.turns?.length ?? 0}`}
+            />
+          </section>
+        )}
+
+        {isFileOverlayOpen && shownFile && (
+          <div className="spark-task-detail__progress-overlay" role="dialog" aria-modal="true" aria-label={shownFile.name}>
+            <div className="spark-task-detail__progress-overlay-header">
+              <button
+                type="button"
+                className="spark-task-detail__progress-overlay-close"
+                aria-label="Close panel"
+                onClick={closeGeneratedFile}
+              >
+                <MaterialSymbol {...SYMBOL_PROPS} name="close" size={24} opticalSize={24} weight={300} />
+              </button>
+            </div>
+            <section className="spark-task-detail__browser-overlay-panel">
+              <SparkFileViewer
+                file={shownFile}
+                onClose={closeGeneratedFile}
+                compact
+                refreshKey={`${currentTask.status}:${currentTask.turns?.length ?? 0}`}
+              />
+            </section>
+          </div>
         )}
       </main>
     </div>

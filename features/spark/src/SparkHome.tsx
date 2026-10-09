@@ -1,4 +1,5 @@
-import React, { useId, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useStore } from '@nanostores/react';
 import type { ComposerHandle } from '@willow/chat/composer/Composer';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import {
@@ -9,14 +10,18 @@ import {
   type SuggestedTask,
 } from './spark-types';
 import { SparkComposer } from './SparkComposer';
+import { sparkComposerPrefill } from './spark-store';
 import { SparkTaskCard } from './SparkTaskCard';
 import { SparkTaskDeleteDialog, SparkTaskRenameDialog } from './SparkTaskDialogs';
 import { useSparkNow } from './useSparkNow';
 import { useSparkTaskWindow } from './use-spark-task-window';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useThemeMode } from '@willow/core/theme-mode';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { sparkAccentVars } from './spark-accent';
+import { useSparkFolderChip } from './SparkNativeBar';
+import { sparkComposerFocusRequest } from './spark-projects';
 import './SparkHome.css';
 
 export interface SparkHomeProps {
@@ -89,17 +94,18 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
   onTogglePinTask,
   onDeleteTask,
 }) => {
-  const { userProfile } = useAuth();
+  const { workspaceColor: currentWorkspaceColor } = useAuth();
   const { isLight } = useThemeMode();
-  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'blue';
+  const effectiveWorkspaceColor = workspaceColor || currentWorkspaceColor;
   const theme = getWorkspaceTheme(effectiveWorkspaceColor);
   const glowAccent = isLight
-    ? (theme.id === 'blue' || !workspaceColor ? 'rgb(157, 210, 255)' : theme.glowAccentLight)
+    ? (theme.id === 'blue' ? 'rgb(157, 210, 255)' : theme.glowAccentLight)
     : theme.glowAccent;
   const pageHeadingId = useId();
   const recentHeadingId = useId();
   const suggestedHeadingId = useId();
   const now = useSparkNow();
+  const isCompact = useCompactViewport();
   const composerRef = useRef<ComposerHandle | null>(null);
   const [renameTaskId, setRenameTaskId] = useState<string | null>(null);
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
@@ -117,6 +123,23 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
     composerRef.current?.setPrompt(task.description);
     onSuggestedSelect?.(task);
   };
+
+  const prefill = useStore(sparkComposerPrefill);
+  // The folder the task will work in, in the desktop app.
+  const folderChip = useSparkFolderChip();
+  // A folder's "New task" puts the cursor in the composer, leaving any draft as it is.
+  const focusRequest = useStore(sparkComposerFocusRequest);
+  useEffect(() => {
+    if (!focusRequest || composerRef.current == null) return;
+    composerRef.current.focus();
+    sparkComposerFocusRequest.set(0);
+  }, [focusRequest]);
+  useEffect(() => {
+    if (prefill == null || composerRef.current == null) return;
+    composerRef.current.setPrompt(prefill);
+    composerRef.current.focus();
+    sparkComposerPrefill.set(null);
+  }, [prefill]);
 
   return (
     <div
@@ -144,7 +167,9 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
 
       <div className="spark-content">
         <div className="spark-heading-block select-none">
-          <h1 id={pageHeadingId} className="select-none">Put Willow Spark to work for you</h1>
+          {/* "Gemini" is wider than "Willow", so a narrow column breaks Gemini's title before
+              "for you". Holding those two words together gives Willow the same two lines. */}
+          <h1 id={pageHeadingId} className="select-none">Put Willow Spark to work <span className="whitespace-nowrap">for you</span></h1>
         </div>
 
         <div
@@ -158,6 +183,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
             selectedModelId={selectedModelId}
             setSelectedModelId={setSelectedModelId}
             workspaceColor={workspaceColor}
+            leadingChip={folderChip}
           />
         </div>
 
@@ -175,7 +201,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
                   key={task.id}
                   title={task.title}
                   description={task.description}
-                  timeLabel={formatSparkRelativeTime(task.updatedAt, now) || task.time}
+                  timeLabel={formatSparkRelativeTime(task.updatedAt, now, isCompact) || task.time}
                   /* Gemini pulses a dot while a task runs, shows a labelled pill when
                    * it is blocked or failed, and shows nothing once it settles. */
                   statusLabel={SPARK_STATUS_LABELS[task.status]}

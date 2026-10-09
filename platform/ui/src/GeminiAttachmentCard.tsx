@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { ComposerAttachment } from '@willow/core/attachments';
 import { fileTypeIcon } from '@willow/core/gemini-file-icon';
 import {
@@ -15,6 +15,11 @@ interface GeminiAttachmentCardProps {
   variant?: 'composer' | 'message';
   onRemove?: () => void;
   onOpen?: () => void;
+  /**
+   * Its image is open full screen. Gemini's thumbnail fades out over 83ms while its preview is
+   * up (`image-expansion-dialog-trigger-fade`) and is simply back once it closes.
+   */
+  previewing?: boolean;
 }
 
 /** Tile geometry is identical in the composer strip and the sent-message block. */
@@ -42,11 +47,15 @@ export const GeminiAttachmentCard: React.FC<GeminiAttachmentCardProps> = ({
   variant = 'composer',
   onRemove,
   onOpen,
+  previewing = false,
 }) => {
   const shape = tileShape(attachment.name);
   const fileType = fileTypeOf(attachment.mimeType, attachment.name);
   const displayName = tileDisplayName(attachment.name, fileType);
   const interactive = onOpen ? { onClick: onOpen, role: 'button', tabIndex: 0 } : {};
+  // A thumbnail whose bytes would not decode, as opposed to bytes that were never found.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [attachment.url]);
 
   // White 20x20 pill, black 16px Luminous `close` glyph.
   //
@@ -73,16 +82,52 @@ export const GeminiAttachmentCard: React.FC<GeminiAttachmentCardProps> = ({
     </button>
   ) : null;
 
+  /*
+   * A saved attachment whose bytes are in neither the browser's store nor the chat's
+   * folder. The generic tile's geometry, with a muted glyph and the word, rather than
+   * the browser's broken-image icon and the file name in its default serif.
+   */
+  if (attachment.unavailable || failed) {
+    // The loaded subsets: `hide_image` is Luminous's, `draft` Google Symbols'; neither has a video one.
+    const media = shape === 'image' || shape === 'video';
+    return (
+      <div
+        className={TILE_CLASS}
+        style={TILE_FONT}
+        title={`${attachment.name} · Unavailable`}
+        aria-label={`${attachment.name}, unavailable`}
+        role="img"
+      >
+        <span className="absolute left-3 top-3 flex h-6 w-6 items-center justify-center text-[rgb(142,145,143)]" aria-hidden="true">
+          <MaterialSymbol family={media ? 'luminous' : 'google-symbols'} name={media ? 'hide_image' : 'draft'} size={20} weight={300} />
+        </span>
+        <span className="absolute inset-x-3 bottom-3 flex flex-col gap-0.5" aria-hidden="true">
+          <span className="line-clamp-2 text-[13px] leading-[17px] text-[rgb(227,227,227)]" style={{ wordBreak: 'auto-phrase' } as React.CSSProperties}>
+            {displayName}
+          </span>
+          <span className="text-[12px] leading-4 text-[rgb(142,145,143)]">Unavailable</span>
+        </span>
+        {closeButton}
+      </div>
+    );
+  }
+
   // Image and video both fill the tile edge to edge, cropped to cover. Gemini defines a
   // bottom scrim for this variant but does not emit it on live tiles, so it is omitted.
   if ((shape === 'image' || shape === 'video') && attachment.url) {
     return (
-      <div className={TILE_CLASS} style={TILE_FONT} title={attachment.name} {...interactive}>
+      <div
+        className={TILE_CLASS}
+        style={previewing ? { ...TILE_FONT, opacity: 0, transition: 'opacity 83ms linear' } : TILE_FONT}
+        title={attachment.name}
+        {...interactive}
+      >
         {shape === 'image' ? (
           <img
             src={attachment.url}
             alt={attachment.name}
             className="absolute inset-0 h-full w-full object-cover object-center"
+            onError={() => setFailed(true)}
           />
         ) : (
           <video
@@ -91,6 +136,7 @@ export const GeminiAttachmentCard: React.FC<GeminiAttachmentCardProps> = ({
             muted
             playsInline
             preload="metadata"
+            onError={() => setFailed(true)}
           />
         )}
         {closeButton}

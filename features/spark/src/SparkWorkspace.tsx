@@ -16,6 +16,13 @@ import { apiKeysForBinding, resolveProviderBinding } from '@willow/ai/providers/
 import type { ProviderId } from '@willow/ai/providers/endpoints';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { useThemeMode } from '@willow/core/theme-mode';
+import { isDesktopApp } from '@willow/core/desktop-bridge';
+import {
+  registerBackgroundJobKind,
+  startBackgroundJob,
+  type BackgroundJobHandle,
+} from '@willow/core/background-jobs';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import {
   createSparkTaskAttachments,
   deleteSparkAttachmentPayloads,
@@ -36,6 +43,7 @@ import {
   goToSparkApps,
   getActiveSparkStorageScope,
   sparkUltraEngaged,
+  getSparkTaskById,
   goToSparkHome,
   goToSparkScheduleEditor,
   goToSparkSchedules,
@@ -57,6 +65,7 @@ import {
   setSparkTaskReaction,
   setSparkTaskTurnReaction,
   SPARK_HISTORY_STATE_KEY,
+  sparkRunJobId,
   sparkState,
   sparkHydrationScope,
   toggleSparkTaskPinned,
@@ -74,22 +83,61 @@ import {
 import type {
   SparkReaction,
   SparkActivityPhase,
+  SparkBrowserRequest,
   SparkSchedule,
   SparkSkill,
   SparkTask,
   SparkTaskTurn,
   SparkActivityEntry,
   SparkGeneratedFile,
+  SparkLocation,
   SparkPlanStep,
   SparkSubAgent,
 } from './spark-types';
 import { runSparkHarnessTurn } from './harness/spark-harness';
+import { sparkNativeRuntimeFor } from './spark-native';
+import { withCommandRowStatus, type SparkToolEntry } from './spark-command-rows';
+import { claimSparkTaskProject, fileSparkTaskInFolder } from './spark-projects';
+import { useSparkFolderChip } from './SparkNativeBar';
+import type { SparkComputerCapability } from './harness/spark-tools';
 import { levelToEffort, resolveEffort } from './harness/overlay/effort';
 import type { HarnessEvent, SubAgent, ToolCall } from './harness/runtime/protocol';
 import { SparkAllTasks } from './SparkAllTasks';
 import { SparkComposer } from './SparkComposer';
+import { SparkDotsPage } from './SparkDotsPage';
+import { registerSparkTaskHost } from './spark-task-host';
+import { getNextScheduleRunAt } from './spark-schedule-time';
+import { formatScheduleWhen } from '@willow/core/spark-library';
+import { requestSeededChat } from '@willow/core/shell-request';
+import type { SparkLibraryCapability } from './harness/spark-tools';
+import type { SparkCreatedItem } from './spark-types';
+import { requestSparkTaskListCollapsed } from './spark-task-layout';
+import {
+  SCHEDULE_SEED_PROMPT,
+  SCHEDULE_SEED_REPLY,
+  SCHEDULE_SEED_TITLE,
+  SEEDED_REPLY_DELAY_MS,
+  SEEDED_REPLY_REVEAL_MS,
+  SKILL_SEED_PROMPT,
+  SKILL_SEED_REPLY,
+} from './spark-create-with';
+import { startDotsRuntime } from './dots/harness/dot-runtime';
+
+/* Pages carries Codex's Pages UI; it loads the first time it opens. */
+const SparkPagesPage = React.lazy(() => import('./SparkPagesPage'));
+/* The desktop pet's page, which only the desktop app has. */
+const PetsPage = React.lazy(() => import('./pets/PetsPage'));
+import { petCreationTools } from './pets/pet-image-tool';
 import { sparkAccentVars } from './spark-accent';
-import { questionTimelineTool } from './SparkTaskDetail';
+import { computerTimelineTool, createdTimelineTool, questionTimelineTool } from './SparkTaskDetail';
+import { findBrowserRequest, isAwaitingBrowserPermission, pendingBrowserRequest } from './remote-browser/browser-requests';
+import { disposeRemoteBrowserSession, onRemoteBrowserPage } from './remote-browser/remote-browser-store';
+import { deleteRemoteBrowserShots } from './remote-browser/remote-browser-shots';
+import { SPARK_TASKS_FOLDER, attachSparkDisk, sparkDisk } from './spark-disk';
+import { forgetSparkTaskFiles, mirrorSparkTaskAttachments } from './spark-task-files';
+import { runRemoteBrowserTask } from './remote-browser/run-remote-browser';
+import { sparkConnectorTools, sparkMcpTools, timelineRowForCall } from './spark-connectors';
+import { recommendedSkillByTitle } from './spark-recommended-skills';
 import { SparkHome } from './SparkHome';
 import {
   SPARK_SCHEDULE_WEEKDAYS,
@@ -98,7 +146,6 @@ import {
   type SparkScheduleWeekday,
 } from './SparkScheduleEditor';
 import { SparkSkillEditor, type SparkSkillDraft } from './SparkSkillEditor';
-import { SparkComputerUsePanel } from './SparkComputerUsePanel';
 import { SparkTaskDetail } from './SparkTaskDetail';
 import { ConnectedAppsPage, SchedulesPage, SkillsPage } from './SparkCustomisePages';
 import './SparkWorkspace.css';
@@ -110,15 +157,6 @@ interface SparkWorkspaceProps {
   /** The composer's model pill selects the model tasks run on, so it writes back here. */
   setSelectedModelId?: (id: string) => void;
 }
-
-const BROWSER_REQUEST_PATTERN = /(?:https?:\/\/|\b(?:browse|navigate|visit|open)\b.{0,32}\b(?:site|website|page|url)\b)/i;
-
-const CONNECTION_LABELS: Record<string, string> = {
-  workspace: 'Google Workspace',
-  'youtube-music': 'YouTube Music',
-  contacts: 'Contacts',
-  opentable: 'OpenTable',
-};
 
 const getExecutionModelLabel = (
   selected: any,
@@ -148,28 +186,47 @@ const formatScheduledDate = (value: string): string => {
   return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 };
 
-const getNextScheduleRunAt = (schedule: Pick<SparkSchedule, 'frequency' | 'time' | 'weekdays'>, after = new Date()): string => {
-  const [rawHour, rawMinute] = schedule.time.split(':').map(Number);
-  const hour = Number.isFinite(rawHour) ? Math.min(23, Math.max(0, rawHour)) : 9;
-  const minute = Number.isFinite(rawMinute) ? Math.min(59, Math.max(0, rawMinute)) : 0;
-  const allowedDays = new Set(schedule.weekdays);
-  const weekdayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-  for (let offset = 0; offset <= 8; offset += 1) {
-    const candidate = new Date(after);
-    candidate.setSeconds(0, 0);
-    candidate.setDate(after.getDate() + offset);
-    candidate.setHours(hour, minute, 0, 0);
-    const matchesDay = schedule.frequency === 'Daily'
-      || allowedDays.has(weekdayNames[candidate.getDay()]);
-    if (matchesDay && candidate.getTime() > after.getTime()) return candidate.toISOString();
-  }
-
-  const fallback = new Date(after);
-  fallback.setDate(fallback.getDate() + 1);
-  fallback.setHours(hour, minute, 0, 0);
-  return fallback.toISOString();
-};
+/**
+ * Spark's agent saving a schedule or a skill (`create_schedule`, `create_skill`), the way the
+ * Schedules and Skills pages would. A schedule belongs to the task that made it, as Gemini's
+ * does — that task's row carries the schedule's clock. `onCreated` puts the item's card and
+ * its timeline row ("Created weekly science fact schedule") on the run's turn.
+ */
+const createLibraryCapability = (
+  taskId: string,
+  onCreated: (item: SparkCreatedItem, row: string) => void,
+): SparkLibraryCapability => ({
+  createSchedule(input, label) {
+    const schedule = createSparkSchedule({ ...input, enabled: true, taskId, nextRunAt: getNextScheduleRunAt(input) });
+    if (!schedule) return null;
+    onCreated({
+      kind: 'schedule',
+      id: `created-${schedule.id}`,
+      recordId: schedule.id,
+      title: schedule.title,
+      frequency: schedule.frequency,
+      weekdays: [...schedule.weekdays],
+      time: schedule.time,
+      instructions: schedule.instructions,
+      createdAt: schedule.createdAt,
+    }, label || 'Created a schedule');
+    return { title: schedule.title, when: formatScheduleWhen(schedule) };
+  },
+  createSkill(input, label) {
+    const skill = createSparkSkill({ ...input, source: 'gemini', enabled: true });
+    if (!skill) return null;
+    onCreated({
+      kind: 'skill',
+      id: `created-${skill.id}`,
+      recordId: skill.id,
+      name: skill.name,
+      description: skill.description,
+      instructions: skill.instructions,
+      createdAt: skill.createdAt,
+    }, label || 'Created a skill');
+    return { name: skill.name };
+  },
+});
 
 const appendDisplayableThinkingSteps = (steps: string[], thought: string): string[] => {
   const startsNewStep = /^\s*\n{2,}/.test(thought);
@@ -280,6 +337,17 @@ const subagentCallLabel = (call: ToolCall): string => {
   return call.kind.replaceAll('_', ' ');
 };
 
+/** A skill, app or MCP call is keyed by its timeline row, so a sub-agent's reads the same as the main agent's. */
+const toSparkSubagentCall = (call: ToolCall): SparkSubAgent['calls'][number] => {
+  const row = timelineRowForCall(call);
+  return {
+    id: call.id,
+    kind: row?.tool ?? call.kind,
+    status: subagentStatus(call.status),
+    label: row?.label ?? subagentCallLabel(call),
+  };
+};
+
 const toSparkSubagent = (agent: SubAgent): SparkSubAgent => ({
   id: agent.id,
   name: agent.name,
@@ -289,12 +357,7 @@ const toSparkSubagent = (agent: SubAgent): SparkSubAgent => ({
   startedAt: agent.startedAt,
   endedAt: agent.endedAt,
   progress: agent.progress,
-  calls: agent.calls.map((call) => ({
-    id: call.id,
-    kind: call.kind,
-    status: subagentStatus(call.status),
-    label: subagentCallLabel(call),
-  })),
+  calls: agent.calls.map(toSparkSubagentCall),
   timeline: agent.timeline.map((entry) => ({ ...entry })),
   activity: agent.activity,
   result: agent.result,
@@ -322,14 +385,7 @@ const updateSparkSubagent = (
     ...existing,
     ...patch,
     status: patch.status ? subagentStatus(patch.status) : existing.status,
-    calls: patch.calls
-      ? patch.calls.map((call) => ({
-        id: call.id,
-        kind: call.kind,
-        status: subagentStatus(call.status),
-        label: subagentCallLabel(call),
-      }))
-      : existing.calls,
+    calls: patch.calls ? patch.calls.map(toSparkSubagentCall) : existing.calls,
     timeline: patch.timeline ? patch.timeline.map((entry) => ({ ...entry })) : existing.timeline,
   };
   return current.map((agent) => agent.id === id ? updated : agent);
@@ -349,16 +405,55 @@ const getTaskAttachmentIds = (task: SparkTask): string[] => [
 
 const sparkRunControllers = new Map<string, AbortController>();
 
-const beginSparkRun = (scopeId: string, taskId: string) => {
+/*
+ * Each run is also a background job, so closing this tab mid-run hands it to
+ * another open Willow tab, which runs it again from the start (see
+ * `@willow/core/background-jobs`). `turnId` says whether that is the task or one
+ * of its follow-ups.
+ */
+export const SPARK_RUN_JOB = 'spark-run';
+interface SparkRunJob { taskId: string; turnId?: string }
+const sparkRunJobs = new Map<string, BackgroundJobHandle<SparkRunJob>>();
+
+const beginSparkRun = (scopeId: string, taskId: string, turnId?: string) => {
   const key = `${scopeId}:${taskId}`;
   sparkRunControllers.get(key)?.abort();
   const controller = new AbortController();
   sparkRunControllers.set(key, controller);
+  sparkRunJobs.set(key, startBackgroundJob<SparkRunJob>({
+    id: sparkRunJobId(scopeId, taskId),
+    kind: SPARK_RUN_JOB,
+    scopeId,
+    payload: turnId ? { taskId, turnId } : { taskId },
+  }));
   return { controller, key };
 };
 
 const finishSparkRun = (key: string, controller: AbortController) => {
-  if (sparkRunControllers.get(key) === controller) sparkRunControllers.delete(key);
+  if (sparkRunControllers.get(key) !== controller) return;
+  sparkRunControllers.delete(key);
+  sparkRunJobs.get(key)?.finish();
+  sparkRunJobs.delete(key);
+};
+
+/* What loading a task saved mid-run shows (`normalizeTask`), for a run no tab picked up in time. */
+const settleInterruptedSparkRun = ({ taskId, turnId }: SparkRunJob) => {
+  const task = sparkState.get().tasks.find((candidate) => candidate.id === taskId);
+  if (!task || (task.status !== 'running' && task.status !== 'queued')) return;
+  const turn = turnId ? task.turns.find((candidate) => candidate.id === turnId) : undefined;
+  if (turn) {
+    updateSparkTaskTurn(taskId, turn.id, {
+      response: turn.response || 'This follow-up was interrupted when Willow closed. Retry it to continue.',
+      activityPhase: undefined,
+    });
+  }
+  updateSparkTask(taskId, {
+    status: 'failed',
+    description: 'Run interrupted',
+    progressLabel: 'Interrupted',
+    activityPhase: undefined,
+    ...(!turn && !task.response ? { response: 'This task was interrupted when Willow closed. Retry it to continue.' } : {}),
+  });
 };
 
 const updateLinkedScheduleRunStatus = (
@@ -374,6 +469,18 @@ const updateLinkedScheduleRunStatus = (
   });
 };
 
+/** A page kept mounted while another is on show: laid out, never painted or hit, as the studio's kept tabs are. */
+const KEPT_PAGE_STYLE: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  opacity: 0,
+  visibility: 'hidden',
+  pointerEvents: 'none',
+  zIndex: -1,
+  overflow: 'hidden',
+};
+const SHOWN_PAGE_STYLE: React.CSSProperties = { display: 'contents' };
+
 export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   backgroundOnly = false,
   modelConfig,
@@ -381,11 +488,36 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   setSelectedModelId,
 }) => {
   const isUltra = useStore(sparkUltraEngaged);
-  const { user, userProfile } = useAuth();
+  const { user, workspaceColor } = useAuth();
   const { isLight } = useThemeMode();
-  const { chatScopeId, generateChatTitle, generateChatDescription } = useLocalFS();
+  const {
+    chatScopeId,
+    generateChatTitle,
+    generateChatDescription,
+    isLocalFolderConnected,
+    isLocalFolderAuthorized,
+    writeLocalFSConversationFiles,
+    readLocalFSConversationFile,
+    deleteLocalFSConversationFolder,
+  } = useLocalFS();
   const { apiKeys } = useUserDataContext();
-  const { connections, customApps, location, schedules, skills, tasks } = useStore(sparkState);
+  const { connections, customApps, location: liveLocation, schedules, skills, tasks } = useStore(sparkState);
+  /*
+   * Bots is a tab of its own (the rail's Bots), beside the rest of Spark. Once opened its page stays
+   * mounted, hidden while another Spark page is on show; and while it is on show, the rest of the
+   * workspace keeps to the page Spark last showed, hidden. Going back to either finds it as it was.
+   */
+  const isDotsShown = liveLocation.page === 'dots';
+  const lastSparkPageRef = useRef<SparkLocation | null>(null);
+  if (!isDotsShown) lastSparkPageRef.current = liveLocation;
+  const location = isDotsShown && lastSparkPageRef.current ? lastSparkPageRef.current : liveLocation;
+  const dotsOpenedRef = useRef(false);
+  const shownDotIdRef = useRef<string | undefined>(undefined);
+  if (isDotsShown) {
+    dotsOpenedRef.current = true;
+    shownDotIdRef.current = liveLocation.dotId;
+  }
+  const isCompact = useCompactViewport();
   const hydratedScope = useStore(sparkHydrationScope);
   const scopeId = chatScopeId || user?.uid || 'guest';
   const [loadedCustomisePages, setLoadedCustomisePages] = useState<Record<'skills' | 'schedules', boolean>>({
@@ -399,6 +531,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   const [sharedComposerError, setSharedComposerError] = useState('');
   const workspaceShellRef = useRef<HTMLDivElement>(null);
   const sharedComposerRef = useRef<ComposerHandle | null>(null);
+  // In the desktop app, the folder the shared composer's new task will work in. Beside an
+  // open task the composer is a narrow column, so the chip shows the folder by its glyph.
+  const sharedFolderChip = useSparkFolderChip(location.page === 'task');
   const sharedComposerRouteRef = useRef('');
   /** True once the composer glow has played its reveal, so it plays only the once. */
   const glowRevealedRef = useRef(false);
@@ -470,8 +605,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (anchor && sharedComposerHost.parentElement !== anchor) anchor.appendChild(sharedComposerHost);
   }, [sharedComposerHost]);
 
-  const workspaceTheme = getWorkspaceTheme(userProfile?.workspaceColor);
-  const glowLight = workspaceTheme.id === 'blue' || !userProfile?.workspaceColor
+  const workspaceTheme = getWorkspaceTheme(workspaceColor);
+  const glowLight = workspaceTheme.id === 'blue'
     ? 'rgb(157, 210, 255)'
     : workspaceTheme.glowAccentLight;
   const resolvedGlow = isLight ? glowLight : workspaceTheme.glowAccent;
@@ -514,6 +649,80 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       ?.find((key) => key.trim())
       ?.trim()
   ), [apiKeys]);
+  // Read at the moment a browser run starts, so the run callbacks need not be rebuilt for it.
+  const computerUseApiKeyRef = useRef(computerUseApiKey);
+  computerUseApiKeyRef.current = computerUseApiKey;
+
+  /**
+   * One run's remote browser, for the harness's `computer` tool.
+   *
+   * `turnId` is the turn the run writes to (`null` is the root task): a request
+   * raised here is recorded on it, because that turn's answer is the card.
+   */
+  const createComputerCapability = useCallback((
+    taskId: string,
+    turnId: string | null,
+    onRequested: () => void,
+  ): SparkComputerCapability => ({
+    isAllowed: () => sparkState.get().tasks.find((candidate) => candidate.id === taskId)?.browserPermission === 'allowed',
+    requestPermission: (request) => {
+      const browserRequest: SparkBrowserRequest = {
+        id: `browser-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        title: request.title,
+        task: request.task,
+        url: request.url,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      };
+      if (turnId) updateSparkTaskTurn(taskId, turnId, { browserRequest });
+      else updateSparkTask(taskId, { browserRequest });
+      onRequested();
+    },
+    run: (request, signal) => runRemoteBrowserTask({
+      taskId,
+      request,
+      apiKey: computerUseApiKeyRef.current,
+      signal,
+    }),
+  }), []);
+
+  /*
+   * Each task's files beside it in the user's folder (`spark-disk.ts`): its
+   * attachments, and what its remote browser saw. Re-attached when the folder's
+   * permission comes back, which writes anything saved while it was away.
+   */
+  const [sparkDiskReady, setSparkDiskReady] = useState(false);
+  useEffect(() => {
+    if (!isLocalFolderConnected || !isLocalFolderAuthorized) {
+      attachSparkDisk(null);
+      setSparkDiskReady(false);
+      return undefined;
+    }
+    attachSparkDisk({
+      write: (taskId, files) => writeLocalFSConversationFiles(SPARK_TASKS_FOLDER, taskId, files),
+      read: (taskId, path) => readLocalFSConversationFile(SPARK_TASKS_FOLDER, taskId, path),
+      remove: (taskId) => deleteLocalFSConversationFolder(SPARK_TASKS_FOLDER, taskId),
+    });
+    setSparkDiskReady(true);
+    return () => attachSparkDisk(null);
+  }, [isLocalFolderConnected, isLocalFolderAuthorized, writeLocalFSConversationFiles, readLocalFSConversationFile, deleteLocalFSConversationFolder]);
+
+  useEffect(() => {
+    if (sparkDiskReady) mirrorSparkTaskAttachments(tasks, getActiveSparkStorageScope());
+  }, [tasks, sparkDiskReady]);
+
+  /*
+   * Remember where each task's browser was, so its pane can be reopened after a reload.
+   * A page reopened after a reload reports the place already saved; saving it again
+   * would redraw the whole workspace while the pane is still growing in.
+   */
+  useEffect(() => onRemoteBrowserPage((taskId, page) => {
+    if (!page.url) return;
+    const favicon = page.favicon || undefined;
+    const saved = getSparkTaskById(taskId)?.remoteBrowser;
+    if (saved?.url === page.url && saved.title === page.title && saved.favicon === favicon) return;
+    updateSparkTask(taskId, { remoteBrowser: { url: page.url, title: page.title, favicon } });
+  }), []);
 
   useEffect(() => {
     const scopeId = chatScopeId || user?.uid || 'guest';
@@ -544,6 +753,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   }, []);
 
   useEffect(() => {
+    // Behind Bots the page is the one Spark last showed: replacing it would take the user off Bots.
+    if (isDotsShown) return;
     if (location.page === 'task' && !task) replaceSparkLocation({ page: 'all-tasks' });
     if (location.page === 'schedule-editor' && location.scheduleId && !schedule) {
       replaceSparkLocation({ page: 'schedules' });
@@ -551,7 +762,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (location.page === 'skill-editor' && location.skillId && !skill) {
       replaceSparkLocation({ page: 'skills' });
     }
-  }, [location, schedule, skill, task]);
+  }, [isDotsShown, location, schedule, skill, task]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -576,7 +787,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     const selectedBaseId = selectedModelId.split('::effort-')[0];
     const selected = availableModels.find((model) => model.id === selectedModelId || model.id === selectedBaseId) ?? availableModels[0];
     const provider = selected?.provider ?? 'gemini';
-    const model = selected?.modelId ?? modelConfig?.[provider]?.model ?? 'gemini-3.6-flash';
+    const model = selected?.modelId ?? modelConfig?.[provider]?.model ?? 'gemini-3.8-flash';
     /* Endpoint, wire format and tool policy come from the live profile, never from
        the saved model — see `resolveProviderBinding`. */
     const binding = resolveProviderBinding(modelConfig, provider as ProviderId, selected);
@@ -682,7 +893,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       subagents: [],
       usedTools: [],
       generatedFiles: [],
+      createdItems: undefined,
       reaction: undefined,
+      browserRequest: undefined,
       tools,
     });
 
@@ -713,16 +926,22 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       if (isCurrentRun()) updateSparkTaskActivityTransient(taskId, activityLog);
       if (isCurrentRun()) updateSparkTask(taskId, { activityPhase, progressLabel: 'Thinking it through…' });
     };
-    const publishUsedTool = (name: string) => {
+    const publishUsedTool = (name: string, label?: string, command?: Pick<SparkToolEntry, 'callId' | 'status'>) => {
       const tool = normalizeRuntimeToolName(name);
       if (!tool) return;
       if (!usedTools.includes(tool)) usedTools = [...usedTools, tool];
-      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool }];
+      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool, ...(label ? { label } : {}), ...command }];
       activityPhase = 'working';
       if (isCurrentRun()) {
         updateSparkTaskActivityTransient(taskId, activityLog);
         updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it…' });
       }
+    };
+    const publishCommandStatus = (callId: string, status: unknown) => {
+      const next = withCommandRowStatus(activityLog, callId, status);
+      if (!next) return;
+      activityLog = next;
+      if (isCurrentRun()) updateSparkTaskActivityTransient(taskId, activityLog);
     };
     /**
      * The `request_user_input` timeline row, appended then rewritten in place.
@@ -751,6 +970,16 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       activityPhase = 'working';
       if (isCurrentRun()) updateSparkTask(taskId, { usedTools, activityPhase: 'working', progressLabel: 'Working on it…' });
     };
+    /** The `computer` row: the step's own label beside the monitor glyph, as Gemini shows it. */
+    const publishComputerRecord = (title: string) => {
+      if (!usedTools.includes('computer')) usedTools = [...usedTools, 'computer'];
+      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool: computerTimelineTool(title) }];
+      activityPhase = 'thinking';
+      if (isCurrentRun()) {
+        updateSparkTaskActivityTransient(taskId, activityLog);
+        updateSparkTask(taskId, { usedTools, activityPhase, progressLabel: 'Thinking it through…' });
+      }
+    };
     const publishPlan = (steps: SparkPlanStep[], announce: boolean) => {
       plan = steps.map((step) => ({ ...step }));
       if (!isCurrentRun()) return;
@@ -758,6 +987,18 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         ? { plan, activityPhase: 'planning', progressLabel: 'Planning…' }
         : { plan });
     };
+    let browserRequested = false;
+    const computer = createComputerCapability(taskId, null, () => {
+      browserRequested = true;
+    });
+    let createdItems: SparkCreatedItem[] = [];
+    const library = createLibraryCapability(taskId, (item, row) => {
+      createdItems = [...createdItems, item];
+      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool: createdTimelineTool(row) }];
+      if (!isCurrentRun()) return;
+      updateSparkTaskActivityTransient(taskId, activityLog);
+      updateSparkTask(taskId, { createdItems });
+    });
 
     try {
       const resolvedAttachments = await resolveSparkTaskAttachments(attachments, executionScope);
@@ -769,6 +1010,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         history: [...history, { role: 'user', content: prompt, attachments: resolvedAttachments }],
         scope: executionScope,
         threadId: taskId,
+        // In the desktop app, Codex's tools on this computer instead of the browser workspace.
+        native: await sparkNativeRuntimeFor(taskId, controller.signal, publishCapability),
         goal: sparkState.get().tasks.find((candidate) => candidate.id === taskId)?.goal ?? null,
         onGoalChange: (goal) => {
           if (isCurrentRun()) updateSparkTask(taskId, { goal: goal ?? undefined });
@@ -798,11 +1041,13 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         },
         capabilities: {
           skills: skills.filter((skill) => skill.enabled !== false).map(toHarnessSkill),
-          connectedApps: [
-            ...Object.entries(connections).filter(([, connected]) => connected).map(([id]) => ({ id, label: CONNECTION_LABELS[id] ?? id })),
-            ...customApps.filter((app) => app.connected).map((app) => ({ id: `custom:${app.id}`, label: app.name || app.url })),
-          ],
+          // Only apps with something behind them: Willow's connectors and MCP servers.
+          connectedApps: [],
+          connectors: [...sparkConnectorTools(connections), ...petCreationTools(skills, modelConfig, apiKeys)],
+          mcp: await sparkMcpTools(),
           selectedCapabilities: tools,
+          computer,
+          library,
           onCapability: publishCapability,
         },
         signal: controller.signal,
@@ -849,8 +1094,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               // "Asking question(s)" while the turn waits; the same row is
               // rewritten to "Asked N questions" once it resolves.
               publishQuestionRecord(event.call.questions.length, false);
+            } else if (event.call.kind === 'computer') {
+              publishComputerRecord(event.call.title || 'Remote browser');
             } else {
-              publishUsedTool(event.call.kind);
+              const row = timelineRowForCall(event.call);
+              if (row) publishUsedTool(row.tool, row.label, row.callId ? { callId: row.callId, status: row.status } : undefined);
+              else publishUsedTool(event.call.kind);
             }
           } else if (event.type === 'call-progress') {
             // The question resolved, however it resolved — answered, skipped or
@@ -858,6 +1107,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             if ('answers' in event.patch && Array.isArray(event.patch.answers)) {
               publishQuestionRecord(event.patch.answers.length || 1, true);
             }
+            // A command's row follows its call, from waiting for approval to finished.
+            publishCommandStatus(event.id, event.patch.status);
             if ('steps' in event.patch && Array.isArray(event.patch.steps)) {
               const isInitialPlan = plan.length === 0;
               if (isInitialPlan) publishUsedTool('plan');
@@ -892,8 +1143,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       if (publishTimer) clearTimeout(publishTimer);
       if (!isCurrentRun()) return;
       updateSparkTask(taskId, {
-        status: 'complete',
-        progressLabel: 'Done',
+        // A browser request ends the turn on its permission card: the task now waits on the user.
+        status: browserRequested ? 'needs-input' : 'complete',
+        progressLabel: browserRequested ? 'Needs input' : 'Done',
         activityPhase: undefined,
         response: response.trim() || 'The task completed without a text response.',
         modelLabel: execution.modelLabel,
@@ -904,10 +1156,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         subagents,
         usedTools,
         generatedFiles,
+        createdItems: createdItems.length ? createdItems : undefined,
         tools,
-        approval: undefined,
       });
-      updateLinkedScheduleRunStatus(taskId, 'Completed', true);
+      updateLinkedScheduleRunStatus(taskId, browserRequested ? 'Waiting for approval' : 'Completed', true);
     } catch (error) {
       if (publishTimer) clearTimeout(publishTimer);
       if (isAbortError(error) || controller.signal.aborted) {
@@ -940,7 +1192,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             subagents: cancelRunningSubagents(subagents),
             usedTools,
             generatedFiles,
-            approval: undefined,
+            createdItems: createdItems.length ? createdItems : undefined,
           });
           updateLinkedScheduleRunStatus(taskId, 'Stopped', true);
         }
@@ -961,42 +1213,40 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         subagents,
         usedTools,
         generatedFiles,
+        createdItems: createdItems.length ? createdItems : undefined,
       });
       updateLinkedScheduleRunStatus(taskId, 'Failed', true);
     } finally {
       finishSparkRun(runKey, controller);
     }
-  }, [connections, customApps, getExecutionSettings, skills]);
+  }, [apiKeys, connections, createComputerCapability, customApps, getExecutionSettings, modelConfig, skills]);
 
+  /*
+   * `options` exists for the task host (`spark-task-host.ts`): a task assigned
+   * from outside Spark — by a bot — starts without opening, under its own
+   * description. Spark's own composers pass none, so their behaviour is unchanged.
+   */
   const createTask = useCallback((
     prompt: string,
     attachments: SparkTaskAttachment[] = [],
     tools: string[] = [],
     title?: string,
-  ) => {
-    const requiresApproval = BROWSER_REQUEST_PATTERN.test(prompt);
+    options: { openTask?: boolean; description?: string; folder?: string } = {},
+  ): string | null => {
     const execution = getExecutionSettings(prompt, tools);
-    const approval = requiresApproval ? {
-      kind: 'browser' as const,
-      title: 'Let Gemini interact with websites for you?',
-      description: 'To work on your tasks, Gemini will need to use a browser:',
-      prompt,
-    } : undefined;
     const createdTask = createSparkTask(prompt, {
+      ...(options.openTask === false ? { openTask: false } : {}),
       title,
-      description: requiresApproval ? 'Waiting for your approval' : 'Initialising task…',
-      status: requiresApproval ? 'needs-input' : 'running',
-      progressLabel: requiresApproval ? 'Approval needed' : 'Planning the next steps',
-      response: requiresApproval
-        ? 'Before I open the browser and proceed, I need you to confirm you are ok to use it.'
-        : '',
+      description: options.description ?? 'Initialising task…',
+      status: 'running',
+      progressLabel: 'Planning the next steps',
+      response: '',
       modelLabel: execution.modelLabel,
-      isNaming: !requiresApproval && !title,
+      isNaming: !title,
       attachments,
       tools,
-      approval,
     });
-    if (createdTask && !requiresApproval && !title) {
+    if (createdTask && !title) {
       void Promise.all([
         generateChatTitle(prompt),
         generateChatDescription(prompt),
@@ -1016,10 +1266,44 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         });
       });
     }
-    if (createdTask && !requiresApproval) {
+    if (createdTask) {
+      // A task from the composer works in the folder it is set to; one a bot assigns works in the folder it named,
+      // or across the computer.
+      if (isDesktopApp() && options.folder) fileSparkTaskInFolder(createdTask.id, options.folder);
+      else if (isDesktopApp() && options.openTask !== false) claimSparkTaskProject(createdTask.id);
       void executeTask(createdTask.id, prompt, [], tools, attachments);
     }
+    return createdTask?.id ?? null;
   }, [executeTask, generateChatDescription, generateChatTitle, getExecutionSettings]);
+
+  /*
+   * A task that opens already asking its question (`spark-create-with.ts`): no model runs
+   * for its first reply. It streams in as a reply would — the task is running while it
+   * does — and then waits for the user's answer, the first turn a model takes. It opens
+   * with the list collapsed and Progress showing, as Gemini's does.
+   */
+  const createSeededTask = useCallback((prompt: string, reply: string, title: string): string | null => {
+    const task = createSparkTask(prompt, {
+      title,
+      description: 'Initializing task',
+      status: 'running',
+      progressLabel: 'Initializing task…',
+      response: '',
+      isNaming: false,
+    });
+    if (!task) return null;
+    requestSparkTaskListCollapsed(task.id);
+    window.setTimeout(() => {
+      updateSparkTask(task.id, { response: reply, activityPhase: undefined });
+      window.setTimeout(() => {
+        const current = sparkState.get().tasks.find((candidate) => candidate.id === task.id);
+        // A follow-up sent while it streamed owns the task's state now.
+        if (!current || current.turns.length > 0) return;
+        updateSparkTask(task.id, { status: 'complete', progressLabel: 'Done', description: '' });
+      }, SEEDED_REPLY_REVEAL_MS);
+    }, SEEDED_REPLY_DELAY_MS);
+    return task.id;
+  }, []);
 
   const buildTurnHistory = useCallback(async (
     activeTask: SparkTask,
@@ -1061,7 +1345,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     if (!activeTask || !turn) return;
     const tools = turn.tools ?? [];
     const execution = getExecutionSettings(turn.prompt, tools);
-    const { controller, key: runKey } = beginSparkRun(executionScope, taskId);
+    const { controller, key: runKey } = beginSparkRun(executionScope, taskId, turnId);
     const isCurrentRun = () => sparkRunControllers.get(runKey) === controller
       && getActiveSparkStorageScope() === executionScope
       && Boolean(sparkState.get().tasks.find((candidate) => candidate.id === taskId)
@@ -1076,8 +1360,10 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       subagents: [],
       usedTools: [],
       generatedFiles: [],
+      createdItems: undefined,
       activityPhase: 'queued',
       reaction: undefined,
+      browserRequest: undefined,
     });
     updateSparkTask(taskId, {
       status: 'running',
@@ -1126,17 +1412,23 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         updateSparkTask(taskId, { progressLabel: 'Thinking it through…' });
       }
     };
-    const publishUsedTool = (name: string) => {
+    const publishUsedTool = (name: string, label?: string, command?: Pick<SparkToolEntry, 'callId' | 'status'>) => {
       const tool = normalizeRuntimeToolName(name);
       if (!tool) return;
       if (!usedTools.includes(tool)) usedTools = [...usedTools, tool];
-      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool }];
+      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool, ...(label ? { label } : {}), ...command }];
       activityPhase = 'working';
       if (isCurrentRun()) {
         updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
         updateSparkTaskTurn(taskId, turnId, { usedTools, activityPhase: 'working' });
         updateSparkTask(taskId, { progressLabel: 'Working on it…' });
       }
+    };
+    const publishCommandStatus = (callId: string, status: unknown) => {
+      const next = withCommandRowStatus(activityLog, callId, status);
+      if (!next) return;
+      activityLog = next;
+      if (isCurrentRun()) updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
     };
     /**
      * The `request_user_input` timeline row, appended then rewritten in place.
@@ -1179,6 +1471,37 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           : { plan });
       }
     };
+    /** The `computer` row: the step's own label beside the monitor glyph, as Gemini shows it. */
+    const publishComputerRecord = (title: string) => {
+      if (!usedTools.includes('computer')) usedTools = [...usedTools, 'computer'];
+      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool: computerTimelineTool(title) }];
+      activityPhase = 'thinking';
+      if (isCurrentRun()) {
+        updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
+        updateSparkTaskTurn(taskId, turnId, { usedTools, activityPhase });
+        updateSparkTask(taskId, { progressLabel: 'Thinking it through…' });
+      }
+    };
+    let browserRequested = false;
+    const computer = createComputerCapability(taskId, turnId, () => {
+      browserRequested = true;
+    });
+    let createdItems: SparkCreatedItem[] = [];
+    const library = createLibraryCapability(taskId, (item, row) => {
+      createdItems = [...createdItems, item];
+      activityLog = [...activityLog, { id: `spark-activity-${Date.now()}-${activityLog.length}`, kind: 'tool', tool: createdTimelineTool(row) }];
+      if (!isCurrentRun()) return;
+      updateSparkTaskTurnActivityTransient(taskId, turnId, activityLog);
+      updateSparkTaskTurn(taskId, turnId, { createdItems });
+    });
+    // "Allow" / "Don't allow" answers a card earlier in the thread; the harness acts on it first.
+    const answered = turn.browserDecision ? findBrowserRequest(activeTask, turn.browserDecision.requestId) : null;
+    const browserDecision = turn.browserDecision && answered
+      ? {
+          allowed: turn.browserDecision.allowed,
+          request: { title: answered.request.title, task: answered.request.task, url: answered.request.url },
+        }
+      : undefined;
 
     try {
       const history = await buildTurnHistory(activeTask, turnId, executionScope);
@@ -1191,6 +1514,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         history: [...history, { role: 'user', content: turn.prompt, attachments: resolvedAttachments }],
         scope: executionScope,
         threadId: taskId,
+        native: await sparkNativeRuntimeFor(taskId, controller.signal, publishCapability),
         goal: sparkState.get().tasks.find((candidate) => candidate.id === taskId)?.goal ?? null,
         onGoalChange: (goal) => {
           if (isCurrentRun()) updateSparkTask(taskId, { goal: goal ?? undefined });
@@ -1220,13 +1544,16 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         },
         capabilities: {
           skills: skills.filter((skill) => skill.enabled !== false).map(toHarnessSkill),
-          connectedApps: [
-            ...Object.entries(connections).filter(([, connected]) => connected).map(([id]) => ({ id, label: CONNECTION_LABELS[id] ?? id })),
-            ...customApps.filter((app) => app.connected).map((app) => ({ id: `custom:${app.id}`, label: app.name || app.url })),
-          ],
+          // Only apps with something behind them: Willow's connectors and MCP servers.
+          connectedApps: [],
+          connectors: [...sparkConnectorTools(connections), ...petCreationTools(skills, modelConfig, apiKeys)],
+          mcp: await sparkMcpTools(),
           selectedCapabilities: tools,
+          computer,
+          library,
           onCapability: publishCapability,
         },
+        browserDecision,
         signal: controller.signal,
         onEvent: (event: HarnessEvent) => {
           if (!isCurrentRun()) return;
@@ -1275,8 +1602,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               // "Asking question(s)" while the turn waits; the same row is
               // rewritten to "Asked N questions" once it resolves.
               publishQuestionRecord(event.call.questions.length, false);
+            } else if (event.call.kind === 'computer') {
+              publishComputerRecord(event.call.title || 'Remote browser');
             } else {
-              publishUsedTool(event.call.kind);
+              const row = timelineRowForCall(event.call);
+              if (row) publishUsedTool(row.tool, row.label, row.callId ? { callId: row.callId, status: row.status } : undefined);
+              else publishUsedTool(event.call.kind);
             }
           } else if (event.type === 'call-progress') {
             // The question resolved, however it resolved — answered, skipped or
@@ -1284,6 +1615,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             if ('answers' in event.patch && Array.isArray(event.patch.answers)) {
               publishQuestionRecord(event.patch.answers.length || 1, true);
             }
+            // A command's row follows its call, from waiting for approval to finished.
+            publishCommandStatus(event.id, event.patch.status);
             if ('steps' in event.patch && Array.isArray(event.patch.steps)) {
               const isInitialPlan = plan.length === 0;
               if (isInitialPlan) publishUsedTool('plan');
@@ -1326,11 +1659,12 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         subagents,
         usedTools,
         generatedFiles,
+        createdItems: createdItems.length ? createdItems : undefined,
         activityPhase: undefined,
       });
       updateSparkTask(taskId, {
-        status: 'complete',
-        progressLabel: 'Done',
+        status: browserRequested ? 'needs-input' : 'complete',
+        progressLabel: browserRequested ? 'Needs input' : 'Done',
       });
     } catch (error) {
       if (publishTimer) clearTimeout(publishTimer);
@@ -1347,17 +1681,13 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             subagents: cancelRunningSubagents(subagents),
             usedTools,
             generatedFiles,
+            createdItems: createdItems.length ? createdItems : undefined,
             activityPhase: undefined,
           });
           updateSparkTask(taskId, {
             status: 'cancelled',
             description: 'Follow-up stopped',
             progressLabel: 'Stopped',
-            // A run that asked for browser access and was then stopped leaves the
-            // request moot. Clearing it matters here: a pending approval is the
-            // other half of `followUpLocked`, so leaving one would re-lock the
-            // box the stop was meant to hand back.
-            approval: undefined,
           });
         }
         return;
@@ -1372,6 +1702,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         subagents,
         usedTools,
         generatedFiles,
+        createdItems: createdItems.length ? createdItems : undefined,
         activityPhase: undefined,
       });
       updateSparkTask(taskId, {
@@ -1382,7 +1713,31 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     } finally {
       finishSparkRun(runKey, controller);
     }
-  }, [buildTurnHistory, connections, customApps, getExecutionSettings, skills]);
+  }, [apiKeys, buildTurnHistory, connections, createComputerCapability, customApps, getExecutionSettings, modelConfig, skills]);
+
+  /**
+   * Allow / Don't allow on a permission card.
+   *
+   * As in Gemini, the answer is the user's next message: an "Allow" bubble, then a
+   * turn that acts on it. The card stays where it was, answered. Allowing also
+   * allows the thread, so later browser calls run without asking.
+   */
+  const respondToBrowserRequest = useCallback((taskId: string, requestId: string, allowed: boolean) => {
+    const activeTask = sparkState.get().tasks.find((candidate) => candidate.id === taskId);
+    if (!activeTask) return;
+    const located = findBrowserRequest(activeTask, requestId);
+    if (!located || located.request.status !== 'pending') return;
+    const answered = { ...located.request, status: allowed ? 'allowed' as const : 'denied' as const };
+    if (located.turnId) updateSparkTaskTurn(taskId, located.turnId, { browserRequest: answered });
+    else updateSparkTask(taskId, { browserRequest: answered });
+    if (allowed) updateSparkTask(taskId, { browserPermission: 'allowed' });
+    const turn = appendSparkTaskTurn(taskId, {
+      prompt: allowed ? 'Allow' : "Don't allow",
+      response: '',
+      browserDecision: { requestId, allowed },
+    });
+    if (turn) void executeTurn(taskId, turn.id);
+  }, [executeTurn]);
 
   const submitFollowUp = useCallback((
     taskId: string,
@@ -1391,11 +1746,17 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     tools: string[] = [],
   ) => {
     const activeTask = sparkState.get().tasks.find((candidate) => candidate.id === taskId);
-    if (!activeTask
-      || activeTask.status === 'running'
-      || activeTask.status === 'queued'
-      || activeTask.status === 'needs-input'
-      || (activeTask.approval && activeTask.approvalDecision !== 'allowed')) return false;
+    if (!activeTask || activeTask.status === 'running' || activeTask.status === 'queued') return false;
+    const awaitingBrowser = isAwaitingBrowserPermission(activeTask);
+    if (activeTask.status === 'needs-input' && !awaitingBrowser) return false;
+    // Gemini leaves the box open under a permission card. Writing instead of
+    // answering it turns the request down: the browser only runs on an explicit Allow.
+    const pending = awaitingBrowser ? pendingBrowserRequest(activeTask) : null;
+    if (pending) {
+      const declined = { ...pending.request, status: 'denied' as const };
+      if (pending.turnId) updateSparkTaskTurn(taskId, pending.turnId, { browserRequest: declined });
+      else updateSparkTask(taskId, { browserRequest: declined });
+    }
     const turn = appendSparkTaskTurn(taskId, { prompt, response: '', attachments, tools });
     if (!turn) return false;
     void executeTurn(taskId, turn.id);
@@ -1405,17 +1766,6 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   const retryTask = useCallback((taskId: string) => {
     const retryTarget = sparkState.get().tasks.find((candidate) => candidate.id === taskId);
     if (!retryTarget) return;
-    if (retryTarget.approval && retryTarget.approvalDecision !== 'allowed') {
-      updateSparkTask(taskId, {
-        status: 'needs-input',
-        approvalDecision: undefined,
-        description: 'Waiting for your approval',
-        progressLabel: 'Approval needed',
-        response: 'Before I open the browser and proceed, I need you to confirm you are ok to use it.',
-        reaction: undefined,
-      });
-      return;
-    }
     if (!getExecutionSettings(retryTarget.prompt, retryTarget.tools ?? []).apiKey) {
       void executeTask(
         taskId,
@@ -1464,6 +1814,19 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     void executeTurn(taskId, turnId);
   }, [executeTurn, getExecutionSettings]);
 
+  const retryRef = useRef({ retryTask, retryTurn });
+  retryRef.current = { retryTask, retryTurn };
+  useEffect(() => registerBackgroundJobKind<SparkRunJob>(SPARK_RUN_JOB, {
+    canTakeOver: (job) => job.scopeId === getActiveSparkStorageScope()
+      && sparkState.get().tasks.some((task) => task.id === job.payload.taskId),
+    takeOver: ({ payload: { taskId, turnId } }) => {
+      if (!ensureSparkTaskBodyLoaded(taskId)) return;
+      if (turnId) retryRef.current.retryTurn(taskId, turnId);
+      else retryRef.current.retryTask(taskId);
+    },
+    abandon: (job) => settleInterruptedSparkRun(job.payload),
+  }), []);
+
   const changeResponseReaction = useCallback((
     taskId: string,
     turnId: string | null,
@@ -1492,15 +1855,66 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     sparkRunControllers.get(`${getActiveSparkStorageScope()}:${taskId}`)?.abort();
   }, []);
 
+  /*
+   * The task host: the same callbacks, offered to code outside this component
+   * (bots assign Spark tasks and run background helpers through it). Read
+   * through a ref so the registration is made once per mount, not per render.
+   * Exactly one workspace is mounted at a time, so there is one host.
+   */
+  const taskHostRef = useRef({ createTask, submitFollowUp, stopTask, getExecutionSettings, skills, connections });
+  taskHostRef.current = { createTask, submitFollowUp, stopTask, getExecutionSettings, skills, connections };
+  useEffect(() => {
+    startDotsRuntime();
+    return registerSparkTaskHost({
+      executionModel: () => {
+        const execution = taskHostRef.current.getExecutionSettings('', []);
+        if (!execution.apiKey) return null;
+        return {
+          provider: execution.provider,
+          model: execution.model,
+          apiKey: execution.apiKey,
+          apiKeyFallbacks: execution.apiKeyFallbacks,
+          thinkingLevel: execution.thinkingLevel,
+          reasoningEffort: execution.reasoningEffort,
+          includeThoughts: execution.thinkingLevel > 0,
+          enableSearch: execution.enableSearch,
+          enableCodeExecution: execution.enableCodeExecution,
+          baseUrl: execution.baseUrl,
+          apiFormat: execution.apiFormat,
+          toolPolicy: execution.toolPolicy,
+          profileId: execution.profileId,
+          label: execution.modelLabel,
+          effort: execution.effort,
+        };
+      },
+      capabilities: async () => ({
+        skills: taskHostRef.current.skills.filter((skill) => skill.enabled !== false).map(toHarnessSkill),
+        connectedApps: [],
+        connectors: sparkConnectorTools(taskHostRef.current.connections),
+        mcp: await sparkMcpTools(),
+      }),
+      startTask: (prompt, options = {}) =>
+        taskHostRef.current.createTask(prompt, [], options.tools ?? [], options.title, { openTask: false, description: options.description, folder: options.folder }),
+      followUp: (taskId, prompt) => taskHostRef.current.submitFollowUp(taskId, prompt),
+      stop: (taskId) => taskHostRef.current.stopTask(taskId),
+      scope: () => getActiveSparkStorageScope(),
+    });
+  }, []);
+
   const deleteTaskWithAttachments = useCallback((taskId: string) => {
     const deleteTarget = sparkState.get().tasks.find((candidate) => candidate.id === taskId);
     if (!deleteTarget) return;
     const scopeId = getActiveSparkStorageScope();
     sparkRunControllers.get(`${scopeId}:${taskId}`)?.abort();
+    disposeRemoteBrowserSession(taskId);
     void loadSparkTaskBody(taskId).then((loadedTarget) => {
       const target = loadedTarget ?? deleteTarget;
       if (deleteSparkTask(taskId)) {
         void deleteSparkAttachmentPayloads(getTaskAttachmentIds(target), scopeId).catch(() => undefined);
+        // Its screenshots, and the folder beside it with every file it kept.
+        void deleteRemoteBrowserShots(taskId, scopeId).catch(() => undefined);
+        void sparkDisk()?.remove(taskId);
+        forgetSparkTaskFiles(taskId);
       }
     });
   }, []);
@@ -1536,7 +1950,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       ?.find((key) => key.trim())
       ?.trim();
     if (!apiKey) throw new Error('Add a Gemini API key in Settings > Models first.');
-    const model = selectedGeminiModel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.6-flash';
+    const model = selectedGeminiModel?.modelId ?? modelConfig?.gemini?.model ?? 'gemini-3.8-flash';
     const thinkingLevel = Number(
       selectedGeminiModel?.thinkingLevel ?? modelConfig?.gemini?.thinkingLevel ?? 0,
     );
@@ -1711,27 +2125,20 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               currentSchedule,
               new Date(claimedAt.getTime() + 1000),
             );
-            const requiresApproval = BROWSER_REQUEST_PATTERN.test(currentSchedule.instructions);
             updateSparkSchedule(currentSchedule.id, {
-              lastRunLabel: requiresApproval ? 'Waiting for approval' : 'Running...',
+              lastRunLabel: 'Running...',
               nextRunAt,
             });
+            // A scheduled run that needs the browser asks the same way an interactive
+            // one does, and waits in "Needs input" until the user answers.
             const scheduledTask = createSparkTask(currentSchedule.instructions, {
               title: currentSchedule.title,
-              description: requiresApproval ? 'Waiting for your approval' : 'Scheduled task started',
-              status: requiresApproval ? 'needs-input' : 'running',
-              response: requiresApproval
-                ? 'Before I open the browser and proceed, I need you to confirm you are ok to use it.'
-                : '',
-              progressLabel: requiresApproval ? 'Approval needed' : 'Working',
+              description: 'Scheduled task started',
+              status: 'running',
+              response: '',
+              progressLabel: 'Working',
               scheduledLabel: currentSchedule.title,
               scheduledTime: formatScheduledDate(expectedNextRunAt),
-              approval: requiresApproval ? {
-                kind: 'browser',
-                title: 'Let Gemini interact with websites for you?',
-                description: 'To work on your tasks, Gemini will need to use a browser:',
-                prompt: currentSchedule.instructions,
-              } : undefined,
               openTask: false,
             });
             if (!scheduledTask) {
@@ -1742,9 +2149,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               return;
             }
             updateSparkSchedule(currentSchedule.id, { taskId: scheduledTask.id });
-            if (!requiresApproval) {
-              void executeTask(scheduledTask.id, currentSchedule.instructions);
-            }
+            void executeTask(scheduledTask.id, currentSchedule.instructions);
           };
 
           const locks = (navigator as Navigator & {
@@ -1959,11 +2364,42 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
     transitionTaskNavigation(() => createTask(prompt, attachments, tools));
   };
 
-  const wrapConnectedPage = (content: React.ReactNode) => (
+  /* At 960px and below every Spark page carries Gemini's `remy-badges` Beta label in the
+   * top-right corner, as the home page does at every width — the editors included. */
+  const compactBetaBadge = isCompact ? (
+    <div className="spark-top-controls" aria-label="Spark release information">
+      <span className="spark-beta-label">Beta</span>
+    </div>
+  ) : null;
+
+  /* The page on show, and Bots beside it once opened (`isDotsShown`): each in a layer of its own,
+   * the one not on show hidden, so neither is built again when the user goes back to it. */
+  const withBots = (page: React.ReactNode) => (
+    <>
+      {page !== null && (
+        <div key="spark" style={isDotsShown ? KEPT_PAGE_STYLE : SHOWN_PAGE_STYLE} inert={isDotsShown} aria-hidden={isDotsShown || undefined}>
+          {page}
+        </div>
+      )}
+      {dotsOpenedRef.current && (
+        <div key="bots" style={isDotsShown ? SHOWN_PAGE_STYLE : KEPT_PAGE_STYLE} inert={!isDotsShown} aria-hidden={!isDotsShown || undefined}>
+          {compactBetaBadge}
+          <SparkDotsPage
+            dotId={shownDotIdRef.current}
+            modelConfig={modelConfig}
+            selectedModelId={selectedModelId}
+            setSelectedModelId={setSelectedModelId}
+          />
+        </div>
+      )}
+    </>
+  );
+
+  const wrapConnectedPage = (content: React.ReactNode) => withBots(
     <div
       ref={workspaceShellRef}
       className="spark-connected-surface"
-      style={sparkAccentVars(userProfile?.workspaceColor)}
+      style={sparkAccentVars(workspaceColor)}
     >
       {content}
       {sharedGlowHost && createPortal(null, sharedGlowHost)}
@@ -1973,10 +2409,13 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
             composerRef={sharedComposerRef}
             onSubmitFiles={submitSharedNewTask}
             disabled={sharedComposerSubmitting}
+            /* Gemini's narrow task list asks "Describe task", without the article. */
+            placeholder={isCompact && location.page === 'all-tasks' ? 'Describe task' : undefined}
             modelConfig={modelConfig}
             selectedModelId={selectedModelId}
             setSelectedModelId={setSelectedModelId}
-            workspaceColor={userProfile?.workspaceColor}
+            workspaceColor={workspaceColor}
+            leadingChip={sharedFolderChip}
           />
           {sharedComposerError && (
             <p className="spark-composer-host__error" role="alert">{sharedComposerError}</p>
@@ -2015,94 +2454,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         modelConfig={modelConfig}
         selectedModelId={selectedModelId}
         setSelectedModelId={setSelectedModelId}
-        computerUse={task.approval?.kind === 'browser' && task.approvalDecision === 'allowed' ? (
-          <SparkComputerUsePanel
-            taskId={task.id}
-            prompt={task.approval.prompt || task.prompt}
-            apiKey={computerUseApiKey}
-            autoStart={task.status === 'running' && !task.response}
-            conversationHistory={[
-              { role: 'user' as const, content: task.prompt },
-              ...(task.response ? [{ role: 'assistant' as const, content: task.response }] : []),
-              ...task.turns.flatMap((turn) => [
-                { role: 'user' as const, content: turn.prompt },
-                ...(turn.response ? [{ role: 'assistant' as const, content: turn.response }] : []),
-              ]),
-            ]}
-            onProgress={(message) => {
-              const currentUsedTools = sparkState.get().tasks.find((candidate) => candidate.id === task.id)?.usedTools ?? [];
-              updateSparkTask(task.id, {
-                status: 'running',
-                description: 'Using the local browser',
-                progressLabel: message,
-                usedTools: currentUsedTools.includes('computer')
-                  ? currentUsedTools
-                  : [...currentUsedTools, 'computer'],
-              });
-            }}
-            onResponse={(response) => {
-              updateSparkTaskResponseTransient(task.id, response);
-            }}
-            onComplete={(result, stopped) => {
-              const status = stopped
-                ? 'cancelled' as const
-                : result.completed || result.limited
-                  ? 'complete' as const
-                  : 'failed' as const;
-              const progressLabel = stopped
-                ? 'Stopped'
-                : result.completed
-                  ? 'Done'
-                  : result.limited
-                    ? 'Limited access'
-                    : 'Failed';
-              updateSparkTask(task.id, {
-                status,
-                description: result.completed
-                  ? 'Browser task completed'
-                  : result.limited
-                    ? 'Browser opened with limited local access'
-                    : stopped
-                      ? 'Browser task stopped'
-                      : 'Browser task failed',
-                progressLabel,
-                response: result.explanation,
-              });
-              updateLinkedScheduleRunStatus(
-                task.id,
-                result.completed ? 'Completed' : result.limited ? 'Limited access' : stopped ? 'Stopped' : 'Failed',
-                true,
-              );
-            }}
-          />
-        ) : undefined}
-        onRespondToApproval={(_taskId, allowed) => {
-          updateSparkTask(task.id, allowed
-            ? {
-                status: 'running',
-                approvalDecision: 'allowed',
-                description: 'Continuing with the approved task',
-                progressLabel: 'Opening the local browser',
-                response: '',
-                usedTools: Array.from(new Set([
-                  ...(sparkState.get().tasks.find((candidate) => candidate.id === task.id)?.usedTools ?? []),
-                  'computer',
-                ])),
-              }
-            : {
-                status: 'cancelled',
-                approvalDecision: 'denied',
-                description: 'Browser access was not allowed',
-                progressLabel: 'Stopped',
-                response: 'I stopped before opening the website.',
-              });
-          if (allowed) {
-            // The task-oriented computer-use panel owns the iframe and starts
-            // its local action loop as soon as the approved frame is ready.
-          } else {
-            updateLinkedScheduleRunStatus(task.id, 'Skipped', true);
-          }
-        }}
+        onRespondToBrowserRequest={respondToBrowserRequest}
       />,
     );
   }
@@ -2120,7 +2472,9 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   }
 
   if (location.page === 'schedule-editor') {
-    return (
+    return withBots(
+      <>
+      {compactBetaBadge}
       <SparkScheduleEditor
         recordKey={schedule?.id ?? 'new-schedule'}
         isEditing={Boolean(schedule)}
@@ -2160,21 +2514,24 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           closeEditor('schedule-editor', 'schedules');
         }}
       />
+      </>
     );
   }
 
   if (location.page === 'skill-editor') {
-    const template = location.template?.trim();
-    const templateDraft = template ? {
-      name: template,
-      description: `Reusable guidance to ${template.charAt(0).toLowerCase()}${template.slice(1)}`,
-      instructions: `When this skill is relevant, help me ${template.toLowerCase()}. Ask for any context you need, then provide a clear and practical result.`,
+    const recommended = location.template ? recommendedSkillByTitle(location.template.trim()) : undefined;
+    // A recommended card opens the editor already holding Gemini's skill, ready to create.
+    const templateDraft = recommended ? {
+      name: recommended.name,
+      description: recommended.description,
+      instructions: recommended.instructions,
       source: 'recommended' as const,
     } : undefined;
 
     const uploadDraft = location.mode === 'upload' ? uploadedSkillDraft : null;
 
-    return (
+    // No Beta badge here: Gemini's skill editor covers `remy-badges` with its own header.
+    return withBots(
       <SparkSkillEditor
         recordKey={skill?.id ?? `new-skill:${location.mode}:${location.template ?? ''}`}
         mode={location.mode === 'recommended' ? 'recommended' : location.mode}
@@ -2207,27 +2564,32 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
   }
 
   if (location.page === 'schedules') {
-    return (
+    return withBots(
+      <>
+      {compactBetaBadge}
       <SchedulesPage
         isLoading={isCustomiseLoading}
         schedules={schedules}
         onCreateManually={() => goToSparkScheduleEditor()}
-        onCreateWithGemini={() => createTask('Help me schedule a task.', [], [], 'Creating a schedule')}
+        onCreateWithGemini={() => createSeededTask(SCHEDULE_SEED_PROMPT, SCHEDULE_SEED_REPLY, SCHEDULE_SEED_TITLE)}
         onDeleteSchedule={deleteSparkSchedule}
         onScheduleEnabledChange={changeScheduleEnabled}
         onLearnMore={() => window.open('https://support.google.com/gemini?p=scheduled_actions', '_blank', 'noopener,noreferrer')}
         onOpenSchedule={goToSparkScheduleEditor}
       />
+      </>
     );
   }
 
   if (location.page === 'skills') {
-    return (
+    return withBots(
+      <>
+      {compactBetaBadge}
       <SkillsPage
         isLoading={isCustomiseLoading}
         skills={skills}
         onCreateManually={() => goToSparkSkillEditor('manual')}
-        onCreateWithGemini={() => createTask('Help me create a skill.', [], [], 'Creating a skill')}
+        onCreateWithGemini={() => requestSeededChat({ prompt: SKILL_SEED_PROMPT, reply: SKILL_SEED_REPLY })}
         onDeleteSkill={deleteSparkSkill}
         onLearnMore={() => window.open('https://support.google.com/gemini?p=skills', '_blank', 'noopener,noreferrer')}
         onOpenSkill={(skillId) => goToSparkSkillEditor('manual', { skillId })}
@@ -2246,11 +2608,39 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
           goToSparkSkillEditor('upload');
         }}
       />
+      </>
+    );
+  }
+
+  if (location.page === 'pets' && isDesktopApp()) {
+    return withBots(
+      <>
+      {compactBetaBadge}
+      <React.Suspense fallback={null}>
+        <PetsPage />
+      </React.Suspense>
+      </>
+    );
+  }
+
+  // Bots on show before any other Spark page has been: Bots alone.
+  if (location.page === 'dots') return withBots(null);
+
+  if (location.page === 'pages') {
+    return withBots(
+      <>
+      {compactBetaBadge}
+      <React.Suspense fallback={null}>
+        <SparkPagesPage path={location.path} />
+      </React.Suspense>
+      </>
     );
   }
 
   if (location.page === 'apps') {
-    return (
+    return withBots(
+      <>
+      {compactBetaBadge}
       <ConnectedAppsPage
         connections={connections}
         customApps={customApps}
@@ -2261,10 +2651,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         onPhotosSettings={() => window.open('https://photos.google.com/settings', '_blank', 'noopener,noreferrer')}
         onPromptSelect={(prompt, appId) => createTask(prompt, [], [`app:${appId}`])}
       />
+      </>
     );
   }
 
-  return (
+  return withBots(
     <SparkHome
       tasks={orderedTasks.slice(0, 3)}
       onSubmitTask={createTask}
@@ -2278,7 +2669,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
       onTogglePinTask={toggleSparkTaskPinned}
       onDeleteTask={deleteSparkTask}
       onRenameTask={renameSparkTask}
-      workspaceColor={userProfile?.workspaceColor}
+      workspaceColor={workspaceColor}
     />
   );
 };

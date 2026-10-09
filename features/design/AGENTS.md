@@ -34,6 +34,16 @@ Design files live under `Design/<project>/`, separately from Code and Media
 projects. Each node can be saved as a pair: `<name>.tsx` (a plain component a
 human can open) and `<name>.json` (canvas position, size, prompt, timestamp).
 
+## Leaving mid-reply
+
+`DesignChat` publishes `designTurnRunning` while it generates, and the shell keeps
+the Design view mounted, hidden, until it settles (`apps/studio` AGENTS.md, "Screens
+that keep working after you leave them"), so the chat transcript survives leaving
+and coming back. A screen finished off screen still lands on the canvas, since
+`designNodesStore` is module-level. Nothing carries a reply on in another tab: the
+chat and the canvas live in memory only, so there is nothing for a second tab to
+resume from until Design saves its projects' chats and nodes.
+
 ## The dot grid
 
 `DesignCanvas.tsx`'s `DotGrid` subscribes to the React-Flow store and mutates SVG

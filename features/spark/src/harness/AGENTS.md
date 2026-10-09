@@ -1,7 +1,9 @@
 # The Codex harness
 
-The Agent tool's loop is a port of [openai/codex](https://github.com/openai/codex)
-(Apache-2.0). This folder is that port.
+Spark's turn loop is a port of [openai/codex](https://github.com/openai/codex)
+(Apache-2.0). This folder is that port. (The Code tab once carried a second copy
+behind its Agent tool; that is gone, and Code now runs its own harness in
+`features/code/src/harness/`.)
 
 The organising idea is one sentence: **upstream files are vendored verbatim and
 never edited; everything Willow changes is declared separately and applied at
@@ -12,6 +14,7 @@ harness/
   upstream/        Byte-for-byte openai/codex. Never edit. Has its own AGENTS.md.
   overlay/         Everything Willow changes. Has its own AGENTS.md.
   runtime/         The turn loop, the patch engine, the tools.
+  native/          The desktop app's runtime: Codex's tools on the user's computer. Has its own AGENTS.md.
   upstream-assets.ts   The only module that reads upstream/ directly.
 ```
 
@@ -58,15 +61,16 @@ and the diff you review is upstream's own diff, not a merge conflict.
    npm test
    ```
 
-   `agent-harness.test.mjs` is the gate. It fails loudly if a required
-   overlay anchor no longer exists, if the composed prompt stops denying a
-   shell, or if a vendored file does not match its checksum.
+   `spark-upstream-integrity.test.mjs` is the gate. It fails loudly if a
+   vendored file does not match its checksum, if a required overlay anchor no
+   longer exists, or if upstream's shell invocation survives composition.
 
 4. **Fix anchors, if any.** See below.
 
-5. **Read the composed prompt.** Code → Harness → Prompt. It is the actual
-   string sent to the model; a five-minute read catches things a test cannot,
-   like upstream adding a section about a tool we do not implement.
+5. **Read the composed prompt.** `createSparkHarnessProfile` in
+   `overlay/spark-profile.ts` returns the actual string sent to the model; a
+   five-minute read catches things a test cannot, like upstream adding a
+   section about a tool we do not implement.
 
 ### When a path moves upstream
 
@@ -84,8 +88,8 @@ reference".
 
 ### When an overlay anchor disappears
 
-`composePrompt` throws `OverlayAnchorError` naming the missing selector, and the
-Harness panel renders it. Open `upstream/prompt_with_apply_patch_instructions.md`,
+`composePrompt` throws `OverlayAnchorError` naming the missing selector, and
+`npm test` fails on it before any Spark turn can. Open `upstream/prompt_with_apply_patch_instructions.md`,
 find where the guidance moved, and update the selector in
 [`overlay/prompt-overlay.ts`](overlay/AGENTS.md).
 
@@ -188,3 +192,8 @@ logs, provider tool rows, and private thought summaries.
 Spark must continue to compose the complete vendored Codex prompt. Its fork is
 an overlay for Spark identity, Work Title, workspace boundaries, Search/Code
 Execution, Skills, Apps, and MCP—not a compact rewrite of Codex behavior.
+
+In the desktop app the same harness runs with Codex's real runtimes — commands,
+sessions, patches on disk — instead of the browser workspace. Read
+[`native/AGENTS.md`](native/AGENTS.md) before changing what Spark can do on the
+user's computer; the web path must stay exactly as it is.

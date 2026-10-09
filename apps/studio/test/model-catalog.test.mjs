@@ -144,8 +144,9 @@ it('starts Gemini 3.7 and 3.8 Flash at Low, with no Minimal effort', async () =>
   const chat = fs.readFileSync(path.join(repoRoot, 'platform', 'ai', 'src', 'chat.ts'), 'utf8');
   const efforts = await importTs(path.join(repoRoot, 'platform', 'ai', 'src', 'models', 'efforts.ts'));
 
+  // 3.7 Flash is no longer offered, but chats and pins made with it still send it.
+  assert.match(catalogSource, /id: 'gemini-3\.8-flash',[\s\S]{0,160}?hasNone: false/);
   for (const id of ['gemini-3.7-flash', 'gemini-3.8-flash']) {
-    assert.match(catalogSource, new RegExp(`id: '${id.replace('.', '\\.')}',[\\s\\S]{0,160}?hasNone: false`));
     assert.ok(efforts.GEMINI_FLASH_WITHOUT_MINIMAL.includes(id));
     assert.equal(efforts.geminiFlashStartsAtLow(id), true);
     assert.equal(efforts.modelSupportsNoThinking({ provider: 'gemini', modelId: id, name: id }), false);
@@ -185,9 +186,11 @@ it('uses the shared ordered text catalog in Chat, Workbench, and the model menu'
 
 it('uses the same order for Media while routing image models there', () => {
   const media = fs.readFileSync(path.join(repoRoot, 'features', 'media', 'src', 'MediaView.tsx'), 'utf8');
-  assert.match(media, /collectSavedModelsInCatalogOrder\(parsed\)/);
-  assert.match(media, /getModelCategory\(model\) === 'image'/);
-  assert.match(media, /getModelCategory\(model\) === 'video'/);
+  const mediaModels = fs.readFileSync(path.join(repoRoot, 'features', 'media', 'src', 'media-models.ts'), 'utf8');
+  assert.match(media, /mediaModelLists\(savedModelConfig\)/);
+  assert.match(mediaModels, /collectSavedModelsInCatalogOrder\(modelConfig\)/);
+  assert.match(mediaModels, /getModelCategory\(model\) === 'image'/);
+  assert.match(mediaModels, /getModelCategory\(model\) === 'video'/);
 });
 
 it('offers Gemini 3.5 Transcribe models for voice transcription and keeps them out of chat', () => {

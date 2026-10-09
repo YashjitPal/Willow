@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 
 import './notebooks.css';
 
@@ -60,8 +61,16 @@ export interface NotebookMenuItem {
 }
 
 export interface NotebookMenuProps {
-  /** The trigger's viewport rect — the panel is right-aligned and hung below it. */
+  /** The trigger's viewport rect — the panel is hung below it, right-aligned by default. */
   anchor: AnchorRect;
+  /**
+   * `start` lines the panel's left edge up with the trigger's and pushes it back in
+   * from the screen's right edge when it would overflow — the narrow drawer row menu,
+   * measured at 390x844 as `left = clientWidth - width`, rounded.
+   */
+  align?: 'end' | 'start';
+  /** Extra panel class, for a menu that differs by where it opens from. */
+  className?: string;
   items: readonly NotebookMenuItem[];
   onClose: () => void;
 }
@@ -102,10 +111,21 @@ export const MENU_TRIGGER_ATTR = { 'data-nb-menu-trigger': '' } as const;
  */
 const MENU_EXIT_MS = 125;
 
-export const NotebookMenu: React.FC<NotebookMenuProps> = ({ anchor, items, onClose }) => {
+export const NotebookMenu: React.FC<NotebookMenuProps> = ({ anchor, align = 'end', className, items, onClose }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const [isClosing, setIsClosing] = useState(false);
   const closeTimerRef = useRef<number | undefined>(undefined);
+  const isCompact = useCompactViewport();
+  const [startLeft, setStartLeft] = useState(anchor.x);
+
+  // `offsetWidth`, not the bounding box: the entrance animation scales the panel.
+  useLayoutEffect(() => {
+    if (align !== 'start' || !panelRef.current) return;
+    const width = panelRef.current.offsetWidth;
+    setStartLeft(Math.round(Math.min(anchor.x, document.documentElement.clientWidth - width)));
+  }, [align, anchor.x]);
+  // Below 961px `gem-menu` draws 24px glyphs at weight 300 (see `.nb-menu` there).
+  const glyph = isCompact ? { size: 24, weight: 300 } : { size: 20, weight: 320 };
 
   /*
    * Every close goes through here so the exit animation is never skipped.
@@ -155,10 +175,17 @@ export const NotebookMenu: React.FC<NotebookMenuProps> = ({ anchor, items, onClo
     <div
       ref={panelRef}
       role="menu"
-      className={`nb-surface nb-menu ${isClosing ? 'nb-menu-exit' : 'nb-menu-enter'}`}
-      style={{
+      className={`nb-surface nb-menu ${isClosing ? 'nb-menu-exit' : 'nb-menu-enter'}${className ? ` ${className}` : ''}`}
+      style={align === 'start' ? {
+        left: startLeft,
+        top: anchor.y + anchor.h + ANCHOR_GAP,
+        transformOrigin: 'top left',
+      } : {
         // Right-aligned to the trigger; `right` avoids needing the panel's own width.
-        right: Math.max(8, window.innerWidth - (anchor.x + anchor.w)),
+        // Below 961px Gemini keeps it flush even for a trigger against the screen edge.
+        right: isCompact
+          ? window.innerWidth - (anchor.x + anchor.w)
+          : Math.max(8, window.innerWidth - (anchor.x + anchor.w)),
         top: anchor.y + anchor.h + ANCHOR_GAP,
       }}
     >
@@ -179,10 +206,10 @@ export const NotebookMenu: React.FC<NotebookMenuProps> = ({ anchor, items, onClo
           <MaterialSymbol
             name={item.icon}
             family="luminous"
-            size={20}
-            weight={320}
+            size={glyph.size}
+            weight={glyph.weight}
             roundness={100}
-            opticalSize={20}
+            opticalSize={glyph.size}
           />
           <span className="nb-menu-label">{item.label}</span>
           {/* Empty 20px trailing slot — see the width arithmetic in the header. */}

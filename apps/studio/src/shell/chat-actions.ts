@@ -38,15 +38,42 @@ export const onChatActionIntent = (handler: (intent: ChatActionIntent) => void):
 };
 
 /*
- * The pinned-chats key, scoped per user/root/workspace.
+ * The pinned-chats key, scoped per user and folder root (`chatScopeId`).
  *
  * Shared because the pin row has to label itself "Pin" or "Unpin" before the
  * sidebar hears anything, so it reads this key directly. Reading is safe;
- * writing stays with the sidebar. `v2` and the encoding are load-bearing — an
- * un-encoded scope id can contain the separator and collide across scopes.
+ * writing goes through `writePinnedChats` — the sidebar's, and `settings.json`'s
+ * (`PinnedChatsSettingsSection`) — so each hears the other. `v2` and the encoding
+ * are load-bearing — an un-encoded scope id can contain the separator and
+ * collide across scopes.
  */
 export const pinnedChatsStorageKey = (chatScopeId: string): string =>
   `willow_pinned_chats:v2:${encodeURIComponent(chatScopeId)}`;
+
+/** Raised in this tab when a scope's pin list is written (`detail.chatScopeId`); other tabs hear `storage`. */
+export const PINNED_CHATS_CHANGED_EVENT = 'willow:pinned-chats-changed';
+
+/** `chatScopeId`'s pinned chats, or `null` when it never had a list. Never throws — a corrupt value reads as none. */
+export const readPinnedChats = (chatScopeId: string): string[] | null => {
+  try {
+    const stored = localStorage.getItem(pinnedChatsStorageKey(chatScopeId));
+    if (stored === null) return null;
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+/** Writes `chatScopeId`'s pinned chats and tells this tab. */
+export const writePinnedChats = (chatScopeId: string, chats: string[]): void => {
+  try {
+    localStorage.setItem(pinnedChatsStorageKey(chatScopeId), JSON.stringify(chats));
+  } catch {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(PINNED_CHATS_CHANGED_EVENT, { detail: { chatScopeId } }));
+};
 
 /** Whether `chatId` is pinned in `chatScopeId`. Never throws — a corrupt value reads as unpinned. */
 export const isChatPinned = (chatScopeId: string, chatId: string): boolean => {

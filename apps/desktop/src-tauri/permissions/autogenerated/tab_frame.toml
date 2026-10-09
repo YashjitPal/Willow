@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tab-frame"
+description = "Enables the tab_frame command without any pre-configured scope."
+commands.allow = ["tab_frame"]
+
+[[permission]]
+identifier = "deny-tab-frame"
+description = "Denies the tab_frame command without any pre-configured scope."
+commands.deny = ["tab_frame"]

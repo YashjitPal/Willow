@@ -32,8 +32,9 @@ export interface CompanionTabsResult {
 
 export interface CompanionEvent {
   type: 'event';
-  event: 'browser.frame' | 'browser.tabs' | 'browser.error';
-  payload: CompanionFrame | CompanionTabsResult | { sessionId: string; message: string };
+  /** `machine.*`: a dot's own computer (services/local-companion/src/computers); `screen.*`: the user's own screen; `mcp.*`: MCP servers that are programs on this computer. */
+  event: 'browser.frame' | 'browser.tabs' | 'browser.error' | `machine.${string}` | `screen.${string}` | `oauth.${string}` | `mcp.${string}`;
+  payload: CompanionFrame | CompanionTabsResult | { sessionId: string; message: string } | Record<string, any>;
 }
 
 interface CompanionResponse {
@@ -87,6 +88,11 @@ export class LocalCompanionClient {
 
   get sessionId(): string | null {
     return this.ready?.sessionId ?? null;
+  }
+
+  /** What this companion can do, as it said when the socket opened. */
+  get capabilities(): string[] {
+    return this.ready?.capabilities ?? [];
   }
 
   onMessage(listener: CompanionListener): () => void {

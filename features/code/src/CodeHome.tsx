@@ -7,28 +7,25 @@ import { ArrowUp, Plus, AudioLines, ChevronDown, Paperclip, Globe, X, Wrench, Me
 import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
-import { clearCodeChatOpen, pendingCodeChatOpen } from '@willow/storage/code-chat-open-store';
+import type { CodeChatOpenRequest } from '@willow/storage/code-chat-open-store';
+import { $codeResume } from './workbench/code-turn-jobs';
 import { useBackground } from '@willow/studio/shell/BackgroundContext';
 import { useAutoSave } from './use-auto-save';
-import { workbenchStore } from './runtime/sandpack/index';
+import { useViewportWidth } from './use-viewport-width';
+import { CodeSessionContext, useCodeScreenSession, useCodeSession } from './session/code-session';
+import { CODE_TOOLS, type CodeToolId } from './harness/code-tools';
 import { getCachedFirstName, cacheFirstName } from '@willow/core/display-name';
 import { deriveFallbackTitle } from '@willow/core/fallback-title';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { MessageLoading } from '@willow/ui/message-loading';
 import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { getThinkingEffortLabel, isNonThinkingEffort } from '@willow/ai/models/efforts';
-import { AgentIcon } from '@willow/ui/AgentIcon';
-import { EFFORT_LABEL } from './agent/harness/overlay/effort';
-import {
-  agentEngaged,
-  collaborationMode,
-  setAgentEngaged,
-  setCollaborationMode,
-  setUltraEngaged,
-  ultraEngaged,
-} from './agent/agent-store';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { GeminiBottomSheet, GeminiSheetItem, GeminiSheetList } from '@willow/ui/GeminiBottomSheet';
+import { isCompactViewport, useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { MobileModelPicker } from '@willow/chat/MobileModelPicker';
 import { BottomPanel } from '@willow/media/MediaShowcase';
+import './code-responsive.css';
 import logoG from '@willow/assets/brand/logo-glyph.png';
 import { PROJECT_NAME_MODEL } from '@models';
 import newspaperImg from '@willow/assets/prompt-suggestions/Newspaper.png';
@@ -125,7 +122,7 @@ const MainPreview = React.lazy(() => import('./workbench/WorkbenchPreview'));
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
-interface CodeWorkspaceProps {
+interface CodeHomeProps {
   modelConfig: any;
   setModelConfig: React.Dispatch<React.SetStateAction<any>>;
   selectedModelId: string;
@@ -135,7 +132,10 @@ interface CodeWorkspaceProps {
   onSettingsClick?: (tab?: string) => void;
   isSidebarCollapsed?: boolean;
   onWorkspaceActive?: (active: boolean) => void;
-  chatResetKey?: number;
+  /** A Recents Code chat for this Code home to open, from the shell (`apps/studio` App.tsx). */
+  openRequest?: CodeChatOpenRequest | null;
+  /** Called once it has, so a later return to Code does not open it again. */
+  onOpenHandled?: (epoch: number) => void;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -244,7 +244,23 @@ const SUGGESTIONS: Record<string, string[]> = {
   ]
 };
 
-export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
+interface CodeWorkspaceProps extends CodeHomeProps {
+  /** The shell's name for this screen (see `session/code-session.ts`). */
+  screenKey: string;
+  /** False while the shell keeps the screen mounted, hidden, for a turn still running. */
+  isOnShow: boolean;
+}
+
+export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({ screenKey, isOnShow, ...props }) => {
+  const session = useCodeScreenSession(screenKey, isOnShow);
+  return (
+    <CodeSessionContext.Provider value={session}>
+      <CodeHome {...props} />
+    </CodeSessionContext.Provider>
+  );
+};
+
+const CodeHome: React.FC<CodeHomeProps> = ({
   modelConfig,
   setModelConfig,
   selectedModelId,
@@ -254,9 +270,13 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   onSettingsClick,
   isSidebarCollapsed: studioSidebarCollapsed = false,
   onWorkspaceActive,
-  chatResetKey = 0,
+  openRequest = null,
+  onOpenHandled,
 }) => {
+  const { workbench: workbenchStore } = useCodeSession();
   const navigate = useNavigate();
+  const isCompact = useCompactViewport();
+  const viewportWidth = useViewportWidth();
   const { user, accessToken } = useAuth();
   const { userProfile } = useAuth();
   const { apiKeys } = useUserDataContext();
@@ -320,6 +340,8 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   // Prompt captured from idle phase, passed to WorkbenchSidebar
   const [initialPrompt, setInitialPrompt] = useState('');
   const [initialAttachments, setInitialAttachments] = useState<any[] | undefined>(undefined);
+  // The tool picked with it — "Plan" makes the opening turn a plan.
+  const [initialToolId, setInitialToolId] = useState<string | null>(null);
 
   // A Code chat being reopened from the sidebar's Recents, instead of started
   // from the prompt box. Mutually exclusive with `initialPrompt`: one restores a
@@ -384,23 +406,16 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
   const modelsMenuRef = useRef<HTMLDivElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
   
-  const TOOLS = [
-    { id: 'plan', label: 'Plan', icon: FileText },
-    { id: 'image', label: 'Image', icon: ImageIcon },
-    { id: 'design', label: 'Design', icon: Palette },
-    { id: 'annotate', label: 'Annotate', icon: AnnotateIcon },
-    { id: 'prototype', label: 'Visual Edits', icon: VisualEditsIcon },
-    { id: 'test', label: 'Test', icon: FlaskConical },
-    /*
-     * The Codex harness, offered here as well as in the workbench composer.
-     *
-     * The first prompt is usually typed on this screen, so offering it only
-     * after the session had started would mean the opening turn could never run
-     * on the harness. The choice is mirrored into `agentEngaged`, which both
-     * composers read, so it holds across the handover.
-     */
-    { id: 'agent', label: 'Agent', icon: AgentIcon }
-  ];
+  // The agent's tools; the pick here decides how the opening turn runs.
+  const TOOL_ICONS: Record<CodeToolId, React.ComponentType<{ size?: number; className?: string }>> = {
+    plan: FileText,
+    image: ImageIcon,
+    design: Palette,
+    annotate: AnnotateIcon,
+    prototype: VisualEditsIcon,
+    test: FlaskConical,
+  };
+  const TOOLS = CODE_TOOLS.map((tool) => ({ id: tool.id, label: tool.label, icon: TOOL_ICONS[tool.id] }));
   
   const currentTool = selectedToolId ? TOOLS.find(t => t.id === selectedToolId) : null;
 
@@ -431,51 +446,37 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     currentThinkingLevel = Number(selectedModelId.split('::effort-')[1]);
   }
 
-  // Mirrors the Tools-menu pick so the workbench composer and the harness agree
-  // on whether this turn runs on the Agent. Ultra is a rung on the harness's own
-  // effort ladder, so it is only meaningful — and only shown — alongside it.
-  const isAgent = useStore(agentEngaged);
-  const isUltra = useStore(ultraEngaged) && isAgent;
-  /*
-   * The collaboration mode, for the indicator below.
-   *
-   * Read but never sent from here: the opening turn is started by
-   * `WorkbenchSidebar`, which reads the same store. This surface only has to
-   * make the mode visible before someone types into it.
-   */
-  const mode = useStore(collaborationMode);
-
-  /*
-   * Keep this composer's pill in step with the shared flag.
-   *
-   * The workbench composer can turn Agent on or off long after this component
-   * mounted, and the two keep separate `selectedToolId`. Without this, coming
-   * back to the landing screen would show a plain "Tools" pill while the store
-   * still said Agent — and the next prompt would run on the harness with nothing
-   * on screen saying so.
-   */
-  useEffect(() => {
-    setSelectedToolId((current) => {
-      if (isAgent) return 'agent';
-      return current === 'agent' ? null : current;
-    });
-  }, [isAgent]);
-
   const activeModelDisplayLabel = activeModel ? getShortName(activeModel.name) : 'Model';
   // No-thinking selections add nothing to the pill — see use-composer-models.
   const activeEffortRecord = activeModel
     ? { ...activeModel, thinkingLevel: currentThinkingLevel }
     : undefined;
-  // Ultra is not a numeric level, so it is named here; without this the pill
-  // would keep showing whichever level Ultra was chosen over.
-  const activeEffortDisplayLabel = isUltra
-    ? EFFORT_LABEL.ultra
-    : activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
-      ? getThinkingEffortLabel(activeEffortRecord, true)
-      : '';
+  const activeEffortDisplayLabel = activeEffortRecord && !isNonThinkingEffort(activeEffortRecord)
+    ? getThinkingEffortLabel(activeEffortRecord, true)
+    : '';
   const activeModelAndEffortLabel = [activeModelDisplayLabel, activeEffortDisplayLabel]
     .filter(Boolean)
     .join(' ');
+
+  const handleModelSelect = (id: string) => {
+    setSelectedModelId(id);
+    const baseId = id ? id.split('::effort-')[0] : '';
+    const sel = ALL_MODELS.find(m => m.id === id || m.id === baseId);
+    if (sel) {
+      const providerKey = sel.provider === 'Google' ? 'gemini'
+        : sel.provider === 'OpenAI' ? 'openai'
+        : sel.provider === 'Anthropic' ? 'anthropic'
+        : sel.provider === 'Moonshot AI' ? 'moonshot'
+        : sel.provider === 'SpaceXAI' ? 'spacexai' : 'zhipuai';
+      const effortLevel = id.includes('::effort-')
+        ? Number(id.split('::effort-')[1])
+        : sel.thinkingLevel;
+      setModelConfig((prev: any) => ({
+        ...prev,
+        [providerKey]: { ...prev[providerKey], model: sel.modelId, thinkingLevel: effortLevel }
+      }));
+    }
+  };
 
   // Sync selection with available models if uninitialized or stale
   useEffect(() => {
@@ -489,6 +490,8 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      // Below 961px the menu is a bottom sheet with its own scrim, and a tap on one of its rows lands outside this ref.
+      if (isCompactViewport()) return;
       if (toolsMenuRef.current && !toolsMenuRef.current.contains(event.target as Node)) {
         setIsToolsMenuOpen(false);
       }
@@ -538,36 +541,16 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     }
   }, [phase]);
 
-  // Handle new chat button
-  useEffect(() => {
-    if (chatResetKey > 0) {
-      setPhase('idle');
-      setInitialPrompt('');
-      setInitialAttachments(undefined);
-      setPromptText('');
-      setAttachments([]);
-      setIsChatMode(true);
-      setProjectName('');
-      setResumeChatId(null);
-      nameGeneratedRef.current = false;
-      projectRegisteredRef.current = false;
-      workbenchStore.reset();
-      workbenchStore.resetToTemplate();
-    }
-  }, [chatResetKey]);
-
   // ── Reopening a Code chat from the sidebar's Recents ──────────────────────
-  // The request is a buffer rather than an event (see `code-chat-open-store`):
-  // this surface is lazy and unmounted while the user is in chat mode, so the row
-  // publishes before anything here is listening. Keyed off the epoch rather than
-  // the id, so opening the same chat twice arrives twice.
-  const codeChatOpenRequest = useStore(pendingCodeChatOpen);
+  // The shell picks the Code home that opens it and passes the request here (a
+  // chat one already has open is shown as it is, never read back). Keyed off the
+  // epoch rather than the id, so opening the same chat twice arrives twice.
   const handledOpenEpochRef = useRef(0);
   useEffect(() => {
-    if (!codeChatOpenRequest || codeChatOpenRequest.epoch === handledOpenEpochRef.current) return;
-    handledOpenEpochRef.current = codeChatOpenRequest.epoch;
-    clearCodeChatOpen();
-    const { chatId, epoch } = codeChatOpenRequest;
+    if (!openRequest || openRequest.epoch === handledOpenEpochRef.current) return;
+    handledOpenEpochRef.current = openRequest.epoch;
+    onOpenHandled?.(openRequest.epoch);
+    const { chatId, epoch } = openRequest;
     startTransition(() => {
       // A chat still in Recents is by definition un-promoted — promotion moves it
       // into the project folder and deletes the standalone copy — so it has no
@@ -576,6 +559,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       // resumed conversation must not re-ask its first question.
       setInitialPrompt('');
       setInitialAttachments(undefined);
+      setInitialToolId(null);
       setProjectName('');
       nameGeneratedRef.current = false;
       projectRegisteredRef.current = false;
@@ -584,7 +568,30 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
       setIsChatMode(true);
       setPhase('active');
     });
-  }, [codeChatOpenRequest]);
+  }, [openRequest]);
+
+  // A turn inherited from a closed tab, in an inbox Code chat: open the chat as
+  // a Recents row would. The sidebar sends the message again once it has loaded.
+  const codeResume = useStore($codeResume);
+  const handledResumeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!codeResume || codeResume.job.payload.place.target !== 'chat' || handledResumeRef.current === codeResume.job.id) return;
+    handledResumeRef.current = codeResume.job.id;
+    const { chatId } = codeResume.job.payload.place;
+    const jobId = codeResume.job.id;
+    startTransition(() => {
+      setInitialPrompt('');
+      setInitialAttachments(undefined);
+      setInitialToolId(null);
+      setProjectName('');
+      nameGeneratedRef.current = false;
+      projectRegisteredRef.current = false;
+      setResumeChatId(chatId);
+      setWorkbenchInstanceKey(`job-${jobId}`);
+      setIsChatMode(true);
+      setPhase('active');
+    });
+  }, [codeResume]);
 
   // ── Project name generation (from WorkbenchView) ───────────────────────────
   useEffect(() => {
@@ -765,6 +772,21 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     };
   }, [phase, resize, stopResizing]);
 
+  /*
+   * Below 961px only one pane shows, so a tool opens on the pane that holds it: the
+   * Edit, Agents and Design cards live in the sidebar, the agent builder and the design
+   * canvas in the preview. Tabs that keep the current pane (Preview, Code) move nothing,
+   * so "Back to chat" returning to Preview leaves the chat where it is.
+   */
+  useEffect(() => {
+    if (!isCompact || isChatMode) return;
+    if (activeTab === 'design' || activeTab === 'agents' || activeTab === 'canvas') {
+      setIsWorkbenchSidebarCollapsed(false);
+    } else if (activeTab === 'agent-builder' || activeTab === 'canvas-screens' || activeTab === 'canvas-elements') {
+      setIsWorkbenchSidebarCollapsed(true);
+    }
+  }, [activeTab]);
+
   const handleHomeClick = useCallback(() => {
     setPhase('idle');
     workbenchStore.reset();
@@ -792,13 +814,14 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
     startTransition(() => {
       setInitialPrompt(text);
       setInitialAttachments(attachments.length > 0 ? attachments : undefined);
+      setInitialToolId(selectedToolId);
       setPromptText('');
       setAttachments([]);
       setResumeChatId(null);
       setIsChatMode(true);
       setPhase('active');
     });
-  }, [promptText, attachments]);
+  }, [promptText, attachments, selectedToolId]);
 
   // Handle file input for attachments
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -832,24 +855,27 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
 
   const containerStyle = isChatMode
     ? { width: '100%' }
-    : { width: `${isWorkbenchSidebarCollapsed ? 0 : sidebarWidth}px` };
+    : isCompact
+      // Below 961px the workspace is one pane at a time: the chat, or with it collapsed, the preview.
+      ? { width: isWorkbenchSidebarCollapsed ? '0px' : '100%' }
+      : { width: `${isWorkbenchSidebarCollapsed ? 0 : sidebarWidth}px` };
 
   // ── COMBINED RENDER ────────────────────────────────────────────────────────
   return (
-    <div className={`flex h-full w-full bg-[#1c1c1c] overflow-hidden text-sm relative ${phase === 'active' && isDragging ? 'cursor-[ew-resize] select-none' : ''}`}>
+    <div className={`code-workspace flex h-full w-full bg-[#1c1c1c] overflow-hidden text-sm relative ${phase === 'active' && isDragging ? 'cursor-[ew-resize] select-none' : ''}`}>
       
       {phase === 'idle' && (
         <>
           <div
             onScroll={handleScroll}
-            className="absolute inset-0 overflow-y-auto no-scrollbar overscroll-contain snap-y snap-mandatory"
+            className="code-idle absolute inset-0 overflow-y-auto no-scrollbar overscroll-contain snap-y snap-mandatory"
           >
           {/* ── Snap section 1: hero — layout untouched, now the first full-height section ── */}
-          <div className="relative h-full snap-start snap-always overflow-hidden">
-          <div className="absolute top-14 left-0 right-0 flex flex-col items-center justify-center z-10 pointer-events-none">
-            <div className="pointer-events-auto flex flex-col items-center gap-1.5">
+          <div className="code-hero relative h-full snap-start snap-always overflow-hidden">
+          <div className="code-hero-head absolute top-14 left-0 right-0 flex flex-col items-center justify-center z-10 pointer-events-none">
+            <div className="code-hero-head-inner pointer-events-auto flex flex-col items-center gap-1.5">
               <h2 
-                className="text-[#fbfcfe] text-center select-none font-bold antialiased" 
+                className="code-hero-title text-[#fbfcfe] text-center select-none font-bold antialiased" 
                 style={{ 
                   fontFamily: '"Plus Jakarta Sans", "Outfit", "Ginto", "ui-sans-serif", "system-ui", "sans-serif"', 
                   fontSize: '34px', 
@@ -861,7 +887,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                 Willow Code
               </h2>
               <p 
-                className="text-[#a1a1aa] text-center font-medium antialiased select-none" 
+                className="code-hero-greeting text-[#a1a1aa] text-center font-medium antialiased select-none" 
                 style={{ 
                   fontFamily: '"Plus Jakarta Sans", "Outfit", "ui-sans-serif", "system-ui", "sans-serif"', 
                   fontSize: '28px', 
@@ -874,7 +900,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
               </p>
 
               {/* Horizontal Tabs / Pills */}
-              <div className="flex items-center gap-5 mt-7 select-none">
+              <div className="code-hero-pills flex items-center gap-5 mt-7 select-none">
                 {CATEGORIES.map((cat) => {
                   const isActive = activeCategory === cat.id;
                   return (
@@ -895,17 +921,17 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
             </div>
           </div>
 
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[900px] z-30 pointer-events-none">
-            <div className="h-8 w-full bg-gradient-to-t from-[#1c1c1c] to-transparent pointer-events-none" />
+          <div className="code-hero-bento absolute bottom-0 left-1/2 -translate-x-1/2 w-[900px] z-30 pointer-events-none">
+            <div className="code-bento-fade h-8 w-full bg-gradient-to-t from-[#1c1c1c] to-transparent pointer-events-none" />
             
             {/* Bento Grid Prompt Suggestions */}
-            <div className="px-[14px] pb-[110px] pointer-events-auto animate-fadeIn duration-200 relative">
-              <div className="grid gap-3.5" style={{ gridTemplateColumns: '354px 1fr 1fr' }}>
+            <div className="code-bento-wrap px-[14px] pb-[110px] pointer-events-auto animate-fadeIn duration-200 relative">
+              <div className="code-bento-grid grid gap-3.5" style={{ gridTemplateColumns: '354px 1fr 1fr' }}>
                 
                 {/* Column 1: Small cards + Wide card */}
-                <div className="flex flex-col gap-3.5 h-[340px]">
+                <div className="code-bento-col1 flex flex-col gap-3.5 h-[340px]">
                   {/* Row 1: Two small square cards */}
-                  <div className="grid grid-cols-2 gap-3.5 h-[170px]">
+                  <div className="code-bento-smalls grid grid-cols-2 gap-3.5 h-[170px]">
                     {/* Small Card 1 */}
                     <button
                       onClick={() => {
@@ -914,13 +940,13 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                           textareaRef.current.focus();
                         }
                       }}
-                      className="h-full w-full flex flex-col text-left p-3.5 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md justify-between"
+                      className="code-bento-card is-small h-full w-full flex flex-col text-left p-3.5 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md justify-between"
                       style={{ transformStyle: 'preserve-3d' }}
                       onMouseMove={handleMouseMove}
                       onMouseLeave={handleMouseLeave}
                     >
                       {getSmallCard1Image(activeCategory) ? (
-                        <div className="w-full h-[96px] flex items-center justify-center relative overflow-hidden mb-1.5 flex-shrink-0">
+                        <div className="code-bento-media w-full h-[96px] flex items-center justify-center relative overflow-hidden mb-1.5 flex-shrink-0">
                           <img 
                             key={activeCategory}
                             src={getSmallCard1Image(activeCategory) || undefined} 
@@ -936,7 +962,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                           <span className="text-[9px] text-[#81888f] font-mono z-10 group-hover:text-white transition-colors">App</span>
                         </div>
                       )}
-                      <span className="text-[12px] text-gray-300 font-semibold leading-snug group-hover:text-white transition-colors line-clamp-2">
+                      <span className="code-bento-text text-[12px] text-gray-300 font-semibold leading-snug group-hover:text-white transition-colors line-clamp-2">
                         {SUGGESTIONS[activeCategory][0]}
                       </span>
                     </button>
@@ -949,13 +975,13 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                           textareaRef.current.focus();
                         }
                       }}
-                      className="h-full w-full flex flex-col text-left p-3.5 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md justify-between"
+                      className="code-bento-card is-small h-full w-full flex flex-col text-left p-3.5 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md justify-between"
                       style={{ transformStyle: 'preserve-3d' }}
                       onMouseMove={handleMouseMove}
                       onMouseLeave={handleMouseLeave}
                     >
                       {getSmallCard2Image(activeCategory) ? (
-                        <div className="w-full h-[96px] flex items-center justify-center relative overflow-hidden mb-1.5 flex-shrink-0">
+                        <div className="code-bento-media w-full h-[96px] flex items-center justify-center relative overflow-hidden mb-1.5 flex-shrink-0">
                           <img 
                             key={activeCategory}
                             src={getSmallCard2Image(activeCategory) || undefined} 
@@ -975,7 +1001,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                           <span className="text-[9px] text-[#81888f] font-mono z-10 group-hover:text-white transition-colors">App</span>
                         </div>
                       )}
-                      <span className="text-[12px] text-gray-300 font-semibold leading-snug group-hover:text-white transition-colors line-clamp-2">
+                      <span className="code-bento-text text-[12px] text-gray-300 font-semibold leading-snug group-hover:text-white transition-colors line-clamp-2">
                         {SUGGESTIONS[activeCategory][1]}
                       </span>
                     </button>
@@ -989,13 +1015,13 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                         textareaRef.current.focus();
                       }
                     }}
-                    className="flex flex-col p-4 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md h-[156px] justify-between text-left relative overflow-hidden"
+                    className="code-bento-card is-wide flex flex-col p-4 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md h-[156px] justify-between text-left relative overflow-hidden"
                     style={{ transformStyle: 'preserve-3d' }}
                     onMouseMove={handleMouseMove}
                     onMouseLeave={handleMouseLeave}
                   >
                     {/* Top: Large 3D Illustration aligned to the left */}
-                    <div className="w-[72px] h-[72px] flex items-center justify-start relative overflow-hidden mb-1 flex-shrink-0 z-10">
+                    <div className="code-bento-media w-[72px] h-[72px] flex items-center justify-start relative overflow-hidden mb-1 flex-shrink-0 z-10">
                       <img 
                         key={activeCategory}
                         src={getWideCardImage(activeCategory) || undefined} 
@@ -1009,7 +1035,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                     </div>
 
                     {/* Bottom: Text Info */}
-                    <span className="text-[12px] text-gray-300 font-semibold leading-relaxed group-hover:text-white transition-colors line-clamp-2 z-10">
+                    <span className="code-bento-text text-[12px] text-gray-300 font-semibold leading-relaxed group-hover:text-white transition-colors line-clamp-2 z-10">
                       {SUGGESTIONS[activeCategory][2]}
                     </span>
                   </button>
@@ -1023,12 +1049,12 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                       textareaRef.current.focus();
                     }
                   }}
-                  className="flex flex-col text-left p-4 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md h-[340px] justify-between"
+                  className="code-bento-card is-tall flex flex-col text-left p-4 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md h-[340px] justify-between"
                   style={{ transformStyle: 'preserve-3d' }}
                   onMouseMove={handleMouseMove}
                   onMouseLeave={handleMouseLeave}
                 >
-                  <div className={`w-full h-[170px] flex items-center justify-center flex-shrink-0 relative overflow-hidden ${
+                  <div className={`code-bento-media w-full h-[170px] flex items-center justify-center flex-shrink-0 relative overflow-hidden ${
                     activeCategory === 'productivity' || activeCategory === 'foryou' || activeCategory === 'social' || activeCategory === 'saas' || activeCategory === 'aiapps' || activeCategory === 'finance' ? '' : 'rounded-xl bg-white/[0.02] border border-white/5 group-hover:border-white/10 transition-colors'
                   }`}>
                     {activeCategory === 'productivity' ? (
@@ -1074,7 +1100,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                       </>
                     )}
                   </div>
-                  <span className="text-[13px] text-gray-300 font-semibold leading-relaxed group-hover:text-white transition-colors line-clamp-4">
+                  <span className="code-bento-text text-[13px] text-gray-300 font-semibold leading-relaxed group-hover:text-white transition-colors line-clamp-4">
                     {SUGGESTIONS[activeCategory][3]}
                   </span>
                 </button>
@@ -1087,12 +1113,12 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                       textareaRef.current.focus();
                     }
                   }}
-                  className="flex flex-col text-left p-4 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md h-[340px] justify-between"
+                  className="code-bento-card is-tall flex flex-col text-left p-4 rounded-[20px] bg-[#27272a]/50 hover:bg-[#27272a] border border-white/5 hover:border-white/10 group cursor-pointer shadow-md h-[340px] justify-between"
                   style={{ transformStyle: 'preserve-3d' }}
                   onMouseMove={handleMouseMove}
                   onMouseLeave={handleMouseLeave}
                 >
-                  <div className={`w-full h-[170px] flex items-center justify-center flex-shrink-0 relative overflow-hidden ${
+                  <div className={`code-bento-media w-full h-[170px] flex items-center justify-center flex-shrink-0 relative overflow-hidden ${
                     activeCategory === 'productivity' || activeCategory === 'foryou' || activeCategory === 'saas' || activeCategory === 'social' || activeCategory === 'aiapps' || activeCategory === 'finance' ? '' : 'rounded-xl bg-white/[0.02] border border-white/5 group-hover:border-white/10 transition-colors'
                   }`}>
                     {activeCategory === 'productivity' ? (
@@ -1138,7 +1164,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                       </>
                     )}
                   </div>
-                  <span className="text-[13px] text-gray-300 font-semibold leading-relaxed group-hover:text-white transition-colors line-clamp-4">
+                  <span className="code-bento-text text-[13px] text-gray-300 font-semibold leading-relaxed group-hover:text-white transition-colors line-clamp-4">
                     {SUGGESTIONS[activeCategory][4]}
                   </span>
                 </button>
@@ -1147,7 +1173,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
 
               {/* "Your apps" pill button centered below suggestions */}
               <div 
-                className="absolute bottom-[18px] left-1/2 z-20 pointer-events-none"
+                className="code-hero-apps absolute bottom-[18px] left-1/2 z-20 pointer-events-none"
                 style={{
                   opacity: (!promptText.trim() && attachments.length === 0) ? (1 - scrollRatio) : 0,
                   transform: `translateX(-50%) scale(${(!promptText.trim() && attachments.length === 0) ? (1 - 0.25 * scrollRatio) : 0.95})`,
@@ -1222,9 +1248,9 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
 
             {/* Preserve the hero geometry while the shared composer is rendered
                 in the persistent viewport-level host below. */}
-            <div className="relative h-[136px] bg-[#1c1c1c] pointer-events-auto z-50">
+            <div className="code-composer-spacer relative h-[136px] bg-[#1c1c1c] pointer-events-auto z-50">
               {idleComposerHost && createPortal(
-                <div className="absolute bottom-0 left-0 right-0 px-[14px] pb-4 pt-0 max-w-[800px] mx-auto pointer-events-auto">
+                <div className="code-composer absolute bottom-0 left-0 right-0 px-[14px] pb-4 pt-0 max-w-[800px] mx-auto pointer-events-auto">
                 <div className="bg-[#27272a] rounded-[26px] p-3.5 relative flex flex-col shadow-lg border border-white/5">
                   {/* Attachments Area */}
                   <div className={`grid transition-[grid-template-rows] duration-[250ms] ease-in-out ${attachments.length > 0 ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
@@ -1310,7 +1336,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                         <Plus size={18} />
                       </button>
                       <div className="relative" ref={toolsMenuRef}>
-                        {isToolsMenuOpen && (
+                        {isToolsMenuOpen && !isCompact && (
                           <div 
                             style={{
                               boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(0, 0, 0, 0.8), 0 1px 0 0 rgba(255, 255, 255, 0.05) inset',
@@ -1320,7 +1346,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                             {TOOLS.map((tool) => (
                               <button 
                                 key={tool.id}
-                                onClick={() => { setSelectedToolId(tool.id); setAgentEngaged(tool.id === 'agent'); setIsToolsMenuOpen(false); }}
+                                onClick={() => { setSelectedToolId(tool.id); setIsToolsMenuOpen(false); }}
                                 className="flex items-center gap-2.5 w-full px-3 py-2.5 hover:bg-[#27272a] text-gray-300 hover:text-white transition-colors text-[13px] font-medium text-left"
                               >
                                 <tool.icon size={16} className={tool.id === 'design' || tool.id === 'prototype' ? 'text-gray-400' : ''} />
@@ -1329,6 +1355,18 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                             ))}
                           </div>
                         )}
+                        <GeminiBottomSheet isOpen={isCompact && isToolsMenuOpen} onClose={() => setIsToolsMenuOpen(false)} label="Tools">
+                          <GeminiSheetList label="Tools">
+                            {TOOLS.map((tool) => (
+                              <GeminiSheetItem
+                                key={tool.id}
+                                glyph={<tool.icon size={22} />}
+                                label={tool.label}
+                                onSelect={() => { setSelectedToolId(tool.id); setIsToolsMenuOpen(false); }}
+                              />
+                            ))}
+                          </GeminiSheetList>
+                        </GeminiBottomSheet>
                         <button 
                           onClick={() => !currentTool && setIsToolsMenuOpen(!isToolsMenuOpen)}
                           className={`flex items-center rounded-full transition-all text-[13px] font-medium flex-shrink-0 h-[36px]
@@ -1342,10 +1380,10 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                             <>
                               <div className="flex items-center gap-2">
                                 <currentTool.icon size={16} />
-                                <span>{currentTool.label}</span>
+                                <span className="code-tools-label">{currentTool.label}</span>
                               </div>
                               <div
-                                onClick={(e) => { e.stopPropagation(); setSelectedToolId(null); setAgentEngaged(false); }}
+                                onClick={(e) => { e.stopPropagation(); setSelectedToolId(null); }}
                                 className="p-0.5 hover:bg-[#3b82f6]/30 rounded-full transition-colors cursor-pointer flex items-center justify-center"
                               >
                                 <X size={12} />
@@ -1354,38 +1392,15 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                           ) : (
                             <>
                               <Wrench size={16} />
-                              <span className="ml-2">Tools</span>
+                              <span className="code-tools-label ml-2">Tools</span>
                             </>
                           )}
                         </button>
-
-                        {/*
-                          * The Plan mode indicator.
-                          *
-                          * The mode is a persisted preference — upstream keeps
-                          * it across sessions too — so it can be set in the
-                          * workbench and still be active when someone comes
-                          * back here to start something. Plan mode declines
-                          * every edit, so an invisible one turns the opening
-                          * prompt of a new project into an agent that appears
-                          * to refuse to build it. Click to leave.
-                          */}
-                        {isAgent && mode === 'plan' && (
-                          <button
-                            onClick={() => setCollaborationMode('default')}
-                            title="In Plan mode — exploring and designing, changing nothing. Click to start building."
-                            className="flex h-[36px] shrink-0 items-center gap-2 rounded-full bg-[#a8c7fa]/15 px-3 text-[13px] font-medium text-[#a8c7fa] transition-colors hover:bg-[#a8c7fa]/25"
-                          >
-                            <FileText size={15} />
-                            <span>Plan</span>
-                            <X size={13} className="opacity-60" />
-                          </button>
-                        )}
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className="relative flex items-center shrink-0">
+                      <div className="code-composer-model relative flex items-center shrink-0">
                         <button
                           ref={modelsMenuRef as any}
                           onClick={() => setIsModelsMenuOpen(!isModelsMenuOpen)}
@@ -1416,49 +1431,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                             onClose={() => setIsModelsMenuOpen(false)}
                             modelConfig={modelConfig}
                             selectedId={selectedModelId}
-                            /*
-                              * Ultra, offered on every model — but only while the
-                              * Agent tool is selected.
-                              *
-                              * It is not one of Willow's numeric levels: upstream
-                              * lowers it to the model's own ceiling on the wire and
-                              * uses it to turn on proactive sub-agent delegation, so
-                              * it means nothing to the legacy generation loop. With
-                              * Agent off the row is absent and the menu is exactly
-                              * what it was.
-                              */
-                            extraEfforts={isAgent ? [
-                              {
-                                id: 'codex-ultra',
-                                label: EFFORT_LABEL.ultra,
-                                badge: 'Sub-agents',
-                                selected: isUltra,
-                                onSelect: () => setUltraEngaged(true),
-                              },
-                            ] : undefined}
-                            onSelect={(id) => {
-                              // Picking a level clears Ultra: the two are one radio
-                              // group, so leaving it on would keep delegating after
-                              // the user asked for something else.
-                              setUltraEngaged(false);
-                              setSelectedModelId(id);
-                              const baseId = id ? id.split('::effort-')[0] : '';
-                              const sel = ALL_MODELS.find(m => m.id === id || m.id === baseId);
-                              if (sel) {
-                                const providerKey = sel.provider === 'Google' ? 'gemini'
-                                  : sel.provider === 'OpenAI' ? 'openai'
-                                  : sel.provider === 'Anthropic' ? 'anthropic'
-                                  : sel.provider === 'Moonshot AI' ? 'moonshot'
-                                  : sel.provider === 'SpaceXAI' ? 'spacexai' : 'zhipuai';
-                                const effortLevel = id.includes('::effort-')
-                                  ? Number(id.split('::effort-')[1])
-                                  : sel.thinkingLevel;
-                                setModelConfig((prev: any) => ({
-                                  ...prev,
-                                  [providerKey]: { ...prev[providerKey], model: sel.modelId, thinkingLevel: effortLevel }
-                                }));
-                              }
-                            }}
+                            onSelect={handleModelSelect}
                             onAuthRequired={onAuthRequired}
                             geminiStyle
                           />
@@ -1486,11 +1459,12 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
           </div>
 
           {/* ── Snap section 2: saved projects ("Your apps") — scroll down to reach ── */}
-          <div id="bottom-panel" className="relative h-full snap-start snap-always bg-[#1c1c1c]">
+          <div id="bottom-panel" className="code-apps-section relative h-full snap-start snap-always bg-[#1c1c1c]">
             <div
-              className="absolute inset-0 overflow-y-auto no-scrollbar flex flex-col pt-10 pb-[176px]"
+              className="code-apps-scroll absolute inset-0 overflow-y-auto no-scrollbar flex flex-col pt-10 pb-[176px]"
             >
-              <div className="my-auto w-full">
+              {/* The list starts at the top, as it does once it is long enough to scroll; only the empty state is centred. */}
+              <div className={`code-apps-body w-full${codeProjectCount > 0 ? '' : ' my-auto'}`}>
                 {codeProjectCount > 0 ? (
                   <BottomPanel
                     mode="develop"
@@ -1512,8 +1486,18 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
           </div>
           <div
             ref={setIdleComposerHost}
-            className="absolute inset-x-0 bottom-0 h-[136px] z-[60] pointer-events-none"
+            className="code-composer-host absolute inset-x-0 bottom-0 h-[136px] z-[60] pointer-events-none"
           />
+          {/* Below 961px the model is picked from the top bar, as on the chat home; the composer drops its own button. */}
+          {isCompact && (
+            <MobileModelPicker
+              modelConfig={modelConfig}
+              selectedModelId={selectedModelId}
+              setSelectedModelId={setSelectedModelId}
+              onSelect={handleModelSelect}
+              onAuthRequired={onAuthRequired}
+            />
+          )}
         </>
       )}
 
@@ -1523,8 +1507,8 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
           <>
             {/* Chat Mode Header — only shown when centered/chat mode */}
             {isChatMode && (
-              <div className="absolute top-0 left-0 right-0 h-14 flex items-center justify-between z-30 bg-[#1c1c1c]">
-                <div className="flex items-center min-w-0 h-full" style={{ paddingLeft: '21px' }}>
+              <div className="code-chat-header absolute top-0 left-0 right-0 h-14 flex items-center justify-between z-30 bg-[#1c1c1c]">
+                <div className="code-chat-header-inner flex items-center min-w-0 h-full" style={{ paddingLeft: '21px' }}>
                   <button
                     onClick={handleHomeClick}
                     className="flex items-center justify-center p-1.5 hover:bg-white/5 transition-colors rounded-xl flex-shrink-0"
@@ -1566,7 +1550,7 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
                   position: 'relative',
                   left: isChatMode ? '50%' : '0',
                   transform: isChatMode ? 'translateX(-50%)' : 'translateX(0)',
-                  width: isChatMode ? '800px' : '100%',
+                  width: isChatMode && !isCompact ? '800px' : '100%',
                   ...(!isDragging && {
                     transitionProperty: isChatMode ? 'left, transform, width' : 'width',
                     transitionDuration: '500ms',
@@ -1576,11 +1560,12 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
               >
                 <WorkbenchSidebar
                   key={workbenchInstanceKey}
-                  width={isChatMode ? 800 : sidebarWidth}
+                  width={isCompact ? viewportWidth : isChatMode ? 800 : sidebarWidth}
                   isCollapsed={isWorkbenchSidebarCollapsed}
                   onToggle={toggleSidebar}
                   prompt={initialPrompt}
                   initialAttachments={initialAttachments}
+                  initialToolId={initialToolId}
                   resumeChatId={resumeChatId}
                   activeTab={activeTab}
                   onTabChange={setActiveTab}
@@ -1599,9 +1584,9 @@ export const CodeWorkspace: React.FC<CodeWorkspaceProps> = ({
               </div>
             </div>
 
-            {/* Resizer Handle — hidden in chat mode */}
+            {/* Resizer Handle — hidden in chat mode, and below 961px where the panes take turns */}
             <div
-              className={`w-0 relative z-50 group flex-shrink-0 transition-opacity duration-300 ${isChatMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+              className={`w-0 relative z-50 group flex-shrink-0 transition-opacity duration-300 ${isChatMode || isCompact ? 'opacity-0 pointer-events-none' : 'opacity-100'}${isCompact ? ' hidden' : ''}`}
               onMouseDown={startResizing}
             >
               <div

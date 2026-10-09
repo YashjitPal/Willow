@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 
 import './notebooks.css';
 import type { Notebook } from './notebook-types';
@@ -65,9 +67,28 @@ export const NotebookSettingsDialog: React.FC<{
     requestClose();
   };
 
+  /*
+   * Below 961px Gemini drops Cancel and Save for a full-screen sheet whose only exit is
+   * a back arrow, so leaving it is what keeps the edits.
+   */
+  const isCompact = useCompactViewport();
+  const goBack = () => {
+    if (isDirty) save();
+    else requestClose();
+  };
+
+  // Escape leaves the way the visible control does: Cancel on the desktop, back below 961px.
+  const leaveRef = useRef(requestClose);
+  leaveRef.current = isCompact ? goBack : requestClose;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') leaveRef.current(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   return createPortal(
     <div
-      className={`nb-set-scrim ${isClosing ? 'nb-sheet-exit' : ''}`}
+      className={`nb-set-scrim nb-set-scrim--settings ${isClosing ? 'nb-sheet-exit' : ''}`}
       onClick={requestClose}
     >
       <div
@@ -78,6 +99,20 @@ export const NotebookSettingsDialog: React.FC<{
         onClick={(event) => event.stopPropagation()}
       >
         <div className="nb-set-content">
+          {isCompact && (
+            <div className="nb-set-pre-header">
+              <button type="button" aria-label="Close" onClick={goBack} className="nb-set-back">
+                <MaterialSymbol
+                  name="arrow_back"
+                  family="luminous"
+                  size={24}
+                  weight={300}
+                  roundness={100}
+                  opticalSize={24}
+                />
+              </button>
+            </div>
+          )}
           <div className="nb-set-header">
             <h2 className="nb-set-title">Notebook settings</h2>
           </div>
@@ -111,22 +146,24 @@ export const NotebookSettingsDialog: React.FC<{
             <div className="nb-set-text">
               <span className="nb-set-label">Instructions</span>
               <span className="nb-set-desc">
-                Tell Gemini how to respond and what tone to use
+                Tell Willow how to respond and what tone to use
               </span>
             </div>
 
             <textarea
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
-              placeholder="Add detailed instructions to customize how Gemini helps with this notebook, like the tone it should use or how it should format its response."
+              placeholder="Add detailed instructions to customize how Willow helps with this notebook, like the tone it should use or how it should format its response."
               className="nb-set-textarea"
             />
           </div>
 
-          <div className="nb-set-actions">
-            <button type="button" onClick={requestClose} className="nb-set-cancel">Cancel</button>
-            <button type="button" disabled={!isDirty} onClick={save} className="nb-set-save">Save</button>
-          </div>
+          {!isCompact && (
+            <div className="nb-set-actions">
+              <button type="button" onClick={requestClose} className="nb-set-cancel">Cancel</button>
+              <button type="button" disabled={!isDirty} onClick={save} className="nb-set-save">Save</button>
+            </div>
+          )}
         </div>
       </div>
     </div>,

@@ -90,8 +90,8 @@ const SortMenu: React.FC<{
             onClick={() => setSortBy(item.id)}
             className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
               isLight
-                ? (sortBy === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
-                : (sortBy === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+                ? (sortBy === item.id ? 'bg-[#e8f0fe] text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (sortBy === item.id ? 'text-white bg-[color:var(--sync-2596be,#2596be)]' : 'text-white hover:bg-[color:var(--sync-2596be,#2596be)]')
             }`}
           >
             <span>{item.label}</span>
@@ -111,8 +111,8 @@ const SortMenu: React.FC<{
             onClick={() => setOrder(item.id)}
             className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
               isLight
-                ? (order === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
-                : (order === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+                ? (order === item.id ? 'bg-[#e8f0fe] text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (order === item.id ? 'text-white bg-[color:var(--sync-2596be,#2596be)]' : 'text-white hover:bg-[color:var(--sync-2596be,#2596be)]')
             }`}
           >
             <span>{item.label}</span>
@@ -151,8 +151,8 @@ const VisibilityMenu: React.FC<{
             onClick={() => onChange(item.id)}
             className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
               isLight
-                ? (value === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
-                : (value === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+                ? (value === item.id ? 'bg-[#e8f0fe] text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (value === item.id ? 'text-white bg-[color:var(--sync-2596be,#2596be)]' : 'text-white hover:bg-[color:var(--sync-2596be,#2596be)]')
             }`}
           >
             <span>{item.label}</span>
@@ -193,8 +193,8 @@ const StatusMenu: React.FC<{
             onClick={() => onChange(item.id)}
             className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
               isLight
-                ? (value === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
-                : (value === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+                ? (value === item.id ? 'bg-[#e8f0fe] text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (value === item.id ? 'text-white bg-[color:var(--sync-2596be,#2596be)]' : 'text-white hover:bg-[color:var(--sync-2596be,#2596be)]')
             }`}
           >
             <span>{item.label}</span>
@@ -235,7 +235,7 @@ const CreatorMenu: React.FC<{
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search creators..."
-            className={`w-full ${isLight ? 'bg-[#f0f4f9] border-black/10 text-[#1f1f1f] focus:border-[#0b57d0] placeholder-[#747775]' : 'bg-[#141414] border-white/5 text-white focus:border-white/10 placeholder-zinc-600'} border rounded-lg pl-9 pr-3 py-2 text-[13px] outline-none transition-colors`}
+            className={`w-full ${isLight ? 'bg-[#f0f4f9] border-black/10 text-[#1f1f1f] focus:border-[color:var(--sync-0b57d0,#0b57d0)] placeholder-[#747775]' : 'bg-[#141414] border-white/5 text-white focus:border-white/10 placeholder-zinc-600'} border rounded-lg pl-9 pr-3 py-2 text-[13px] outline-none transition-colors`}
           />
         </div>
       </div>
@@ -247,8 +247,8 @@ const CreatorMenu: React.FC<{
             onClick={() => onChange(item.id)}
             className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-[14px] font-medium transition-all duration-200 ${
               isLight
-                ? (value === item.id ? 'bg-[#e8f0fe] text-[#0b57d0]' : 'text-[#1f1f1f] hover:bg-black/5')
-                : (value === item.id ? 'text-white bg-[#2596be]' : 'text-white hover:bg-[#2596be]')
+                ? (value === item.id ? 'bg-[#e8f0fe] text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-[#1f1f1f] hover:bg-black/5')
+                : (value === item.id ? 'text-white bg-[color:var(--sync-2596be,#2596be)]' : 'text-white hover:bg-[color:var(--sync-2596be,#2596be)]')
             }`}
           >
             <span className="truncate">{item.label}</span>
@@ -341,11 +341,11 @@ const FilterButton: React.FC<{
         }}
         className={`flex items-center justify-between gap-3 px-4 h-[40px] max-w-[160px] rounded-2xl border transition-all shadow-sm group select-none flex-shrink-0
           ${isOpen 
-            ? (isLight ? 'border-[#0b57d0] bg-[#e8f0fe] text-[#0b57d0]' : 'border-white/20 bg-white/10 text-white') 
+            ? (isLight ? 'border-[color:var(--sync-0b57d0,#0b57d0)] bg-[#e8f0fe] text-[color:var(--sync-0b57d0,#0b57d0)]' : 'border-white/20 bg-white/10 text-white') 
             : (isLight ? 'border-[#c4c7c5] bg-white hover:bg-black/[0.03] text-[#1f1f1f]' : 'border-white/10 bg-[#1c1c1c] hover:bg-white/[0.04] text-white')}`}
       >
         <span className="text-[13px] font-medium truncate pointer-events-none">{label}</span>
-        <ChevronDown size={14} className={`${isLight ? 'text-[#747775] group-hover:text-[#1f1f1f]' : 'text-zinc-400 group-hover:text-white'} transition-all duration-200 pointer-events-none shrink-0 ${isOpen ? (isLight ? 'rotate-180 text-[#0b57d0]' : 'rotate-180 text-white') : ''}`} />
+        <ChevronDown size={14} className={`${isLight ? 'text-[#747775] group-hover:text-[#1f1f1f]' : 'text-zinc-400 group-hover:text-white'} transition-all duration-200 pointer-events-none shrink-0 ${isOpen ? (isLight ? 'rotate-180 text-[color:var(--sync-0b57d0,#0b57d0)]' : 'rotate-180 text-white') : ''}`} />
       </button>
       {isOpen && (
         <div className="absolute top-[calc(100%+8px)] left-0 z-[1000] animate-in fade-in zoom-in-95 duration-150">
@@ -373,7 +373,7 @@ const FilterToggle: React.FC<{
     onClick={onToggle}
     className={`flex items-center gap-2 px-4 h-[40px] rounded-2xl border transition-all shadow-sm select-none flex-shrink-0
       ${active
-        ? (isLight ? 'border-[#0b57d0] bg-[#e8f0fe] text-[#0b57d0]' : 'border-white/20 bg-white/10 text-white')
+        ? (isLight ? 'border-[color:var(--sync-0b57d0,#0b57d0)] bg-[#e8f0fe] text-[color:var(--sync-0b57d0,#0b57d0)]' : 'border-white/20 bg-white/10 text-white')
         : (isLight ? 'border-[#c4c7c5] bg-white hover:bg-black/[0.03] text-[#1f1f1f]' : 'border-white/10 bg-[#1c1c1c] hover:bg-white/[0.04] text-white')}`}
   >
     <Star size={14} className="shrink-0" fill={active ? 'currentColor' : 'none'} strokeWidth={active ? 0 : 2} />
@@ -606,7 +606,7 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
           <div className={`absolute inset-0 backdrop-blur-md ${isLight ? 'bg-[#faf9f9]/90' : 'bg-[#0f0f0f]/90'}`} />
           <div className="relative z-10 h-full flex flex-col items-center justify-center gap-6">
             <div className={`w-20 h-20 rounded-2xl ${isLight ? 'bg-white border-black/10 shadow-lg' : 'bg-[#272729] border-white/10 shadow-xl'} flex items-center justify-center border`}>
-              <HardDrive size={36} className={isLight ? 'text-[#0b57d0]' : 'text-white/70'} />
+              <HardDrive size={36} className={isLight ? 'text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-white/70'} />
             </div>
             <div className="text-center">
               <h3 className={`text-[22px] font-bold ${isLight ? 'text-[#1f1f1f]' : 'text-white'} mb-2`}>Connect Google Drive to have Projects</h3>
@@ -614,7 +614,7 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
             </div>
             <button 
               onClick={onOpenDriveSettings}
-              className={`px-8 py-3.5 ${isLight ? 'bg-[#0b57d0] text-white hover:bg-[#0842a0] shadow-md' : 'bg-white text-black hover:bg-zinc-200 shadow-white/10'} text-[15px] font-bold rounded-xl transition-all shadow-lg flex items-center gap-2.5`}
+              className={`px-8 py-3.5 ${isLight ? 'bg-[color:var(--sync-0b57d0,#0b57d0)] text-white hover:bg-[color:var(--sync-0842a0,#0842a0)] shadow-md' : 'bg-white text-black hover:bg-zinc-200 shadow-white/10'} text-[15px] font-bold rounded-xl transition-all shadow-lg flex items-center gap-2.5`}
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -644,7 +644,7 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
                   <input 
                     type="text" 
                     placeholder="Search projects..." 
-                    className={`w-full h-[46px] ${isLight ? 'bg-[#f0f4f9] border-[#c4c7c5] text-[#1f1f1f] placeholder-[#747775] focus:border-[#0b57d0] focus:bg-white' : 'bg-[#1a1a1a] border-white/5 text-white placeholder-zinc-500 focus:border-white/10 focus:bg-white/[0.02]'} border rounded-2xl pl-12 pr-4 text-[15px] outline-none transition-all font-normal shadow-sm`}
+                    className={`w-full h-[46px] ${isLight ? 'bg-[#f0f4f9] border-[#c4c7c5] text-[#1f1f1f] placeholder-[#747775] focus:border-[color:var(--sync-0b57d0,#0b57d0)] focus:bg-white' : 'bg-[#1a1a1a] border-white/5 text-white placeholder-zinc-500 focus:border-white/10 focus:bg-white/[0.02]'} border rounded-2xl pl-12 pr-4 text-[15px] outline-none transition-all font-normal shadow-sm`}
                   />
                 </div>
 
@@ -699,8 +699,8 @@ export const ProjectsPage: React.FC<{ onOpenDriveSettings?: () => void }> = ({ o
           ) : layoutMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-14 pb-24">
               <div className="group cursor-pointer" onClick={handleCreateNewProject}>
-                <button className={`w-full aspect-[16/9] rounded-xl border-2 border-dashed ${isLight ? 'border-[#c4c7c5] hover:border-[#0b57d0] hover:bg-[#f0f4f9]' : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'} transition-all flex flex-col items-center justify-center gap-3 cursor-pointer`}>
-                  <div className={`w-12 h-12 flex items-center justify-center ${isLight ? 'text-[#747775] group-hover:text-[#0b57d0]' : 'text-zinc-600 group-hover:text-white'} group-hover:scale-110 transition-all duration-300`}>
+                <button className={`w-full aspect-[16/9] rounded-xl border-2 border-dashed ${isLight ? 'border-[#c4c7c5] hover:border-[color:var(--sync-0b57d0,#0b57d0)] hover:bg-[#f0f4f9]' : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'} transition-all flex flex-col items-center justify-center gap-3 cursor-pointer`}>
+                  <div className={`w-12 h-12 flex items-center justify-center ${isLight ? 'text-[#747775] group-hover:text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-zinc-600 group-hover:text-white'} group-hover:scale-110 transition-all duration-300`}>
                     <Plus size={36} strokeWidth={1.5} />
                   </div>
                 </button>

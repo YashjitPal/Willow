@@ -1,0 +1,5 @@
+[
+  { "name": "navigate", "args": { "url": "https://en.wikipedia.org/wiki/Grace_Hopper" } },
+  { "name": "scroll_document", "args": { "direction": "down" } },
+  { "name": "navigate", "args": { "url": "https://example.com/" } }
+]

@@ -30,7 +30,7 @@ export interface SparkTaskCardProps {
   statusLabel?: string;
   /**
    * Gemini has three pill modes: `status-blocked` (default) and `status-failed` are
-   * labelled pills; `pulse` replaces the label with an animated 6px dot while a task
+   * labelled pills; `pulse` replaces the label with an animated 6px bot while a task
    * is running, and settles solid once it completes.
    */
   statusTone?: 'blocked' | 'failed' | 'pulse' | 'pulse-complete';

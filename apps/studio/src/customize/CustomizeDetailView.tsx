@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import { CustomizeIcon } from './CustomizeIcon';
-import { CustomizeCardMenu } from './CustomizeCardMenu';
+import { CustomizeCardMenu, cardMenuExitMs } from './CustomizeCardMenu';
 import { CONNECTORS_DATA, type CustomizeItem } from './customize-data';
 import { GeminiDialog, GeminiDialogPill } from '@willow/ui/GeminiDialog';
 
@@ -43,6 +44,8 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
   onToggleActiveSkill,
   isInactive = false,
 }) => {
+  const isCompact = useCompactViewport();
+
   useLayoutEffect(() => {
     const root = document.querySelector('.customize-page-root');
     if (root) {
@@ -112,7 +115,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
     cardMenuTimeoutRef.current = window.setTimeout(() => {
       setCardMenu(null);
       cardMenuTimeoutRef.current = null;
-    }, 125);
+    }, cardMenuExitMs(isCompact));
   };
 
   const handleDisconnectClick = () => {
@@ -496,6 +499,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
               headingAs="h1"
               title={isEditing ? 'Leave without saving?' : 'Leave without creating?'}
               width={512}
+              message
               closing={discardClosing}
               onDismiss={() => closeDiscardDialog(false)}
               actions={(
@@ -561,6 +565,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
           headingAs="h2"
           title={`Disconnect ${item.title} from Willow?`}
           width={512}
+          message
           closing={disconnectClosing}
           onDismiss={closeDisconnectDialog}
           actions={(

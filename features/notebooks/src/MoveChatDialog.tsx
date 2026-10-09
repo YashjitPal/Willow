@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 
 import './notebooks.css';
 import { hydrateNotebooks, notebooksStore, subscribeToNotebookWrites } from './notebooks-store';
@@ -45,11 +46,32 @@ export const MoveChatDialog: React.FC<{
   const notebooks = useStore(notebooksStore);
   const { fileChat } = useNotebookDisk();
   const [isMoving, setIsMoving] = useState(false);
+  const isCompact = useCompactViewport();
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     hydrateNotebooks();
     return subscribeToNotebookWrites();
   }, []);
+
+  /*
+   * Below 961px Gemini's focus lands on the selection list as the dialog opens and the
+   * band scrolls the list's top to its own, i.e. by its 16px top padding.
+   */
+  useEffect(() => {
+    const list = listRef.current;
+    if (!isCompact || !list) return;
+    list.focus({ preventScroll: true });
+    list.scrollIntoView({ block: 'start' });
+    // On open only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   // Chats live in at most one notebook, so the first match is the owner.
   const fromNotebook = notebooks.find((notebook) => notebook.chatIds.includes(chatId)) ?? null;
@@ -71,8 +93,9 @@ export const MoveChatDialog: React.FC<{
         <div className="nb-move-header">
           <h1 className="nb-move-title">{title}</h1>
           <button type="button" aria-label="Close" onClick={onClose} className="nb-move-close">
-            {/* Measured: a 24px `close` from google-symbols, not the Luminous family. */}
-            <MaterialSymbol name="close" family="google-symbols" size={24} />
+            {/* Measured: a 24px `close` from google-symbols, not the Luminous family —
+                at weight 400 below 961px. */}
+            <MaterialSymbol name="close" family="google-symbols" size={24} weight={isCompact ? 400 : undefined} />
           </button>
         </div>
 
@@ -81,7 +104,7 @@ export const MoveChatDialog: React.FC<{
         </div>
 
         <div className="nb-move-list">
-          <div className="nb-move-list-inner">
+          <div ref={listRef} tabIndex={-1} className="nb-move-list-inner">
             {targets.length === 0 ? (
               <div className="nb-move-empty">{fromNotebook ? 'No other notebooks yet' : 'No notebooks yet'}</div>
             ) : (
@@ -106,6 +129,18 @@ export const MoveChatDialog: React.FC<{
                   }}
                   className="nb-move-row"
                 >
+                  {/* Gemini's narrow list leads each notebook with its `project-logo`. */}
+                  {isCompact && (
+                    <MaterialSymbol
+                      name="notebook"
+                      family="luminous"
+                      size={24}
+                      weight={300}
+                      roundness={100}
+                      opticalSize={24}
+                      className="nb-move-row-icon"
+                    />
+                  )}
                   <span className="nb-move-row-label">{target.title}</span>
                 </button>
               ))

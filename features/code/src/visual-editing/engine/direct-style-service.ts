@@ -2,7 +2,7 @@
 // This provides Lovable-like instant visual editing by directly manipulating className attributes
 
 import { Project, SyntaxKind, Node, JsxAttribute, JsxExpression } from 'ts-morph';
-import { sandpackStore } from '../../runtime/sandpack/sandpack-store';
+import { activeWorkbench } from '../../session/code-session';
 import { pushUndoState, clearSelection, requestInspectorReinit, previewRefreshRequest, pendingSelectionRestore, selectedElement, markAsUnsaved, requestSelectionBoundsRefresh } from './visual-editor-store';
 import type { SelectedElement } from './types';
 
@@ -724,10 +724,11 @@ export async function applyDirectStyle(
   }
 
   const { fileName, line, column } = element.sourceLocation;
+  const sandpackStore = activeWorkbench();
 
   try {
     // Normalize the file path - try multiple formats
-    // The babel plugin may use different path formats than sandpackStore
+    // The babel plugin may use different path formats than the workbench
     const pathVariants = [
       '/' + fileName,                                    // /App.tsx or /src/App.tsx
       fileName,                                           // App.tsx or src/App.tsx
@@ -910,6 +911,7 @@ export function getFreshClassNames(element: SelectedElement): string[] | null {
     '/src/' + fileName.replace(/^\/?(src\/)?/, ''),
   ];
 
+  const sandpackStore = activeWorkbench();
   let fileContent: string | undefined;
   for (const path of pathVariants) {
     fileContent = sandpackStore.getFile(path);
@@ -1166,6 +1168,7 @@ export async function deleteElement(
   }
 
   const { fileName, line, column } = element.sourceLocation;
+  const sandpackStore = activeWorkbench();
 
   try {
     // Normalize the file path - try multiple formats

@@ -1,4 +1,4 @@
-import { MODEL_PROVIDER_IDS, type ModelProviderId } from '@willow/core/model-catalog';
+import { MODEL_PROVIDER_IDS, migrateRetiredSavedModels, type ModelProviderId } from '@willow/core/model-catalog';
 
 export const MODEL_CONFIG_STORAGE_KEY = 'modelConfig';
 export const MODEL_CATALOG_UPDATED_EVENT = 'willow_model_catalog_updated';
@@ -61,8 +61,57 @@ export const mergeModelCatalogSnapshot = (modelConfig: any, snapshot: ModelCatal
   for (const provider of MODEL_PROVIDER_IDS) {
     next[provider] = {
       ...(modelConfig?.[provider] || {}),
-      savedModels: snapshot.savedModels[provider].map((model) => ({ ...model })),
+      savedModels: migrateRetiredSavedModels(snapshot.savedModels[provider]).map((model) => ({ ...model })),
     };
   }
   return next;
+};
+
+/**
+ * `modelConfig` carrying `snapshot`'s catalog, or `modelConfig` itself when it
+ * already does, so that a write which left the catalog alone renders nothing.
+ */
+export const adoptModelCatalogSnapshot = (modelConfig: any, snapshot: ModelCatalogSnapshot): any => {
+  const next = mergeModelCatalogSnapshot(modelConfig, snapshot);
+  const unchanged = JSON.stringify(extractModelCatalogSnapshot(next))
+    === JSON.stringify(extractModelCatalogSnapshot(modelConfig));
+  return unchanged ? modelConfig : next;
+};
+
+/**
+ * Follows the catalog other tabs write.
+ *
+ * Every tab stores its whole `modelConfig` under one key, but only the catalog is
+ * shared: the model picked in each provider's menu, thinking levels and system
+ * defaults stay the tab's own. So a config taken from another tab must never be
+ * written back. It differs from what that tab wrote, the write reads there as a
+ * fresh change, and the two tabs trade writes for as long as both are open, with
+ * an added model flickering in and out of both while they do.
+ */
+export const createTabCatalogSync = () => {
+  const fromOtherTabs = new WeakSet<object>();
+  return {
+    /**
+     * `current` carrying the catalog in `stored`, or `current` itself when that
+     * changes nothing or `stored` does not parse.
+     *
+     * Pass what is stored now, not the event's `newValue`: a later write may
+     * already have replaced it, and adopting it would roll this tab back to a
+     * catalog that is no longer stored.
+     */
+    adoptStored(current: any, stored: string | null): any {
+      if (!stored) return current;
+      let snapshot: ModelCatalogSnapshot;
+      try {
+        snapshot = extractModelCatalogSnapshot(JSON.parse(stored));
+      } catch {
+        return current;
+      }
+      const next = adoptModelCatalogSnapshot(current, snapshot);
+      if (next !== current) fromOtherTabs.add(next);
+      return next;
+    },
+    /** Whether `modelConfig` was taken from another tab's write, so is already stored. */
+    isFromOtherTab: (modelConfig: any): boolean => fromOtherTabs.has(modelConfig),
+  };
 };

@@ -33,10 +33,19 @@ describe('Gemini and Grok tool isolation', () => {
       /if \(!hasEmittedText\) setPhase\('thinking'\);\s*\/\/ Search backwards/,
       'a code result must not immediately erase the Running code phase before a paint',
     );
+    // Not gated on the answer having started: a search is reported whenever it
+    // arrives, once per query, whether grounding metadata or a raw
+    // `googleSearchCall` part announces it — both go through one reporter.
     assert.match(
       geminiBranch,
-      /if \(!hasEmittedText && hasSearchGrounding\)/,
-      'native search activity belongs to the pre-answer status row only',
+      /if \(hasSearchGrounding\) reportLegacySearch\(searchQueries\);/,
+      'each native search is reported once',
+    );
+    assert.match(geminiBranch, /reportLegacySearch\(queries\);/, 'each native search is reported once');
+    assert.match(
+      geminiBranch,
+      /const reportLegacySearch = [\s\S]{0,200}?!reportedSearchQueries\.has\(query\)/,
+      'each native search is reported once',
     );
     assert.match(geminiBranch, /const hasWebGrounding = Array\.isArray\(groundingMetadata\.groundingChunks\)/);
     assert.match(geminiBranch, /const nativeSearchCall = part\?\.googleSearchCall/);

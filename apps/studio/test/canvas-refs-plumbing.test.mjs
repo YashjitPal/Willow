@@ -249,8 +249,14 @@ it('encodes the canvas history last, and decodes it first', () => {
     'decoding after sanitize is decoding nothing — sanitize drops a ref with no content',
   );
   const load = view.indexOf('const withCanvasHistory = decodeCanvasHistory(msgs);');
-  const sanitize = view.indexOf('canvasRefs: sanitizeSavedCanvasRefs(');
-  assert.ok(load > 0 && sanitize > load, 'and it has to come first in the file, not just in intent');
+  const restore = view.indexOf('restoreSavedChatMessage(', load);
+  assert.ok(load > 0 && restore > load, 'and it has to come first in the file, not just in intent');
+  const message = MESSAGE();
+  assert.match(
+    message.slice(message.indexOf('export const restoreSavedChatMessage')),
+    /canvasRefs: sanitizeSavedCanvasRefs\(/,
+    'the restore is where the sanitize runs, on the decoded history',
+  );
 });
 
 /*
@@ -304,12 +310,16 @@ it('splits the body at the card offset while the turn is still writing', () => {
   );
 });
 
-it('keeps the 949px bleed out of a panelled thread', () => {
+it('keeps the 948px bleed out of a panelled thread', () => {
+  const view = CHAT_VIEW();
   assert.match(
-    CHAT_VIEW(),
-    /bleed=\{!immersiveOpen\}/,
-    'with a panel open the column is 476px; a bleeding card switches on horizontal scrolling across the shell',
+    view,
+    /bleed=\{!splitThread\}/,
+    'with the resource panel open the column is 476px; a bleeding card switches on horizontal scrolling across the shell',
   );
+  /* A full-width canvas does not narrow the thread — it hides it at its own width — so
+     only the split layout counts as panelled. */
+  assert.match(view, /const splitThread = immersiveOpen && !canvasFullWidth;/);
 });
 
 /*

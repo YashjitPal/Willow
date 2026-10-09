@@ -43,6 +43,8 @@ export interface UseComposerTextareaAutosizeOptions {
   /** Attachments expand the box exactly as a tool chip does — see `shouldExpand`. */
   hasAttachments: boolean;
   chatVariant: boolean;
+  /** Spark's expanded editor runs to the edge at <=960px, where Chat's keeps 72px clear. */
+  sparkMode?: boolean;
   effectiveBackground: BackgroundType;
   isComposerMaximized: boolean;
   /** Right-side reservation for the collapsed chat editor, in px. */
@@ -62,6 +64,7 @@ export const useComposerTextareaAutosize = ({
   selectedTool,
   hasAttachments,
   chatVariant,
+  sparkMode = false,
   effectiveBackground,
   isComposerMaximized,
   collapsedChatPaddingRight,
@@ -100,11 +103,14 @@ export const useComposerTextareaAutosize = ({
       const isMobileTab = typeof window !== 'undefined' && window.innerWidth <= 960;
       const isMobileNarrow = typeof window !== 'undefined' && window.innerWidth <= 768;
       const effectiveCollapsedPaddingLeftVal = chatVariant
-        ? (isMobileNarrow ? '58px' : isMobileTab ? '56px' : collapsedPaddingLeftVal)
+        ? (isMobileNarrow ? '56px' : isMobileTab ? '60px' : collapsedPaddingLeftVal)
         : collapsedPaddingLeftVal;
       const effectiveExpandedPaddingLeftVal = chatVariant
         ? (isMobileTab ? '12px' : expandedPaddingLeftVal)
         : expandedPaddingLeftVal;
+      const effectiveExpandedPaddingRightVal = chatVariant && isMobileTab
+        ? (sparkMode ? (isMobileNarrow ? '1px' : '0px') : '57px')
+        : expandedPaddingRightVal;
 
       // Force narrow padding for measurement to see if it wraps inline.
       // Must use setProperty with 'important' so the inline value beats the
@@ -134,7 +140,7 @@ export const useComposerTextareaAutosize = ({
         ? effectiveExpandedPaddingLeftVal
         : effectiveCollapsedPaddingLeftVal, 'important');
       textarea.style.setProperty('padding-right', shouldExpand
-        ? expandedPaddingRightVal
+        ? effectiveExpandedPaddingRightVal
         : collapsedPaddingRightVal, 'important');
 
       textarea.style.height = `${baseHeight}px`;
@@ -147,7 +153,7 @@ export const useComposerTextareaAutosize = ({
       setCanMaximizeComposer(nextCanMaximizeComposer);
 
       textarea.style.setProperty('padding-right', shouldExpand
-        ? expandedPaddingRightVal
+        ? effectiveExpandedPaddingRightVal
         : collapsedPaddingRightVal, 'important');
       textarea.style.height = `${baseHeight}px`;
       const scrollHeight = textarea.scrollHeight;
@@ -178,5 +184,5 @@ export const useComposerTextareaAutosize = ({
         textarea.style.height = `${newHeight}px`;
       }
     }
-  }, [promptText, selectedTool, hasAttachments, chatVariant, effectiveBackground, isComposerMaximized, collapsedChatPaddingRight, isDictationActive]);
+  }, [promptText, selectedTool, hasAttachments, chatVariant, sparkMode, effectiveBackground, isComposerMaximized, collapsedChatPaddingRight, isDictationActive]);
 };

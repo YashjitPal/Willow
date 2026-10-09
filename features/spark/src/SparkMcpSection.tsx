@@ -22,12 +22,17 @@
  * popular ones are programs a desktop client starts as a subprocess, and a web
  * page is not allowed to start a program. A user who does not read that first
  * will spend an afternoon on an address that was never going to connect, so the
- * callout sits above the form rather than below it.
+ * callout sits above the form rather than below it. In the desktop app the
+ * companion starts those programs and reaches every address, so there the
+ * callout says what each kind is instead, and that a program runs as the user.
  */
 
 import React from 'react';
 import { useStore } from '@nanostores/react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { McpCatalog, OwnAppForm, useCanRunPrograms, useCanSignIn, useSignIn } from './McpCatalog';
+import { MCP_PRESETS } from './mcp-catalog';
+import { commandLine, parseEnvLines, splitCommand } from './mcp-program-input';
 import {
   connectMcpServer,
   mcpRuntime,
@@ -36,7 +41,9 @@ import {
   setMcpServerEnabled,
   suggestMcpServerId,
   upsertMcpServer,
+  type McpServerConfig,
   type McpServerKind,
+  type McpStatus,
 } from '@willow/ai/mcp/mcp-store';
 
 /** Spark's toggle, lifted so this section matches the rows above it. */
@@ -80,8 +87,131 @@ const McpToggle: React.FC<ToggleProps> = ({ label, checked, onChange }) => (
   </button>
 );
 
+/**
+ * One server the user added. In the desktop app, one that turns Willow away for want of a sign-in offers it: Willow
+ * registers itself where the server lets apps register, and asks for an app of the user's own where it does not.
+ */
+const McpServerRow: React.FC<{ server: McpServerConfig; status: McpStatus }> = ({ server, status }) => {
+  const canSignIn = useCanSignIn();
+  const signIn = useSignIn(() => ({ ...server, enabled: true }));
+  const wantsSignIn = canSignIn && server.kind === 'http' && status.state === 'failed' && status.kind === 'needs-sign-in';
+
+  return (
+    <div className="spark-mcp-server">
+      <article className="spark-custom-app-row">
+        <span className="spark-custom-app-row__icon" aria-hidden="true">
+          {server.kind === 'program' ? (
+            <MaterialSymbol family="material-rounded" name="terminal" size={20} opticalSize={20} weight={350} />
+          ) : (
+            <MaterialSymbol
+              family="luminous"
+              name={server.kind === 'http' ? 'public' : 'code'}
+              size={22}
+              weight={320}
+              roundness={100}
+            />
+          )}
+        </span>
+        <span className="spark-custom-app-row__copy">
+          <strong>{server.label}</strong>
+          <span className={server.kind === 'program' ? 'spark-mcp-server__command' : undefined}>
+            {server.kind === 'http' ? server.url : server.kind === 'program' ? commandLine(server.command ?? '', server.args) : 'Runs in this tab'}
+          </span>
+
+          {/*
+            * Status, and when it failed, the reason in full.
+            *
+            * The browser reports a CORS refusal, a wrong address and an
+            * offline host identically, so `McpError` exists to turn one
+            * opaque failure into a sentence someone can act on.
+            */}
+          <span className="spark-custom-app-row__status">
+            {signIn.busy && 'Finish signing in in your browser…'}
+            {!signIn.busy && status.state === 'connecting' &&
+              (server.kind === 'program' ? 'Starting… The first start can take a minute while it downloads.' : 'Connecting…')}
+            {!signIn.busy && status.state === 'ready' &&
+              `${status.toolCount} tool${status.toolCount === 1 ? '' : 's'} available` +
+                (status.serverName ? ` · ${status.serverName}` : '')}
+            {!signIn.busy && status.state === 'idle' && (server.enabled ? 'Not connected' : 'Saved · Off')}
+            {!signIn.busy && status.state === 'failed' && 'Could not connect'}
+          </span>
+
+          {status.state === 'failed' && !signIn.busy && (
+            <span className="spark-mcp-server__failure">
+              {status.message}
+              {status.detail && <span className="spark-mcp-server__detail">{status.detail}</span>}
+            </span>
+          )}
+
+          {signIn.problem && !signIn.ownApp && (
+            <span className="spark-mcp-server__failure" role="alert">
+              {signIn.problem}
+            </span>
+          )}
+        </span>
+
+        {wantsSignIn ? (
+          <button
+            type="button"
+            className="spark-mcp-catalog__action is-primary"
+            data-action="mcp-sign-in"
+            disabled={signIn.busy}
+            aria-expanded={signIn.ownApp}
+            onClick={() => {
+              signIn.setProblem('');
+              if (signIn.ownApp) signIn.setOwnApp(false);
+              else void signIn.start();
+            }}
+          >
+            {signIn.ownApp ? 'Cancel' : server.oauth ? 'Sign in again' : 'Sign in'}
+          </button>
+        ) : (
+          server.enabled && (
+            <button
+              type="button"
+              className="spark-custom-app-row__remove"
+              aria-label={`Reconnect ${server.label}`}
+              title="Reconnect"
+              onClick={() => void connectMcpServer(server.id)}
+            >
+              <MaterialSymbol family="luminous" name="refresh" size={20} weight={320} roundness={100} />
+            </button>
+          )
+        )}
+
+        <McpToggle
+          label={`${server.enabled ? 'Turn off' : 'Turn on'} ${server.label}`}
+          checked={server.enabled}
+          onChange={() => void setMcpServerEnabled(server.id, !server.enabled)}
+        />
+
+        <button
+          type="button"
+          className="spark-custom-app-row__remove"
+          aria-label={`Remove ${server.label}`}
+          title="Remove server"
+          onClick={() => void removeMcpServer(server.id)}
+        >
+          <MaterialSymbol family="luminous" name="delete" size={20} weight={320} roundness={100} />
+        </button>
+      </article>
+
+      {wantsSignIn && signIn.ownApp && (
+        <OwnAppForm
+          label={server.label}
+          busy={signIn.busy}
+          problem={signIn.problem}
+          onProblem={signIn.setProblem}
+          onSubmit={(client) => void signIn.start(client)}
+        />
+      )}
+    </div>
+  );
+};
+
 export const SparkMcpSection: React.FC = () => {
-  const servers = useStore(mcpServers);
+  // Apps added from the catalog show there, with their status; this list is for every other server.
+  const servers = useStore(mcpServers).filter((server) => !MCP_PRESETS.some((preset) => preset.id === server.id));
   const runtime = useStore(mcpRuntime);
 
   const [adding, setAdding] = React.useState(false);
@@ -90,7 +220,15 @@ export const SparkMcpSection: React.FC = () => {
   const [url, setUrl] = React.useState('');
   const [token, setToken] = React.useState('');
   const [script, setScript] = React.useState('');
+  const [command, setCommand] = React.useState('');
+  const [envText, setEnvText] = React.useState('');
   const [error, setError] = React.useState('');
+  const programs = useCanRunPrograms();
+  const kinds: Array<[McpServerKind, string, string]> = [
+    ['http', 'At a web address', 'public'],
+    ...(programs ? [['program', 'A program on this computer', 'terminal'] as [McpServerKind, string, string]] : []),
+    ['worker', programs ? 'JavaScript, in this window' : 'JavaScript, in this tab', 'code'],
+  ];
 
   /*
    * Bring up anything enabled but idle when the page opens.
@@ -115,6 +253,8 @@ export const SparkMcpSection: React.FC = () => {
     setUrl('');
     setToken('');
     setScript('');
+    setCommand('');
+    setEnvText('');
     setError('');
   };
 
@@ -145,19 +285,35 @@ export const SparkMcpSection: React.FC = () => {
         setError('That is not a valid web address. It should start with https://');
         return;
       }
-    } else if (!script.trim()) {
+    } else if (kind === 'worker' && !script.trim()) {
       setError('Paste the server script.');
       return;
     }
 
+    const words = kind === 'program' ? splitCommand(command) : [];
+    const variables = kind === 'program' ? parseEnvLines(envText) : { env: {} };
+    if ('problem' in words) {
+      setError(words.problem);
+      return;
+    }
+    if ('problem' in variables) {
+      setError(variables.problem);
+      return;
+    }
+    const { env } = variables;
+
     upsertMcpServer({
-      id: suggestMcpServerId(label),
+      // Never a catalog app's id, or the server would be taken for that app.
+      id: suggestMcpServerId(label, MCP_PRESETS.map((preset) => preset.id)),
       label,
       kind,
       url: kind === 'http' ? url.trim() : undefined,
       headers:
         kind === 'http' && token.trim() ? { authorization: `Bearer ${token.trim()}` } : undefined,
       script: kind === 'worker' ? script : undefined,
+      ...(kind === 'program'
+        ? { command: words[0], args: words.slice(1), ...(Object.keys(env).length ? { env } : {}) }
+        : {}),
       // Off on arrival. An MCP server is third-party code whose output the model
       // reads, so switching it on is a separate, deliberate act.
       enabled: false,
@@ -172,51 +328,63 @@ export const SparkMcpSection: React.FC = () => {
       aria-labelledby="spark-apps-mcp-heading"
     >
       <header className="spark-connected-app-section__header">
-        <h2 id="spark-apps-mcp-heading">MCP servers</h2>
+        <h2 id="spark-apps-mcp-heading">More apps</h2>
       </header>
 
-      {/* The limits, before the form. See the note at the top of this file. */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 12,
-          padding: 16,
-          marginBottom: 16,
-          borderRadius: 16,
-          border: '1px solid rgba(255, 193, 7, 0.25)',
-          background: 'rgba(255, 193, 7, 0.07)',
-        }}
-      >
-        <span aria-hidden="true" style={{ color: '#ffcb45', flexShrink: 0, marginTop: 1 }}>
-          <MaterialSymbol family="luminous" name="warning" size={20} weight={320} roundness={100} />
-        </span>
-        <div style={{ fontSize: 13, lineHeight: 1.6, color: '#c4c7c5' }}>
-          <strong style={{ display: 'block', color: '#ffdd8a', marginBottom: 6 }}>
-            Most MCP servers will not work here, and it is worth knowing why first
-          </strong>
-          <p style={{ margin: '0 0 8px' }}>
-            Willow runs in a browser tab. Most MCP servers — including the popular
-            filesystem, git, database and browser-automation ones — are programs that a
-            desktop app starts on your computer. A web page is not allowed to start a
-            program, so those cannot be reached from here at all.
-          </p>
-          <p style={{ margin: '0 0 8px' }}>
-            <strong style={{ color: '#e3e3e3' }}>Servers at a web address</strong> work only
-            if their owner has allowed requests from web pages. Many have not — if one
-            refuses to connect, that is a setting at their end and there is nothing you can
-            change here to fix it.
-          </p>
-          <p style={{ margin: '0 0 8px' }}>
-            <strong style={{ color: '#e3e3e3' }}>Servers written in JavaScript</strong> run
-            inside this tab with nothing to install, as long as they need nothing from your
-            operating system.
-          </p>
-          <p style={{ margin: 0, color: '#9a9b9c' }}>
-            The rest need a small companion app on your computer. That is not built yet;
-            it is written up in <code>HELPER-APP.md</code> at the top of the repo.
-          </p>
+      <McpCatalog />
+
+      {/* What can be added, before the form: in the desktop app, any server; in a browser, much less. */}
+      {programs ? (
+        <div className="spark-mcp-callout">
+          <span aria-hidden="true" className="spark-mcp-callout__icon">
+            <MaterialSymbol family="material-rounded" name="info" size={20} weight={320} />
+          </span>
+          <div>
+            <strong>Any MCP server can be added here</strong>
+            <p>
+              <b>At a web address:</b> reached through Willow on this computer, whether or not the server allows web
+              pages.
+            </p>
+            <p>
+              <b>A program on this computer:</b> started with its command, such as <code>npx</code> or{' '}
+              <code>uvx</code>, while it is on. It runs as you, with your files and accounts, so add only programs you
+              trust.
+            </p>
+            <p>
+              <b>JavaScript, in this window:</b> nothing to install, for a server that needs nothing from your
+              operating system.
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="spark-mcp-callout spark-mcp-callout--warning">
+          <span aria-hidden="true" className="spark-mcp-callout__icon">
+            {/* The Luminous subset has no `warning` glyph; the full Material Symbols family does. */}
+            <MaterialSymbol family="material-rounded" name="warning" size={20} weight={320} />
+          </span>
+          <div>
+            <strong>Most MCP servers will not work here, and it is worth knowing why first</strong>
+            <p>
+              Willow runs in a browser tab. Most MCP servers — including the popular filesystem, git, database and
+              browser-automation ones — are programs that a desktop app starts on your computer. A web page is not
+              allowed to start a program, so those cannot be reached from here at all.
+            </p>
+            <p>
+              <b>Servers at a web address</b> work only if their owner has allowed requests from web pages. Many have
+              not — if one refuses to connect, that is a setting at their end and there is nothing you can change here
+              to fix it.
+            </p>
+            <p>
+              <b>Servers written in JavaScript</b> run inside this tab with nothing to install, as long as they need
+              nothing from your operating system.
+            </p>
+            <p className="spark-mcp-callout__aside">
+              Willow&apos;s desktop app runs the rest, and reaches every server at a web address; how is written up in{' '}
+              <code>HELPER-APP.md</code> at the top of the repo.
+            </p>
+          </div>
+        </div>
+      )}
 
       {servers.length === 0 ? (
         <div className="spark-custom-app-empty">
@@ -225,141 +393,34 @@ export const SparkMcpSection: React.FC = () => {
           </span>
           <span className="spark-custom-app-empty__copy">
             <strong>No MCP servers yet</strong>
-            <span>Add one to give the Code tab&apos;s Agent extra tools.</span>
+            <span>Add one to give your bots, Spark and the Code tab more tools.</span>
           </span>
         </div>
       ) : (
         <div className="spark-custom-app-list">
-          {servers.map((server) => {
-            const status = runtime[server.id]?.status ?? { state: 'idle' as const };
-
-            return (
-              <article key={server.id} className="spark-custom-app-row">
-                <span className="spark-custom-app-row__icon" aria-hidden="true">
-                  <MaterialSymbol
-                    family="luminous"
-                    name={server.kind === 'http' ? 'public' : 'code'}
-                    size={22}
-                    weight={320}
-                    roundness={100}
-                  />
-                </span>
-                <span className="spark-custom-app-row__copy">
-                  <strong>{server.label}</strong>
-                  <span>{server.kind === 'http' ? server.url : 'Runs in this tab'}</span>
-
-                  {/*
-                    * Status, and when it failed, the reason in full.
-                    *
-                    * The browser reports a CORS refusal, a wrong address and an
-                    * offline host identically, so `McpError` exists to turn one
-                    * opaque failure into a sentence someone can act on.
-                    */}
-                  <span className="spark-custom-app-row__status">
-                    {status.state === 'connecting' && 'Connecting…'}
-                    {status.state === 'ready' &&
-                      `${status.toolCount} tool${status.toolCount === 1 ? '' : 's'} available` +
-                        (status.serverName ? ` · ${status.serverName}` : '')}
-                    {status.state === 'idle' && (server.enabled ? 'Not connected' : 'Saved · Off')}
-                    {status.state === 'failed' && 'Could not connect'}
-                  </span>
-
-                  {status.state === 'failed' && (
-                    <span
-                      style={{
-                        display: 'block',
-                        marginTop: 6,
-                        padding: '8px 10px',
-                        borderRadius: 10,
-                        border: '1px solid rgba(255, 76, 69, 0.2)',
-                        background: 'rgba(255, 76, 69, 0.07)',
-                        fontSize: 12,
-                        lineHeight: 1.5,
-                        color: '#ffb4b0',
-                      }}
-                    >
-                      {status.message}
-                      {status.detail && (
-                        <span
-                          style={{
-                            display: 'block',
-                            marginTop: 4,
-                            fontFamily: 'ui-monospace, monospace',
-                            fontSize: 11,
-                            color: '#9a9b9c',
-                            wordBreak: 'break-all',
-                          }}
-                        >
-                          {status.detail}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </span>
-
-                {server.enabled && (
-                  <button
-                    type="button"
-                    className="spark-custom-app-row__remove"
-                    aria-label={`Reconnect ${server.label}`}
-                    title="Reconnect"
-                    onClick={() => void connectMcpServer(server.id)}
-                  >
-                    <MaterialSymbol family="luminous" name="refresh" size={20} weight={320} roundness={100} />
-                  </button>
-                )}
-
-                <McpToggle
-                  label={`${server.enabled ? 'Turn off' : 'Turn on'} ${server.label}`}
-                  checked={server.enabled}
-                  onChange={() => void setMcpServerEnabled(server.id, !server.enabled)}
-                />
-
-                <button
-                  type="button"
-                  className="spark-custom-app-row__remove"
-                  aria-label={`Remove ${server.label}`}
-                  title="Remove server"
-                  onClick={() => void removeMcpServer(server.id)}
-                >
-                  <MaterialSymbol family="luminous" name="delete" size={20} weight={320} roundness={100} />
-                </button>
-              </article>
-            );
-          })}
+          {servers.map((server) => (
+            <McpServerRow key={server.id} server={server} status={runtime[server.id]?.status ?? { state: 'idle' }} />
+          ))}
         </div>
       )}
 
       {adding ? (
-        <form className="spark-custom-app-card" onSubmit={submit}>
+        <form className="spark-custom-app-card spark-mcp-add" onSubmit={submit}>
           <label htmlFor="spark-mcp-name">Add an MCP server</label>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            {(
-              [
-                ['http', 'At a web address', 'public'],
-                ['worker', 'JavaScript, in this tab', 'code'],
-              ] as const
-            ).map(([value, text, icon]) => (
+          <div className="spark-mcp-kinds" role="group" aria-label="Where the server is">
+            {kinds.map(([value, text, icon]) => (
               <button
                 key={value}
                 type="button"
-                onClick={() => setKind(value)}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '10px 12px',
-                  borderRadius: 12,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  color: kind === value ? '#e3e3e3' : '#9a9b9c',
-                  background: kind === value ? 'rgba(227, 227, 227, 0.08)' : 'transparent',
-                  border: `1px solid ${kind === value ? 'rgba(255,255,255,0.2)' : '#171717'}`,
+                className="spark-mcp-kind"
+                aria-pressed={kind === value}
+                onClick={() => {
+                  setKind(value);
+                  setError('');
                 }}
               >
-                <MaterialSymbol family="luminous" name={icon} size={18} weight={320} roundness={100} />
+                <MaterialSymbol family="material-rounded" name={icon} size={18} opticalSize={20} weight={350} />
                 {text}
               </button>
             ))}
@@ -379,9 +440,9 @@ export const SparkMcpSection: React.FC = () => {
             />
           </div>
 
-          {kind === 'http' ? (
+          {kind === 'http' && (
             <>
-              <div className="spark-custom-app-card__row" style={{ marginTop: 8 }}>
+              <div className="spark-custom-app-card__row">
                 <input
                   type="url"
                   aria-label="Server address"
@@ -393,7 +454,7 @@ export const SparkMcpSection: React.FC = () => {
                   }}
                 />
               </div>
-              <div className="spark-custom-app-card__row" style={{ marginTop: 8 }}>
+              <div className="spark-custom-app-card__row">
                 <input
                   type="password"
                   aria-label="Access token, optional"
@@ -402,13 +463,54 @@ export const SparkMcpSection: React.FC = () => {
                   onChange={(event) => setToken(event.target.value)}
                 />
               </div>
-              <p style={{ margin: '8px 0 0', fontSize: 12, color: '#9a9b9c' }}>
+              <p className="spark-mcp-note">
                 The server&apos;s MCP endpoint, not its home page or documentation.
+                {programs && ' One that wants you to sign in offers it once it is on.'}
               </p>
             </>
-          ) : (
+          )}
+
+          {kind === 'program' && (
+            <>
+              <div className="spark-custom-app-card__row">
+                <input
+                  type="text"
+                  className="spark-mcp-mono"
+                  aria-label="Command"
+                  placeholder="npx -y @modelcontextprotocol/server-memory"
+                  value={command}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => {
+                    setCommand(event.target.value);
+                    setError('');
+                  }}
+                />
+              </div>
+              <textarea
+                className="spark-mcp-field spark-mcp-mono"
+                aria-label="Variables, optional"
+                placeholder={'Variables it needs, one per line (optional)\nNAME=value'}
+                rows={3}
+                value={envText}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => {
+                  setEnvText(event.target.value);
+                  setError('');
+                }}
+              />
+              <p className="spark-mcp-note">
+                The command from the server&apos;s instructions. It starts when you turn the server on and runs as you,
+                so add only programs you trust.
+              </p>
+            </>
+          )}
+
+          {kind === 'worker' && (
             <>
               <textarea
+                className="spark-mcp-field spark-mcp-mono"
                 aria-label="Server script"
                 placeholder="JavaScript module that answers MCP messages"
                 rows={7}
@@ -417,22 +519,10 @@ export const SparkMcpSection: React.FC = () => {
                   setScript(event.target.value);
                   setError('');
                 }}
-                style={{
-                  width: '100%',
-                  marginTop: 8,
-                  padding: 12,
-                  borderRadius: 12,
-                  border: '1px solid #171717',
-                  background: '#1e1f20',
-                  color: '#e3e3e3',
-                  fontFamily: 'ui-monospace, monospace',
-                  fontSize: 12,
-                  resize: 'vertical',
-                }}
               />
-              <p style={{ margin: '8px 0 0', fontSize: 12, color: '#9a9b9c' }}>
-                Runs in a background thread with no access to this page. It can still reach
-                the network, so only paste a script you trust.
+              <p className="spark-mcp-note">
+                Runs in a background thread with no access to this page. It can still reach the network, so only paste
+                a script you trust.
               </p>
             </>
           )}
@@ -443,23 +533,19 @@ export const SparkMcpSection: React.FC = () => {
             </p>
           )}
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button type="submit">Add server</button>
-            <button
-              type="button"
-              onClick={reset}
-              style={{ background: 'transparent', color: '#9a9b9c' }}
-            >
+          <div className="spark-mcp-catalog__actions spark-mcp-add__actions">
+            <button type="submit" className="spark-mcp-catalog__action is-primary">
+              Add server
+            </button>
+            <button type="button" className="spark-mcp-catalog__action" onClick={reset}>
               Cancel
             </button>
           </div>
         </form>
       ) : (
-        <div className="spark-custom-app-card">
-          <button type="button" onClick={() => setAdding(true)}>
-            Add an MCP server
-          </button>
-        </div>
+        <button type="button" className="spark-mcp-catalog__action is-primary spark-mcp-add__open" onClick={() => setAdding(true)}>
+          Add an MCP server
+        </button>
       )}
     </section>
   );

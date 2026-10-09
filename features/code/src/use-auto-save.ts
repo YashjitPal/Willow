@@ -1,11 +1,13 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useStore } from '@nanostores/react';
-import { workbenchStore } from './runtime/sandpack';
+import { useCodeSession } from './session/code-session';
+import { setCodeScreenProject } from './workbench/code-turn-activity';
 import { useDrive } from '@willow/storage/adapters/use-drive';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 
 /**
- * Hook that auto-saves project to Google Drive / Local Folder when files change
+ * Hook that auto-saves project to Google Drive / Local Folder when files change.
+ * It saves the files of the Code screen it runs in.
  * @param projectName - Name of the project (folder name in Drive)
  * @param enabled - Whether auto-save is enabled
  * @param debounceMs - How long to wait after last change before saving (default 5000ms)
@@ -13,7 +15,12 @@ import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 export function useAutoSave(projectName: string, enabled: boolean = true, debounceMs: number = 5000) {
   const { saveCheckpoint, isReady, isSaving: isDriveSaving, error: driveError } = useDrive();
   const { saveLocalFSProject, isLocalFolderConnected } = useLocalFS();
+  const { workbench: workbenchStore, screenKey } = useCodeSession();
   const filesMap = useStore(workbenchStore.files);
+  useEffect(() => {
+    setCodeScreenProject(screenKey, enabled ? projectName : null);
+  }, [screenKey, enabled, projectName]);
+  useEffect(() => () => setCodeScreenProject(screenKey, null), [screenKey]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingSaveCountRef = useRef(0);
@@ -85,7 +92,7 @@ export function useAutoSave(projectName: string, enabled: boolean = true, deboun
 
     saveQueueRef.current = operation;
     await operation;
-  }, [enabled, isReady, isLocalFolderConnected, projectName, saveCheckpoint, saveLocalFSProject]);
+  }, [enabled, isReady, isLocalFolderConnected, projectName, saveCheckpoint, saveLocalFSProject, workbenchStore]);
 
   // Debounced save when files change
   useEffect(() => {

@@ -1,0 +1,322 @@
+/*
+ * Media's home (MediaHome.tsx's HeroSection in Media mode, with the My Apps showcase under it) on
+ * tablets (601-960px) and phones (600px and below): Willow's own narrow layout.
+ *
+ * - The page starts under the shell's menu button and avatar (8 to 56), as the Code tab's home does.
+ * - The promo keeps its slides but not the desktop's 1200:350 strip, which leaves a phone 114px for
+ *   a 40px title: 16:9 on a tablet, a square story card on a phone (text over a bottom gradient,
+ *   the story's bars along its top, a swipe for the next slide), a low banner on a phone's side.
+ * - Projects are three columns on a tablet and two on a phone. A touch screen has no hover, so
+ *   each card gets a menu button, and a long press, for Rename and Delete (MediaHome.tsx).
+ * - New project is a pill centred over the bottom edge, not the desktop's card centred on a
+ *   sidebar a narrow window does not draw.
+ *
+ * Every rule sits in a max-width (or touch-only) block and is scoped under `.media-home` (App.tsx's
+ * scroll container for the page), so it outranks the Tailwind class it overrides whichever loads
+ * first; the promo's inline sizes need `!important`. Pinned by
+ * apps/studio/test/media-responsive.test.mjs.
+ */
+
+@media (max-width: 960px) {
+  .media-home .mh-root {
+    padding: calc(68px + env(safe-area-inset-top)) 24px 0;
+  }
+
+  /* ---- The promo ------------------------------------------------------------------------- */
+
+  .media-home .mh-promo {
+    aspect-ratio: 16 / 9 !important;
+    margin-bottom: 16px;
+  }
+
+  /* The desktop's shadow for the text's left half; the text runs wider here. */
+  .media-home .mh-promo-vignette {
+    width: 80%;
+  }
+
+  .media-home .mh-promo-text {
+    right: 28px;
+    bottom: 48px;
+    left: 28px;
+    max-width: 560px !important;
+  }
+
+  .media-home .mh-promo-title {
+    margin-bottom: 8px;
+    font-size: 30px;
+    line-height: 36px;
+  }
+
+  .media-home .mh-promo-desc {
+    display: -webkit-box;
+    max-width: 480px;
+    margin-bottom: 20px;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 21px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  /* Slide 3's prompt box is the desktop's decoration, 420px wide: it would cover the text. */
+  .media-home .mh-promo-deco {
+    display: none;
+  }
+
+  .media-home .mh-promo-bars {
+    right: 24px;
+    bottom: 20px;
+    left: 24px;
+  }
+
+  .media-home .mh-promo-bar {
+    flex: 1 1 0;
+    width: auto;
+    max-width: 60px;
+  }
+
+  /* ---- Projects ---------------------------------------------------------------------------- */
+
+  .media-home .mh-projects {
+    margin-top: 8px;
+    column-gap: 16px;
+    row-gap: 20px;
+    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  }
+
+  /* ---- New project: a pill over the bottom edge ------------------------------------------------ */
+
+  /* Centred on the page: in the desktop app's frame that is beside its rail. */
+  .media-home .mh-new {
+    bottom: calc(16px + env(safe-area-inset-bottom)) !important;
+    left: calc(50% + var(--willow-frame-center-shift, 0px)) !important;
+  }
+
+  .media-home .mh-new-button {
+    width: auto;
+    height: 52px;
+    padding: 0 24px;
+    border-radius: 26px;
+  }
+
+  .media-home .mh-new-button > span,
+  .media-home .mh-new-button svg {
+    color: #fff;
+  }
+
+  /* ---- My Apps (MediaShowcase.tsx), as the Code tab's copy narrows (code-responsive.css) ------- */
+
+  .media-home .showcase-panel {
+    margin-inline: 24px;
+    padding: 0 0 32px;
+  }
+
+  .media-home .showcase-pills {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .media-home .showcase-pills > * {
+    flex: none;
+  }
+
+  .media-home .showcase-star,
+  .media-home .showcase-more {
+    opacity: 1;
+  }
+}
+
+/* ---- Touch screens, at any width ----------------------------------------------------------------- */
+
+@media (hover: none) {
+  /* A sideways swipe changes the slide; an upright one still scrolls the page. */
+  .media-home .mh-promo {
+    touch-action: pan-y;
+  }
+
+  /* The bars are 3px tall: 10px of padding either side makes them a finger's target, and the
+   * margin takes it back out of the layout. */
+  .media-home .mh-promo-bar {
+    box-sizing: content-box;
+    margin-block: -10px;
+    padding-block: 10px;
+    background-clip: content-box;
+  }
+
+  .media-home .mh-card {
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+
+  /* Rename's Save and Cancel, 28px for a pointer. */
+  .media-home .mh-edit-action {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* ---- Phones -------------------------------------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  .media-home .mh-root {
+    padding-inline: 16px;
+  }
+
+  /* A square story card: the text over a gradient from the bottom, the bars along the top. */
+  .media-home .mh-promo {
+    aspect-ratio: 1 / 1 !important;
+    margin-bottom: 12px;
+  }
+
+  .media-home .mh-promo-vignette {
+    inset: 0;
+    width: auto;
+    border-radius: 18px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.5) 42%, rgba(0, 0, 0, 0) 72%);
+  }
+
+  .media-home .mh-promo-text {
+    right: 20px;
+    bottom: 24px;
+    left: 20px;
+    max-width: none !important;
+  }
+
+  .media-home .mh-promo-title {
+    font-size: 24px;
+    line-height: 30px;
+  }
+
+  .media-home .mh-promo-desc {
+    margin-bottom: 16px;
+    font-size: 13px;
+    line-height: 19px;
+  }
+
+  .media-home .mh-promo-cta {
+    height: 40px;
+    padding-inline: 20px;
+  }
+
+  .media-home .mh-promo-bars {
+    top: 14px;
+    right: 16px;
+    bottom: auto;
+    left: 16px;
+    gap: 4px;
+  }
+
+  .media-home .mh-projects {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 12px;
+    row-gap: 12px;
+  }
+
+  .media-home .mh-caption {
+    height: 54px;
+    padding-inline: 8px 0;
+  }
+
+  .media-home .mh-name {
+    font-size: 14px;
+  }
+
+  .media-home .showcase-panel {
+    margin-inline: 0;
+    padding: 0 0 24px;
+  }
+
+  .media-home .showcase-head {
+    margin-bottom: 20px;
+  }
+
+  .media-home .showcase-title {
+    font-size: 28px !important;
+    line-height: 36px !important;
+  }
+
+  .media-home .showcase-divider {
+    margin-bottom: 20px;
+  }
+
+  .media-home .showcase-pills {
+    column-gap: 4px;
+    margin-bottom: 20px;
+  }
+
+  /* Rows: a small cover with the name and actions beside it, as the Code tab's are. */
+  .media-home .showcase-grid {
+    gap: 12px;
+  }
+
+  .media-home .showcase-card {
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .media-home .showcase-thumb {
+    width: 120px;
+    border-radius: 10px;
+  }
+
+  .media-home .showcase-details {
+    padding: 0;
+  }
+
+  .media-home .showcase-name {
+    font-size: 16px;
+    line-height: 22px;
+  }
+
+  .media-home .showcase-desc {
+    display: none;
+  }
+
+  .media-home .showcase-actions {
+    padding-top: 8px;
+  }
+}
+
+/* ---- A phone on its side: a low banner, so the projects start on the first screen ------------------ */
+
+@media (max-width: 960px) and (max-height: 500px) {
+  .media-home .mh-promo {
+    aspect-ratio: 16 / 5 !important;
+  }
+
+  .media-home .mh-promo-vignette {
+    inset: 0 auto 0 0;
+    width: 70%;
+    background: linear-gradient(to right, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.4) 60%, rgba(0, 0, 0, 0));
+  }
+
+  .media-home .mh-promo-text {
+    right: auto;
+    bottom: 36px;
+    left: 24px;
+    max-width: 60% !important;
+  }
+
+  .media-home .mh-promo-title {
+    margin-bottom: 6px;
+    font-size: 22px;
+    line-height: 28px;
+  }
+
+  .media-home .mh-promo-desc {
+    margin-bottom: 12px;
+    -webkit-line-clamp: 2;
+  }
+
+  .media-home .mh-promo-cta {
+    height: 36px;
+  }
+
+  .media-home .mh-promo-bars {
+    top: auto;
+    right: auto;
+    bottom: 14px;
+    left: 24px;
+    width: 300px;
+  }
+}

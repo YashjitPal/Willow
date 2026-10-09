@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useAuth } from '@willow/auth/AuthContext';
-import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { getWorkspaceTheme, type WorkspaceComputedTheme } from '@willow/core/workspace-theme';
 import { useThemeMode } from '@willow/core/theme-mode';
 
 /*
@@ -21,6 +21,9 @@ import { useThemeMode } from '@willow/core/theme-mode';
  *                                            indicator on hover, the working glyph
  *   --spark-task-detail-accent  glowAccent   the prompt-box glow and the wide
  *                                            background wash behind it
+ *   --spark-tonal-bg / -text   notice       Gemini's tonal (secondary-container)
+ *                                            buttons: the remote browser's "Take
+ *                                            over task" and "Go back to Willow"
  *
  * Every stylesheet reads these through `var(…, <the measured Gemini blue>)`, so
  * an unthemed render is byte-identical to what the fidelity harness in
@@ -30,17 +33,28 @@ import { useThemeMode } from '@willow/core/theme-mode';
  * Home, Schedules, Skills and Apps without the `wrapConnectedPage` shell — so
  * each page root declares these itself.
  */
-export const sparkAccentVars = (workspaceColor?: string | null, isLight?: boolean): React.CSSProperties => {
-  const theme = getWorkspaceTheme(workspaceColor);
+export const sparkAccentVars = (workspaceColor?: string | null, isLight?: boolean): React.CSSProperties =>
+  sparkAccentVarsFor(getWorkspaceTheme(workspaceColor), !workspaceColor, isLight);
+
+/**
+ * `sparkAccentVars` for a theme already in hand — a bot's, from its own colour. With `geminiBlue`, or a blue theme,
+ * the light theme keeps Gemini's measured blues, as an unset workspace colour does.
+ */
+export const sparkAccentVarsFor = (theme: WorkspaceComputedTheme, geminiBlue = false, isLight?: boolean): React.CSSProperties => {
   const resolvedIsLight = isLight ?? (
     typeof document !== 'undefined'
       ? document.documentElement.classList.contains('light-theme') || document.documentElement.getAttribute('data-theme') === 'light'
       : false
   );
 
-  const primaryBtnBg = resolvedIsLight ? (theme.id === 'blue' || !workspaceColor ? '#9dd2ff' : theme.sendButton.lightBg) : theme.sendButton.bg;
-  const primaryBtnHover = resolvedIsLight ? (theme.id === 'blue' || !workspaceColor ? '#8ec7f7' : theme.sendButton.lightHover) : theme.sendButton.hover;
-  const glowLight = theme.id === 'blue' || !workspaceColor ? 'rgb(157, 210, 255)' : theme.glowAccentLight;
+  const isBlue = theme.id === 'blue' || geminiBlue;
+  const primaryBtnBg = resolvedIsLight ? (isBlue ? '#9dd2ff' : theme.sendButton.lightBg) : theme.sendButton.bg;
+  const primaryBtnHover = resolvedIsLight ? (isBlue ? '#8ec7f7' : theme.sendButton.lightHover) : theme.sendButton.hover;
+  const glowLight = isBlue ? 'rgb(157, 210, 255)' : theme.glowAccentLight;
+  // Blue keeps Gemini's measured secondary container; other colours take the
+  // notice callout's tonal pair, which is derived the same way for every colour.
+  const tonalBg = resolvedIsLight ? (isBlue ? '#c2e7ff' : theme.toggle.track) : (isBlue ? '#004a77' : theme.notice.bg);
+  const tonalText = resolvedIsLight ? (isBlue ? '#001d35' : theme.toggle.thumb) : (isBlue ? '#c2e7ff' : theme.notice.text);
 
   return {
     '--spark-accent': primaryBtnBg,
@@ -55,12 +69,14 @@ export const sparkAccentVars = (workspaceColor?: string | null, isLight?: boolea
     '--spark-accent-btn-bg': primaryBtnBg,
     '--spark-accent-btn-hover': primaryBtnHover,
     '--spark-accent-btn-text': resolvedIsLight ? '#000000' : '#ffffff',
+    '--spark-tonal-bg': tonalBg,
+    '--spark-tonal-text': tonalText,
   } as React.CSSProperties;
 };
 
-/** `sparkAccentVars` for the signed-in user's workspace colour. */
+/** `sparkAccentVars` for the workspace colour on screen, signed in or out. */
 export const useSparkAccentVars = (): React.CSSProperties => {
-  const { userProfile } = useAuth();
+  const { workspaceColor } = useAuth();
   const { isLight } = useThemeMode();
-  return sparkAccentVars(userProfile?.workspaceColor, isLight);
+  return sparkAccentVars(workspaceColor, isLight);
 };

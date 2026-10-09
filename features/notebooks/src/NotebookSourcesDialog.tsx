@@ -1,13 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { GeminiBottomSheet, GeminiSheetItem, GeminiSheetList } from '@willow/ui/GeminiBottomSheet';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { useAuth } from '@willow/auth/AuthContext';
+import { useThemeMode } from '@willow/core/theme-mode';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 
 import './notebooks.css';
 import { MAX_INLINE_SOURCE_BYTES } from './notebook-types';
 import type { Notebook, NotebookSource, NotebookSourceKind } from './notebook-types';
 import { addNotebookSource, removeNotebookSource, setNotebookSourceFsName } from './notebooks-store';
-import { SourceTile } from './SourceTile';
+import { SourceRow, SourceTile } from './SourceTile';
 import { extractSourceText, fetchWebsiteText } from './source-extract';
 
 /**
@@ -87,9 +92,10 @@ const FilesGlyph: React.FC = () => (
 );
 
 /** Gemini's Drive mark, as an inline SVG so it keeps its four brand colours. */
-const DriveGlyph: React.FC = () => (
-  /* 16px, measured — Gemini's Drive svg is 16x16 while the row beside it is 20px. */
-  <svg viewBox="0 0 87.3 78" width="16" height="16" aria-hidden="true" focusable="false">
+const DriveGlyph: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  /* 16px on the rail, measured — Gemini's Drive svg is 16x16 while the row beside it is
+   * 20px. */
+  <svg viewBox="0 0 87.3 78" width={size} height={size} aria-hidden="true" focusable="false">
     <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da" />
     <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47" />
     <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335" />
@@ -116,14 +122,18 @@ const SubDialog: React.FC<{
   canConfirm: boolean;
   onConfirm: () => void;
   onClose: () => void;
+  /** Gemini's narrow shell: a Google Symbols close, and the confirm as an accent pill. */
+  compact?: boolean;
+  style?: React.CSSProperties;
   children: React.ReactNode;
-}> = ({ icon, iconFamily, title, subtitle, notes, confirmLabel, canConfirm, onConfirm, onClose, children }) => (
+}> = ({ icon, iconFamily, title, subtitle, notes, confirmLabel, canConfirm, onConfirm, onClose, compact = false, style, children }) => (
   <div className="nb-sub-scrim" role="presentation" onClick={onClose}>
     <div
-      className="nb-surface nb-sub"
+      className={`nb-surface nb-sub${compact ? ' nb-sub--compact' : ''}`}
       role="dialog"
       aria-modal="true"
       aria-label={title}
+      style={style}
       onClick={(event) => event.stopPropagation()}
     >
       <div className="nb-sub-header">
@@ -132,7 +142,11 @@ const SubDialog: React.FC<{
           <h2 className="nb-sub-title">{title}</h2>
         </div>
         <button type="button" aria-label="Close" onClick={onClose} className="nb-sub-close">
-          <MaterialSymbol name="close" family="luminous" size={24} weight={320} roundness={100} opticalSize={24} />
+          {compact ? (
+            <MaterialSymbol name="close" family="google-symbols" size={24} weight={400} roundness={100} opticalSize={24} />
+          ) : (
+            <MaterialSymbol name="close" family="luminous" size={24} weight={320} roundness={100} opticalSize={24} />
+          )}
         </button>
       </div>
 
@@ -149,8 +163,59 @@ const SubDialog: React.FC<{
       </div>
 
       <div className="nb-sub-actions">
-        <button type="button" disabled={!canConfirm} onClick={onConfirm} className="nb-sub-confirm">
+        <button
+          type="button"
+          disabled={!canConfirm}
+          onClick={onConfirm}
+          className={compact ? 'nb-sub-pill' : 'nb-sub-confirm'}
+        >
           {confirmLabel}
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+/**
+ * Gemini's narrow "Add text" (`copied-text-dialog`), which is its own dialog rather than
+ * the website one's shell: no icon and no close button, a title over a 15px subheader,
+ * one field with 12px corners that takes focus, then Cancel and the confirm. Both are
+ * accent pills, the confirm only once there is text.
+ */
+const AddTextDialog: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+  style?: React.CSSProperties;
+}> = ({ value, onChange, onConfirm, onClose, style }) => (
+  <div className="nb-sub-scrim" role="presentation" onClick={onClose}>
+    <div
+      className="nb-surface nb-sub nb-addtext"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add text"
+      style={style}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="nb-addtext-header">
+        <span className="nb-addtext-title">Add text</span>
+        <span className="nb-addtext-sub">Paste plain text and Willow will add it as a source.</span>
+      </div>
+      <div className="nb-addtext-field">
+        <textarea
+          autoFocus
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Paste your text here"
+          aria-label="Text"
+          className="nb-addtext-input"
+        />
+      </div>
+      <div className="nb-addtext-actions">
+        <button type="button" onClick={onClose} className="nb-sub-pill">Cancel</button>
+        <button type="button" disabled={!value.trim()} onClick={onConfirm} className="nb-sub-pill">
+          Add text
         </button>
       </div>
     </div>
@@ -203,6 +268,20 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
   const closeTimerRef = useRef<number | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { saveLocalFSNotebookSource, deleteLocalFSNotebookSource } = useLocalFS();
+  /*
+   * Below 961px this is Gemini's `mobile-layout`: full screen, a back arrow instead of
+   * the close X, sources as rows, and the four source types behind a "+" that raises
+   * them in a bottom sheet rather than a permanent rail.
+   */
+  const isCompact = useCompactViewport();
+  const { isLight } = useThemeMode();
+  const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
+  const { workspaceColor } = useAuth();
+  const { accentButton } = getWorkspaceTheme(workspaceColor);
+  const accentStyle = {
+    '--nb-accent-bg': accentButton.bg,
+    '--nb-accent-hover': accentButton.hover,
+  } as React.CSSProperties;
 
   /**
    * Add a source: store it, then mirror it into the notebook's `Sources/` folder.
@@ -259,6 +338,18 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
   useEffect(() => () => {
     if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current);
   }, []);
+
+  // Escape closes the topmost layer: the add sheet handles its own, then a sub-dialog,
+  // then this dialog.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || isAddSheetOpen) return;
+      if (sub) setSub(null);
+      else requestClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isAddSheetOpen, sub, requestClose]);
 
   /*
    * One pass per file: extract what text it has, store the source, and collect
@@ -406,6 +497,11 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
     setError(null);
   };
 
+  const pickFiles = () => fileInputRef.current?.click();
+  const pickDrive = () => setError('Drive picking is not wired up yet — use Upload files for now.');
+  const openWebsites = () => setSub('websites');
+  const openText = () => setSub('text');
+
   /** The permanent left rail. Icon sizes are per-row, as Gemini's are. */
   const rail: ReadonlyArray<{
     label: string;
@@ -416,12 +512,12 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
     {
       label: 'Upload files',
       glyph: <MaterialSymbol name="add_2" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} />,
-      onSelect: () => fileInputRef.current?.click(),
+      onSelect: pickFiles,
     },
     {
       label: 'Add from Drive',
       glyph: <DriveGlyph />,
-      onSelect: () => setError('Drive picking is not wired up yet — use Upload files for now.'),
+      onSelect: pickDrive,
       disabledReason: 'Not connected',
     },
     {
@@ -433,14 +529,56 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
        * showed a stray letter instead of an icon.
        */
       glyph: <MaterialSymbol name="web" family="google-symbols" size={20} weight={320} roundness={100} />,
-      onSelect: () => setSub('websites'),
+      onSelect: openWebsites,
     },
     {
       label: 'Copied text',
       glyph: <MaterialSymbol name="content_paste" family="google-symbols" size={20} weight={320} roundness={100} />,
-      onSelect: () => setSub('text'),
+      onSelect: openText,
     },
   ];
+
+  /**
+   * The rail again, as the narrow "+" sheet lists it: 24px weight-300 glyphs, `add` rather
+   * than `add_2`, and "Add text".
+   */
+  const addSheet: ReadonlyArray<{ label: string; glyph: React.ReactNode; onSelect: () => void }> = [
+    {
+      label: 'Upload files',
+      glyph: <MaterialSymbol name="add" family="luminous" size={24} weight={300} roundness={100} opticalSize={24} />,
+      onSelect: pickFiles,
+    },
+    // Gemini's 24px Drive svg insets its mark to 21.8x19.5; the slot centres this one.
+    { label: 'Add from Drive', glyph: <DriveGlyph size={21.8} />, onSelect: pickDrive },
+    {
+      label: 'Add websites',
+      glyph: <MaterialSymbol name="web" family="google-symbols" size={24} weight={300} roundness={100} opticalSize={24} />,
+      onSelect: openWebsites,
+    },
+    {
+      label: 'Add text',
+      glyph: <MaterialSymbol name="content_paste" family="google-symbols" size={24} weight={300} roundness={100} opticalSize={24} />,
+      onSelect: openText,
+    },
+  ];
+
+  const isEmpty = notebook.sources.length === 0 && pending.length === 0;
+  const emptyState = (
+    <div className="nb-src-empty">
+      <span className="nb-src-empty-icon">
+        <FilesGlyph />
+      </span>
+      <p className="nb-src-empty-text">
+        Documents, images, videos, and files you add will appear here.
+      </p>
+    </div>
+  );
+  /*
+   * `white-space: pre-line` on the error: extraction reports one note per file, joined
+   * with newlines, and a 40-page scan plus a working PDF in the same drop produces two
+   * very different messages.
+   */
+  const errorNote = error && <p className="nb-sheet-error" style={{ whiteSpace: 'pre-line' }}>{error}</p>;
 
   /*
    * Rendered through a portal to <body>.
@@ -452,12 +590,13 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
    * shell is what gets that.
    */
   return createPortal(
-    /*
-     * The exit class goes on the SCRIM, not the sheet: opacity on the scrim
-     * composites its whole subtree, so the tint and the dialog leave together.
-     * On the sheet alone, the scrim would snap away and the dialog would be seen
-     * fading over the bare page.
-     */
+    <>
+    {/*
+      * The exit class goes on the SCRIM, not the sheet: opacity on the scrim
+      * composites its whole subtree, so the tint and the dialog leave together.
+      * On the sheet alone, the scrim would snap away and the dialog would be seen
+      * fading over the bare page.
+      */}
     <div
       className={`nb-sheet-scrim ${isClosing ? 'nb-sheet-exit' : ''}`}
       role="presentation"
@@ -470,16 +609,6 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
         aria-label="Sources"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="nb-sheet-header">
-          <div className="nb-sheet-header-text">
-            <h2 className="nb-sheet-title">Sources</h2>
-            <p className="nb-sheet-sub">Add files that Willow can reference in your notebook</p>
-          </div>
-          <button type="button" aria-label="Close" onClick={requestClose} className="nb-sheet-close">
-            <MaterialSymbol name="close" family="luminous" size={24} weight={320} roundness={100} opticalSize={24} />
-          </button>
-        </div>
-
         <input
           ref={fileInputRef}
           type="file"
@@ -488,76 +617,114 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
           onChange={(event) => void onFiles(event.target.files)}
         />
 
-        <div className="nb-sheet-body">
-          <div className="nb-src-rail">
-            {rail.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={item.onSelect}
-                title={item.disabledReason}
-                className="nb-src-rail-item"
-              >
-                <span className="nb-src-rail-icon">{item.glyph}</span>
-                <span className="nb-src-rail-label">{item.label}</span>
+        {isCompact ? (
+          <div className="nb-src-mobile">
+            <div className="nb-src-mobile-pre-header">
+              <button type="button" aria-label="Close" onClick={requestClose} className="nb-src-mobile-back">
+                <MaterialSymbol name="arrow_back" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} />
               </button>
-            ))}
-          </div>
-
-          <div
-            className="nb-src-pane"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              void onFiles(event.dataTransfer.files);
-            }}
-          >
-            {notebook.sources.length === 0 && pending.length === 0 ? (
-              <div className="nb-src-empty">
-                <span className="nb-src-empty-icon">
-                  <FilesGlyph />
-                </span>
-                <p className="nb-src-empty-text">
-                  Documents, images, videos, and files you add will appear here.
-                </p>
+            </div>
+            <div className="nb-src-mobile-header">
+              <div className="nb-sheet-header-text">
+                <h2 className="nb-sheet-title">Sources</h2>
+                <p className="nb-sheet-sub">Add files that Willow can reference in your notebook</p>
               </div>
-            ) : (
-              <div className="nb-src-tiles">
+              <button
+                type="button"
+                aria-label="Add sources"
+                aria-haspopup="menu"
+                aria-expanded={isAddSheetOpen}
+                onClick={() => setIsAddSheetOpen(true)}
+                className="nb-src-mobile-add"
+              >
+                <span className="nb-src-mobile-add-disc">
+                  <MaterialSymbol name="add" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} />
+                </span>
+              </button>
+            </div>
+            {isEmpty ? emptyState : (
+              <div className="nb-src-rows">
                 {notebook.sources.map((source) => (
-                  <SourceTile
-                    key={source.id}
-                    source={source}
-                    onRemove={() => removeSource(source)}
-                  />
+                  <SourceRow key={source.id} source={source} onRemove={() => removeSource(source)} />
                 ))}
-                {/*
-                  * After the stored ones, in the order they will land in — a source is
-                  * appended when it lands, so a tile does not jump position as it settles.
-                  */}
                 {pending.map((entry) => (
-                  <SourceTile
-                    key={entry.id}
-                    source={{ ...entry, createdAt: 0 }}
-                    loading
-                  />
+                  <SourceRow key={entry.id} source={{ ...entry, createdAt: 0 }} loading />
                 ))}
               </div>
             )}
-
-            {/*
-              * `white-space: pre-line` on the error: extraction reports one note
-              * per file, joined with newlines, and a 40-page scan plus a working
-              * PDF in the same drop produces two very different messages.
-              */}
-            {error && <p className="nb-sheet-error" style={{ whiteSpace: 'pre-line' }}>{error}</p>}
+            {errorNote}
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="nb-sheet-header">
+              <div className="nb-sheet-header-text">
+                <h2 className="nb-sheet-title">Sources</h2>
+                <p className="nb-sheet-sub">Add files that Willow can reference in your notebook</p>
+              </div>
+              <button type="button" aria-label="Close" onClick={requestClose} className="nb-sheet-close">
+                <MaterialSymbol name="close" family="luminous" size={24} weight={320} roundness={100} opticalSize={24} />
+              </button>
+            </div>
+
+            <div className="nb-sheet-body">
+              <div className="nb-src-rail">
+                {rail.map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={item.onSelect}
+                    title={item.disabledReason}
+                    className="nb-src-rail-item"
+                  >
+                    <span className="nb-src-rail-icon">{item.glyph}</span>
+                    <span className="nb-src-rail-label">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div
+                className="nb-src-pane"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  void onFiles(event.dataTransfer.files);
+                }}
+              >
+                {isEmpty ? emptyState : (
+                  <div className="nb-src-tiles">
+                    {notebook.sources.map((source) => (
+                      <SourceTile
+                        key={source.id}
+                        source={source}
+                        onRemove={() => removeSource(source)}
+                      />
+                    ))}
+                    {/*
+                      * After the stored ones, in the order they will land in — a source is
+                      * appended when it lands, so a tile does not jump position as it settles.
+                      */}
+                    {pending.map((entry) => (
+                      <SourceTile
+                        key={entry.id}
+                        source={{ ...entry, createdAt: 0 }}
+                        loading
+                      />
+                    ))}
+                  </div>
+                )}
+                {errorNote}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {sub === 'websites' && (
         <SubDialog
-          icon="web"
+          icon={isCompact ? 'link' : 'web'}
           iconFamily="google-symbols"
+          compact={isCompact}
+          style={isCompact ? accentStyle : undefined}
           title="Website URLs"
           subtitle="Paste in website URLs below to upload as a source."
           notes={[
@@ -573,18 +740,47 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
           onConfirm={() => { void addWebsites(); }}
           onClose={() => setSub(null)}
         >
-          <textarea
-            autoFocus
-            value={urls}
-            onChange={(event) => setUrls(event.target.value)}
-            placeholder="Paste any links"
-            rows={6}
-            className="nb-sub-textarea"
-          />
+          {isCompact ? (
+            /*
+             * Gemini's outlined field: nothing takes focus on open, so the label rests
+             * inside the outline as the prompt, and floats into a notch in the top edge
+             * once the field has focus or text. The blank placeholder is what lets
+             * `:placeholder-shown` tell the two apart.
+             */
+            <label className="nb-sub-outlined">
+              <textarea
+                value={urls}
+                onChange={(event) => setUrls(event.target.value)}
+                placeholder=" "
+                rows={7}
+                className="nb-sub-outlined-input"
+              />
+              <span className="nb-sub-outlined-label">Paste any links</span>
+            </label>
+          ) : (
+            <textarea
+              autoFocus
+              value={urls}
+              onChange={(event) => setUrls(event.target.value)}
+              placeholder="Paste any links"
+              rows={6}
+              className="nb-sub-textarea"
+            />
+          )}
         </SubDialog>
       )}
 
-      {sub === 'text' && (
+      {sub === 'text' && isCompact && (
+        <AddTextDialog
+          value={textBody}
+          onChange={setTextBody}
+          onConfirm={addText}
+          onClose={() => setSub(null)}
+          style={accentStyle}
+        />
+      )}
+
+      {sub === 'text' && !isCompact && (
         <SubDialog
           icon="content_paste"
           iconFamily="google-symbols"
@@ -611,7 +807,33 @@ export const NotebookSourcesDialog: React.FC<NotebookSourcesDialogProps> = ({ no
           />
         </SubDialog>
       )}
-    </div>,
+    </div>
+    {/* Beside the scrim, not in it: portal events bubble through React, so a tap on a
+        row would otherwise reach the scrim's close. */}
+    {isCompact && (
+      <GeminiBottomSheet
+        isOpen={isAddSheetOpen}
+        onClose={() => setIsAddSheetOpen(false)}
+        label="Add sources"
+        isLight={isLight}
+        className="nb-src-add-sheet"
+      >
+        <GeminiSheetList label="Add sources">
+          {addSheet.map((item) => (
+            <GeminiSheetItem
+              key={item.label}
+              glyph={item.glyph}
+              label={item.label}
+              onSelect={() => {
+                setIsAddSheetOpen(false);
+                item.onSelect();
+              }}
+            />
+          ))}
+        </GeminiSheetList>
+      </GeminiBottomSheet>
+    )}
+    </>,
     document.body,
   );
 };

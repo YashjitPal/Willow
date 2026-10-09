@@ -1,0 +1,1074 @@
+/*
+ * Canvas chrome — the inline card, the full-screen panel, their menus, the editor,
+ * and the floating prompt that replaces the composer in full screen.
+ *
+ * Every value is Gemini's, read off the live app (Oct 2026, 1536x826 / DPR 1.25,
+ * plus 390x844 and 800x1280 under device emulation). The capture scripts are in
+ * tools/ui-research/scrapers/gemini/canvas-2026/; that tree is gitignored, so the
+ * measurements that justify a value are repeated beside it.
+ *
+ * Colours are variables on `.cv-scope` so the <=960px token remap and the light
+ * theme are one override each rather than a second copy of every rule.
+ */
+
+.cv-scope {
+  --cv-font: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  --cv-code-font: "Google Sans Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+  --cv-surface: rgb(31, 31, 31);
+  --cv-on-surface: rgb(227, 227, 227);
+  --cv-on-surface-strong: rgb(230, 230, 230);
+  --cv-on-surface-variant: rgb(196, 199, 197);
+  --cv-disabled: rgba(227, 227, 227, 0.38);
+  --cv-tonal: rgb(23, 23, 23);
+  --cv-gem-menu: rgb(31, 31, 31);
+  --cv-mat-menu: rgb(30, 31, 32);
+  --cv-overflow: rgb(28, 28, 28);
+  --cv-toggle-track: rgba(255, 255, 255, 0.12);
+  --cv-toggle-checked: rgb(15, 15, 15);
+  --cv-divider: rgb(196, 199, 197);
+  --cv-surface-container: rgb(30, 31, 32);
+  --cv-surface-dim: rgb(23, 23, 23);
+  --cv-floating: rgb(15, 15, 15);
+  --cv-outline: rgb(142, 145, 143);
+  --cv-outline-variant: rgb(68, 71, 70);
+  --cv-primary-fill: var(--sync-1f3b9b, rgb(31, 59, 155));
+  --cv-code-bg: rgb(20, 20, 20);
+  --cv-console-text: rgb(217, 217, 217);
+  --cv-hover: rgba(230, 230, 230, 0.08);
+}
+
+/* Gemini's narrow-layout tokens: surface #1f1f1f -> #1c1c1c, text -> #e0e0e0. */
+@media (max-width: 959.98px) {
+  .cv-scope {
+    --cv-surface: rgb(28, 28, 28);
+    --cv-on-surface-strong: rgb(224, 224, 224);
+    --cv-tonal: rgb(20, 20, 20);
+    --cv-toggle-checked: rgb(0, 0, 0);
+  }
+}
+
+/* Light theme: Gemini's light canvas was not measured; these are its light-theme system colours. */
+:is(.light-theme, [data-theme="light"]) .cv-scope {
+  --cv-surface: rgb(255, 255, 255);
+  --cv-on-surface: rgb(31, 31, 31);
+  --cv-on-surface-strong: rgb(31, 31, 31);
+  --cv-on-surface-variant: rgb(68, 71, 70);
+  --cv-disabled: rgba(31, 31, 31, 0.38);
+  --cv-tonal: rgb(240, 244, 249);
+  --cv-gem-menu: rgb(255, 255, 255);
+  --cv-mat-menu: rgb(240, 244, 249);
+  --cv-overflow: rgb(255, 255, 255);
+  --cv-toggle-track: rgba(0, 0, 0, 0.08);
+  --cv-toggle-checked: rgb(255, 255, 255);
+  --cv-divider: rgb(116, 119, 117);
+  --cv-surface-container: rgb(240, 244, 249);
+  --cv-surface-dim: rgb(233, 238, 246);
+  --cv-floating: rgb(248, 250, 253);
+  --cv-outline: rgb(116, 119, 117);
+  --cv-outline-variant: rgb(196, 199, 197);
+  --cv-primary-fill: var(--sync-0b57d0, rgb(11, 87, 208));
+  --cv-code-bg: rgb(248, 250, 253);
+  --cv-console-text: rgb(31, 31, 31);
+  --cv-hover: rgba(31, 31, 31, 0.08);
+}
+
+/* ------------------------------------------------------------------ buttons */
+
+.cv-icon-btn {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--cv-on-surface-variant);
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The tint is a state layer over whatever is behind the button, never a background. */
+.cv-icon-btn::before,
+.cv-pill::before,
+.cv-styles-btn::before,
+.cv-toggle__cell::before,
+.cv-fab__button::before,
+.cv-float-tool::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  content: "";
+  pointer-events: none;
+  transition: opacity 15ms linear;
+}
+
+.cv-icon-btn:hover::before,
+.cv-pill:hover::before,
+.cv-styles-btn:hover::before,
+.cv-fab__button:hover::before,
+.cv-float-tool:hover::before { opacity: 0.08; }
+
+.cv-icon-btn:focus-visible::before,
+.cv-icon-btn:active::before,
+.cv-icon-btn[aria-expanded="true"]::before,
+.cv-pill:focus-visible::before,
+.cv-pill:active::before,
+.cv-pill[aria-expanded="true"]::before,
+.cv-styles-btn:focus-visible::before,
+.cv-styles-btn[aria-expanded="true"]::before,
+.cv-float-tool:focus-visible::before,
+.cv-float-tool[aria-pressed="true"]::before { opacity: 0.12; }
+
+.cv-icon-btn:disabled {
+  color: var(--cv-disabled);
+  cursor: default;
+}
+
+.cv-icon-btn:disabled::before { display: none; }
+
+/* 36: the card's title row (gem-icon-button small, 24px glyph, rgb(230,230,230)). */
+.cv-icon-btn--36 { width: 36px; height: 36px; color: var(--cv-on-surface-strong); }
+/* 40: the panel toolbar's versioning and formatting buttons (20px glyph, rgb(196,199,197)). */
+.cv-icon-btn--40 { width: 40px; height: 40px; }
+/* 24: the panel's Share and Show console (gem-icon-button xsmall, 16px glyph). */
+.cv-icon-btn--24 { width: 24px; height: 24px; color: var(--cv-on-surface-strong); }
+/* 56: the panel's Collapse, padding 16 around a 24px glyph. */
+.cv-icon-btn--56 { width: 56px; height: 56px; }
+
+/* The panel's Export / Download: 36px, padding 0 12 0 8, icon 24 + 8 + label 15/20. */
+.cv-pill {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--cv-tonal);
+  color: var(--cv-on-surface-strong);
+  font-family: var(--cv-font);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+
+.cv-pill:disabled { opacity: 0.38; cursor: default; }
+.cv-pill:disabled::before { display: none; }
+.cv-pill > * { position: relative; }
+
+.cv-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 20px;
+  margin: 0 12px;
+  background: var(--cv-divider);
+}
+
+/* ------------------------------------------------------------------ menus */
+
+/* Export: Gemini's gem-menu in a CDK popover, 4px under the pill, right edges aligned. No animation. */
+/* Flex, not block: a block wrapper gives the inline-flex pill a line box and nudges it 0.2px off-centre. */
+.cv-anchor { position: relative; display: flex; flex-shrink: 0; }
+
+.cv-gem-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  border-radius: 20px;
+  background: var(--cv-gem-menu);
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+}
+
+.cv-gem-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--cv-on-surface);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+
+.cv-gem-menu__item:hover,
+.cv-gem-menu__item:focus-visible { background: var(--cv-hover); }
+
+.cv-gem-menu__label {
+  flex: 1;
+  color: var(--cv-on-surface-strong);
+  font-family: var(--cv-font);
+  font-size: 13px;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+/* An empty 20px trailing slot, as Gemini reserves one: it is why the pane is 118.3 wide. */
+.cv-gem-menu__trailing { width: 20px; height: 20px; flex-shrink: 0; }
+
+/* Styles: Material's mat-menu, 280 wide, scale .8 -> 1 over 120ms, fade out over 100ms after 25ms. */
+.cv-styles-btn {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 132px;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cv-on-surface);
+  font-family: var(--cv-font);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 17.6px;
+  cursor: pointer;
+  outline: none;
+}
+
+/* While its menu is open, mat-menu's transparent backdrop covers the trigger: no hover, no tint. */
+.cv-styles-btn[aria-expanded="true"]::before { opacity: 0; }
+.cv-styles-btn:disabled { color: var(--cv-disabled); cursor: default; }
+.cv-styles-btn:disabled::before { display: none; }
+.cv-styles-btn__label { position: relative; flex: 1; text-align: left; white-space: nowrap; }
+.cv-styles-btn__icon { position: relative; margin: 0 -12px 0 4px; }
+
+.cv-mat-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 40;
+  width: 280px;
+  padding: 0 4px;
+  border-radius: 16px;
+  background: var(--cv-mat-menu);
+  box-shadow: rgba(0, 0, 0, 0.2) 0 3px 1px -2px, rgba(0, 0, 0, 0.14) 0 2px 2px 0, rgba(0, 0, 0, 0.12) 0 1px 5px 0;
+  transform-origin: top left;
+  animation: cv-mat-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.cv-mat-menu--leaving {
+  animation: cv-mat-menu-exit 100ms linear 25ms forwards;
+  pointer-events: none;
+}
+
+@keyframes cv-mat-menu-enter {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes cv-mat-menu-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.cv-mat-menu__list { padding: 8px 0; }
+
+.cv-mat-menu__item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--cv-on-surface);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.cv-mat-menu__item:hover,
+.cv-mat-menu__item:focus-visible { background: rgba(227, 227, 227, 0.08); }
+.cv-mat-menu__text { flex: 1; min-width: 0; font-family: var(--cv-font); }
+.cv-mat-menu__check { margin-right: 12px; color: var(--cv-on-surface-variant); }
+
+.cv-format-p { font-size: 15px; line-height: 20px; font-weight: 400; font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400; }
+.cv-format-h1 { font-size: 28px; line-height: 36px; font-weight: 350; font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 350; }
+.cv-format-h2 { font-size: 24px; line-height: 28px; font-weight: 380; font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 380; }
+.cv-format-h3 { font-size: 20px; line-height: 24px; font-weight: 470; font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470; }
+
+/* The more_vert toggle's row: absolute under the toolbar's left panel, no animation, no shadow. */
+.cv-floating-editor {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--cv-mat-menu);
+}
+
+/* <=960px: everything left of the actions folds into one wrapping panel under `more_vert`. */
+.cv-overflow { position: relative; display: flex; flex: 1 1 auto; align-items: center; min-width: 0; }
+
+/* Shrink-to-fit from the container's left edge: as wide as its contents up to the
+   container's width, never narrower than its widest control. On a phone that is the
+   132px Styles button, so it wraps to versioning / Styles / divider B I / lists fx / sigma. */
+.cv-overflow-panel {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 12px);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--cv-overflow);
+  box-shadow: rgba(0, 0, 0, 0.15) 0 2px 6px 0;
+}
+
+/* ------------------------------------------------------------------ Code / Preview */
+
+.cv-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 4px;
+  border-radius: 9999px;
+  background: var(--cv-toggle-track);
+  box-sizing: border-box;
+}
+
+.cv-toggle__cell {
+  position: relative;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--cv-on-surface-strong);
+  font-family: var(--cv-font);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 28px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+
+.cv-toggle__cell::before { background: rgb(227, 227, 227); }
+.cv-toggle__cell:hover::before { opacity: 0.04; }
+.cv-toggle__cell:focus-visible::before { opacity: 0.12; }
+.cv-toggle__cell[aria-checked="true"] { background: var(--cv-toggle-checked); }
+.cv-toggle__cell > span { position: relative; }
+
+/* ------------------------------------------------------------------ inline card */
+
+.cv-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 900px;
+  margin: 40px 0;
+  overflow: hidden;
+  border-radius: 40px;
+  background: var(--cv-surface);
+  color: var(--cv-on-surface);
+}
+
+/* 948 wide over a 708 column, centred as Gemini does it (`left:50%` + `translateX(-50%)`). */
+@media (min-width: 1200px) {
+  .cv-card--bleed { left: 50%; width: 948px; transform: translateX(-50%); }
+}
+
+/* Wraps only when the actions do not fit beside the trio; they then go under it,
+   right-aligned, as Gemini lays out its narrow card. */
+.cv-card__head {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 8px;
+  min-height: 72px;
+  padding: 8px 28px;
+}
+
+/* An empty `gem-popover` flex item costs one more 8px gap. On the card it follows Export
+   (965.6 against Share's 1110; the code card's Download has none). In the panel it sits
+   before Share whatever precedes it: Export at 1247.6, or Download at 1223.85 and Show
+   console at 1352, against Share's 1392 — and the same on a phone's toolbar. The card's
+   Code/Preview toggle has one after it too: 650.3 + 147.6 + 16 = Download's 813.9. */
+.cv-card__actions > .cv-anchor,
+.cv-card__actions > .cv-toggle { margin-right: 8px; }
+.cv-toolbar__actions > .cv-share { margin-left: 8px; }
+
+/* Takes the row's free space, but never less than the trio: only the title gives way.
+   A zero basis makes that minimum what decides whether the actions still fit. */
+.cv-card__title-wrap {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: min-content;
+}
+
+.cv-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 8px;
+}
+
+.cv-card__title {
+  flex: 1 1 auto;
+  /* Zero, so the title adds nothing to the trio's minimum. */
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cv-on-surface-strong);
+  font-family: var(--cv-font);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv-card__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 28px 32px;
+  scrollbar-gutter: stable;
+}
+
+/* Edge to edge, as Gemini's 948px preview is. It never scrolls itself (the source view has its
+   own scroller), and `overflow: hidden` would still reserve the prose body's stable gutter: a
+   15px strip of card beside the preview. */
+.cv-card__body--code { display: flex; flex-direction: column; padding: 0; overflow: hidden; scrollbar-gutter: auto; }
+
+/* Gemini's narrow card, `max-width: 600px` inclusive: the title always has its own row,
+   the padding drops to 16 and the card is 500 tall. */
+@media (max-width: 600px) {
+  .cv-card { height: 500px; }
+  .cv-card__head { padding: 8px 16px; }
+  .cv-card__title-wrap { flex-basis: 100%; }
+  .cv-card__body { padding: 0 16px 24px; }
+}
+
+/* ------------------------------------------------------------------ full-screen panel */
+
+.cv-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--cv-surface);
+  color: var(--cv-on-surface);
+  font-family: var(--cv-font);
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+@media (min-width: 960px) {
+  /* Flush with the rail and the window's edge at every width. Gemini keeps the 24px side
+     margins of its side-by-side layout here (max(24px, 50% - 900px), capped at 1800px),
+     which leaves a strip of page beside a panel that is otherwise edge to edge. The chat
+     column shares the cell, laid over the panel (ChatView's `canvasFullWidth`). */
+  .cv-panel { grid-area: 1 / 1; margin: 0; }
+}
+
+/* Portalled to the body here (see CanvasPanel): over the shell's mobile header, under the
+   prompts and tooltips at 1000. */
+@media (max-width: 959.98px) {
+  .cv-panel { position: fixed; inset: 0; z-index: 900; margin: 0; }
+}
+
+.cv-toolbar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 60px;
+  padding: 0 32px;
+}
+
+.cv-toolbar__left {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 40px;
+  padding-left: 8px;
+}
+
+.cv-toolbar__title {
+  display: flow-root;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 4px 0;
+  padding: 0 12px 0 8px;
+  overflow: hidden;
+  color: var(--cv-on-surface);
+  font-family: var(--cv-font);
+  font-size: 17px;
+  font-weight: 370;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv-toolbar__group { display: flex; flex-shrink: 0; align-items: center; }
+
+.cv-toolbar__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+}
+
+@media (max-width: 959.98px) {
+  .cv-toolbar { justify-content: space-between; padding: 0 16px; }
+  .cv-toolbar__left { height: 56px; padding-left: 0; }
+  .cv-toolbar__actions { padding-left: 4px; }
+  .cv-overflow .cv-toolbar__title { flex: 1 1 auto; }
+}
+
+@media (max-width: 480px) {
+  .cv-overflow .cv-toolbar__title { display: none; }
+}
+
+.cv-panel__scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* response-container: 48px in from the panel's left, 60px of gutter on the right, 4px down.
+   Past 1800px it stops growing and centres, so lines are never longer than in Gemini's
+   1800px-capped panel. */
+.cv-panel__doc { max-width: 1800px; margin: 0 auto; padding: 4px 60px 48px 48px; }
+
+/* <=960px the scroller is padded 48 a side and its scrollbar takes no width: 294.4px of
+   text on a 390 phone, 704 on an 800 tablet. */
+@media (max-width: 959.98px) {
+  .cv-panel__doc { padding: 4px 48px 48px; }
+  .cv-panel .cv-panel__scroll { scrollbar-width: none; }
+  .cv-panel .cv-panel__scroll::-webkit-scrollbar { display: none; }
+}
+
+/* ------------------------------------------------------------------ the editor */
+
+.cv-prose {
+  min-height: 100%;
+  outline: none;
+  color: var(--cv-on-surface);
+  font-family: var(--cv-font);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  caret-color: currentColor;
+}
+
+.cv-prose h1 { margin: 28px 0 8px; font-size: 28px; line-height: 36px; font-weight: 350; font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 350; }
+.cv-prose h2 { margin: 28px 0 8px; font-size: 24px; line-height: 28px; font-weight: 380; font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 380; }
+.cv-prose h3 { margin: 24px 0 8px; font-size: 20px; line-height: 24px; font-weight: 470; font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470; }
+.cv-prose :is(h4, h5, h6) { margin: 24px 0 8px; font-size: 17px; line-height: 24px; font-weight: 500; }
+.cv-prose p { margin: 0 0 12.5px; }
+.cv-prose :is(ul, ol) { margin: 0 0 12.5px; padding-left: 28px; }
+.cv-prose ul { list-style: disc; }
+.cv-prose ol { list-style: decimal; }
+.cv-prose li { margin: 4px 0; padding-left: 4px; }
+.cv-prose li > :is(ul, ol) { margin: 4px 0 0; }
+.cv-prose li[data-checked] { list-style: none; }
+.cv-prose li[data-checked]::before { margin: 0 8px 0 -24px; content: "\2610"; }
+.cv-prose li[data-checked="true"]::before { content: "\2611"; }
+.cv-prose blockquote { margin: 0 0 12.5px; padding-left: 16px; border-left: 3px solid var(--cv-outline-variant); }
+.cv-prose pre {
+  margin: 0 0 12.5px;
+  padding: 16px;
+  overflow-x: auto;
+  border-radius: 16px;
+  background: var(--cv-tonal);
+  font-family: var(--cv-code-font);
+  font-size: 14px;
+  line-height: 21px;
+  white-space: pre;
+}
+.cv-prose code { padding: 1px 6px; border-radius: 6px; background: var(--cv-tonal); font-family: var(--cv-code-font); font-size: 0.9em; }
+.cv-prose pre code { padding: 0; border-radius: 0; background: none; font-size: inherit; }
+.cv-prose hr { height: 1px; margin: 16px 0; border: 0; background: var(--cv-outline-variant); }
+.cv-prose a { color: var(--cv-on-surface-strong); text-decoration: underline dotted; text-underline-position: from-font; }
+.cv-prose table { margin: 0 0 12.5px; border-collapse: collapse; }
+.cv-prose :is(th, td) { padding: 8px 12px; border-bottom: 1px solid var(--cv-outline-variant); text-align: left; }
+.cv-prose [data-align="center"] { text-align: center; }
+.cv-prose [data-align="right"] { text-align: right; }
+.cv-prose img { max-width: 100%; }
+/* Gemini's canvas selection, sampled at rgb(54,86,141) over the panel surface. */
+.cv-prose::selection,
+.cv-prose *::selection { background-color: var(--sync-36568d, rgb(54, 86, 141)); }
+.cv-math { cursor: pointer; }
+.cv-math--block { display: block; margin: 0 0 12.5px; overflow-x: auto; text-align: center; }
+.cv-prose[contenteditable="false"] .cv-math { cursor: default; }
+
+.cv-equation {
+  position: fixed;
+  z-index: 1002;
+  padding: 8px;
+  border-radius: 16px;
+  background: var(--cv-mat-menu, rgb(30, 31, 32));
+  box-shadow: rgba(0, 0, 0, 0.2) 0 3px 3px -2px, rgba(0, 0, 0, 0.14) 0 3px 4px 0, rgba(0, 0, 0, 0.12) 0 1px 8px 0;
+}
+
+.cv-equation__input {
+  width: 260px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgb(68, 71, 70);
+  border-radius: 12px;
+  background: transparent;
+  color: rgb(230, 230, 230);
+  font-family: "Google Sans Code", ui-monospace, monospace;
+  font-size: 14px;
+  outline: none;
+}
+
+/* ------------------------------------------------------------------ co-creation input */
+
+/* "Ask Willow" under a selection, at the fab, and "Describe changes" under a region. */
+.cv-cocreate {
+  display: flex;
+  align-items: center;
+  width: 320px;
+  height: 56px;
+  padding: 4px 0;
+  box-sizing: border-box;
+  border-radius: 56px;
+  background: var(--cv-surface);
+  box-shadow: rgba(0, 0, 0, 0.2) 0 3px 3px -2px, rgba(0, 0, 0, 0.14) 0 3px 4px 0, rgba(0, 0, 0, 0.12) 0 1px 8px 0;
+}
+
+.cv-cocreate--fixed { position: fixed; z-index: 1000; }
+
+.cv-cocreate__input {
+  flex: 1;
+  min-width: 0;
+  height: 48px;
+  padding: 0 0 0 32px;
+  border: 0;
+  background: transparent;
+  color: var(--cv-on-surface-strong);
+  font-family: var(--cv-font);
+  font-size: 16px;
+  line-height: 24px;
+  caret-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  outline: none;
+}
+
+.cv-cocreate__input::placeholder { color: var(--cv-outline); }
+/* A question held while a turn runs. */
+.cv-cocreate__input:disabled { color: var(--cv-disabled); }
+
+.cv-cocreate__send {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: 0 8px 0 4px;
+  padding: 6px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--cv-surface-container);
+  color: var(--cv-disabled);
+  cursor: default;
+  outline: none;
+}
+
+.cv-cocreate__send:not(:disabled) { background: var(--cv-primary-fill); color: rgb(230, 230, 230); cursor: pointer; }
+
+/* ------------------------------------------------------------------ fab + floating chat */
+
+.cv-fab {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  z-index: 100;
+  padding: 8px;
+  pointer-events: auto;
+  transform: translateX(-50%);
+  animation: cv-fab-fade-in 500ms cubic-bezier(0.2, 0, 0, 1);
+  transition: opacity 500ms cubic-bezier(0.2, 0, 0, 1), visibility 500ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* `.hide-fab`: a selection prompt has taken over asking. */
+.cv-fab--hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+@keyframes cv-fab-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.cv-fab__button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 50px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--cv-surface-container);
+  box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2), 0 6px 10px 0 rgba(0, 0, 0, 0.14), 0 1px 18px 0 rgba(0, 0, 0, 0.12);
+  color: var(--cv-on-surface-variant);
+  font-family: var(--cv-font);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+}
+
+.cv-fab__button > span { position: relative; }
+
+/* Fixed over the whole viewport so any press outside the input closes it. */
+.cv-float-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 40px;
+  box-sizing: border-box;
+}
+
+/* `.has-window.gds-elevation-3`. */
+.cv-float-card--window {
+  width: 380px;
+  overflow: hidden;
+  border-radius: 32px;
+  background: var(--cv-floating);
+  box-shadow: rgba(0, 0, 0, 0.2) 0 3px 5px -1px, rgba(0, 0, 0, 0.14) 0 6px 10px 0, rgba(0, 0, 0, 0.12) 0 1px 18px 0;
+}
+
+.cv-float-card--window .cv-cocreate {
+  width: calc(100% - 32px);
+  margin: 0 16px 16px;
+  border-radius: 32px;
+  box-shadow: none;
+}
+
+.cv-float-window {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-height: 467px;
+  padding: 12px 16px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.cv-float-window::-webkit-scrollbar { width: 14px; }
+.cv-float-window::-webkit-scrollbar-track { background: transparent; }
+.cv-float-window::-webkit-scrollbar-thumb { border: 4px solid transparent; border-radius: 9999px; background: rgba(255, 255, 255, 0.2) padding-box; }
+
+.cv-float-window__header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0 8px;
+  cursor: grab;
+  user-select: none;
+}
+
+.cv-float-window__header:active { cursor: grabbing; }
+
+.cv-float-window__bar {
+  width: 36px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--cv-outline-variant);
+}
+
+.cv-float-window__entry { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+
+.cv-float-window__user {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 12px 18px;
+  box-sizing: border-box;
+  border-radius: 28px;
+  background: var(--cv-surface-dim);
+  color: var(--cv-on-surface);
+  font-family: var(--cv-font);
+  font-size: 15px;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  overflow-wrap: break-word;
+}
+
+/* 32x28: the dots' block is a line box taller than their 24px svg. */
+.cv-float-window__thinking {
+  display: flex;
+  align-self: flex-start;
+  align-items: flex-start;
+  height: 28px;
+  padding: 0 4px;
+}
+
+/* `.model-response.markdown.gds-body-m`, and the markdown it holds. */
+.cv-float-window__reply {
+  max-width: 100%;
+  color: var(--cv-on-surface);
+  font-family: var(--cv-font);
+  font-size: 15px;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  overflow-wrap: break-word;
+}
+
+/* Blocks carry no margins of their own; the space is between siblings, by kind. */
+.cv-float-window__reply > * { margin-top: 0; margin-bottom: 0; }
+.cv-float-window__reply > :where(*) + :where(*) { margin-top: 16px; }
+.cv-float-window__reply > :where(*) + :where(h1, h2, h3, h4, h5, h6) { margin-top: 40px; }
+.cv-float-window__reply > :where(h3, h4, h5, h6) + :where(*) { margin-top: 8px; }
+.cv-float-window__reply > :where(*) + :where(pre) { margin-top: 40px; }
+.cv-float-window__reply > :where(h1, h2, h3, h4, h5, h6) + :where(pre) { margin-top: 20px; }
+.cv-float-window__reply > :where(*) + :where(table) { margin-top: 24px; }
+.cv-float-window__reply > :where(h1, h2, h3, h4, h5, h6) + :where(table) { margin-top: 12px; }
+.cv-float-window__reply > :where(h1, h2, h3, h4, h5, h6) + :where(h1, h2, h3, h4, h5, h6) { margin-top: 16px; }
+.cv-float-window__reply > :where(h3) + :where(h4),
+.cv-float-window__reply > :where(h4) + :where(h5),
+.cv-float-window__reply > :where(h5) + :where(h6) { margin-top: 8px; }
+.cv-float-window__reply > :where(h1) + :where(h2) { margin-top: 24px; }
+
+.cv-float-window__reply h1 { font-size: 28px; line-height: 36px; font-weight: 350; font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 350; }
+.cv-float-window__reply h2 { font-size: 24px; line-height: 28px; font-weight: 380; font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 380; }
+.cv-float-window__reply h3 { font-size: 20px; line-height: 24px; font-weight: 470; font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470; }
+.cv-float-window__reply strong { font-weight: 700; font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540; }
+.cv-float-window__reply em { font-style: normal; font-variation-settings: "ROND" 0, "slnt" -10, "wdth" 92, "wght" 400; }
+.cv-float-window__reply a { color: var(--sync-a8c7fa, rgb(168, 199, 250)); text-decoration: underline; }
+.cv-float-window__reply code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgb(40, 42, 44);
+  color: var(--cv-on-surface-variant);
+  font-family: var(--cv-code-font);
+}
+.cv-float-window__reply pre {
+  overflow-x: auto;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--cv-surface-container);
+  font-family: var(--cv-code-font);
+  font-size: 13px;
+  line-height: 20px;
+}
+.cv-float-window__reply pre code { padding: 0; border-radius: 0; background: none; }
+.cv-float-window__reply ul { padding-left: 27px; list-style: disc; }
+.cv-float-window__reply ol { padding-left: 4px; list-style: none; }
+/* Gemini's items are `li` 4px + `p` 4px; ours hold their text directly. */
+.cv-float-window__reply li { margin: 8px 0; padding-left: 8px; }
+.cv-float-window__reply li > p { margin: 0; }
+.cv-float-window__reply ol > li { position: relative; padding-left: 40px; }
+.cv-float-window__reply ol > li::before { content: counter(list-item) "."; position: absolute; top: 0; left: 0; width: 24px; }
+.cv-float-window__reply hr { border: 0; border-top: 1px solid rgb(128, 128, 128); }
+.cv-float-window__reply table { border-collapse: separate; border-spacing: 0; overflow: hidden; border-radius: 4px; background: var(--cv-surface-container); }
+.cv-float-window__reply :is(th, td) { padding: 8px 12px; text-align: left; }
+.cv-float-window__reply th { background: rgb(40, 42, 44); font-size: 17px; line-height: 24px; font-weight: 370; font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370; }
+.cv-float-window__reply td { background: rgb(27, 27, 27); }
+
+/* ------------------------------------------------------------------ code panel extras */
+
+/* Bottom-right of the preview, 20px in: drag handle, Add Gemini features, select-and-ask. */
+.cv-float-tools {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 3;
+  width: 48px;
+}
+
+.cv-float-tools__pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 40px;
+  margin: 4px;
+  border-radius: 9999px;
+  background: var(--cv-surface);
+  box-shadow: rgba(0, 0, 0, 0.3) 0 1px 2px 0, rgba(0, 0, 0, 0.15) 0 2px 6px 2px;
+}
+
+.cv-float-tools__drag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 4px;
+  box-sizing: border-box;
+  color: rgba(255, 255, 255, 0.55);
+  opacity: 0.2;
+  transform: rotate(90deg);
+  cursor: grab;
+  touch-action: none;
+}
+
+.cv-float-tool {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 4px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--cv-on-surface-variant);
+  cursor: pointer;
+  outline: none;
+}
+
+.cv-float-tool--last { border-radius: 0 0 30px 30px; }
+
+/* Select and ask: a dimmed crosshair layer over the preview, the region drawn in SVG. */
+.cv-select-ask {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  background-color: rgb(119, 119, 119);
+  opacity: 0.3;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.cv-select-ask__box { position: absolute; z-index: 1000; }
+
+/* The console: the bottom quarter of the body, over the editor. */
+.cv-console {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  height: 25%;
+  background: var(--cv-surface);
+  color: var(--cv-console-text);
+}
+
+.cv-console--expanded { height: 100%; }
+
+.cv-console__header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 10px 0 22px;
+}
+
+.cv-console__title { font-family: var(--cv-font); font-size: 13px; line-height: 17px; font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400; }
+.cv-console__header .cv-icon-btn { color: var(--cv-console-text); }
+
+.cv-console__output {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 22px;
+  overflow-y: auto;
+  font-family: var(--cv-code-font);
+  font-size: 13px;
+  line-height: 19px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Show console's unread dot (Gemini puts a mat-badge on the button). */
+.cv-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(242, 184, 181);
+  pointer-events: none;
+}
+
+.cv-console__line--error { color: rgb(242, 184, 181); }
+.cv-console__line--warn { color: rgb(253, 214, 99); }
+
+/* Monaco, as Gemini themes it: the palette a captured HTML document actually used. */
+.cv-code-tokens .hljs { color: #ffffff; }
+.cv-code-tokens .hljs-tag,
+.cv-code-tokens .hljs-punctuation,
+.cv-code-tokens .hljs-operator { color: #757575; }
+.cv-code-tokens .hljs-name,
+.cv-code-tokens .hljs-selector-tag { color: #ff96da; }
+.cv-code-tokens .hljs-attr,
+.cv-code-tokens .hljs-attribute,
+.cv-code-tokens .hljs-property { color: #ffdb0f; }
+.cv-code-tokens .hljs-string,
+.cv-code-tokens .hljs-regexp,
+.cv-code-tokens .hljs-template-tag { color: #60d673; }
+.cv-code-tokens .hljs-keyword,
+.cv-code-tokens .hljs-meta,
+.cv-code-tokens .hljs-literal,
+.cv-code-tokens .hljs-doctag { color: #969dff; }
+.cv-code-tokens .hljs-comment { color: #757575; font-style: italic; }
+.cv-code-tokens :is(.hljs-built_in, .hljs-title, .hljs-variable, .hljs-number, .hljs-params, .hljs-selector-class, .hljs-selector-id) { color: #ffffff; }
+/* Monaco's bracket-pair colours, cycling by depth. */
+.cv-code-tokens .cv-bracket-0 { color: #ffd700; }
+.cv-code-tokens .cv-bracket-1 { color: #da70d6; }
+.cv-code-tokens .cv-bracket-2 { color: #179fff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-mat-menu,
+  .cv-mat-menu--leaving,
+  .cv-fab { animation: none; }
+}

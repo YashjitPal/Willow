@@ -1,6 +1,18 @@
 import * as esbuild from 'esbuild-wasm';
 import esbuildWasmUrl from 'esbuild-wasm/esbuild.wasm?url';
-import { injectSourceLocations as injectSourceLocationsToCode } from './babel-source-plugin';
+import {
+  CDN_NAMESPACE,
+  PackageFetchError,
+  RUNTIME_PROVIDED,
+  collectPackageImports,
+  cssModule,
+  describeUrl,
+  fetchModule,
+  isNodeBuiltin,
+  packageUrl,
+  readProjectDependencies,
+  resolveCdnImport,
+} from './packages';
 
 let esbuildInitialized = false;
 let initializationPromise: Promise<void> | null = null;
@@ -14,10 +26,10 @@ export async function initBundler(): Promise<void> {
 
   initializationPromise = (async () => {
     try {
-      await esbuild.initialize({
-        wasmURL: esbuildWasmUrl,
-        worker: false
-      });
+      // Node (the test runner) finds the wasm itself and rejects `wasmURL`.
+      await esbuild.initialize(
+        typeof window === 'undefined' ? { worker: false } : { wasmURL: esbuildWasmUrl, worker: false },
+      );
       esbuildInitialized = true;
       console.log('[Bundler] Initialized successfully');
     } catch (error: any) {
@@ -28,10 +40,27 @@ export async function initBundler(): Promise<void> {
         return;
       }
       console.error('[Bundler] Init failed:', error);
+      initializationPromise = null;
       throw error;
     }
   })();
   return initializationPromise;
+}
+
+export interface BundleOptions {
+  /** Tag JSX with `data-willow-source` for visual editing. */
+  injectSourceLocations?: boolean;
+  /**
+   * Fail the build on a missing project file or a Node built-in instead of
+   * rendering a placeholder. The harness checks with this on; the live preview
+   * keeps the forgiving behaviour so a half-finished project still renders.
+   */
+  strict?: boolean;
+  /**
+   * The Code screen building, named in the build errors posted to this window,
+   * so each screen's preview reports its own (`isOwnPreviewMessage`).
+   */
+  screen?: string;
 }
 
 // Resolve a path relative to a directory
@@ -67,34 +96,58 @@ function getDir(filePath: string): string {
   return parts.join('/') || '/';
 }
 
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.heic', '.heif', '.apng', '.jfif', '.pjpeg', '.pjp', '.cur'];
+
 // Find file with extensions
 function findFile(files: Record<string, string>, basePath: string): string | null {
   const extensions = [
-    '', '.tsx', '.ts', '.jsx', '.js', '.css',
-    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.heic', '.heif', '.apng', '.jfif', '.pjpeg', '.pjp', '.cur',
-    '/index.tsx', '/index.ts', '/index.js'
+    '', '.tsx', '.ts', '.jsx', '.js', '.mjs', '.json', '.css',
+    ...IMAGE_EXTENSIONS,
+    '/index.tsx', '/index.ts', '/index.jsx', '/index.js'
   ];
   for (const ext of extensions) {
     const fullPath = basePath + ext;
-    if (files[fullPath]) return fullPath;
+    if (files[fullPath] !== undefined) return fullPath;
   }
   return null;
 }
 
-const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocations: boolean = false) => ({
+/**
+ * `@/components/Button` and `~/lib/utils`, the aliases shadcn-style projects use.
+ *
+ * Both mean "from the project root" here. A project that keeps its sources under
+ * `/src/` is tried second, so an imported project resolves either way.
+ */
+function resolveAlias(files: Record<string, string>, specifier: string): string | null {
+  const match = /^[@~]\/(.*)$/.exec(specifier);
+  if (!match) return null;
+  return findFile(files, `/${match[1]}`) ?? findFile(files, `/src/${match[1]}`);
+}
+
+const createVirtualFsPlugin = (files: Record<string, string>, options: BundleOptions = {}) => ({
   name: 'virtual-fs',
   setup(build: esbuild.PluginBuild) {
+    const injectSourceLocations = options.injectSourceLocations ?? false;
+    const strict = options.strict ?? false;
     const fileKeys = Object.keys(files);
+    const dependencies = readProjectDependencies(files);
+    const packageImports = collectPackageImports(files);
     console.log('[Bundler Plugin] Available files:', fileKeys);
     
-    // Handle external packages (react, react-dom)
-    build.onResolve({ filter: /^(react|react-dom)$/ }, (args) => {
+    // React and React DOM are the preview page's own UMD globals.
+    build.onResolve({ filter: RUNTIME_PROVIDED }, (args) => {
       return { path: args.path, external: true };
     });
 
     // Handle entry point
     build.onResolve({ filter: /^__entry__$/ }, () => {
       return { path: '__entry__', namespace: 'entry' };
+    });
+
+    // Imports found inside a module that came from the CDN.
+    build.onResolve({ filter: /.*/, namespace: CDN_NAMESPACE }, (args) => {
+      const importer = (args.pluginData as { url?: string } | undefined)?.url ?? args.importer;
+      return { path: resolveCdnImport(args.path, importer), namespace: CDN_NAMESPACE };
     });
 
     // Handle all other imports
@@ -109,6 +162,9 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
       }
       
       if (args.namespace === 'virtual-fs') {
+        const aliased = resolveAlias(files, args.path);
+        if (aliased) return { path: aliased, namespace: 'virtual-fs' };
+
         const fromDir = args.importer ? getDir(args.importer) : '/';
         const resolvedPath = resolvePath(args.path, fromDir);
         const found = findFile(files, resolvedPath);
@@ -119,7 +175,15 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
         }
         
         // If it's a relative import and not found, this is an error
-        if (args.path.startsWith('./') || args.path.startsWith('../') || args.path.startsWith('/')) {
+        const isLocal = args.path.startsWith('./') || args.path.startsWith('../') || args.path.startsWith('/') || /^[@~]\//.test(args.path);
+        if (isLocal) {
+          if (strict) {
+            return {
+              errors: [{
+                text: `Could not resolve "${args.path}" from ${args.importer}: no such file in the project.`,
+              }],
+            };
+          }
           console.error('[Bundler] FAILED to resolve:', args.path, 'from', args.importer);
           console.error('[Bundler] Tried path:', resolvedPath);
           console.error('[Bundler] Available files:', fileKeys);
@@ -130,12 +194,45 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
           };
         }
       }
-      
-      // Non-relative imports that aren't react/react-dom - mark as external
-      console.warn('[Bundler] External module:', args.path);
-      return { path: args.path, external: true };
+
+      if (isNodeBuiltin(args.path)) {
+        if (strict) {
+          return {
+            errors: [{
+              text: `"${args.path}" is a Node.js module. The preview runs in a browser, where it does not exist.`,
+            }],
+          };
+        }
+        console.warn('[Bundler] External module:', args.path);
+        return { path: args.path, external: true };
+      }
+
+      // Any other bare import is an npm package, fetched from the CDN.
+      return {
+        path: packageUrl(args.path, dependencies, packageImports),
+        namespace: CDN_NAMESPACE,
+      };
     });
-    
+
+    build.onLoad({ filter: /.*/, namespace: CDN_NAMESPACE }, async (args) => {
+      try {
+        const module = await fetchModule(args.path);
+        const pathname = new URL(module.url).pathname;
+        if (/\.css$/i.test(pathname)) {
+          return { contents: cssModule(module.contents, module.url), loader: 'js', pluginData: { url: module.url } };
+        }
+        if (/\.json$/i.test(pathname)) {
+          return { contents: module.contents, loader: 'json', pluginData: { url: module.url } };
+        }
+        return { contents: module.contents, loader: 'js', pluginData: { url: module.url } };
+      } catch (error) {
+        const message = error instanceof PackageFetchError
+          ? error.message
+          : `Could not load ${describeUrl(args.path)}: ${(error as Error).message}`;
+        return { errors: [{ text: message }] };
+      }
+    });
+
     // Handler for missing files - returns error component
     build.onLoad({ filter: /.*/, namespace: 'missing-file' }, (args) => {
       return {
@@ -143,7 +240,7 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
           export default function MissingComponent() {
             return React.createElement('div', {
               style: { color: 'red', padding: '20px', background: '#1f2937' }
-            }, 'Error: Could not find module "${args.path}"');
+            }, 'Error: Could not find module ${JSON.stringify(args.path).slice(1, -1)}');
           }
         `,
         loader: 'tsx',
@@ -152,8 +249,8 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
 
     // Load entry point
     build.onLoad({ filter: /.*/, namespace: 'entry' }, () => {
-      const entryPaths = ['/App.tsx', '/App.jsx', '/App.js', '/src/App.tsx'];
-      const entry = entryPaths.find(p => files[p]);
+      const entryPaths = ['/App.tsx', '/App.jsx', '/App.js', '/src/App.tsx', '/src/App.jsx'];
+      const entry = entryPaths.find(p => files[p] !== undefined);
       
       if (!entry) {
         const available = Object.keys(files).join(', ');
@@ -162,11 +259,16 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
       
       console.log('[Bundler] Entry point:', entry);
 
+      // Interpolated so a loader that rewrites import specifiers in source text
+      // (the test runner's) leaves this generated module alone.
+      const react = 'react';
+      const reactDom = 'react-dom';
+
       return {
         contents: `
           import App from '${entry}';
-          import React from 'react';
-          import ReactDOM from 'react-dom';
+          import React from '${react}';
+          import ReactDOM from '${reactDom}';
           
           // Cache the React root for reuse across hot updates
           window.__reactRoot = null;
@@ -184,7 +286,7 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
             // Handle case where App might be { default: Component }
             const AppComponent = App.default || App;
             
-            if (typeof AppComponent !== 'function') {
+            if (typeof AppComponent !== 'function' && !(AppComponent && AppComponent.$$typeof)) {
               console.error('[Preview] AppComponent is not a function:', AppComponent);
               showError('Component Error', 'App component is not a function. Check your export.');
               return;
@@ -214,23 +316,38 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
     });
 
     // Load virtual files
-    build.onLoad({ filter: /.*/, namespace: 'virtual-fs' }, (args) => {
+    build.onLoad({ filter: /.*/, namespace: 'virtual-fs' }, async (args) => {
       const content = files[args.path];
       if (content === undefined) {
         throw new Error(`File not found: ${args.path}`);
       }
 
+      const lowerPath = args.path.toLowerCase();
+
       // Image files - export data URL as default export
-      const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.heic', '.heif', '.apng', '.jfif', '.pjpeg', '.pjp', '.cur'];
-      if (imageExtensions.some(ext => args.path.toLowerCase().endsWith(ext))) {
+      if (IMAGE_EXTENSIONS.some(ext => lowerPath.endsWith(ext))) {
+        // An SVG written as markup rather than uploaded as a data URL still has
+        // to be usable as an <img src>.
+        const trimmed = content.trimStart();
+        const value = lowerPath.endsWith('.svg') && (trimmed.startsWith('<svg') || trimmed.startsWith('<?xml'))
+          ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(content)}`
+          : content;
         return {
-          contents: `export default ${JSON.stringify(content)};`,
+          contents: `export default ${JSON.stringify(value)};`,
           loader: 'js',
         };
       }
 
+      if (lowerPath.endsWith('.json')) {
+        return { contents: content, loader: 'json' };
+      }
+
+      if (lowerPath.endsWith('.md') || lowerPath.endsWith('.txt')) {
+        return { contents: content, loader: 'text' };
+      }
+
       // CSS files - inject as style tag
-      if (args.path.endsWith('.css')) {
+      if (lowerPath.endsWith('.css')) {
         return {
           contents: `
             const style = document.createElement('style');
@@ -247,7 +364,8 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
           // Normalize file name (remove leading slash for display)
           const fileName = args.path.startsWith('/') ? args.path.substring(1) : args.path;
 
-          // Inject source locations
+          // Babel is only needed for visual editing, so it loads on first use.
+          const { injectSourceLocations: injectSourceLocationsToCode } = await import('./babel-source-plugin');
           const augmentedCode = injectSourceLocationsToCode(content, fileName);
 
           return {
@@ -268,7 +386,7 @@ const createVirtualFsPlugin = (files: Record<string, string>, injectSourceLocati
 
 export async function bundleFiles(
   files: Record<string, string>,
-  options: { injectSourceLocations?: boolean } = {}
+  options: BundleOptions = {}
 ): Promise<string> {
   await initBundler();
 
@@ -279,8 +397,12 @@ export async function bundleFiles(
       entryPoints: ['__entry__'],
       bundle: true,
       write: false,
-      plugins: [createVirtualFsPlugin(files, options.injectSourceLocations ?? false)],
-      define: { 'process.env.NODE_ENV': '"production"' },
+      plugins: [createVirtualFsPlugin(files, options)],
+      define: {
+        'process.env.NODE_ENV': '"production"',
+        'process.env': '{}',
+        'import.meta.env': '{"MODE":"production","DEV":false,"PROD":true}',
+      },
       jsx: 'transform',
       jsxFactory: 'React.createElement',
       jsxFragment: 'React.Fragment',
@@ -293,7 +415,9 @@ export async function bundleFiles(
     console.log('[Bundler] Build successful, output size:', result.outputFiles[0].text.length);
     return result.outputFiles[0].text;
   } catch (err: any) {
-    console.error('[Bundler] Build failed:', err);
+    // A strict build is the harness checking the model's work; its failure is
+    // the result, handed back to the model, not an app error.
+    if (!options.strict) console.error('[Bundler] Build failed:', err);
     throw err;
   }
 }
@@ -371,17 +495,34 @@ const DEFAULT_THEME_CSS = `
   }
 `;
 
-export function generatePreviewHTML(scriptCode: string, customThemeCSS?: string): string {
+export interface PreviewHTMLOptions {
+  /**
+   * The `type` of the message an error is posted to the parent with.
+   *
+   * The live preview uses `PREVIEW_ERROR`, which the workbench turns into toasts
+   * and the error panel. The harness's own runtime check renders the same page
+   * in a hidden frame, and must not raise toasts for a build the user has not
+   * seen yet, so it listens on a channel of its own.
+   */
+  errorMessageType?: string;
+  /** Extra script run before anything else in the page. */
+  headScript?: string;
+}
+
+export function generatePreviewHTML(scriptCode: string, customThemeCSS?: string, options: PreviewHTMLOptions = {}): string {
   // Merge custom theme CSS with defaults (custom takes precedence via CSS cascade)
   const themeCSS = customThemeCSS
     ? `${DEFAULT_THEME_CSS}\n/* Custom theme overrides */\n${customThemeCSS}`
     : DEFAULT_THEME_CSS;
+  const errorMessageType = JSON.stringify(options.errorMessageType ?? 'PREVIEW_ERROR');
+  const headScript = options.headScript ? `<script>${options.headScript.replace(/<\/script/gi, '<\\/script')}</script>` : '';
 
   return `<!DOCTYPE html>
 <html class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${headScript}
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js"></script>
@@ -402,14 +543,34 @@ export function generatePreviewHTML(scriptCode: string, customThemeCSS?: string)
     function showError(type, message) {
       // Notify parent window (for popup display and visual editor exit)
       try {
-        window.parent.postMessage({ type: 'PREVIEW_ERROR', errorType: type, message: message }, '*');
+        window.parent.postMessage({ type: ${errorMessageType}, errorType: type, message: message }, '*');
       } catch (e) {}
     }
 
+    // The automatic JSX runtime, for packages compiled against it.
+    var __jsxRuntime = {
+      Fragment: React.Fragment,
+      jsx: function(type, props, key) {
+        var config = props || {};
+        if (key !== undefined) { config = Object.assign({}, config, { key: key }); }
+        return React.createElement(type, config);
+      }
+    };
+    __jsxRuntime.jsxs = __jsxRuntime.jsx;
+    __jsxRuntime.jsxDEV = __jsxRuntime.jsx;
+
+    // Modules the page provides; everything else is bundled in.
+    var __providedModules = {
+      'react': window.React,
+      'react-dom': window.ReactDOM,
+      'react-dom/client': window.ReactDOM,
+      'react/jsx-runtime': __jsxRuntime,
+      'react/jsx-dev-runtime': __jsxRuntime
+    };
+
     // Polyfill require for bundled code
     window.require = function(m) {
-      if (m === 'react') return window.React;
-      if (m === 'react-dom') return window.ReactDOM;
+      if (Object.prototype.hasOwnProperty.call(__providedModules, m)) return __providedModules[m];
       console.warn('[Preview] Unknown module:', m);
       return new Proxy({}, {
         get: (_, prop) => function() {
@@ -546,7 +707,7 @@ export function generatePreviewHTML(scriptCode: string, customThemeCSS?: string)
 }
 
 // Extract CSS variable definitions from project CSS files
-function extractThemeCSSFromFiles(files: Record<string, string>): string | undefined {
+export function extractThemeCSSFromFiles(files: Record<string, string>): string | undefined {
   // Look for common CSS files that might contain theme variables
   const cssFilePatterns = [
     '/globals.css',
@@ -587,7 +748,7 @@ function extractThemeCSSFromFiles(files: Record<string, string>): string | undef
 
 export async function createPreviewURL(
   files: Record<string, string>,
-  options: { injectSourceLocations?: boolean } = {}
+  options: BundleOptions = {}
 ): Promise<string> {
   try {
     const code = await bundleFiles(files, options);
@@ -604,10 +765,10 @@ export async function createPreviewURL(
       for (const e of errors) {
         const loc = e.location ? `${e.location.file}:${e.location.line}:${e.location.column}` : '';
         const msg = loc ? `${loc}: ${e.text}` : e.text;
-        window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: msg }, '*');
+        window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: msg, screen: options.screen }, '*');
       }
     } else {
-      window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: err.message || String(err) }, '*');
+      window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: err.message || String(err), screen: options.screen }, '*');
     }
     // Return a minimal blank page so preview isn't completely empty
     const fallbackHtml = `<!DOCTYPE html>
@@ -628,7 +789,7 @@ export const transpile = async () => { throw new Error('Deprecated'); };
  */
 export async function bundleForHotUpdate(
   files: Record<string, string>,
-  options: { injectSourceLocations?: boolean } = {}
+  options: BundleOptions = {}
 ): Promise<string> {
   try {
     const scriptCode = await bundleFiles(files, options);
@@ -642,10 +803,10 @@ export async function bundleForHotUpdate(
       for (const e of errors) {
         const loc = e.location ? `${e.location.file}:${e.location.line}:${e.location.column}` : '';
         const msg = loc ? `${loc}: ${e.text}` : e.text;
-        window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: msg }, '*');
+        window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: msg, screen: options.screen }, '*');
       }
     } else {
-      window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: err.message || String(err) }, '*');
+      window.postMessage({ type: 'PREVIEW_ERROR', errorType: 'Build Error', message: err.message || String(err), screen: options.screen }, '*');
     }
     throw err;
   }

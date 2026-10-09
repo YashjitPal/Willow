@@ -1,0 +1,1053 @@
+/*
+ * The sidebar of an agent tab, in Willow's Spark sidebar's measurements (apps/studio's Sidebar.tsx,
+ * SparkFolderSections.tsx): a 52px header with the mark at (15, 17) and the name at x=46, 32px pill
+ * rows inset 6px, 13px/17px labels, muted 13px headings 12px apart, and the 40px account row and
+ * 32px gear at the foot. Collapsed it is Willow's 52px rail of glyphs, and the gear opens Willow's
+ * settings pane.
+ */
+
+.willow-glyph {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-family: "Luminous Symbols";
+  font-size: 20px;
+  font-style: normal;
+  font-weight: 320;
+  line-height: 20px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "opsz" 20, "wght" 320;
+  font-feature-settings: "liga";
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  direction: ltr;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.willow-glyph--google {
+  font-family: "Google Symbols";
+  font-variation-settings: "ROND" 100, "slnt" 0, "wght" 320;
+}
+
+.willow-glyph--material {
+  font-family: "Material Symbols Rounded";
+  font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "opsz" 20;
+}
+
+html:not(.willow-icons-ready) .willow-glyph--material,
+html:not(.willow-icons-ready) .willow-glyph--google {
+  color: transparent !important;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.willow-sidebar-header {
+  position: relative;
+  display: flex;
+  height: 52px;
+  min-width: 52px;
+  flex-shrink: 0;
+  align-items: flex-start;
+}
+
+.willow-sidebar-header__mark {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0 0 10px;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+  transition: transform 200ms;
+}
+
+.willow-sidebar-header__mark:active {
+  transform: scale(0.95);
+}
+
+.willow-sidebar-header__mark:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.willow-sidebar-header__mark img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.willow-sidebar-header__name {
+  min-width: 0;
+  margin: 16px 0 0 4px;
+  overflow: hidden;
+  color: #1f1f1f;
+  font-size: 17px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.dark .willow-sidebar-header__name {
+  color: #e6e6e6;
+}
+
+.willow-sidebar-header__collapse {
+  position: absolute;
+  top: 6px;
+  right: 14px;
+  display: flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: #1f1f1f;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+
+.willow-sidebar-header__collapse:hover {
+  background: rgb(0 0 0 / 6%);
+}
+
+.dark .willow-sidebar-header__collapse {
+  color: #e3e3e3;
+}
+
+.dark .willow-sidebar-header__collapse:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.willow-sidebar-header__collapse .willow-glyph,
+.willow-sidebar-header__expand .willow-glyph {
+  width: 24px;
+  height: 24px;
+  font-size: 24px;
+  line-height: 24px;
+  font-weight: 300;
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24, "ROND" 100;
+}
+
+/* On the rail the mark gives way to the expand glyph under the pointer, and the mark expands. */
+.willow-sidebar-header__mark {
+  position: relative;
+}
+
+.willow-sidebar-header__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    opacity 200ms,
+    transform 200ms;
+}
+
+.willow-sidebar-header__expand {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1f1f1f;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.9);
+  transition:
+    opacity 200ms,
+    transform 200ms;
+}
+
+.dark .willow-sidebar-header__expand {
+  color: #e3e3e3;
+}
+
+.willow-sidebar-header[data-collapsed="true"] .willow-sidebar-header__mark:hover .willow-sidebar-header__logo {
+  opacity: 0;
+  transform: scale(0.75);
+}
+
+.willow-sidebar-header__mark:hover .willow-sidebar-header__expand {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/*
+ * Opening, the name fades in 100ms behind the width and the collapse button lands at 250ms, just
+ * before the 300ms width settles (Willow's sidenav, Sidebar.css).
+ */
+.willow-sidenav-text {
+  opacity: 0;
+  animation: willow-sidenav-text-fade-in 100ms ease 100ms forwards;
+}
+
+@keyframes willow-sidenav-text-fade-in {
+  0% {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.willow-sidenav-close-button {
+  opacity: 0;
+  visibility: hidden;
+  animation: willow-sidenav-show-close-button 50ms linear 250ms forwards;
+}
+
+@keyframes willow-sidenav-show-close-button {
+  to {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+/* ── Rows ───────────────────────────────────────────────────────────────── */
+
+.willow-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+}
+
+.willow-sidebar-row-wrap {
+  position: relative;
+  padding: 0 6px;
+}
+
+.willow-sidebar-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  color: #000000;
+  text-align: left;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+
+.willow-sidebar-row:hover {
+  background: rgb(0 0 0 / 5%);
+}
+
+.willow-sidebar-row[data-active="true"] {
+  background: #f2f0f0;
+}
+
+.willow-sidebar-row:focus-visible {
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 20%);
+}
+
+.dark .willow-sidebar-row {
+  color: #e6e6e6;
+}
+
+.dark .willow-sidebar-row:hover {
+  background: rgb(230 230 230 / 8%);
+}
+
+.dark .willow-sidebar-row[data-active="true"] {
+  background: #171717;
+}
+
+.dark .willow-sidebar-row:focus-visible {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 25%);
+}
+
+.willow-sidebar-row__icon {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.willow-sidebar-row__icon > * {
+  transition: transform 200ms;
+}
+
+.willow-sidebar-row:active .willow-sidebar-row__icon > * {
+  transform: scale(0.9);
+}
+
+.willow-sidebar-row[data-active="true"] .willow-glyph:not(.willow-glyph--google) {
+  font-variation-settings: "FILL" 1, "GRAD" 0, "opsz" 20, "wght" 320;
+}
+
+.willow-sidebar-row__label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #1f1f1f;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-sidebar-row[data-active="true"] .willow-sidebar-row__label {
+  font-weight: 500;
+}
+
+.dark .willow-sidebar-row__label {
+  color: #e6e6e6;
+}
+
+.dark .willow-sidebar-row[data-active="true"] .willow-sidebar-row__label {
+  color: #ffffff;
+}
+
+/*
+ * The shortcut Willow reveals in a row's trailing slot while it is pointed at (its sidebar's
+ * SidebarItem): no width at rest, so the label has the row; 100ms late, so a pointer crossing
+ * the sidebar does not strobe the rows it passes.
+ */
+.willow-sidebar-row__shortcut {
+  display: flex;
+  max-width: 0;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
+  overflow: hidden;
+  color: #c4c7c5;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 150ms cubic-bezier(0, 0, 0, 0) 100ms;
+}
+
+.willow-sidebar-row:hover .willow-sidebar-row__shortcut {
+  max-width: none;
+  margin-right: 2px;
+  padding-left: 8px;
+  opacity: 1;
+}
+
+/* On the rail a row is its glyph alone, a 32px pill whose glyph keeps the place it has open. */
+.willow-sidebar-row[data-collapsed="true"] {
+  width: 32px;
+  margin-left: 4px;
+  gap: 0;
+  padding: 0 6px;
+}
+
+.willow-sidebar-row[data-collapsed="true"] .willow-sidebar-row__icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── Headings ───────────────────────────────────────────────────────────── */
+
+/* Codex's section heading: its label in line with the folders under it, 18px below the rows. */
+.willow-sidebar-heading {
+  position: relative;
+  display: flex;
+  height: 32px;
+  align-items: center;
+  margin: 18px 12px 0 6px;
+  padding-left: 10px;
+  color: rgb(0 0 0 / 80%);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 17px;
+}
+
+.dark .willow-sidebar-heading {
+  color: rgb(255 255 255 / 80%);
+}
+
+.willow-sidebar-heading__label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-sidebar-heading__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  visibility: hidden;
+}
+
+.willow-sidebar-heading:hover .willow-sidebar-heading__actions,
+.willow-sidebar-heading:focus-within .willow-sidebar-heading__actions,
+.willow-sidebar-heading__actions:has([data-popup-open], [aria-expanded="true"]) {
+  visibility: visible;
+}
+
+/* Spark's 24px round row action: rgb(196, 199, 197) at 8% under the pointer. */
+.willow-sidebar-action {
+  position: relative;
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 9999px;
+  color: #1f1f1f;
+  cursor: pointer;
+}
+
+.dark .willow-sidebar-action {
+  color: #e6e6e6;
+}
+
+.willow-sidebar-action::before {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgb(0 0 0);
+  content: "";
+  opacity: 0;
+  transition: opacity 150ms;
+}
+
+.dark .willow-sidebar-action::before {
+  background: rgb(196 199 197);
+}
+
+.willow-sidebar-action:hover::before,
+.willow-sidebar-action[data-popup-open]::before,
+.willow-sidebar-action[aria-expanded="true"]::before {
+  opacity: 0.08;
+}
+
+.willow-sidebar-action > * {
+  position: relative;
+}
+
+.willow-sidebar-action svg {
+  width: 18px;
+  height: 18px;
+}
+
+.willow-glyph--small {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  line-height: 18px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "opsz" 18, "wght" 320, "ROND" 100;
+}
+
+.willow-sidebar-empty {
+  padding: 8px 18px 0;
+  color: rgb(0 0 0 / 55%);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.dark .willow-sidebar-empty {
+  color: rgb(255 255 255 / 55%);
+}
+
+/* ── T3's own sidebar rows (settings, the flat sidebar): Spark's rows ──────── */
+
+[data-app-sidebar] [data-sidebar="group"] {
+  padding-right: 6px;
+  padding-left: 6px;
+}
+
+[data-app-sidebar] [data-sidebar="menu-button"] {
+  height: 32px;
+  gap: 6px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  color: #000000;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+[data-app-sidebar] [data-sidebar="menu-button"]:hover {
+  background: rgb(0 0 0 / 5%);
+  color: #000000;
+}
+
+[data-app-sidebar] [data-sidebar="menu-button"][data-active="true"] {
+  background: #f2f0f0;
+  color: #1f1f1f;
+  font-weight: 500;
+}
+
+.dark [data-app-sidebar] [data-sidebar="menu-button"] {
+  color: #e6e6e6;
+}
+
+.dark [data-app-sidebar] [data-sidebar="menu-button"]:hover {
+  background: rgb(230 230 230 / 8%);
+  color: #e6e6e6;
+}
+
+.dark [data-app-sidebar] [data-sidebar="menu-button"][data-active="true"] {
+  background: #171717;
+  color: #ffffff;
+}
+
+[data-app-sidebar] [data-sidebar="menu-button"] > svg {
+  width: 20px;
+  height: 20px;
+  margin: 4px;
+  color: currentColor;
+}
+
+/* ── Projects: Codex's folder rows ───────────────────────────────────────────
+   A project is a row like the rows above it: its folder 16px in (6px inset + 10px), its name 40px
+   in after the 16px folder and 8px, and each of its threads' titles indented to that name. */
+
+[data-app-sidebar] .willow-projects {
+  gap: 0;
+  padding: 0;
+}
+
+.willow-projects [data-sidebar="menu"] {
+  gap: 0;
+}
+
+.willow-project-heading {
+  position: relative;
+  display: flex;
+  height: 32px;
+  align-items: center;
+  margin: 0 6px;
+}
+
+.willow-projects [data-sidebar="menu"] > :first-child .willow-project-heading {
+  margin-top: 6px;
+}
+
+.willow-projects .willow-project-heading__toggle {
+  height: 32px;
+  min-width: 0;
+  flex: 1;
+  gap: 8px;
+  padding: 0 60px 0 10px;
+  border-radius: 9999px;
+  background: transparent;
+  color: rgb(31 31 31 / 85%);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  box-shadow: none;
+  transition: background-color 150ms;
+}
+
+.willow-projects .willow-project-heading__toggle:hover {
+  background: rgb(0 0 0 / 5%);
+}
+
+.dark .willow-projects .willow-project-heading__toggle {
+  color: rgb(230 230 230 / 85%);
+}
+
+.dark .willow-projects .willow-project-heading__toggle:hover {
+  background: rgb(230 230 230 / 8%);
+}
+
+.willow-projects .willow-project-heading__toggle:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ring);
+  border-radius: 9999px;
+}
+
+.willow-project-heading__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-project-heading__count {
+  flex-shrink: 0;
+  margin-left: 6px;
+  font-size: 11px;
+}
+
+/* The folder, open while its threads show, gives way to the chevron under the pointer. */
+.willow-project-heading__glyph {
+  position: relative;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.willow-project-heading__glyph .willow-project-heading__folder {
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 16px;
+  font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "opsz" 20;
+  transition: opacity 150ms var(--willow-ease);
+}
+
+.willow-project-heading__chevron {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Luminous Symbols";
+  font-size: 16px;
+  line-height: 16px;
+  font-variation-settings: "FILL" 0, "wght" 330, "GRAD" 0, "opsz" 16, "ROND" 100;
+  font-feature-settings: "liga";
+  opacity: 0;
+  transition: opacity 150ms var(--willow-ease);
+}
+
+.willow-project-heading:hover .willow-project-heading__chevron,
+.willow-project-heading__toggle:focus-visible .willow-project-heading__chevron {
+  opacity: 1;
+}
+
+.willow-project-heading:hover .willow-project-heading__folder,
+.willow-project-heading__toggle:focus-visible .willow-project-heading__folder {
+  opacity: 0;
+}
+
+/* "2 active": the project's working threads, at the row's end until its actions take the place. */
+.willow-project-heading__active {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  color: rgb(0 0 0 / 55%);
+  font-size: 12px;
+  line-height: 16px;
+  transform: translateY(-50%);
+}
+
+.dark .willow-project-heading__active {
+  color: rgb(255 255 255 / 55%);
+}
+
+.willow-project-heading:is(:hover, :focus-within) .willow-project-heading__active {
+  visibility: hidden;
+}
+
+.willow-project-heading__status {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+}
+
+.willow-project-heading__actions {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transform: translateY(-50%);
+  visibility: hidden;
+}
+
+.willow-project-heading:hover .willow-project-heading__actions,
+.willow-project-heading:focus-within .willow-project-heading__actions,
+.willow-project-heading__actions:has([data-popup-open], [aria-expanded="true"]) {
+  visibility: visible;
+}
+
+@media (hover: none) {
+  .willow-project-heading__actions,
+  .willow-sidebar-heading__actions {
+    visibility: visible;
+  }
+}
+
+/* Threads: Recents rows, text only. */
+.willow-projects [data-sidebar="menu-sub"] {
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  transform: none;
+}
+
+/* In by the project heading's 6px at both ends, so a thread's fill ends where its project's does. */
+.willow-projects [data-sidebar="menu-sub"] > li {
+  padding-inline: 6px;
+}
+
+.willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"] {
+  height: 32px;
+  gap: 6px;
+  padding: 0 6px 0 34px;
+  border-radius: 9999px;
+  color: #000000;
+  font-size: 13px;
+  line-height: 17px;
+  transition: background-color 150ms;
+}
+
+.willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"]:hover {
+  background: rgb(0 0 0 / 5%);
+}
+
+.willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"][data-active="true"] {
+  background: #f2f0f0;
+  font-weight: 500;
+}
+
+.dark .willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"] {
+  color: #e6e6e6;
+}
+
+.dark .willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"]:hover {
+  background: rgb(230 230 230 / 8%);
+}
+
+.dark .willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"][data-active="true"] {
+  background: #171717;
+  color: #ffffff;
+}
+
+.willow-projects [data-thread-item] [data-testid^="thread-title-"] {
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.willow-projects [data-thread-item] .tabular-nums {
+  color: rgb(0 0 0 / 55%);
+  font-size: 11px;
+}
+
+.dark .willow-projects [data-thread-item] .tabular-nums {
+  color: rgb(255 255 255 / 55%);
+}
+
+/* Show more, Show less and the empty state: Spark's muted rows. */
+.willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > [data-sidebar="menu-sub-button"],
+.willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > div {
+  height: 32px;
+  padding: 0 6px 0 34px;
+  border-radius: 9999px;
+  background: transparent;
+  color: rgb(0 0 0 / 55%);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.dark .willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > [data-sidebar="menu-sub-button"],
+.dark .willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > div {
+  color: rgb(255 255 255 / 55%);
+}
+
+.willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > [data-sidebar="menu-sub-button"]:hover {
+  background: rgb(0 0 0 / 5%);
+}
+
+.dark .willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > [data-sidebar="menu-sub-button"]:hover {
+  background: rgb(230 230 230 / 8%);
+}
+
+/* ── Foot ───────────────────────────────────────────────────────────────── */
+
+.willow-sidebar-footer {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  padding: 4px 6px;
+  user-select: none;
+}
+
+.willow-sidebar-account {
+  display: flex;
+  height: 40px;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 5px;
+  color: rgb(0 0 0 / 80%);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dark .willow-sidebar-account {
+  color: rgb(255 255 255 / 80%);
+}
+
+.willow-sidebar-account--pending {
+  cursor: default;
+}
+
+.willow-sidebar-account__disc {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(0 0 0 / 10%);
+  border-radius: 9999px;
+  transition: transform 150ms;
+}
+
+.dark .willow-sidebar-account__disc {
+  border-color: rgb(255 255 255 / 10%);
+}
+
+.willow-sidebar-account:active .willow-sidebar-account__disc {
+  transform: scale(0.9);
+}
+
+.willow-sidebar-account__disc .willow-glyph {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  line-height: 18px;
+}
+
+.willow-sidebar-account__disc .size-\[22px\] {
+  width: 18px;
+  height: 18px;
+}
+
+.willow-sidebar-account__label {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-sidebar-footer__settings {
+  position: relative;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 4px;
+  color: #1f1f1f;
+  cursor: pointer;
+}
+
+.dark .willow-sidebar-footer__settings {
+  color: #e6e6e6;
+}
+
+.willow-sidebar-footer__state {
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  background: rgb(0 0 0);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms;
+}
+
+.dark .willow-sidebar-footer__state {
+  background: rgb(196 199 197);
+}
+
+.willow-sidebar-footer__settings:is(:hover, [data-open="true"]) .willow-sidebar-footer__state {
+  opacity: 0.08;
+}
+
+.willow-sidebar-footer__settings .willow-glyph {
+  position: relative;
+}
+
+/*
+ * On the rail the gear stands over the account's disc in a 92px foot (Willow's account footer,
+ * column-reversed); nothing here animates but the rail's own width.
+ */
+.willow-sidebar-footer[data-collapsed="true"] {
+  height: 92px;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 4px;
+}
+
+.willow-sidebar-footer[data-collapsed="true"] .willow-sidebar-account {
+  flex: 0 0 auto;
+}
+
+.willow-sidebar-footer[data-collapsed="true"] .willow-sidebar-footer__settings {
+  align-self: flex-end;
+}
+
+/* ── Willow's rail ──────────────────────────────────────────────────────────── */
+
+:root {
+  --willow-page-surface: #faf9f9;
+}
+
+:root.dark {
+  --willow-page-surface: #0f0f0f;
+}
+
+/*
+ * Open, the sidebar is its own panel; collapsed, Willow's 52px rail on the page's surface, its
+ * width and surface moving together over 300ms on Willow's curve. The rail holds the mark, the
+ * rows' glyphs and the foot; the projects and the notices wait for the sidebar to open.
+ */
+[data-app-sidebar] > [data-sidebar="sidebar"] {
+  transition: background-color 300ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* T3 grains the sidebar to match a grained page; Willow's surfaces are flat, so the collapsed
+   rail settles into exactly the page's colour. */
+html[data-willow] {
+  --surface-grain: none;
+}
+
+/* T3 rules its icon rail off from the page; Willow's rail is the page. */
+[data-slot="sidebar-container"][data-app-sidebar] {
+  border-right-width: 0;
+}
+
+[data-slot="sidebar"][data-state="collapsed"] [data-app-sidebar] > [data-sidebar="sidebar"] {
+  background-color: var(--willow-page-surface);
+}
+
+[data-slot="sidebar"][data-state="collapsed"]
+  [data-app-sidebar]
+  :is([data-sidebar="content"], [data-sidebar="footer"] > div:not(.willow-sidebar-footer)) {
+  display: none;
+}
+
+/* ── The settings pane (Willow's sidebar's GeminiSettingsMenu) ─────────────── */
+
+/*
+ * 300px of 36px rows on 12px corners inside 8px of a 20px-cornered surface, growing up out of its
+ * bottom-left corner over 120ms and fading away over 100ms after 25ms.
+ */
+.willow-settings-menu {
+  position: fixed;
+  z-index: 100;
+  width: 300px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid rgb(0 0 0 / 5%);
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 0 20px rgb(0 0 0 / 4%);
+  color: #1f1f1f;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  transform-origin: 0 100%;
+  animation: willow-settings-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.dark .willow-settings-menu {
+  border: 0;
+  background: #1f1f1f;
+  box-shadow: 0 0 20px rgb(0 0 0 / 28%);
+  color: #e6e6e6;
+}
+
+.willow-settings-menu[data-closing="true"] {
+  pointer-events: none;
+  animation: willow-settings-menu-exit 100ms linear 25ms forwards;
+}
+
+.willow-settings-menu__item {
+  display: flex;
+  width: 100%;
+  height: 36px;
+  align-items: center;
+  overflow: hidden;
+  padding: 0 8px;
+  border-radius: 12px;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+
+.willow-settings-menu__item:is(:hover, :focus-visible) {
+  background: rgb(0 0 0 / 6%);
+  outline: none;
+}
+
+.dark .willow-settings-menu__item:is(:hover, :focus-visible) {
+  background: rgb(230 230 230 / 8%);
+}
+
+.willow-settings-menu__icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.willow-settings-menu__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.willow-settings-menu__label {
+  min-width: 0;
+  flex: 1;
+  margin-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes willow-settings-menu-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes willow-settings-menu-exit {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-settings-menu,
+  .willow-settings-menu[data-closing="true"] {
+    animation: none;
+  }
+}

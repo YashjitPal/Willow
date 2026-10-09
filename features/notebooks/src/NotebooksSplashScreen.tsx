@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
@@ -71,24 +72,24 @@ const DISCLAIMER = (
     Notebooks group your chats by topic and keep their sources together. Files you add as a source stay
     in your own workspace — Willow does not send them anywhere you have not connected yourself. Chats
     inside a notebook are saved with the rest of your{' '}
-    <a className="nb-splash-link" href="/saved-info">
+    <Link className="nb-splash-link" to="/saved-info">
       saved activity
-    </a>
+    </Link>
     , and you can remove a notebook or any of its sources at any time from{' '}
-    <a className="nb-splash-link" href="/notebooks/view">
+    <Link className="nb-splash-link" to="/notebooks/view">
       All notebooks
-    </a>
+    </Link>
     . You can still add sources to a notebook even if activity saving is off.{' '}
-    <a className="nb-splash-link" href="/connected-apps">
+    <Link className="nb-splash-link" to="/connected-apps">
       Learn more
-    </a>
+    </Link>
     .
   </>
 );
 
 export const NotebooksSplashScreen: React.FC<NotebooksSplashScreenProps> = ({ onGetStarted }) => {
-  const { userProfile } = useAuth();
-  const theme = getWorkspaceTheme(userProfile?.workspaceColor);
+  const { workspaceColor } = useAuth();
+  const theme = getWorkspaceTheme(workspaceColor);
   const { isLight } = useThemeMode();
 
   return (
@@ -97,7 +98,7 @@ export const NotebooksSplashScreen: React.FC<NotebooksSplashScreenProps> = ({ on
       style={{
         '--nb-accent-btn-bg': theme.sendButton.bg,
         '--nb-accent-btn-hover': theme.sendButton.hover,
-        '--nb-link-color': isLight ? '#0b57d0' : theme.creamy.hex,
+        '--nb-link-color': isLight ? 'var(--sync-0b57d0, #0b57d0)' : theme.creamy.hex,
       } as React.CSSProperties}
     >
     <div className="nb-splash-container">

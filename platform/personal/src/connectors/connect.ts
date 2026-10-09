@@ -112,6 +112,25 @@ export const authorizeWrites = async (
 };
 
 /**
+ * Request several products' write scopes in one consent screen, from a click — one provider's products, as a card
+ * holds them. The token covers each product's own lookup afterwards, as the read token does.
+ */
+export const authorizeWritesFor = async (ids: ConnectorId[], options: { tokens?: TokenSource } = {}): Promise<boolean> => {
+  const known = ids.filter((id) => connectorById(id));
+  const scopes = scopeUrls(known, 'write');
+  if (scopes.length === 0 || new Set(known.map((id) => providerOf(id))).size !== 1) return false;
+  return Boolean(await (options.tokens ?? tokensFor(known[0]!)).request(scopes));
+};
+
+/** Whether those write scopes are granted, asked silently: a cached token or a refresh that never opens a window. */
+export const writesAuthorized = async (ids: ConnectorId[], options: { tokens?: TokenSource } = {}): Promise<boolean> => {
+  const known = ids.filter((id) => connectorById(id));
+  const scopes = scopeUrls(known, 'write');
+  if (scopes.length === 0) return false;
+  return Boolean(await (options.tokens ?? tokensFor(known[0]!)).get(scopes));
+};
+
+/**
  * Connect several products in one consent screen.
  *
  * One combined request rather than a loop over `connectProduct`, because a loop

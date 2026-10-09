@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.willow'
+version = '1.0.0'
+
+android {
+  namespace "com.willow.tunnel"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // Same androidx.webkit react-native-webview builds against; Gradle picks the newest of the two.
+  implementation "androidx.webkit:webkit:1.14.0"
+}

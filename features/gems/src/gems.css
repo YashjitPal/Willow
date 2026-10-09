@@ -1,0 +1,1946 @@
+/*
+ * Gems — the manager (`/gems/view`), a Gem's chat zero state, and the editor
+ * (`/gems/create`, `/gems/edit/<id>`). Every value was read off gemini.google.com with
+ * computed styles at 1536x826, and at 800x1280 and 390x844 for the narrow blocks below.
+ * Gemini's Labs sections and its "Gems will become skills" banner are deliberately not
+ * reproduced: the manager starts at its own heading.
+ *
+ * The type is Google Sans Flex throughout, and nearly all of it carries the width axis:
+ * body copy at `"wdth" 92`, headings at 94 or 100. Leaving an axis at its default
+ * renders a string a few pixels wide, which reads as "slightly bold" rather than wrong.
+ */
+
+.gems-surface {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  color: rgb(227, 227, 227);
+}
+
+.gems-surface button {
+  font-family: inherit;
+}
+
+/* ── Manager ─────────────────────────────────────────────────────────────── */
+
+/* Unpainted in Gemini: the page is the app surface, #0f0f0f, under its 12px scrollbar. */
+.gems-page {
+  height: 100%;
+  width: 100%;
+  overflow-y: auto;
+  background-color: var(--studio-surface, #0f0f0f);
+}
+
+/* `div.inner-container`: 878 at most, padded 24, centred. */
+.gems-inner {
+  width: 100%;
+  max-width: 878px;
+  margin: 0 auto;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.gems-title {
+  margin: 16.08px 0;
+  font-size: 24px;
+  font-weight: 380;
+  line-height: 28px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 380;
+}
+
+.gems-section-header,
+.gems-list-header {
+  display: flex;
+  height: 44.9px;
+  align-items: center;
+}
+
+.gems-section-header {
+  margin-bottom: 4px;
+}
+
+.gems-list-header {
+  justify-content: space-between;
+  margin: 16px 0;
+}
+
+.gems-section-title {
+  margin: 12.45px 0;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gems-list-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* "Show more": a text button in primary, its 18px `expand_all` 8px after the label. */
+.gems-show-more {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  margin-left: auto;
+  border-radius: 9999px;
+  padding: 0 16px;
+  color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  transition: background-color 0.15s ease-out;
+}
+
+.gems-show-more:hover {
+  background-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
+}
+
+.gems-show-more > .google-symbols {
+  margin: 0 -4px 0 8px;
+}
+
+/* One row of cards, or both when expanded: 176 -> 362 (two 176 rows and the 10px gap). */
+.gems-premade-cards {
+  height: 176px;
+  overflow: hidden;
+  transition: height 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.gems-premade-cards.is-expanded {
+  height: 362px;
+}
+
+.gems-premade-cards-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/*
+ * The manager below 961px, measured at 800x1280: the page hangs under the shell's 68px
+ * top bar, "Show more" goes, and the premade cards stay one row that scrolls sideways
+ * (`premade-gems-cards-container`, overflow-x auto). Everything else keeps its desktop
+ * geometry.
+ */
+@media (max-width: 960px) {
+  .gems-page {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+
+  .gems-show-more {
+    display: none;
+  }
+
+  /*
+   * The row scrolls edge to edge of the screen rather than inside the page's 24px inset,
+   * so a card slides all the way out instead of vanishing 24px short of the edge. The
+   * inset moves onto the cards' own padding, which keeps the first card in line with
+   * the heading at rest and leaves the same 24px after the last one.
+   */
+  .gems-premade-cards,
+  .gems-premade-cards.is-expanded {
+    height: 176px;
+    margin: 0 -24px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .gems-premade-cards::-webkit-scrollbar {
+    display: none;
+  }
+
+  .gems-premade-cards-inner {
+    width: max-content;
+    flex-wrap: nowrap;
+    padding: 0 24px;
+  }
+}
+
+/* `template-gallery-card`: 200x176, padded 16, the menu 8px down and 4px in. */
+.gems-card {
+  position: relative;
+  width: 200px;
+  height: 176px;
+  flex: none;
+}
+
+.gems-card-link {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: 16px;
+  background-color: rgb(30, 31, 32);
+  padding: 16px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gems-card-link:hover,
+.gems-card.is-menu-open .gems-card-link {
+  background-color: rgb(40, 42, 44);
+}
+
+.gems-card-header {
+  display: flex;
+  height: 28px;
+  margin-bottom: 16px;
+  align-items: center;
+  padding-right: 24px;
+}
+
+.gems-card-name {
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gems-card-description {
+  display: -webkit-box;
+  max-height: 60px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: rgb(196, 199, 197);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gems-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 4px;
+}
+
+/* `xap-status-badge`: outlined with an inset shadow, so the box stays 22px tall. */
+.gems-experiment-badge {
+  display: inline-block;
+  margin-left: 8px;
+  border-radius: 34px;
+  padding: 1px 8px;
+  box-shadow: rgb(142, 145, 143) 0 0 0 1px inset;
+  font-size: 15px;
+  font-weight: 370;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  white-space: nowrap;
+}
+
+/* "New Gem": a filled primary pill, 40 tall, padded 0 20 0 24 with its icon pulled 8px left. */
+.gems-new-button {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  border-radius: 30px;
+  background-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  padding: 0 20px 0 24px;
+  color: var(--sync-062e6f, rgb(6, 46, 111));
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  transition: box-shadow 0.15s ease-out, background-color 0.15s ease-out;
+}
+
+.gems-new-button:hover {
+  box-shadow: rgba(0, 0, 0, 0.3) 0 1px 2px 0, rgba(0, 0, 0, 0.15) 0 1px 3px 1px;
+}
+
+.gems-new-button > .google-symbols {
+  margin: 0 8px 0 -8px;
+}
+
+.gems-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 48px;
+}
+
+/* `bot-list-row`: 72 tall on the card surface, 12px corners, the actions 8px from the end. */
+.gems-row {
+  display: flex;
+  height: 72px;
+  align-items: center;
+  gap: 16px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background-color: rgb(30, 31, 32);
+  padding: 0 8px 0 0;
+}
+
+.gems-row:hover,
+.gems-row.is-menu-open {
+  background-color: rgb(40, 42, 44);
+}
+
+.gems-row-link {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  padding: 16px 0 16px 16px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 40 tall — a 24px title line and a 16px one the 18px description overflows by 2px. */
+.gems-row-info {
+  display: flex;
+  height: 40px;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.gems-row-title {
+  display: flex;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gems-row-description {
+  height: 18px;
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(196, 199, 197);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gems-row-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+/* The row's ⋮ is on-surface; Share and Edit beside it, and the cards' ⋮, are -variant. */
+.gems-row-actions > .gems-row-more {
+  color: rgb(227, 227, 227);
+}
+
+/* Every icon button on these pages: round, transparent, an 8% on-surface-variant hover. */
+.gems-icon-button {
+  display: flex;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 8px;
+  color: rgb(196, 199, 197);
+  transition: background-color 0.15s ease-out;
+}
+
+.gems-icon-button.is-small {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.gems-icon-button:hover,
+.gems-icon-button[aria-expanded="true"] {
+  background-color: rgba(196, 199, 197, 0.08);
+}
+
+.gems-icon-button:disabled {
+  color: rgba(227, 227, 227, 0.38);
+  cursor: default;
+}
+
+.gems-icon-button:disabled:hover {
+  background-color: transparent;
+}
+
+/* ── Logo ───────────────────────────────────────────────────────────────────── */
+
+/* `bot-logo-text`: a disc, and the letter in Google Sans 500 at 56.25% of its size. */
+.gem-logo {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  font-family: "Google Sans", "Helvetica Neue", sans-serif;
+  font-weight: 500;
+  user-select: none;
+}
+
+.gem-logo > svg {
+  fill: currentColor;
+}
+
+/* ── Menus ──────────────────────────────────────────────────────────────────── */
+
+/* A classic `mat-menu`: 48px rows, 24px Google Symbols glyphs, 14px/20px 500 labels. */
+.gems-menu {
+  position: fixed;
+  z-index: 2147483000;
+  display: flex;
+  min-width: 112px;
+  max-width: 280px;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 16px;
+  background-color: rgb(30, 31, 32);
+  padding: 8px 0;
+  box-shadow: rgba(0, 0, 0, 0.2) 0 3px 1px -2px, rgba(0, 0, 0, 0.14) 0 2px 2px 0, rgba(0, 0, 0, 0.12) 0 1px 5px 0;
+  transform-origin: left top;
+  animation: gems-menu-in 120ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+.gems-menu.is-wide {
+  width: 320px;
+  max-width: 320px;
+}
+
+.gems-menu.is-closing {
+  animation: gems-menu-out 100ms linear forwards;
+}
+
+@keyframes gems-menu-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes gems-menu-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.gems-menu-item {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  padding: 0 12px;
+  color: rgb(227, 227, 227);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.gems-menu.is-wide .gems-menu-item {
+  gap: 16px;
+  padding: 0 16px;
+}
+
+.gems-menu-item:hover,
+.gems-menu-item:focus-visible {
+  background-color: rgba(227, 227, 227, 0.08);
+  outline: none;
+}
+
+.gems-menu-item > .google-symbols,
+.gems-menu-item > .luminous-symbols {
+  margin-right: 12px;
+  color: rgb(196, 199, 197);
+}
+
+.gems-menu.is-wide .gems-menu-item > .google-symbols,
+.gems-menu.is-wide .gems-menu-item > .luminous-symbols {
+  margin-right: 0;
+}
+
+/* The knowledge uploader's card: 36px rows, the label 40px in from the row's edge. */
+.gems-menu.is-upload {
+  width: 216px;
+  max-width: 216px;
+  box-shadow: rgba(0, 0, 0, 0.2) 0 2px 1px -1px, rgba(0, 0, 0, 0.14) 0 1px 1px 0, rgba(0, 0, 0, 0.12) 0 1px 3px 0;
+}
+
+.gems-menu.is-upload .gems-menu-item {
+  min-height: 36px;
+  gap: 8px;
+  border-radius: 12px;
+  padding: 0 8px;
+  color: rgb(230, 230, 230);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gems-menu-glyph {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: rgb(196, 199, 197);
+}
+
+.gems-menu-glyph.is-strong {
+  color: rgb(227, 227, 227);
+}
+
+.gems-menu-glyph > .google-symbols,
+.gems-menu-glyph > .luminous-symbols {
+  color: inherit;
+}
+
+/* The chosen default tool: a filled primary check right after its label. */
+.gems-menu-item > .gems-menu-check {
+  margin: 0;
+  color: var(--sync-4e8ff8, rgb(78, 143, 248));
+}
+
+/* ── Tips card (the info buttons) ───────────────────────────────────────────── */
+
+/* `xap-inline-dialog` + `tips-card`: 312 wide, opened 8px above its button. */
+.gems-tips {
+  position: fixed;
+  z-index: 2147483000;
+  width: 312px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  border-radius: 8px;
+  background-color: var(--sync-1f3760, rgb(31, 55, 96));
+  padding: 16px;
+  box-shadow: rgba(0, 0, 0, 0.3) 0 1px 2px 0, rgba(0, 0, 0, 0.15) 0 2px 6px 2px;
+  color: rgb(227, 227, 227);
+  animation: gems-tips-in 150ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes gems-tips-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.gems-tips-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gems-tips-body {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gems-tips-actions {
+  display: flex;
+  margin: 0 -8px -8px;
+}
+
+.gems-text-button {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0 12px;
+  color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  transition: background-color 0.15s ease-out;
+}
+
+.gems-text-button:hover {
+  background-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
+}
+
+/* ── A Gem's chat zero state (`bot-info-card`) ──────────────────────────────── */
+
+/* Centred in the thread between 16px under its top and 18px over the composer. */
+.gem-zero {
+  display: flex;
+  min-height: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 20px 18px;
+}
+
+/*
+ * As wide as its widest row and centred in the column, its rows flush left. With prompt
+ * cards that is the 684px card row, so the name block sits at the row's left as wide as
+ * its description; without them it is the name block alone, centred.
+ */
+.gem-zero-card {
+  display: flex;
+  width: fit-content;
+  max-width: min(684px, 100%);
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.gem-zero-info {
+  display: flex;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+  animation: gems-rise 300ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes gems-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+.gem-zero-name {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  font-size: 30px;
+  font-weight: 380;
+  line-height: 36px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 380;
+}
+
+.gem-zero-name > .gem-zero-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gem-zero-name > .gems-experiment-badge {
+  flex: none;
+}
+
+.gem-zero-description {
+  max-width: 100%;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  text-align: start;
+}
+
+/*
+ * Below 961px Gemini's thread starts under the 68px top bar, padded 16 above and 20
+ * below, and the zero state keeps its 6px bottom margin. Willow's thread runs up under
+ * the bar, so the padding carries the bar's height.
+ */
+@media (max-width: 960px) {
+  .gem-zero {
+    padding: 84px 20px 6px;
+  }
+}
+
+/* The prompt cards: one row of 170px squares that scrolls sideways past the edges. */
+.gem-zero-starters {
+  display: flex;
+  width: 724px;
+  max-width: calc(100% + 40px);
+  box-sizing: border-box;
+  gap: 10px;
+  margin: 0 -20px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  animation: gems-rise 300ms cubic-bezier(0.2, 0, 0, 1) 80ms both;
+}
+
+.gem-zero-starters::-webkit-scrollbar {
+  display: none;
+}
+
+.gem-zero-starter {
+  display: flex;
+  width: 170px;
+  height: 170px;
+  flex: none;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  background-color: rgb(30, 31, 32);
+  text-align: left;
+  transition: background-color 0.15s ease-out;
+}
+
+.gem-zero-starter:first-child {
+  margin-left: 20px;
+}
+
+.gem-zero-starter:last-child {
+  margin-right: 20px;
+}
+
+.gem-zero-starter:hover {
+  background-color: rgb(51, 53, 55);
+}
+
+.gem-zero-starter > span {
+  display: -webkit-box;
+  margin: 12px 16px 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  color: rgb(227, 227, 227);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+/* ── Editor ─────────────────────────────────────────────────────────────────── */
+
+/*
+ * `bots-creation-window`: padded 24 24 16 70, the card centred and at most 1246 wide.
+ * The card is a grid whose first column is exactly half its content box — 599 of 1198 —
+ * and the second takes the rest after a 24px gap; the title row and the Save row share
+ * the first track, the form and the preview the second.
+ */
+.gem-editor {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  overflow: auto;
+  padding: 24px 24px 16px 70px;
+  background-color: var(--studio-surface, #0f0f0f);
+}
+
+.gem-editor-card {
+  position: relative;
+  display: grid;
+  width: 100%;
+  max-width: 1246px;
+  min-height: 0;
+  flex: 1 1 0;
+  box-sizing: border-box;
+  grid-template-columns: 50% 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: 24px;
+  border-radius: 24px;
+  background-color: rgb(27, 27, 27);
+  padding: 24px;
+}
+
+.gem-editor-title {
+  position: relative;
+  display: flex;
+  height: 50px;
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 1;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.gem-editor-title > .gem-editor-back {
+  position: absolute;
+  top: 1px;
+  left: -84px;
+}
+
+.gem-editor-title h2 {
+  display: -webkit-box;
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 16px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
+.gem-editor-actions {
+  display: flex;
+  height: 50px;
+  grid-column: 2;
+  grid-row: 1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* `gds-italic`: the slant axis, not a synthesised oblique. */
+.gem-editor-save-state {
+  color: rgb(142, 145, 143);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" -10, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+}
+
+.gem-editor-save {
+  display: inline-flex;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 40px;
+  background-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  padding: 0 24px;
+  color: var(--sync-062e6f, rgb(6, 46, 111));
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+.gem-editor-save:disabled {
+  background-color: rgba(227, 227, 227, 0.12);
+  color: rgba(227, 227, 227, 0.38);
+  cursor: default;
+}
+
+.gem-editor-form {
+  display: flex;
+  min-height: 0;
+  grid-column: 1;
+  grid-row: 2;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  animation:
+    gem-editor-form-fade 250ms linear both,
+    gem-editor-form-grow 300ms linear both;
+}
+
+@keyframes gem-editor-form-fade {
+  0%, 20% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes gem-editor-form-grow {
+  0% { transform: scale(0.95); }
+  16.667% { transform: scale(0.95); animation-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+  100% { transform: scale(1); }
+}
+
+.gem-editor-label {
+  display: block;
+  flex: none;
+  margin: 8px 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gem-editor-label.is-inline {
+  margin: 0;
+}
+
+/* MDC's outlined field without a label: 56 tall, the outline drawn inside the box. */
+.gem-editor-field {
+  display: flex;
+  min-height: 56px;
+  flex: none;
+  align-items: center;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background-color: rgb(19, 19, 20);
+  padding: 0 16px;
+  box-shadow: inset 0 0 0 1.6px transparent;
+  transition: box-shadow 0.15s ease-out;
+}
+
+.gem-editor-field.is-focused,
+.gem-editor-field:focus-within {
+  box-shadow: inset 0 0 0 1.6px var(--sync-a8c7fa, rgb(168, 199, 250));
+}
+
+.gem-editor-field.is-error {
+  box-shadow: inset 0 0 0 1.6px rgb(242, 184, 181);
+}
+
+.gem-editor-field.is-textarea {
+  align-items: stretch;
+  padding: 16px 16px 16.7px;
+}
+
+.gem-editor-field input,
+.gem-editor-field textarea {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: rgb(230, 230, 230);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  outline: none;
+}
+
+.gem-editor-field textarea {
+  min-height: 24px;
+  resize: vertical;
+}
+
+.gem-editor-field input::placeholder,
+.gem-editor-field textarea::placeholder,
+.gem-editor-instructions textarea::placeholder {
+  color: rgb(154, 155, 156);
+  opacity: 1;
+}
+
+.gem-editor-field-error-icon {
+  margin-left: 8px;
+  color: rgb(242, 184, 181);
+}
+
+.gem-editor-subscript {
+  display: flex;
+  height: 20px;
+  flex: none;
+  align-items: flex-start;
+  padding: 0 16px;
+}
+
+.gem-editor-error {
+  color: rgb(242, 184, 181);
+  font-size: 12px;
+  line-height: 16px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gem-editor-error.is-block {
+  margin-top: 12px;
+}
+
+.gem-editor-row-header {
+  display: flex;
+  height: 40px;
+  flex: none;
+  align-items: center;
+}
+
+/*
+ * Instructions: 125.9 tall at rest on the desktop — 70.7 of text area over the action row
+ * 12px from the bottom — and growing into whatever the form leaves, which is how the
+ * tablet's comes out 484 tall.
+ */
+.gem-editor-instructions {
+  position: relative;
+  display: flex;
+  min-height: 125.9px;
+  flex: 1 0 125.9px;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1.6px solid transparent;
+  border-radius: 8px;
+  background-color: rgb(19, 19, 20);
+  transition:
+    border-color 0.15s ease-out,
+    min-height 0.25s cubic-bezier(0.2, 0, 0, 1),
+    flex-basis 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.gem-editor-instructions.is-focused {
+  border-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+}
+
+/* Gemini's `:focus-within` / `is-power-up-loader-visible`: the box grows to 300px (200 narrow). */
+.gem-editor-instructions.is-focused,
+.gem-editor-instructions.is-rewriting {
+  min-height: 300px;
+  flex-basis: 300px;
+}
+
+.gem-editor-instructions textarea {
+  min-height: 70.7px;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  resize: none;
+  border: 0;
+  background: transparent;
+  padding: 16px 16px 0;
+  color: rgb(227, 227, 227);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  outline: none;
+}
+
+/* `power-up-loader`: skeleton lines over the text while the model rewrites it. */
+.gem-editor-rewriting {
+  position: absolute;
+  inset: 0 0 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background-color: rgb(19, 19, 20);
+  padding: 20px 16px;
+}
+
+.gem-editor-rewriting > span {
+  display: block;
+  height: 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, rgba(196, 199, 197, 0.08) 0%, rgba(196, 199, 197, 0.2) 50%, rgba(196, 199, 197, 0.08) 100%);
+  background-size: 200% 100%;
+  animation: gems-shimmer 1.4s linear infinite;
+}
+
+.gem-editor-rewriting > span:nth-child(2) { width: 86%; }
+.gem-editor-rewriting > span:nth-child(3) { width: 64%; }
+
+@keyframes gems-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.gem-editor-instruction-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: 0 12px 12px;
+}
+
+.gem-editor-history,
+.gem-editor-powerup {
+  position: relative;
+  display: flex;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  background-color: rgb(48, 48, 48);
+  color: rgb(227, 227, 227);
+}
+
+.gem-editor-history.is-undo {
+  border-radius: 9999px 0 0 9999px;
+  padding: 8px 6px 8px 8px;
+}
+
+.gem-editor-history.is-redo {
+  border-radius: 0 9999px 9999px 0;
+  padding: 8px 8px 8px 6px;
+}
+
+.gem-editor-powerup {
+  margin-left: 8px;
+  border-radius: 30px;
+  padding: 0 12px;
+}
+
+.gem-editor-powerup-glyph {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  fill: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.gem-editor-history:disabled,
+.gem-editor-powerup:disabled {
+  color: rgba(227, 227, 227, 0.38);
+  cursor: default;
+}
+
+.gem-editor-history:not(:disabled):hover,
+.gem-editor-powerup:not(:disabled):hover {
+  background-color: rgb(58, 58, 58);
+}
+
+.gem-editor-tool-row {
+  display: flex;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin: 24px 0 8px;
+}
+
+.gem-editor-spacer {
+  flex: 1 1 auto;
+}
+
+.gem-editor-select {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+  border-radius: 9999px;
+  padding: 0 12px 0 16px;
+  color: rgb(227, 227, 227);
+  font-size: 17px;
+  font-weight: 370;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  white-space: nowrap;
+  transition: background-color 0.15s ease-out;
+}
+
+.gem-editor-select:hover,
+.gem-editor-select[aria-expanded="true"] {
+  background-color: rgba(227, 227, 227, 0.08);
+}
+
+.gem-editor-knowledge {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 20px;
+}
+
+.gem-editor-knowledge-box {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background-color: rgb(19, 19, 20);
+  padding: 8px 0;
+}
+
+.gem-editor-knowledge-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+}
+
+.gem-editor-knowledge-footer {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 16px;
+}
+
+.gem-editor-knowledge-placeholder {
+  color: rgb(154, 155, 156);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gem-editor-upload {
+  width: 42px;
+  height: 42px;
+  margin-right: -8px;
+}
+
+.gem-editor-citations {
+  display: flex;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  margin-top: 16px;
+}
+
+/* `mat-checkbox`: an 18px box with 2px corners in a 40px touch area. */
+.gem-editor-checkbox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.gem-editor-checkbox > input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.gem-editor-checkbox-box {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  margin: 11px;
+  border: 1.6px solid rgb(196, 199, 197);
+  border-radius: 2px;
+  color: var(--sync-062e6f, rgb(6, 46, 111));
+}
+
+.gem-editor-checkbox > input:checked + .gem-editor-checkbox-box {
+  border-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  background-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+}
+
+.gem-editor-checkbox-label {
+  color: rgb(227, 227, 227);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.gem-editor-checkbox.is-disabled {
+  cursor: default;
+}
+
+.gem-editor-checkbox.is-disabled .gem-editor-checkbox-box {
+  border-color: rgba(227, 227, 227, 0.38);
+}
+
+.gem-editor-checkbox.is-disabled .gem-editor-checkbox-label {
+  color: rgba(227, 227, 227, 0.38);
+}
+
+.gem-editor-preview {
+  display: flex;
+  min-height: 0;
+  grid-column: 2;
+  grid-row: 2;
+  flex-direction: column;
+}
+
+.gem-editor-preview-box {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 8px;
+  background-color: rgb(19, 19, 20);
+}
+
+.gem-editor-preview-thread {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.gem-editor-preview-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px 24px 8px;
+}
+
+.gem-editor-preview-user {
+  max-width: 80%;
+  align-self: flex-end;
+  border-radius: 24px 4px 24px 24px;
+  background-color: rgb(51, 53, 55);
+  padding: 12px 16px;
+  font-size: 16px;
+  line-height: 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.gem-editor-preview-reply.is-error {
+  color: rgb(242, 184, 181);
+}
+
+/* Gemini keeps a 49px disclaimer slot under the preview's composer, empty here too. */
+.gem-editor-preview-composer {
+  flex: none;
+  padding: 12px 16px 49px;
+}
+
+.gem-editor-preview-thread .gem-zero {
+  padding: 16px 20px 6px;
+}
+
+.gem-editor-preview-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background-color: rgba(19, 19, 20, 0.8);
+  padding: 0 48px;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  text-align: center;
+}
+
+.gem-editor-preview-placeholder > span {
+  animation: gem-fade-in 300ms ease both;
+}
+
+@keyframes gem-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.gem-editor-legal {
+  display: block;
+  padding: 16px 0 0;
+  color: rgb(196, 199, 197);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  text-align: center;
+}
+
+.gem-editor-legal > .google-symbols {
+  vertical-align: sub;
+}
+
+/* A zero-size anchor at the viewport's corner for the shell's top-bar model picker. */
+.gem-editor-model {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  width: 0;
+  height: 0;
+}
+
+/* ── Add notebook dialog (knowledge) ───────────────────────────────────────── */
+
+.gem-nb-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482000;
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.gem-nb-dialog-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  animation: gem-fade-in 0.4s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+
+.gem-nb-dialog {
+  position: relative;
+  display: flex;
+  width: 600px;
+  max-width: 100%;
+  max-height: min(576px, 100%);
+  box-sizing: border-box;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 28px;
+  background-color: rgb(19, 19, 20);
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+  color: rgb(227, 227, 227);
+  animation: gem-nb-dialog-in 150ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+@keyframes gem-nb-dialog-in {
+  from { transform: scale(0.8); }
+  to { transform: none; }
+}
+
+.gem-nb-dialog-layer.is-closing .gem-nb-dialog-scrim,
+.gem-nb-dialog-layer.is-closing .gem-nb-dialog {
+  animation: gems-menu-out 100ms linear 25ms forwards;
+}
+
+.gem-nb-dialog-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24px;
+  padding: 0 24px;
+}
+
+.gem-nb-dialog-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.gem-nb-dialog-title h2 {
+  margin: 0 0 1px;
+  padding: 8px 0;
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
+.gem-nb-dialog-close {
+  color: rgb(196, 199, 197);
+}
+
+.gem-nb-dialog-content {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.gem-nb-dialog-list {
+  padding: 8px 0;
+}
+
+.gem-nb-dialog-section {
+  margin: 13px 24px;
+  color: rgb(154, 155, 156);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gem-nb-dialog-row {
+  position: relative;
+  display: flex;
+  height: 64px;
+  box-sizing: border-box;
+  align-items: center;
+  padding: 0 32px 0 24px;
+  cursor: pointer;
+  outline: none;
+}
+
+.gem-nb-dialog-row:hover::before,
+.gem-nb-dialog-row:focus-visible::before {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(227, 227, 227, 0.08);
+  content: "";
+  pointer-events: none;
+}
+
+.gem-nb-dialog-row.is-selected {
+  background-color: var(--sync-04409f, rgb(4, 64, 159));
+}
+
+.gem-nb-dialog-chip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: rgb(30, 31, 32);
+  padding: 4px;
+  color: rgb(227, 227, 227);
+}
+
+.gem-nb-dialog-content-row {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0%;
+  align-items: center;
+  justify-content: space-between;
+  margin-left: 16px;
+}
+
+.gem-nb-dialog-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gem-nb-dialog-name,
+.gem-nb-dialog-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gem-nb-dialog-separator {
+  white-space: pre;
+}
+
+.gem-nb-dialog-check {
+  margin-left: 12px;
+  color: var(--sync-a8c7fa, rgb(168, 199, 250));
+}
+
+.gem-nb-dialog-empty {
+  margin: 0;
+  padding: 24px;
+  color: rgb(196, 199, 197);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.gem-nb-dialog-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 0.8px solid transparent;
+  padding: 16px 24px;
+}
+
+.gem-nb-dialog-count {
+  flex-grow: 1;
+  padding: 0 12px;
+  font-size: 17px;
+  font-weight: 370;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+}
+
+.gem-nb-dialog-add {
+  height: 40px;
+  border-radius: 9999px;
+  background-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  padding: 0 24px;
+  color: var(--sync-062e6f, rgb(6, 46, 111));
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.gem-nb-dialog-add:disabled {
+  background-color: rgba(227, 227, 227, 0.12);
+  color: rgba(227, 227, 227, 0.38);
+  cursor: default;
+}
+
+/* ── Editor below 961px ─────────────────────────────────────────────────────── */
+
+/*
+ * Measured at 800x1280 and 390x844: one column under the 68px top bar. A 52px title row
+ * (back, then the 50px logo pulled 24px left and a 15px title), the Save button full
+ * width in a 56px row, then Editor / Preview tabs over the card, which loses its corners
+ * and runs edge to edge. Those stay put: only the form (inset 24) scrolls, between the
+ * tabs and the legal line, which stays pinned at the bottom on the card's surface.
+ */
+@media (max-width: 960px) {
+  .gem-editor {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+    align-items: stretch;
+    overflow: hidden;
+    padding: 0;
+    background-color: #000;
+  }
+
+  .gem-editor-mobile-title {
+    display: flex;
+    height: 52px;
+    flex: none;
+    box-sizing: border-box;
+    align-items: center;
+    gap: 20px;
+    padding: 8px 12px 4px;
+  }
+
+  .gem-editor-mobile-name {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .gem-editor-mobile-logo {
+    margin-left: -24px;
+  }
+
+  .gem-editor-mobile-name h2 {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 20px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .gem-editor-mobile-title > .gem-editor-save-state {
+    flex: none;
+  }
+
+  .gem-editor-mobile-actions {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    flex: none;
+    gap: 8px;
+    background-color: #000;
+    padding: 8px 16px;
+  }
+
+  .gem-editor-mobile-actions > .gem-editor-save {
+    flex: 1 1 auto;
+    border-radius: 30px;
+  }
+
+  .gem-editor-tabs {
+    display: flex;
+    height: 49.6px;
+    flex: none;
+    border-bottom: 1.6px solid rgba(227, 227, 227, 0.12);
+  }
+
+  .gem-editor-tab {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    color: rgb(227, 227, 227);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 14px;
+  }
+
+  .gem-editor-tab.is-active::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: -1.6px;
+    left: 0;
+    border-top: 1.6px solid var(--sync-a8c7fa, rgb(168, 199, 250));
+  }
+
+  .gem-editor-card {
+    display: flex;
+    max-width: none;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    border-radius: 0;
+    padding: 8px 0 0;
+  }
+
+  .gem-editor-form {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 0 24px;
+  }
+
+  .gem-editor-instructions {
+    min-height: 120px;
+    flex: 2 0 120px;
+  }
+
+  .gem-editor-instructions.is-focused,
+  .gem-editor-instructions.is-rewriting {
+    min-height: 200px;
+    flex-basis: 200px;
+  }
+
+  .gem-editor-legal {
+    flex: none;
+    background-color: rgb(27, 27, 27);
+    padding: 12px 34px;
+  }
+
+  .gem-editor.is-preview-tab .gem-editor-card {
+    background-color: transparent;
+  }
+
+  .gem-editor.is-preview-tab .gem-editor-preview {
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+}
+
+/*
+ * ── Light theme ──────────────────────────────────────────────────────────────
+ *
+ * Gemini's light Gems pages were not measured (switching the live account's theme is a
+ * setting change). These are the same light tokens Willow's notebooks and dialogs use:
+ * on-surface #1f1f1f, variant #444746, low #747775, containers #f0f4f9 / #e5ebf3,
+ * primary #0b57d0, selected #d3e3fd, error #b3261e.
+ */
+:is(.light-theme, [data-theme="light"]) .gems-surface {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-page,
+:is(.light-theme, [data-theme="light"]) .gem-editor {
+  background-color: var(--studio-surface, #ffffff);
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-show-more,
+:is(.light-theme, [data-theme="light"]) .gems-text-button {
+  color: var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-show-more:hover,
+:is(.light-theme, [data-theme="light"]) .gems-text-button:hover {
+  background-color: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-card-link,
+:is(.light-theme, [data-theme="light"]) .gems-row,
+:is(.light-theme, [data-theme="light"]) .gem-zero-starter {
+  background-color: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-card-link:hover,
+:is(.light-theme, [data-theme="light"]) .gems-card.is-menu-open .gems-card-link,
+:is(.light-theme, [data-theme="light"]) .gems-row:hover,
+:is(.light-theme, [data-theme="light"]) .gems-row.is-menu-open,
+:is(.light-theme, [data-theme="light"]) .gem-zero-starter:hover {
+  background-color: #e5ebf3;
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-card-description,
+:is(.light-theme, [data-theme="light"]) .gems-row-description,
+:is(.light-theme, [data-theme="light"]) .gem-editor-legal {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-experiment-badge {
+  box-shadow: #747775 0 0 0 1px inset;
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-new-button,
+:is(.light-theme, [data-theme="light"]) .gem-editor-save,
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-add {
+  background-color: var(--sync-0b57d0, #0b57d0);
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-save:disabled,
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-add:disabled {
+  background-color: rgba(31, 31, 31, 0.12);
+  color: rgba(31, 31, 31, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-row-actions > .gems-row-more,
+:is(.light-theme, [data-theme="light"]) .gem-zero-starter > span,
+:is(.light-theme, [data-theme="light"]) .gems-menu-item,
+:is(.light-theme, [data-theme="light"]) .gems-menu.is-upload .gems-menu-item,
+:is(.light-theme, [data-theme="light"]) .gems-menu-glyph.is-strong,
+:is(.light-theme, [data-theme="light"]) .gem-editor-select,
+:is(.light-theme, [data-theme="light"]) .gem-editor-checkbox-label,
+:is(.light-theme, [data-theme="light"]) .gem-editor-tab {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-icon-button,
+:is(.light-theme, [data-theme="light"]) .gems-menu-item > .google-symbols,
+:is(.light-theme, [data-theme="light"]) .gems-menu-item > .luminous-symbols,
+:is(.light-theme, [data-theme="light"]) .gems-menu-glyph,
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-close {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-icon-button:hover,
+:is(.light-theme, [data-theme="light"]) .gems-icon-button[aria-expanded="true"],
+:is(.light-theme, [data-theme="light"]) .gems-menu-item:hover,
+:is(.light-theme, [data-theme="light"]) .gems-menu-item:focus-visible,
+:is(.light-theme, [data-theme="light"]) .gem-editor-select:hover,
+:is(.light-theme, [data-theme="light"]) .gem-editor-select[aria-expanded="true"],
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-row:hover::before,
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-row:focus-visible::before {
+  background-color: rgba(31, 31, 31, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-icon-button:disabled,
+:is(.light-theme, [data-theme="light"]) .gem-editor-history:disabled,
+:is(.light-theme, [data-theme="light"]) .gem-editor-powerup:disabled,
+:is(.light-theme, [data-theme="light"]) .gem-editor-checkbox.is-disabled .gem-editor-checkbox-label {
+  color: rgba(31, 31, 31, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-menu {
+  background-color: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-menu-item > .gems-menu-check,
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-check {
+  color: var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .gems-tips {
+  background-color: var(--sync-d3e3fd, #d3e3fd);
+  box-shadow: rgba(0, 0, 0, 0.15) 0 1px 2px 0, rgba(0, 0, 0, 0.1) 0 2px 6px 2px;
+  color: var(--sync-041e49, #041e49);
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-card {
+  background-color: #f8fafd;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-save-state,
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-section {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-field,
+:is(.light-theme, [data-theme="light"]) .gem-editor-instructions,
+:is(.light-theme, [data-theme="light"]) .gem-editor-rewriting,
+:is(.light-theme, [data-theme="light"]) .gem-editor-knowledge-box,
+:is(.light-theme, [data-theme="light"]) .gem-editor-preview-box,
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog {
+  background-color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-field.is-focused,
+:is(.light-theme, [data-theme="light"]) .gem-editor-field:focus-within {
+  box-shadow: inset 0 0 0 1.6px var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-instructions.is-focused {
+  border-color: var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-field.is-error {
+  box-shadow: inset 0 0 0 1.6px #b3261e;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-field-error-icon,
+:is(.light-theme, [data-theme="light"]) .gem-editor-error,
+:is(.light-theme, [data-theme="light"]) .gem-editor-preview-reply.is-error {
+  color: #b3261e;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-field input,
+:is(.light-theme, [data-theme="light"]) .gem-editor-field textarea,
+:is(.light-theme, [data-theme="light"]) .gem-editor-instructions textarea {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-field input::placeholder,
+:is(.light-theme, [data-theme="light"]) .gem-editor-field textarea::placeholder,
+:is(.light-theme, [data-theme="light"]) .gem-editor-instructions textarea::placeholder,
+:is(.light-theme, [data-theme="light"]) .gem-editor-knowledge-placeholder {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-rewriting > span {
+  background: linear-gradient(90deg, rgba(68, 71, 70, 0.08) 0%, rgba(68, 71, 70, 0.2) 50%, rgba(68, 71, 70, 0.08) 100%);
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-history,
+:is(.light-theme, [data-theme="light"]) .gem-editor-powerup {
+  background-color: #e9eef6;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-history:not(:disabled):hover,
+:is(.light-theme, [data-theme="light"]) .gem-editor-powerup:not(:disabled):hover {
+  background-color: #dde3ea;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-checkbox-box {
+  border-color: #444746;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-checkbox > input:checked + .gem-editor-checkbox-box {
+  border-color: var(--sync-0b57d0, #0b57d0);
+  background-color: var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-checkbox.is-disabled .gem-editor-checkbox-box {
+  border-color: rgba(31, 31, 31, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-preview-user {
+  background-color: #e9eef6;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-editor-preview-placeholder {
+  background-color: rgba(255, 255, 255, 0.8);
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog {
+  box-shadow: rgba(0, 0, 0, 0.15) 0 4px 28px;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-row.is-selected {
+  background-color: var(--sync-d3e3fd, #d3e3fd);
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-chip {
+  background-color: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gem-nb-dialog-empty {
+  color: #444746;
+}
+
+@media (max-width: 960px) {
+  :is(.light-theme, [data-theme="light"]) .gem-editor,
+  :is(.light-theme, [data-theme="light"]) .gem-editor-mobile-actions {
+    background-color: #ffffff;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .gem-editor-tabs {
+    border-bottom-color: rgba(31, 31, 31, 0.12);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .gem-editor-tab.is-active::after {
+    border-top-color: var(--sync-0b57d0, #0b57d0);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .gem-editor-legal {
+    background-color: #f8fafd;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gems-menu,
+  .gems-tips,
+  .gem-zero-info,
+  .gem-zero-starters,
+  .gem-editor-form,
+  .gem-editor-preview-placeholder > span {
+    animation: none;
+  }
+
+  .gems-premade-cards {
+    transition: none;
+  }
+
+  .gem-editor-rewriting > span {
+    animation: none;
+  }
+}

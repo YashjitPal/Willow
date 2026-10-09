@@ -74,20 +74,32 @@ const DictationWaveform = ({ stream }: { stream: MediaStream | null }) => {
     let audioMeterReady = false;
     const visualizerStartedAt = performance.now();
 
+    // CSS size of the drawing; the backing store is that times the pixel ratio, as Gemini's
+    // `wave-canvas` is (493 device pixels for 394 CSS at 1.25), so the 1px bars stay crisp.
+    let cssWidth = 0;
+    let cssHeight = 0;
     const resizeCanvas = (width: number, height: number) => {
-      const sideInset = window.matchMedia('(max-width: 767px)').matches ? 24 : 48;
+      // Gemini insets the canvas 48px on a desktop and 24px at 960 and below (tablets too).
+      const sideInset = window.matchMedia('(max-width: 960px)').matches ? 24 : 48;
       const nextWidth = Math.max(3, Math.floor(width - sideInset * 2));
       const nextHeight = Math.max(1, Math.floor(height || 24));
+      const ratio = Math.max(1, window.devicePixelRatio || 1);
       const nextBarsPerSide = Math.floor(nextWidth / 2 / DICTATION_WAVE_BAR_PITCH);
-      const dimensionsChanged = canvas.width !== nextWidth || canvas.height !== nextHeight;
+      const dimensionsChanged = cssWidth !== nextWidth || cssHeight !== nextHeight
+        || canvas.width !== Math.round(nextWidth * ratio);
       const waveBuffersMissing = targetHistory.length !== nextBarsPerSide + 1
         || renderedHeights.length !== nextBarsPerSide * 2 + 1;
 
       if (!dimensionsChanged && !waveBuffersMissing) return;
 
       if (dimensionsChanged) {
-        canvas.width = nextWidth;
-        canvas.height = nextHeight;
+        cssWidth = nextWidth;
+        cssHeight = nextHeight;
+        canvas.width = Math.round(nextWidth * ratio);
+        canvas.height = Math.round(nextHeight * ratio);
+        canvas.style.width = `${nextWidth}px`;
+        canvas.style.height = `${nextHeight}px`;
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
       }
       barsPerSide = nextBarsPerSide;
       targetHistory = Array(barsPerSide + 1).fill(DICTATION_WAVE_MIN_HEIGHT);
@@ -142,7 +154,7 @@ const DictationWaveform = ({ stream }: { stream: MediaStream | null }) => {
 
       const centerHeight = level > 0
         ? getDictationWaveHeight(
-            canvas.height,
+            cssHeight,
             Math.min(1, Math.max(0, level * 15)),
           )
         : DICTATION_WAVE_MIN_HEIGHT;
@@ -159,12 +171,12 @@ const DictationWaveform = ({ stream }: { stream: MediaStream | null }) => {
         lastHistoryUpdate = now;
       }
 
-      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.clearRect(0, 0, cssWidth, cssHeight);
 
-      const centerY = canvas.height / 2;
+      const centerY = cssHeight / 2;
       const barCount = barsPerSide * 2 + 1;
       const occupiedWidth = barCount + (barCount - 1) * 6;
-      const startX = (canvas.width - occupiedWidth) / 2 + 0.5;
+      const startX = (cssWidth - occupiedWidth) / 2 + 0.5;
       const color = getComputedStyle(canvas)
         .getPropertyValue('--willow-dictation-wave-color')
         .trim() || '#e0e0e0';

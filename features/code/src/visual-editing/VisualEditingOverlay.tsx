@@ -385,6 +385,8 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
     if (!isActive) return;
 
     const handleMessage = (e: MessageEvent) => {
+      // A hidden Code screen's preview posts here too.
+      if (e.source !== iframeRef.current?.contentWindow) return;
       if (e.data?.type === 'ELEMENT_SELECT' && e.data.element) {
         // Update the global selected element atom
         import('./engine/index').then(({ selectElement }) => {
@@ -1757,7 +1759,7 @@ const VisualEditingOverlay: React.FC<VisualEditingOverlayProps> = ({ iframeRef, 
                 ease: 'easeOut',
                 layout: { duration: 0.2, ease: 'easeOut' }
               }}
-              className="absolute pointer-events-auto z-[55] dark"
+              className="code-ve-prompt absolute pointer-events-auto z-[55] dark"
               style={{
                 left,
                 top,

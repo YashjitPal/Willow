@@ -4,6 +4,7 @@ import {
   User, Smile, FolderUp, Upload, Palette, Eraser, Trash2
 } from 'lucide-react';
 import { useBackground } from '@willow/studio/shell/BackgroundContext';
+import { useMediaViewport } from './use-media-viewport';
 
 interface AssetMenuModalProps {
   isOpen: boolean;
@@ -83,6 +84,9 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
   const projectMenuRef = useRef<HTMLDivElement>(null);
   
   const [isSketchMode, setIsSketchMode] = useState(false);
+  // A phone's panel is one column (media-responsive.css): no room for a preview, so a press on an
+  // asset adds it at once.
+  const phone = useMediaViewport() === 'phone';
 
   useEffect(() => {
     setCurrentProject(projectName);
@@ -313,6 +317,10 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
               transform: isShown
                 ? 'scale(1)'
                 : 'translateY(8px) scale(0.96)',
+            } : phone ? {
+              bottom: 'calc(100% + 6px)',
+              transformOrigin: 'bottom center',
+              transform: isShown ? 'translateY(0px) scale(1)' : 'translateY(8px) scale(0.98)',
             } : {
               bottom: 'calc(100% + 6px)',
               transformOrigin: 'bottom center',
@@ -329,11 +337,12 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
             backfaceVisibility: 'hidden',
             pointerEvents: isShown ? 'auto' : 'none',
           }}
-          className={`${isScreenCentered ? 'fixed left-1/2' : isSidebarPrompt ? 'fixed' : 'absolute left-1/2'} w-[800px] max-w-[90vw] ${modalBg} rounded-2xl shadow-2xl z-[100] border border-white/5 flex overflow-hidden asset-menu-modal-container`}
+          className={`${isScreenCentered ? 'fixed left-1/2' : isSidebarPrompt ? 'fixed' : 'absolute left-1/2'} w-[800px] max-w-[90vw] ${modalBg} rounded-2xl shadow-2xl z-[100] border border-white/5 flex overflow-hidden asset-menu-modal-container${phone ? ' aml-phone' : ''}`}
+          data-mode={openedFrom}
         >
       {/* Left Sidebar */}
-      <div className="w-[160px] shrink-0 flex flex-col">
-        <div className="pl-3 pr-1.5 pt-3 pb-3">
+      <div className="aml-side w-[160px] shrink-0 flex flex-col">
+        <div className="aml-project pl-3 pr-1.5 pt-3 pb-3">
           <div className="relative w-full">
             <button 
               ref={projectButtonRef}
@@ -373,7 +382,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
           </div>
         </div>
         
-        <div className="flex-1 overflow-y-auto no-scrollbar py-2 pl-3 pr-1.5 flex flex-col gap-0.5">
+        <div className="aml-cats flex-1 overflow-y-auto no-scrollbar py-2 pl-3 pr-1.5 flex flex-col gap-0.5">
           {SIDEBAR_ITEMS.map((item) => {
             const isSelected = !isSketchMode && selectedCategory === item.id;
             return (
@@ -396,7 +405,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
           })}
         </div>
         
-        <div className="py-3 pl-3 pr-1.5 flex flex-col gap-1.5">
+        <div className="aml-actions py-3 pl-3 pr-1.5 flex flex-col gap-1.5">
           <button 
             type="button"
             onClick={() => setIsSketchMode(true)}
@@ -421,10 +430,10 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
       </div>
 
       {/* Right Content Area (Middle + Right Columns) */}
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="aml-main flex-1 flex flex-col min-h-0">
         {/* Unified Top Header */}
-        <div className="flex items-center pl-1.5 pr-3 pt-3 pb-3 gap-3">
-          <div className="bg-[#666970]/50 backdrop-blur-md rounded-2xl flex items-center px-3 h-[40px] transition-colors border-none flex-1">
+        <div className="aml-search-row flex items-center pl-1.5 pr-3 pt-3 pb-3 gap-3">
+          <div className="aml-search bg-[#666970]/50 backdrop-blur-md rounded-2xl flex items-center px-3 h-[40px] transition-colors border-none flex-1">
             <Search size={16} className="text-[#a0a0a0] shrink-0 mr-2" />
             <input 
               type="text" 
@@ -434,7 +443,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
               className="bg-transparent border-none outline-none text-[13.5px] text-white w-full placeholder-[#8e8e8e]"
             />
           </div>
-          <div className="relative">
+          <div className="aml-sort relative">
             <button 
               ref={sortButtonRef}
               onClick={() => setIsSortMenuOpen(!isSortMenuOpen)}
@@ -474,10 +483,10 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="flex flex-1 min-h-0 overflow-y-auto">
+        <div className="aml-body flex flex-1 min-h-0 overflow-y-auto">
           {/* Middle Column: Asset List */}
           {!isSketchMode && (
-            <div className="w-[260px] shrink-0 flex flex-col">
+            <div className="aml-list w-[260px] shrink-0 flex flex-col">
               <div className="flex-1 overflow-y-auto no-scrollbar pl-1.5 pr-3 pb-3 flex flex-col gap-0.5">
                 {filteredAndSortedAssets.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center px-3 py-8 text-center text-[12px] text-[#8e8e8e]">
@@ -488,7 +497,11 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
                   return (
                     <div
                       key={asset.id}
-                      onClick={() => setSelectedAsset(asset)}
+                      onClick={() => {
+                        if (!phone) { setSelectedAsset(asset); return; }
+                        if (onAddPrompt) onAddPrompt(asset.id, asset.url, asset.title, asset.type.toLowerCase() === 'video' ? 'video' : 'image');
+                        onClose();
+                      }}
                       className={`flex items-center gap-3 p-1.5 rounded-2xl cursor-pointer transition-colors ${
                         isSelected ? 'bg-[#505153]' : 'hover:bg-white/5'
                       }`}
@@ -511,7 +524,7 @@ export const AssetMenuModal: React.FC<AssetMenuModalProps> = ({
           )}
 
           {/* Right Column: Preview or Sketchpad */}
-          <div className="flex-1 flex flex-col pr-3 pb-3 min-h-0">
+          <div className={`aml-preview${isSketchMode ? ' is-sketch' : ''} flex-1 flex flex-col pr-3 pb-3 min-h-0`}>
             <div className="flex-1 flex flex-col bg-[#1e1f21]/50 backdrop-blur-md rounded-2xl p-3 min-h-0">
               {isSketchMode ? (
                 <SketchPad

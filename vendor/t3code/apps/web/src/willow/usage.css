@@ -1,0 +1,123 @@
+/*
+ * The usage page in Willow's own usage design (apps/studio/src/usage/UsageLimitsView.css):
+ * each section on a card with 16px corners and 16px padding, a provider's limit windows stacked
+ * 4px apart with 4px inner corners, titles at 15px/20px and 17px/24px weight 540, headline
+ * figures at 28px/36px weight 350, labels at 13px/17px in 55% ink, share bars as 12px pills.
+ */
+
+:root {
+  --willow-usage-card: rgb(242 240 240);
+  --willow-usage-track: rgb(255 255 255);
+  --willow-usage-muted: rgb(0 0 0 / 55%);
+}
+
+:root.dark {
+  --willow-usage-card: rgb(23 23 23);
+  --willow-usage-track: rgb(28 28 28);
+  --willow-usage-muted: rgb(255 255 255 / 55%);
+}
+
+[data-usage-card] {
+  padding: 16px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--willow-usage-card);
+}
+
+[data-usage-section] {
+  gap: 16px;
+}
+
+[data-usage-pool] {
+  row-gap: 4px;
+}
+
+[data-usage-pool] > [data-usage-heading] {
+  margin-bottom: 8px;
+}
+
+[data-usage-pool] > [data-usage-window] {
+  border-radius: 4px;
+}
+
+[data-usage-pool] > [data-usage-window]:first-of-type {
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+}
+
+[data-usage-pool] > [data-usage-window]:last-of-type {
+  border-bottom-right-radius: 16px;
+  border-bottom-left-radius: 16px;
+}
+
+[data-usage-heading] {
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 540;
+  font-variation-settings:
+    "wdth" 100,
+    "wght" 540;
+  line-height: 20px;
+}
+
+[data-usage-window-label] {
+  color: var(--foreground);
+  font-size: 17px;
+  font-weight: 540;
+  font-variation-settings:
+    "wdth" 100,
+    "wght" 540;
+  line-height: 24px;
+}
+
+[data-usage-total] {
+  font-size: 28px;
+  font-weight: 350;
+  font-variation-settings:
+    "RNDS" 20,
+    "wdth" 100,
+    "wght" 350;
+  line-height: 36px;
+}
+
+[data-usage-label] {
+  color: var(--willow-usage-muted);
+  font-size: 13px;
+  font-weight: 540;
+  font-variation-settings:
+    "wdth" 92,
+    "wght" 540;
+  line-height: 17px;
+}
+
+[data-usage-value] {
+  font-size: 15px;
+  font-weight: 540;
+  font-variation-settings:
+    "wdth" 100,
+    "wght" 540;
+  line-height: 20px;
+}
+
+[data-usage-share-bar] {
+  height: 12px;
+  gap: 2px;
+}
+
+[data-usage-share-bar] > * {
+  border-radius: 2px;
+}
+
+[data-usage-share-bar] > :first-child {
+  border-top-left-radius: 9999px;
+  border-bottom-left-radius: 9999px;
+}
+
+[data-usage-share-bar] > :last-child {
+  border-top-right-radius: 9999px;
+  border-bottom-right-radius: 9999px;
+}
+
+[data-usage-segment] {
+  background: var(--willow-usage-track);
+}

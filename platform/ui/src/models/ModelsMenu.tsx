@@ -63,6 +63,49 @@ export type ModelsMenuVoiceListing = {
 
 type PickerModel = ModelEffortRecord;
 
+/**
+ * One row of Gemini's ≤960px `gem-menu`: 8px padding and 8px gaps around a 24px leading
+ * slot, the label column and a 24px trailing slot. A 17px/24px label over a 13px/17px
+ * sublabel makes the row 57px; a label alone, 40px.
+ */
+function GeminiMobileMenuRow({
+  leading,
+  label,
+  sublabel,
+  trailing,
+  isLight,
+  ...button
+}: {
+  leading?: React.ReactNode;
+  label: React.ReactNode;
+  sublabel?: React.ReactNode;
+  trailing?: React.ReactNode;
+  isLight: boolean;
+} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      {...button}
+      className={`flex w-full min-h-[36px] items-center gap-2 rounded-xl p-2 text-left transition-colors focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${
+        isLight
+          ? 'text-[#1f1f1f] hover:bg-black/[0.06] focus-visible:bg-black/[0.06]'
+          : 'text-[#e0e0e0] hover:bg-[#333537] focus-visible:bg-[#333537]'
+      }`}
+    >
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center">{leading}</span>
+      <span className="min-w-0 flex-1 overflow-hidden">
+        <span className="block truncate text-[17px] leading-6">{label}</span>
+        {sublabel !== undefined && (
+          <span className={`block truncate text-[13px] leading-[17px] ${isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'}`}>
+            {sublabel}
+          </span>
+        )}
+      </span>
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center">{trailing}</span>
+    </button>
+  );
+}
+
 export const ModelsMenu: React.FC<{
   onClose: () => void;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
@@ -103,7 +146,13 @@ export const ModelsMenu: React.FC<{
     onSelect: () => void;
   }[];
   align?: 'left' | 'right';
-}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, align = 'right', voiceModels, extraEfforts }) => {
+  /**
+   * Gemini's ≤960px menu, which the chat header's picker opens: 17px labels in 57px
+   * rows, 24px icons, and a panel as wide as its widest row. Gemini draws it identically
+   * at 390 and 800px, so it is one variant rather than a breakpoint. Needs `geminiStyle`.
+   */
+  mobile?: boolean;
+}> = ({ onClose, triggerRef, modelConfig, selectedId, onSelect, onAuthRequired, geminiStyle = false, align = 'right', mobile = false, voiceModels, extraEfforts }) => {
   const { isLight } = useThemeMode();
   const isVoiceRoster = !!voiceModels && voiceModels.length > 0;
 
@@ -575,15 +624,25 @@ export const ModelsMenu: React.FC<{
   };
 
   if (geminiStyle) {
+    // Gemini's `gem-menu` fill and its `.container` shadow. Light is unmeasured and keeps Willow's.
+    const mobilePanelChrome = isLight
+      ? 'bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.06)]'
+      : 'bg-[#1c1c1c] shadow-[0_0_20px_rgba(0,0,0,0.28)]';
+    const mobileCheck = <MaterialSymbol family="luminous" name="check" size={24} weight={300} roundness={100} opticalSize={24} />;
+
     const geminiMenu = (
       <div
         ref={menuRef}
         role="menu"
         aria-label="Choose a model"
-        className={`${geminiStyle ? 'fixed' : 'absolute right-0'} w-[241px] ${
-          isLight
-            ? 'bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.06)]'
-            : 'bg-[#1f1f1f] shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)]'
+        className={`${geminiStyle ? 'fixed' : 'absolute right-0'} ${
+          mobile
+            ? `w-max min-w-[225px] max-w-[calc(100vw-16px)] ${mobilePanelChrome}`
+            : `w-[241px] ${
+                isLight
+                  ? 'bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.06)]'
+                  : 'bg-[#1f1f1f] shadow-[0_4px_24px_rgba(0,0,0,0.45),0_0_20px_rgba(255,255,255,0.05)]'
+              }`
         } rounded-[20px] p-2 z-[100] overflow-visible ${!isPositionReady ? 'invisible' : ''} ${
           geminiStyle
             ? (menuAlign === 'left'
@@ -598,7 +657,7 @@ export const ModelsMenu: React.FC<{
         }}
       >
         <div
-          className="max-h-[208px] overflow-y-auto no-scrollbar"
+          className={`${mobile ? 'max-h-[228px]' : 'max-h-[208px]'} overflow-y-auto no-scrollbar`}
           style={{ willChange: 'transform', transform: 'translateZ(0)' }}
         >
           {groupedModels.length === 0 ? (
@@ -609,6 +668,22 @@ export const ModelsMenu: React.FC<{
             groupedModels.map((group) => {
               const model = group.variants.find(matchesSelection) || group.variants[0];
               const isSelected = group.variants.some(matchesSelection);
+              if (mobile) {
+                return (
+                  <GeminiMobileMenuRow
+                    key={group.key}
+                    role="menuitem"
+                    onClick={() => {
+                      onSelect(model.id);
+                      handleClose();
+                    }}
+                    isLight={isLight}
+                    leading={isSelected ? mobileCheck : null}
+                    label={formatModelDisplayName(model)}
+                    sublabel={getModelDescription(model)}
+                  />
+                );
+              }
               return (
                 <button
                   key={group.key}
@@ -642,48 +717,81 @@ export const ModelsMenu: React.FC<{
 
         {selectedEffort && (
           <>
-            <div className={`h-px ${isLight ? 'bg-black/10' : 'bg-[#444746]'} my-2`} role="separator" />
+            <div
+              className={mobile
+                ? `my-2 h-0 border-t ${isLight ? 'border-black/10' : 'border-white/[0.12]'}`
+                : `h-px ${isLight ? 'bg-black/10' : 'bg-[#444746]'} my-2`}
+              role="separator"
+            />
             <div 
               className="relative"
-              onMouseEnter={() => {
+              /*
+               * Not in the mobile menu: a tap fires the emulated mouseenter and then the
+               * click, so hover opened the submenu and the click's toggle shut it again.
+               */
+              onMouseEnter={mobile ? undefined : () => {
                 setIsEffortPositionReady(false);
                 setIsEffortHovered(true);
               }}
-              onMouseLeave={() => {
+              onMouseLeave={mobile ? undefined : () => {
                 setIsEffortPositionReady(false);
                 setIsEffortHovered(false);
               }}
             >
-              <button
-                type="button"
-                role="menuitem"
-                aria-haspopup="menu"
-                onClick={() => {
-                  setIsEffortPositionReady(false);
-                  setIsEffortHovered((prev) => !prev);
-                }}
-                className={`flex h-[48px] w-full items-center rounded-xl text-left text-[13px] ${
-                  isLight
-                    ? 'text-[#1f1f1f] hover:bg-black/[0.06] focus-visible:bg-black/[0.06]'
-                    : 'text-[#e6e6e6] hover:bg-[#333537] focus-visible:bg-[#333537]'
-                } transition-colors focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
-              >
-                <span className="w-9 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1">
-                  <span className="block leading-[17px]">Thinking Effort</span>
-                  <span className={`block truncate text-[12px] leading-4 ${isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'}`}>
-                    {getThinkingEffortLabel(selectedEffort)}
-                  </span>
-                </span>
-                <MaterialSymbol
-                  family="google-symbols"
-                  name={effortSide === 'left' ? 'keyboard_arrow_left' : 'keyboard_arrow_right'}
-                  size={24}
-                  weight={400}
-                  roundness={100}
-                  className={`mr-2 ${isLight ? 'text-[#1f1f1f]' : ''}`}
+              {mobile ? (
+                <GeminiMobileMenuRow
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  onClick={() => {
+                    setIsEffortPositionReady(false);
+                    setIsEffortHovered((prev) => !prev);
+                  }}
+                  isLight={isLight}
+                  label="Thinking Effort"
+                  sublabel={getThinkingEffortLabel(selectedEffort)}
+                  trailing={
+                    <MaterialSymbol
+                      family="luminous"
+                      name={effortSide === 'left' ? 'chevron_left' : 'chevron_right'}
+                      size={24}
+                      weight={300}
+                      roundness={100}
+                      opticalSize={24}
+                    />
+                  }
                 />
-              </button>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  onClick={() => {
+                    setIsEffortPositionReady(false);
+                    setIsEffortHovered((prev) => !prev);
+                  }}
+                  className={`flex h-[48px] w-full items-center rounded-xl text-left text-[13px] ${
+                    isLight
+                      ? 'text-[#1f1f1f] hover:bg-black/[0.06] focus-visible:bg-black/[0.06]'
+                      : 'text-[#e6e6e6] hover:bg-[#333537] focus-visible:bg-[#333537]'
+                  } transition-colors focus-visible:outline-none font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+                >
+                  <span className="w-9 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block leading-[17px]">Thinking Effort</span>
+                    <span className={`block truncate text-[12px] leading-4 ${isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'}`}>
+                      {getThinkingEffortLabel(selectedEffort)}
+                    </span>
+                  </span>
+                  <MaterialSymbol
+                    family="google-symbols"
+                    name={effortSide === 'left' ? 'keyboard_arrow_left' : 'keyboard_arrow_right'}
+                    size={24}
+                    weight={400}
+                    roundness={100}
+                    className={`mr-2 ${isLight ? 'text-[#1f1f1f]' : ''}`}
+                  />
+                </button>
+              )}
 
               {isEffortHovered && (
                 <div 
@@ -699,16 +807,36 @@ export const ModelsMenu: React.FC<{
                     ref={effortMenuRef}
                     role="menu"
                     aria-label="Thinking Effort"
-                    className={`pointer-events-auto max-h-[calc(100vh-32px)] w-[220px] overflow-y-auto rounded-[20px] ${
-                      isLight
-                        ? 'bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.06)]'
-                        : 'bg-[#1f1f1f] shadow-[0_4px_18px_rgba(0,0,0,0.32)]'
+                    className={`pointer-events-auto max-h-[calc(100vh-32px)] overflow-y-auto rounded-[20px] ${
+                      mobile
+                        ? `w-max min-w-[225px] max-w-[calc(100vw-16px)] ${mobilePanelChrome}`
+                        : `w-[220px] ${
+                            isLight
+                              ? 'bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12),0_2px_8px_rgba(0,0,0,0.06)]'
+                              : 'bg-[#1f1f1f] shadow-[0_4px_18px_rgba(0,0,0,0.32)]'
+                          }`
                     } p-2 gemini-chat-scrollbar ${!isEffortPositionReady ? 'invisible' : ''}`}
                   >
                     {selectedEfforts.map((model) => {
                       const isSelected =
                         !(extraEfforts ?? []).some((extra) => extra.selected) &&
                         selectedEffort?.id === model.id;
+                      if (mobile) {
+                        return (
+                          <GeminiMobileMenuRow
+                            key={model.id}
+                            role="menuitemradio"
+                            aria-checked={isSelected}
+                            onClick={() => {
+                              onSelect(model.id);
+                              handleClose();
+                            }}
+                            isLight={isLight}
+                            leading={isSelected ? mobileCheck : null}
+                            label={getThinkingEffortLabel(model)}
+                          />
+                        );
+                      }
                       return (
                         <button
                           key={model.id}
@@ -735,7 +863,29 @@ export const ModelsMenu: React.FC<{
                       );
                     })}
 
-                    {(extraEfforts ?? []).map((extra) => (
+                    {(extraEfforts ?? []).map((extra) => mobile ? (
+                      <GeminiMobileMenuRow
+                        key={extra.id}
+                        role="menuitemradio"
+                        aria-checked={extra.selected}
+                        onClick={() => {
+                          extra.onSelect();
+                          handleClose();
+                        }}
+                        isLight={isLight}
+                        leading={extra.selected ? mobileCheck : null}
+                        label={
+                          <>
+                            {extra.label}
+                            {extra.badge && (
+                              <span className={`ml-2 rounded ${isLight ? 'bg-black/10 text-black/60' : 'bg-white/10 text-white/60'} px-1.5 py-px align-middle text-[10px] font-medium uppercase tracking-wide`}>
+                                {extra.badge}
+                              </span>
+                            )}
+                          </>
+                        }
+                      />
+                    ) : (
                       <button
                         key={extra.id}
                         type="button"

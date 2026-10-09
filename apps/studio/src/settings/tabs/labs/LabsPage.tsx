@@ -3,7 +3,7 @@ import { useStore } from '@nanostores/react';
 import { useAuth } from '@willow/auth/AuthContext';
 import { experimentsStore, setExperiment, type ExperimentId } from '@willow/core/experiments-store';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
-import { LABS_DESCRIPTION, LABS_EXPERIMENTS } from '../../labs-experiments';
+import { LABS_DESCRIPTION, LABS_EXPERIMENTS, isLabsRowAvailable } from '../../labs-experiments';
 import './LabsPage.css';
 
 /*
@@ -63,8 +63,8 @@ export const LabsPage: React.FC = () => {
    * track, and the deeper `sendButton` tone is the handle riding on it. Handed to
    * the CSS as variables, which is how the notebooks pages do it.
    */
-  const { userProfile } = useAuth();
-  const theme = getWorkspaceTheme(userProfile?.workspaceColor);
+  const { workspaceColor } = useAuth();
+  const theme = getWorkspaceTheme(workspaceColor);
 
   return (
     <div
@@ -90,6 +90,7 @@ export const LabsPage: React.FC = () => {
 
           <div className="lp-row-list">
             {LABS_EXPERIMENTS.map((row) => {
+              if (!isLabsRowAvailable(row)) return null;
               const enabled = row.id ? experiments[row.id] : !!row.staticEnabled;
               return (
                 <div key={row.id ?? row.title} className="lp-row">

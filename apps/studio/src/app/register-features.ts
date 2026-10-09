@@ -18,5 +18,11 @@
 
 import '@willow/design/register';
 import '@willow/gems/register';
+import '@willow/media/register';
 import '@willow/spark/register';
 import './register-model-catalog';
+import '../waifu/register-companion-history';
+// The parts of settings.json held outside React; SettingsFileBridge adds the rest.
+import './register-settings-file';
+// Publishes Customize → Skills into the shared skill library the Code harness reads.
+import '../customize/customize-skills';

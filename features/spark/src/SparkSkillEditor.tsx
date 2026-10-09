@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import type { SparkSkillSource } from './spark-types';
 import './SparkSkillEditor.css';
 
@@ -81,6 +82,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
   const [isAskingGemini, setIsAskingGemini] = useState(false);
   const [assistError, setAssistError] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const isCompact = useCompactViewport();
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discardClosing, setDiscardClosing] = useState(false);
   const canSubmit = Boolean(draft.name.trim() && draft.instructions.trim());
@@ -254,7 +256,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
       <form className="spark-skill-editor__content" onSubmit={submit}>
         <header className="spark-skill-editor__header">
           <button type="button" className="spark-skill-editor__back" onClick={back}>
-            <MaterialSymbol family="luminous" name="arrow_back" size={28} weight={260} roundness={100} />
+            <MaterialSymbol family="luminous" name="arrow_back" size={isCompact ? 24 : 28} weight={isCompact ? 300 : 260} roundness={100} />
             <span id={headingId}>Skills</span>
           </button>
           <div className="spark-skill-editor__header-actions">
@@ -288,13 +290,14 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
         <section className="spark-skill-editor__panel" aria-label="Skill details">
           {/* Gemini's skill editor has no in-card header — the card opens straight
             * onto the name field. The page's own back-nav supplies the context. */}
-          {/* Gemini's `.title-section` is an unlabelled input. */}
+          {/* Gemini's `.title-section` is an unlabelled input. At 960px and below its
+            * placeholders are the long worked examples below, and they size the fields. */}
           <div className="spark-skill-editor__field spark-skill-editor__field--title">
             <input
               id={nameId}
               type="text"
               value={draft.name}
-              placeholder="Name your skill"
+              placeholder={isCompact ? 'Name your skill. For example: "meeting-notes-summarizer"' : 'Name your skill'}
               aria-label="Skill name"
               autoComplete="off"
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
@@ -307,7 +310,9 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
               id={descriptionId}
               rows={1}
               value={draft.description}
-              placeholder="Give your skill a description"
+              placeholder={isCompact
+                ? 'Describe what your skill should do and when to use it. For example: "Use when asked to summarize meeting notes or transcripts. Starts running on prompts like \'recap this call\', \'what are the action items\' or \'find key decisions\'."'
+                : 'Give your skill a description'}
               autoComplete="off"
               onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
             />
@@ -321,7 +326,9 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
             <textarea
               id={instructionsId}
               value={draft.instructions}
-              placeholder="Describe what you want Gemini to do"
+              placeholder={isCompact
+                ? 'Describe what you want Gemini to do. For example: "Extract key decisions, list action items with owners, and highlight unresolved questions using bullet points."'
+                : 'Describe what you want Gemini to do'}
               onChange={(event) => setDraft((current) => ({ ...current, instructions: event.target.value }))}
             />
           </div>

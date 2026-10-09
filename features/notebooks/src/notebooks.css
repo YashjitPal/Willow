@@ -311,6 +311,91 @@
   transform: scale(1);
 }
 
+/*
+ * The create screen below 961px — `project-create-window-v2`, measured at 800 and 390
+ * wide. It stops centring: the content hangs from the top under the 68px bar, inset
+ * 28px a side with 24px above it, and the icon sits in a 32px box (the 28px glyph
+ * centred), so the prompt block is 72px. Chips take the narrow widths — 130px at rest
+ * with a 106px name and a 156px subtext; selected stays 200px, because Gemini's own
+ * 180px narrow rule loses to its later desktop one — on the narrow surface-dim, and
+ * the text takes the narrow on-surface.
+ */
+@media (max-width: 960px) {
+  .nb-create-host {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 0 28px;
+  }
+
+  /*
+   * Clipped, as Gemini's `.content-wrapper` is here: on a phone the 400px field runs
+   * past the edge, and an unclipped overflow let the input's autofocus scroll the page
+   * 12px sideways. `clip` rather than `hidden`, since focus can scroll the latter.
+   */
+  .nb-create-content {
+    width: 100%;
+    padding-top: 24px;
+    overflow: clip;
+  }
+
+  /* `.suggestions-row`: the chips keep their widths and the row scrolls sideways. */
+  .nb-create-chips {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nb-create-chips > .nb-chip {
+    flex: none;
+  }
+
+  /* MaterialSymbol pins its own 28px box inline; the margin makes Gemini's 32px one. */
+  .nb-create-prompt > span:first-child {
+    margin: 2px;
+    color: rgb(224, 224, 224);
+  }
+
+  .nb-create-input {
+    color: rgb(224, 224, 224);
+  }
+
+  .nb-chip {
+    width: 130px;
+    background-color: rgb(20, 20, 20);
+  }
+
+  /* gds-label-l and gds-body-s carry `"wdth" 92` here, which is what fits each name
+   * on two lines and the subtext on two — without it the chips grow to 155px. */
+  .nb-chip-name {
+    width: 106px;
+    color: rgb(224, 224, 224);
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  }
+
+  .nb-chip.is-selected .nb-chip-icon,
+  .nb-chip.is-selected .nb-chip-name {
+    color: rgb(224, 224, 224);
+  }
+
+  .nb-chip-subtext {
+    width: 156px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-chip-badge > span {
+    color: rgb(224, 224, 224);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-create-prompt > span:first-child {
+    color: #1f1f1f;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-chip-badge > span {
+    color: var(--sync-0b57d0, #0b57d0);
+  }
+}
+
 /* ── Create screen: entrance ───────────────────────────────────────────────── */
 
 /*
@@ -613,6 +698,177 @@
 .nb-card:hover .nb-card-menu,
 .nb-card-menu.is-forced {
   visibility: visible;
+}
+
+/*
+ * The grid below 961px — `inner-container.is-mobile`, measured at 800x1280 and 390x844.
+ *
+ * The page starts under the 68px top bar. The header row gains Gemini's 16px top
+ * margin and its 60.16px height (a 28px h1 between 16.08px margins), so the heading
+ * lands at y 124 and the first card at 184. The grid is Gemini's own rule here,
+ * `repeat(auto-fill, minmax(260px, 1fr))` — two columns on a tablet, one on a phone —
+ * with 48px under it. The heading is gds-headline-m's narrow cut ("ROND" 20, weight
+ * 380), and New notebook turns into the filled accent pill: `0 12px 0 8px` round a
+ * 16px icon and a 13px label at weight 400.
+ *
+ * Cards keep their 185px desktop shape, but the type takes the narrow axes, the title
+ * sits 4px above its source count, and hover (or an open menu) is on-surface at 8%,
+ * which reads darker than the resting fill against the black page.
+ */
+@media (max-width: 960px) {
+  .nb-grid-page {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+
+  .nb-grid-page .nb-grid-header {
+    height: 60.16px;
+    margin-top: 16px;
+  }
+
+  .nb-grid-page .nb-grid-title {
+    font-weight: 380;
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 380;
+  }
+
+  /*
+   * No gap after the icon: Gemini's label span opens with a template space, which is
+   * what separates the two — 3.1px at this size, rendered here as a real space.
+   */
+  .nb-grid-page .nb-grid-create {
+    gap: 0;
+    padding: 0 12px 0 8px;
+    background-color: var(--nb-grid-create-bg, rgb(31, 59, 155));
+    color: rgb(224, 224, 224);
+    font-weight: 400;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-grid-page .nb-grid-create-label::before {
+    content: " ";
+    white-space: pre;
+  }
+
+  /* Gemini's icon rides the label's line box, 1px below the pill's centre. */
+  .nb-grid-page .nb-grid-create > span:first-child {
+    translate: 0 1px;
+  }
+
+  .nb-grid-page .nb-grid-create:hover {
+    background-color: var(--nb-grid-create-hover, rgb(42, 75, 190));
+    opacity: 1;
+  }
+
+  .nb-grid-page .nb-card-grid {
+    margin-bottom: 48px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+
+  .nb-card:hover,
+  .nb-card.is-menu-open {
+    background-color: rgba(227, 227, 227, 0.08);
+  }
+
+  .nb-card-title {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  .nb-card-sources {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-card-body {
+    gap: 4px;
+  }
+
+  /*
+   * A 24px slot at the header's right edge, with the 36px button hung 6px above it
+   * and spilling 12px into the card's padding: Gemini's `project-list-item-menu`
+   * around its `gem-icon-button`. The ⋮ is 28px at weight 260, the pin 24px at 300.
+   */
+  .nb-card-trigger-slot {
+    position: relative;
+    width: 24px;
+    height: 24px;
+    flex: none;
+  }
+
+  .nb-card-trigger {
+    position: absolute;
+    top: -6px;
+    left: 0;
+    display: flex;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    color: rgb(224, 224, 224);
+  }
+
+  .nb-card-trigger .nb-card-trigger-pin,
+  .nb-card-trigger.is-pinned .nb-card-trigger-more,
+  .nb-card:hover .nb-card-trigger.is-pinned .nb-card-trigger-pin,
+  .nb-card.is-menu-open .nb-card-trigger.is-pinned .nb-card-trigger-pin {
+    display: none;
+  }
+
+  .nb-card-trigger.is-pinned .nb-card-trigger-pin,
+  .nb-card:hover .nb-card-trigger.is-pinned .nb-card-trigger-more,
+  .nb-card.is-menu-open .nb-card-trigger.is-pinned .nb-card-trigger-more {
+    display: flex;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-grid-page .nb-grid-create {
+    background-color: var(--nb-grid-create-bg, #0b57d0);
+    color: #ffffff;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-card:hover,
+  :is(.light-theme, [data-theme="light"]) .nb-card.is-menu-open {
+    background-color: #e5ebf3;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-card-trigger {
+    color: #444746;
+  }
+}
+
+/*
+ * A phone (Gemini's `max-width: 600px`) turns each card into a row: 88px tall at
+ * 32px corners, `padding: 20px 12px`, a 24px emoji, the title block filling the
+ * middle and the trigger at the end, all 12px apart. The header's wrapper drops out
+ * of the layout (`display: contents`) so its two children join the row.
+ */
+@media (max-width: 600px) {
+  .nb-card {
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    border-radius: 32px;
+    padding: 20px 12px;
+  }
+
+  .nb-card-header {
+    display: contents;
+  }
+
+  .nb-card-emoji {
+    font-size: 24px;
+    line-height: 24px;
+  }
+
+  .nb-card-body {
+    min-width: 0;
+    flex: 1 1 0;
+    order: 1;
+  }
+
+  .nb-card-trigger-slot {
+    order: 2;
+  }
 }
 
 /* ── Notebook page ─────────────────────────────────────────────────────────── */
@@ -1296,7 +1552,7 @@ button.nb-chat-row {
   justify-content: center;
   border-radius: 9999px;
   background-color: rgb(23, 23, 23);
-  color: rgb(78, 143, 248);
+  color: var(--sync-4e8ff8, rgb(78, 143, 248));
 }
 
 /* Exactly 224px wide — that measure is what makes it wrap where Gemini's does. */
@@ -1595,6 +1851,193 @@ button.nb-chat-row {
   color: rgb(242, 139, 130);
 }
 
+/*
+ * Sources at 960px and below is Gemini's `mobile-layout`, measured at 800x1280 and
+ * 390x844. The dialog fills the screen on surface-bright, padded 16px with 16px between a
+ * 24px back button (a 20px weight-320 `arrow_back`), the header, and the list. The header
+ * spreads its text and a 40px "+" apart with no gap; the "+" holds a 24px surface-dim disc
+ * that the button's line box leaves 3.4px low. Each source is a 73px row at an 8px pitch,
+ * 24px of padding under the last: a 24px icon box, the name at 17px/24px over its format
+ * at 13px/17px, and a 40px remove button with a 28px weight-260 `close`.
+ */
+@media (max-width: 960px) {
+  .nb-sheet-scrim {
+    padding: 0;
+  }
+
+  .nb-sheet {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    background-color: rgb(28, 28, 28);
+    padding: 0;
+  }
+
+  .nb-src-mobile {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 16px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  .nb-src-mobile-pre-header {
+    display: flex;
+  }
+
+  .nb-src-mobile-back {
+    display: flex;
+    width: 24px;
+    height: 24px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    color: rgb(196, 199, 197);
+  }
+
+  .nb-src-mobile-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .nb-src-mobile-header .nb-sheet-title {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  .nb-src-mobile-header .nb-sheet-sub {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-src-mobile-add {
+    display: flex;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    align-items: flex-start;
+    justify-content: center;
+    border-radius: 9999px;
+    padding: 8px;
+  }
+
+  .nb-src-mobile-add-disc {
+    display: flex;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background-color: rgb(20, 20, 20);
+    color: rgba(255, 255, 255, 0.55);
+    translate: 0 3.4px;
+  }
+
+  .nb-src-rows {
+    display: grid;
+    gap: 8px;
+    padding-bottom: 24px;
+  }
+
+  .nb-src-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 12px;
+    border-radius: 16px;
+    background-color: rgb(19, 19, 20);
+    padding: 16px 20px 16px 12px;
+  }
+
+  .nb-src-row-icon {
+    display: flex;
+    width: 24px;
+    height: 24px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nb-src-row-text {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .nb-src-row-name,
+  .nb-src-row-format {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 400;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-src-row-name {
+    font-size: 17px;
+    line-height: 24px;
+    color: rgb(227, 227, 227);
+  }
+
+  .nb-src-row-format {
+    font-size: 13px;
+    line-height: 17px;
+    color: rgb(196, 199, 197);
+  }
+
+  .nb-src-row-remove {
+    display: flex;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    color: rgb(196, 199, 197);
+    transition: background-color 0.15s ease-out;
+  }
+
+  .nb-src-row-remove:hover,
+  .nb-src-mobile-back:hover,
+  .nb-src-mobile-add:hover {
+    background-color: rgba(196, 199, 197, 0.08);
+  }
+
+  /* Above the Sources scrim that raised it, whichever stylesheet loads last. */
+  .gemini-bottom-sheet-layer.nb-src-add-sheet {
+    z-index: 2147483005;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-src-mobile-back,
+  :is(.light-theme, [data-theme="light"]) .nb-src-row-remove {
+    color: #444746;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-src-mobile-add-disc {
+    background-color: #f0f4f9;
+    color: rgba(0, 0, 0, 0.55);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-src-row {
+    background-color: #f0f4f9;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-src-row-name {
+    color: #1f1f1f;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-src-row-format {
+    color: #444746;
+  }
+}
+
 /* ── Past-chats skeleton ───────────────────────────────────────────────────── */
 
 /*
@@ -1741,6 +2184,17 @@ button.nb-chat-row {
   gap: 8px;
 }
 
+/* A zero-size anchor at the viewport's corner for the top-bar model picker, which
+ * hides itself above 960px. */
+.nb-page-model {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  width: 0;
+  height: 0;
+}
+
 /*
  * The notebook header's three-dot, matched to the chat surface's own — asked for
  * by name, because the two sit in the same corner of the same app and read as
@@ -1780,6 +2234,151 @@ button.nb-chat-row {
 
 /* Above the ripple, which is absolutely positioned over the button's box. */
 .nb-icon-button > * { position: relative; }
+
+/*
+ * One notebook below 961px — Gemini swaps `center-input-layout` for its chat layout,
+ * measured at 800x1280 and 390x844.
+ *
+ * The page scrolls under the 68px bar (from y 84, the scroller's 16px padding) in a
+ * column capped at 708px and centred: x 46 on a tablet, flush with the screen on a
+ * phone, where Gemini gives the header no inset at all and lets the title break
+ * anywhere. The header is back in flow — emoji, 12px, then the title row with the
+ * sources chip 8px from the title — with 28px under it, then Past chats 20px lower.
+ *
+ * The composer docks at the bottom on an opaque bar: 12px above it, 16px a side and
+ * 12px below (16px on a tablet), the same place as on the new-chat page. It is the
+ * column's last flex item, sticky at the bottom, so the one mounted composer keeps its
+ * draft across the breakpoint instead of being remounted somewhere else.
+ */
+@media (max-width: 960px) {
+  .nb-page-host {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
+
+  .nb-page-column {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    align-items: center;
+    overflow-y: auto;
+    padding: 16px 0 0;
+  }
+
+  .nb-page-anchor {
+    display: contents;
+  }
+
+  .nb-page-header {
+    position: static;
+    width: min(708px, 100%);
+    margin-bottom: 0;
+    padding-bottom: 28px;
+  }
+
+  .nb-page-emoji {
+    padding: 0;
+  }
+
+  .nb-page-title-row {
+    gap: 8px;
+    margin-right: 0;
+  }
+
+  /* gds-display-s here is the rounded cut. */
+  .nb-page-title {
+    overflow-wrap: anywhere;
+    font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
+  }
+
+  /* The narrow surface-dim and surface-bright, under the same 15px label. */
+  .nb-source-chip {
+    background-color: rgb(20, 20, 20);
+  }
+
+  .nb-source-chip.nb-no-icons,
+  .nb-source-chip-icon {
+    background-color: rgb(28, 28, 28);
+  }
+
+  .nb-page-composer {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    order: 1;
+    display: flex;
+    align-self: stretch;
+    justify-content: center;
+    margin: auto 0 0;
+    padding: 12px 16px;
+    background-color: var(--studio-surface, #000);
+  }
+
+  .nb-page-section,
+  .nb-page-chats,
+  .nb-page-column > .nb-empty-state {
+    width: min(708px, 100%);
+  }
+
+  /* `project-chat-history`'s 20px top margin and its heading's `12px 16px`. */
+  .nb-page-section {
+    margin: 20px 0 0;
+    padding: 12px 16px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+  }
+
+  /* Its 20px bottom margin and the scroller's 20px bottom padding. */
+  .nb-page-tail {
+    height: 40px;
+  }
+
+  /*
+   * Rows run edge to edge of the column, and the 40px `more_vert` is always there on
+   * a touch screen — in flow at the row's end, with the date 16px before it.
+   */
+  button.nb-chat-row {
+    width: 100%;
+    gap: 0;
+    margin: 0;
+    padding: 0 0 0 16px;
+  }
+
+  .nb-chat-row-sub {
+    margin-right: 16px;
+  }
+
+  .nb-chat-row-menu {
+    position: static;
+    flex: none;
+    padding: 6px;
+    visibility: visible;
+  }
+
+  /* Gemini's top-bar trigger: 40px at the 12/12 corner, the rows' 28px glyph. */
+  .nb-page-actions {
+    top: 12px;
+    right: 12px;
+  }
+
+  .nb-page-actions .nb-icon-button {
+    width: 40px;
+    height: 40px;
+    color: rgb(196, 199, 197);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-page-actions .nb-icon-button {
+    color: #444746;
+  }
+}
+
+/* A tablet keeps 16px under the docked composer; a phone keeps 12. */
+@media (min-width: 769px) and (max-width: 960px) {
+  .nb-page-composer {
+    padding-bottom: 16px;
+  }
+}
 
 /* ── The three-dot menu (`gem-menu`) ──────────────────────────────────────── */
 
@@ -1894,6 +2493,43 @@ button.nb-chat-row {
   width: 20px;
   height: 20px;
   flex: none;
+}
+
+/*
+ * Below 961px `gem-menu` takes its touch cut, measured on the card menu at 800 and 390
+ * wide: `#1c1c1c`, 40px rows of a 24px weight-300 glyph and a 17px/24px label at
+ * `"wdth" 92`, and a 24px trailing slot — so the panel is the label plus 96px. The
+ * glyph size itself comes from `NotebookMenu`.
+ */
+@media (max-width: 960px) {
+  .nb-menu {
+    background-color: rgb(28, 28, 28);
+  }
+
+  .nb-menu-item {
+    height: 40px;
+  }
+
+  .nb-menu-label {
+    color: rgb(224, 224, 224);
+    font-size: 17px;
+    line-height: 24px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-menu-trailing {
+    width: 24px;
+    height: 24px;
+  }
+
+  /* The drawer row's menu alone draws its glyphs in on-surface-variant. */
+  .nb-menu--drawer .nb-menu-item > .luminous-symbols {
+    color: rgb(196, 199, 197);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-menu--drawer .nb-menu-item > .luminous-symbols {
+    color: #444746;
+  }
 }
 
 /* ── Notebook settings + Rename (shared scrim) ────────────────────────────── */
@@ -2059,14 +2695,96 @@ button.nb-chat-row {
 
 .nb-set-save {
   padding: 0 24px;
-  background-color: rgb(168, 199, 250);
-  color: rgb(6, 46, 111);
+  background-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  color: var(--sync-062e6f, rgb(6, 46, 111));
 }
 
 /* Measured directly — Save was disabled in the capture, so this pair is exact. */
 .nb-set-save:disabled {
   background-color: rgba(230, 230, 230, 0.12);
   color: rgba(230, 230, 230, 0.38);
+}
+
+/*
+ * Notebook settings below 961px — `project-instructions-editor` in its `mobile-layout`,
+ * measured at 800x1280 and 390x844. The dialog surface fills the screen (still 32px
+ * corners, the narrow surface-bright) with no visible backdrop, while the editor inside
+ * keeps its 512px desktop column, hard left: `padding: 20px`, at most 560px tall, so
+ * the instructions box stretches to 248px. A 40px back arrow (`arrow_back`, 24px at
+ * weight 300 in #c4c7c5, which the button's line box leaves 3.4px low) heads it, 20px
+ * above the title, and there are no Cancel or Save pills.
+ */
+@media (max-width: 960px) {
+  /* Settings only: Rename shares this scrim and stays a centred dialog. */
+  .nb-set-scrim--settings {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+    background-color: transparent;
+  }
+
+  .nb-set {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    padding: 0;
+    background-color: rgb(28, 28, 28);
+    box-shadow: none;
+  }
+
+  .nb-set-content {
+    width: 512px;
+    max-width: 100%;
+    height: 100%;
+    max-height: 560px;
+    overflow: hidden;
+    padding: 20px;
+  }
+
+  .nb-set-pre-header {
+    flex: none;
+  }
+
+  .nb-set-back {
+    display: flex;
+    width: 40px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    border-radius: 9999px;
+    color: rgb(196, 199, 197);
+  }
+
+  .nb-set-back > span {
+    translate: 0 3.4px;
+  }
+
+  /* The narrow type cuts: the title at `"wdth" 94`, labels at 95, everything else at 92. */
+  .nb-set-title {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  .nb-set-label {
+    color: rgb(224, 224, 224);
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 95, "wght" 400;
+  }
+
+  .nb-set-desc {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-set-textarea {
+    border: 2px solid rgb(20, 20, 20);
+    background-color: rgb(20, 20, 20);
+    color: rgb(224, 224, 224);
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-set-back {
+    color: #444746;
+  }
 }
 
 /* ── The memory switch (mat-slide-toggle) ─────────────────────────────────── */
@@ -2088,7 +2806,7 @@ button.nb-chat-row {
   transition: background-color 0.075s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.nb-switch.is-on .nb-switch-track { background-color: rgb(168, 199, 250); }
+.nb-switch.is-on .nb-switch-track { background-color: var(--sync-a8c7fa, rgb(168, 199, 250)); }
 
 /*
  * Handle: 24x24, 4px from the track's edge in both states — measured at x=976 in a
@@ -2107,7 +2825,7 @@ button.nb-chat-row {
 
 .nb-switch.is-on .nb-switch-handle {
   transform: translateX(20px);
-  background-color: rgb(6, 46, 111);
+  background-color: var(--sync-062e6f, rgb(6, 46, 111));
 }
 
 /* ── Rename notebook, 512x236 ─────────────────────────────────────────────── */
@@ -2205,7 +2923,7 @@ button.nb-chat-row {
   padding: 0 16px;
 }
 
-.nb-ren-field:focus-within { border-color: rgb(168, 199, 250); }
+.nb-ren-field:focus-within { border-color: var(--sync-a8c7fa, rgb(168, 199, 250)); }
 
 .nb-ren-field input {
   width: 100%;
@@ -2252,6 +2970,79 @@ button.nb-chat-row {
 .nb-pill:disabled {
   background-color: rgba(230, 230, 230, 0.12);
   color: rgba(230, 230, 230, 0.38);
+}
+
+/*
+ * Rename notebook below 961px — `edit-title-dialog`, still a 512x236 dialog, measured at
+ * 800x1280 and 390x844; on a phone it runs edge to edge. The emoji row is 80px (12px
+ * padding round the 56px field), so the dialog reaches its full 236px; the trigger is
+ * padded 4px round a `min(48px, 10vw)` glyph (39.04px on a 390px phone), 12px in from
+ * the row's start, because Gemini's picker host sits before it as an empty flex item.
+ * The narrow tokens throughout: surface-bright for the surface, surface-dim for the
+ * tonal pills, on-surface #e0e0e0 for ink, and a 2px on-surface outline while the name
+ * field has focus.
+ */
+@media (max-width: 960px) {
+  .nb-set-scrim {
+    padding: 0;
+  }
+
+  .nb-ren {
+    background-color: rgb(28, 28, 28);
+  }
+
+  .nb-ren-title {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  .nb-ren-row {
+    height: 80px;
+  }
+
+  .nb-ren-emoji {
+    width: auto;
+    height: auto;
+    margin-left: 12px;
+    padding: 4px;
+  }
+
+  .nb-ren-emoji-glyph {
+    font-size: min(48px, 10vw);
+    line-height: 1;
+  }
+
+  .nb-ren-field {
+    padding: 0 15px;
+  }
+
+  .nb-ren-field input {
+    color: rgb(224, 224, 224);
+  }
+
+  /*
+   * MDC's notched outline is drawn over the field, not in its box, so the text stays
+   * 16px in whatever the outline does. An inset outline does the same here.
+   */
+  .nb-ren-field:focus-within {
+    border-color: transparent;
+    outline: 2px solid rgb(224, 224, 224);
+    outline-offset: -2px;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-ren-field:focus-within {
+    outline-color: var(--sync-0b57d0, #0b57d0);
+  }
+
+  .nb-pill {
+    background-color: rgb(20, 20, 20);
+    color: rgb(224, 224, 224);
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-pill:disabled {
+    background-color: rgba(224, 224, 224, 0.12);
+    color: rgba(224, 224, 224, 0.38);
+  }
 }
 
 /* ── Emoji keyboard, 375x356 ──────────────────────────────────────────────── */
@@ -2344,7 +3135,7 @@ button.nb-chat-row {
 
 .nb-emoji-cat:hover { background-color: rgba(255, 255, 255, 0.08); }
 
-.nb-emoji-cat.is-active { color: rgb(102, 157, 246); }
+.nb-emoji-cat.is-active { color: var(--sync-669df6, rgb(102, 157, 246)); }
 
 /* The active tab's underline, which sits below the 40px nav band. */
 .nb-emoji-cat.is-active::after {
@@ -2355,7 +3146,7 @@ button.nb-chat-row {
   bottom: -5px;
   height: 2px;
   border-radius: 2px;
-  background-color: rgb(102, 157, 246);
+  background-color: var(--sync-669df6, rgb(102, 157, 246));
 }
 
 /*
@@ -2569,6 +3360,57 @@ button.nb-chat-row {
   color: rgb(154, 155, 156);
 }
 
+/*
+ * Move Chat below 961px — `move-to-project-dialog`, the same 434x465 box, measured at
+ * 800x1280 and 390x844; its pane caps at `100vw - 44px`, so a phone leaves 22px a side.
+ * Each `mat-list-option` leads with the notebook's 24px `notebook` glyph at weight 300,
+ * 12px before a 17px/24px gds-label-l name at weight 370; ink is the narrow on-surface on
+ * the narrow surface-bright.
+ */
+@media (max-width: 960px) {
+  .nb-move-scrim {
+    padding: 0;
+  }
+
+  .nb-move {
+    max-width: calc(100vw - 44px);
+    background-color: rgb(28, 28, 28);
+  }
+
+  .nb-move-title {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  .nb-move-info {
+    color: rgb(224, 224, 224);
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-move-list-inner:focus {
+    outline: none;
+  }
+
+  .nb-move-row {
+    gap: 12px;
+  }
+
+  .nb-move-row-icon {
+    color: rgb(224, 224, 224);
+  }
+
+  .nb-move-row-label {
+    color: rgb(224, 224, 224);
+    font-size: 17px;
+    line-height: 24px;
+    font-weight: 370;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-move-row-icon {
+    color: #1f1f1f;
+  }
+}
+
 /* ── Confirmation snackbar ────────────────────────────────────────────────── */
 
 /*
@@ -2601,6 +3443,34 @@ button.nb-chat-row {
   font-size: 15px;
   line-height: 20px;
   font-weight: 400;
+}
+
+/*
+ * Below 961px Gemini's `lm-enabled` snackbar theme resolves to the narrow tokens,
+ * read at 800x1280 and 390x844: surface-bright #1c1c1c and on-surface #e0e0e0, the same
+ * 16px corner and level-1 shadow. Its component styles only load once a snackbar opens,
+ * and every snackbar here follows a destructive action, so the geometry below 481px is
+ * Material's own: the surface drops its 344px floor and spans the host.
+ */
+@media (max-width: 960px) {
+  .nb-snack {
+    background-color: rgb(28, 28, 28);
+    color: rgb(224, 224, 224);
+  }
+
+  .nb-snack-label {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+}
+
+@media (max-width: 480px) {
+  .nb-snack-host {
+    right: 0;
+  }
+
+  .nb-snack {
+    min-width: 100%;
+  }
 }
 
 /* ── Secondary dialog (Add websites / Add text) ───────────────────────────── */
@@ -2712,7 +3582,7 @@ button.nb-chat-row {
 
 .nb-sub-input:focus,
 .nb-sub-textarea:focus {
-  border-color: rgb(168, 199, 250);
+  border-color: var(--sync-a8c7fa, rgb(168, 199, 250));
 }
 
 .nb-sub-input::placeholder,
@@ -2743,9 +3613,9 @@ button.nb-chat-row {
   height: 48px;
   min-width: 72px;
   border-radius: 9999px;
-  background-color: rgb(168, 199, 250);
+  background-color: var(--sync-a8c7fa, rgb(168, 199, 250));
   padding: 0 24px;
-  color: rgb(6, 46, 111);
+  color: var(--sync-062e6f, rgb(6, 46, 111));
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -2761,6 +3631,268 @@ button.nb-chat-row {
   background-color: rgba(224, 224, 224, 0.12);
   color: rgba(227, 227, 227, 0.38);
   cursor: default;
+}
+
+/*
+ * The source sub-dialogs at 960px and below, measured at 800x1280 and 390x844.
+ *
+ * Websites keeps the shell: a 41px header line with the icon, the title's 40px box and a
+ * weight-400 Google Symbols close all centred on it; subtitle and notes in
+ * on-surface-variant at `"wdth" 92`; MDC's outlined field, 552x200 with its text inset
+ * 16px and a 20px subscript line under it; and actions padded `20px 24px` under a 0.8px
+ * transparent rule.
+ *
+ * "Add text" is its own layout, padded 24px: a 20px/24px title over a 15px/20px
+ * subheader, 16px, a 244px field padded 12px inside a 1.6px border with 12px corners, and
+ * the pills 20px below. Every pill is the accent until it is disabled.
+ *
+ * Both are up to 600px wide and run edge to edge on a phone, corners still rounded.
+ */
+@media (max-width: 960px) {
+  .nb-sub-scrim {
+    padding: 0;
+  }
+
+  .nb-sub--compact .nb-sub-header {
+    align-items: center;
+  }
+
+  .nb-sub--compact .nb-sub-title {
+    display: flex;
+    height: 40px;
+    align-items: center;
+    margin-bottom: 1px;
+  }
+
+  .nb-sub--compact .nb-sub-title,
+  .nb-addtext-title {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  .nb-sub--compact .nb-sub-close {
+    color: rgb(196, 199, 197);
+  }
+
+  .nb-sub--compact .nb-sub-content {
+    gap: 0;
+    padding: 16px 24px;
+  }
+
+  .nb-sub--compact .nb-sub-subtitle {
+    margin-bottom: 16px;
+    color: rgb(196, 199, 197);
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-sub--compact .nb-sub-notes {
+    margin-top: 8px;
+    padding-left: 16px;
+    color: rgb(196, 199, 197);
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-sub--compact .nb-sub-notes li {
+    margin-bottom: 4px;
+  }
+
+  .nb-sub--compact .nb-sub-notes li + li {
+    margin-top: 0;
+  }
+
+  .nb-sub--compact .nb-sub-actions {
+    gap: 8px;
+    border-top: 0.8px solid transparent;
+    padding: 20px 24px;
+  }
+
+  .nb-sub-outlined {
+    position: relative;
+    display: block;
+    margin-bottom: 20px;
+    padding: 16px;
+  }
+
+  /* Out of flow, like MDC's outline, so thickening it never moves the text. */
+  .nb-sub-outlined::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 0.8px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    pointer-events: none;
+  }
+
+  .nb-sub-outlined:focus-within::before {
+    border-width: 1.6px;
+    border-color: rgb(224, 224, 224);
+  }
+
+  .nb-sub-outlined-input {
+    display: block;
+    width: 100%;
+    resize: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: rgb(224, 224, 224);
+    caret-color: rgb(224, 224, 224);
+    font-size: 16px;
+    line-height: 24px;
+    outline: none;
+  }
+
+  /*
+   * At rest the text sits 15.8px in and 18.8px down. Floated it is 12px, centred on the
+   * top edge, and its surface-coloured padding is the notch: 4.8px before the text and
+   * 4.2px after it once scaled.
+   */
+  .nb-sub-outlined-label {
+    position: absolute;
+    top: 18.8px;
+    left: 9.4px;
+    padding: 0 5.6px 0 6.4px;
+    color: rgb(224, 224, 224);
+    font-size: 16px;
+    line-height: 20px;
+    pointer-events: none;
+    transform-origin: left top;
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .nb-sub-outlined-input:focus + .nb-sub-outlined-label,
+  .nb-sub-outlined-input:not(:placeholder-shown) + .nb-sub-outlined-label {
+    background-color: rgb(28, 28, 28);
+    transform: translate(1.6px, -25.5px) scale(0.75);
+  }
+
+  .nb-sub-pill {
+    height: 48px;
+    min-width: 72px;
+    flex: none;
+    border-radius: 9999px;
+    background-color: var(--nb-accent-bg, rgb(31, 59, 155));
+    padding: 0 16px;
+    color: rgb(224, 224, 224);
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 20px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+    cursor: pointer;
+    transition: background-color 0.2s ease-out;
+  }
+
+  .nb-sub-pill:hover:not(:disabled) {
+    background-color: var(--nb-accent-hover, rgb(31, 59, 155));
+  }
+
+  .nb-sub-pill:disabled {
+    background-color: rgba(224, 224, 224, 0.12);
+    color: rgba(224, 224, 224, 0.38);
+    cursor: default;
+  }
+
+  .nb-addtext {
+    padding: 24px;
+  }
+
+  .nb-addtext-header {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 16px;
+  }
+
+  .nb-addtext-title {
+    font-size: 20px;
+    font-weight: 470;
+    line-height: 24px;
+    color: rgb(227, 227, 227);
+  }
+
+  .nb-addtext-sub {
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 20px;
+    color: rgba(255, 255, 255, 0.55);
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .nb-addtext-field {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1.6px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+  }
+
+  .nb-addtext-field:focus-within {
+    border-color: rgb(224, 224, 224);
+  }
+
+  .nb-addtext-input {
+    display: block;
+    height: 244px;
+    resize: none;
+    border: 0;
+    border-radius: 12px;
+    background-color: rgb(28, 28, 28);
+    padding: 12px;
+    color: rgb(224, 224, 224);
+    caret-color: rgb(224, 224, 224);
+    font-size: 17px;
+    font-weight: 400;
+    line-height: 24px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+    outline: none;
+  }
+
+  .nb-addtext-input::placeholder {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .nb-addtext-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 20px;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-sub-outlined::before,
+  :is(.light-theme, [data-theme="light"]) .nb-addtext-field {
+    border-color: rgba(31, 31, 31, 0.12);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-sub-outlined:focus-within::before,
+  :is(.light-theme, [data-theme="light"]) .nb-addtext-field:focus-within {
+    border-color: #1f1f1f;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-sub-outlined-input,
+  :is(.light-theme, [data-theme="light"]) .nb-sub-outlined-label,
+  :is(.light-theme, [data-theme="light"]) .nb-addtext-input,
+  :is(.light-theme, [data-theme="light"]) .nb-addtext-title {
+    color: #1f1f1f;
+    caret-color: #1f1f1f;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-sub-outlined-input:focus + .nb-sub-outlined-label,
+  :is(.light-theme, [data-theme="light"]) .nb-sub-outlined-input:not(:placeholder-shown) + .nb-sub-outlined-label,
+  :is(.light-theme, [data-theme="light"]) .nb-addtext-input {
+    background-color: #ffffff;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-addtext-sub,
+  :is(.light-theme, [data-theme="light"]) .nb-addtext-input::placeholder {
+    color: #444746;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-sub-pill {
+    color: #ffffff;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .nb-sub-pill:disabled {
+    background-color: rgba(31, 31, 31, 0.12);
+    color: rgba(31, 31, 31, 0.38);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2902,7 +4034,7 @@ button.nb-chat-row {
 
 :is(.light-theme, [data-theme="light"]) .nb-chip.is-selected .nb-chip-icon,
 :is(.light-theme, [data-theme="light"]) .nb-chip.is-selected .nb-chip-name {
-  color: #041e49;
+  color: var(--sync-041e49, #041e49);
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-chip-subtext {
@@ -2911,7 +4043,7 @@ button.nb-chat-row {
 
 :is(.light-theme, [data-theme="light"]) .nb-chip-badge {
   background-color: #ffffff;
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 /* Notebook Page */
@@ -2993,7 +4125,7 @@ button.nb-chat-row {
 
 :is(.light-theme, [data-theme="light"]) .nb-src-empty-icon {
   background-color: #f0f4f9;
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-src-empty-text {
@@ -3069,7 +4201,7 @@ button.nb-chat-row {
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-set-textarea:focus {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-set-textarea::placeholder {
@@ -3077,15 +4209,15 @@ button.nb-chat-row {
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-set-cancel {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-set-cancel:hover {
-  background-color: rgba(11, 87, 208, 0.08);
+  background-color: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-set-save {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
@@ -3123,7 +4255,7 @@ button.nb-chat-row {
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-ren-field:focus-within {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-ren-field input {
@@ -3176,11 +4308,11 @@ button.nb-chat-row {
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-emoji-cat.is-active {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-emoji-cat.is-active::after {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-emoji-section {
@@ -3267,7 +4399,7 @@ button.nb-chat-row {
 
 :is(.light-theme, [data-theme="light"]) .nb-sub-input:focus,
 :is(.light-theme, [data-theme="light"]) .nb-sub-textarea:focus {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-sub-input::placeholder,
@@ -3280,7 +4412,7 @@ button.nb-chat-row {
 }
 
 :is(.light-theme, [data-theme="light"]) .nb-sub-confirm {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 

@@ -86,8 +86,10 @@ test('an attachment-only first message still yields a name', () => {
 
 test('the assistant half is optional the whole way down', () => {
   // WorkbenchSidebar still passes two arguments; widening rather than changing
-  // the signature is what keeps those call sites working untouched.
-  assert.match(chatTitle, /const buildTitlePrompt = \(userMessage: string, assistantMessage\?: string\)/);
+  // the signature is what keeps those call sites working untouched. The prompt
+  // builder, shared by titles and descriptions, spells it `string | undefined`
+  // only because its `kind` parameter comes after it.
+  assert.match(chatTitle, /const buildNamingPrompt = \(\s*userMessage: string,\s*assistantMessage: string \| undefined,/);
   assert.match(chatTitle, /assistantMessage\?: string,\s*\): Promise<string> =>/);
   assert.match(localFs, /generateChatTitle: \(userMessage: string, assistantMessage\?: string\) => Promise<string>;/);
   assert.match(localFs, /\(userMessage: string, assistantMessage\?: string\): Promise<string> =>/);

@@ -1,0 +1,452 @@
+/*
+ * Deep Research — the plan card, the progress card and the side panel. Every value is
+ * Gemini's, read off the live app (Oct 2026, 1536x826) by
+ * tools/ui-research/scrapers/gemini/media-tools-2026/05-research.cjs and its dumps;
+ * colours the dumps could not carry were sampled from the captures' pixels.
+ */
+
+.dr-plan,
+.dr-card,
+.dr-panel {
+  --dr-font: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  --dr-rail: #444746;
+  font-family: var(--dr-font);
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+/* ------------------------------------------------------------------ plan card */
+
+/* `deep-research-confirmation-widget .container`. Its 16px top margin is set by the thread. */
+.dr-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 28px;
+  background: #171717;
+  color: #e3e3e3;
+}
+
+.dr-plan__title { font-size: 17px; line-height: 24px; }
+
+.dr-plan__steps { display: flex; flex-direction: column; margin-left: 8px; }
+
+.dr-plan__step { display: flex; flex-direction: column; }
+
+.dr-plan__step-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 24px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+/* The rail runs down from the step's glyph, through its detail, to the next step. */
+.dr-plan__step-detail {
+  margin: 2px 0 0 12px;
+  padding-bottom: 16px;
+  border-left: 1px solid var(--dr-rail);
+}
+
+.dr-plan__step-detail--empty { min-height: 12px; padding-bottom: 0; }
+
+.dr-plan__step-text {
+  display: -webkit-box;
+  margin: 8px 0 0 24px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  line-height: 17px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+.dr-plan__step-text.is-expanded { display: block; }
+
+.dr-plan__more {
+  height: 24px;
+  margin: 0 0 0 12px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #e6e6e6;
+  font: inherit;
+  font-size: 13px;
+  line-height: 17px;
+  cursor: pointer;
+}
+
+.dr-plan__more:hover { background: rgba(230, 230, 230, 0.08); }
+
+.dr-plan__time {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 24px;
+  margin: 8px 0 0 8px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.dr-plan__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.dr-plan__edit,
+.dr-plan__start {
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.dr-plan__edit { background: transparent; color: #e6e6e6; }
+.dr-plan__edit:hover:not(:disabled) { background: rgba(230, 230, 230, 0.08); }
+.dr-plan__edit:disabled { color: rgba(230, 230, 230, 0.38); cursor: default; }
+
+/* `fuse-confirm-button` (accent). Pressed once, it keeps its colour — "finished", not disabled. */
+.dr-plan__start { background: var(--sync-1f3b9b, #1f3b9b); color: #e6e6e6; }
+.dr-plan__start:hover:not(:disabled) { background: var(--sync-26449f, #26449f); }
+.dr-plan__start:disabled { cursor: default; }
+.dr-plan__start:disabled:not(.is-spent) { opacity: 0.38; }
+
+.dr-plan__edit:focus-visible,
+.dr-plan__start:focus-visible,
+.dr-plan__more:focus-visible { outline: 2px solid var(--sync-a8c7fa, #a8c7fa); outline-offset: 2px; }
+
+/* ------------------------------------------------------------------ progress card */
+
+/* `gem-processing-card`: #192967, radius 28, 20px in, glyph | title / status. Its 12px top margin is set by the thread. */
+.dr-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: start;
+  width: 100%;
+  padding: 20px;
+  border: 0;
+  border-radius: 28px;
+  background: var(--sync-192967, #192967);
+  color: #e3e3e3;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dr-card:hover { background: var(--sync-1d2f73, #1d2f73); }
+.dr-card:focus-visible { outline: 2px solid var(--sync-a8c7fa, #a8c7fa); outline-offset: 2px; }
+
+.dr-card__icon { grid-row: 1 / span 2; display: flex; width: 28px; height: 28px; color: #e3e3e3; }
+
+.dr-card__title {
+  overflow: hidden;
+  color: #e6e6e6;
+  font-size: 17px;
+  line-height: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dr-card__status {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+/* ------------------------------------------------------------------ panel */
+
+.dr-panel { background: #1f1f1f; color: #e3e3e3; }
+
+/* `toolbar.has-title`: 60 tall, 32px a side. */
+.dr-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 60px;
+  padding: 0 16px;
+}
+
+@media (min-width: 960px) { .dr-toolbar { padding: 0 32px; } }
+
+.dr-toolbar__left { display: flex; align-items: center; min-width: 0; padding-left: 8px; }
+
+.dr-toolbar__title {
+  min-width: 0;
+  margin: 4px 0;
+  padding: 0 12px 0 8px;
+  overflow: hidden;
+  color: #e3e3e3;
+  font-size: 17px;
+  font-weight: 370;
+  line-height: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dr-toolbar__divider { width: 1px; height: 20px; background: var(--dr-rail); flex-shrink: 0; }
+
+.dr-toolbar__thinking {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  margin-left: 12px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #e3e3e3;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dr-toolbar__thinking:hover { background: rgba(227, 227, 227, 0.08); }
+
+.dr-toolbar__actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding-left: 12px; }
+
+/* Contents / Share & Export / Create: 32px pills, 16px a side, 14px at 500. */
+.dr-toolbar__pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #c4c7c5;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dr-toolbar__pill:hover { background: rgba(196, 199, 197, 0.08); }
+.dr-toolbar__pill--tonal { background: #282a2c; }
+.dr-toolbar__pill--tonal:hover { background: #313335; }
+/* Create's chevron sits inside its label, flush: 16 + label + 20 + 16. */
+.dr-toolbar__pill--create { gap: 0; background: var(--sync-004a77, #004a77); color: var(--sync-c2e7ff, #c2e7ff); }
+.dr-toolbar__pill--create:hover { background: var(--sync-0b5585, #0b5585); }
+
+.dr-toolbar__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.dr-toolbar__close:hover { background: rgba(196, 199, 197, 0.08); }
+
+.dr-toolbar__pill:focus-visible,
+.dr-toolbar__close:focus-visible,
+.dr-toolbar__thinking:focus-visible { outline: 2px solid var(--sync-a8c7fa, #a8c7fa); outline-offset: 2px; }
+
+.dr-toolbar__pill-icon { display: none; }
+
+/* A phone keeps the title readable: Contents steps aside and Share & Export becomes its glyph. */
+@media (max-width: 600px) {
+  .dr-toolbar__left { padding-left: 0; }
+  .dr-toolbar__actions { gap: 4px; padding-left: 4px; }
+  .dr-toolbar__pill { padding: 0 12px; }
+  .dr-toolbar__pill[aria-label="Table of contents menu"] { display: none; }
+  .dr-toolbar__pill--tonal { width: 40px; height: 40px; justify-content: center; padding: 0; }
+  .dr-toolbar__pill--tonal .dr-toolbar__pill-icon { display: flex; }
+  .dr-toolbar__pill--tonal .dr-toolbar__pill-label,
+  .dr-toolbar__pill--tonal .dr-toolbar__pill-chevron { display: none; }
+  .dr-toolbar__close { width: 48px; height: 48px; padding: 12px; }
+}
+
+/* `.container`: 24px top and bottom, 64 a side. */
+.dr-body {
+  flex: 1;
+  min-height: 0;
+  padding: 24px 24px 48px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+@media (min-width: 960px) { .dr-body { padding: 24px 64px; } }
+
+/* The report: 17/24 prose, h1 28/36 at 350, h2 24/28 at 380, 16 between paragraphs. */
+.dr-report { color: #e3e3e3; }
+.dr-report h1 { margin: 0; font-size: 28px; font-weight: 350; line-height: 36px; }
+.dr-report h2 { margin: 24px 0 0; font-size: 24px; font-weight: 380; line-height: 28px; }
+.dr-report h3 { margin: 20px 0 0; font-size: 20px; font-weight: 400; line-height: 26px; }
+.dr-report p { margin: 16px 0 0; font-size: 17px; line-height: 24px; }
+
+/* Thinking: a 20px rail of sparkle dot and line, the note 14px off it. */
+.dr-timeline { padding-left: 16px; }
+
+.dr-timeline__item { display: flex; gap: 14px; margin-bottom: 16px; }
+
+.dr-timeline__side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  width: 20px;
+}
+
+.dr-timeline__dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  overflow: visible;
+  border-radius: 9999px;
+  background: #1e1f20;
+  color: #e3e3e3;
+}
+
+.dr-timeline__google { width: 16px; height: 16px; }
+
+.dr-timeline__line { flex: 1; width: 1px; min-height: 16px; background: var(--dr-rail); }
+
+.dr-thought { min-width: 0; }
+
+.dr-thought__heading {
+  margin-bottom: 4px;
+  color: #e3e3e3;
+  font-size: 15px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.dr-thought__body { color: #e3e3e3; font-size: 15px; font-style: italic; line-height: 20px; }
+
+/* `browse-web-chip`: 220x36, favicon, domain, title. */
+.dr-chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; padding-top: 14px; }
+
+.dr-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 220px;
+  height: 36px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: 9999px;
+  color: #c4c7c5;
+  text-decoration: none;
+}
+
+.dr-chip:hover { background: rgba(196, 199, 197, 0.08); }
+.dr-chip__icon { flex-shrink: 0; width: 20px; height: 20px; border-radius: 4px; }
+
+.dr-chip__domain,
+.dr-chip__title {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 370;
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dr-chip__domain { flex: 0 0 49px; }
+.dr-chip__title { flex: 1; }
+
+/* `thinking-panel-skeleton-loader`: #313131 bars against the rail. */
+.dr-skeleton { padding-left: 16px; }
+
+.dr-skeleton__group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 26px 9px;
+  padding: 4px 0 4px 24px;
+  border-left: 1px solid var(--dr-rail);
+}
+
+.dr-skeleton__bar {
+  display: block;
+  height: 12px;
+  border-radius: 9999px;
+  background: #313131;
+  animation: dr-pulse 1.5s ease-in-out infinite;
+}
+
+.dr-skeleton__bar--short { width: 50%; }
+.dr-skeleton__bar--mid { width: 60%; }
+
+@keyframes dr-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.dr-ended { color: #c4c7c5; font-size: 15px; line-height: 20px; }
+
+/* `lm-menu-theme` panels: #1e1f20, radius 16. */
+.dr-menu {
+  position: fixed;
+  z-index: 1300;
+  padding: 8px 0;
+  overflow-y: auto;
+  border-radius: 16px;
+  background: #1e1f20;
+  box-shadow: rgba(0, 0, 0, 0.3) 0 1px 3px 0, rgba(0, 0, 0, 0.15) 0 4px 8px 3px;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  scrollbar-width: thin;
+}
+
+.dr-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: #e3e3e3;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dr-menu__item--small { height: 36px; gap: 8px; padding: 0 8px; font-size: 13px; }
+.dr-menu__item:hover, .dr-menu__toc:hover { background: rgba(227, 227, 227, 0.08); }
+
+.dr-menu__toc {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: #e3e3e3;
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dr-skeleton__bar { animation: none; }
+}

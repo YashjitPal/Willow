@@ -12,23 +12,12 @@
  */
 
 import { registerSyncedFolder } from '@willow/storage/local-sync';
-import { type Gem, gemsStore } from './gems-store';
+import { type Gem, gemsStore, hydrateGems, parseGem as parseGemRecord, sortGems } from './gems-store';
 
 /** Narrow untrusted JSON from disk; a malformed file is skipped, never thrown on. */
 const parseGem = (id: string, contents: string): Gem | null => {
   try {
-    const raw = JSON.parse(contents) as Partial<Gem>;
-    if (!raw || typeof raw !== 'object') return null;
-    if (typeof raw.name !== 'string') return null;
-    return {
-      id,
-      name: raw.name,
-      description: typeof raw.description === 'string' ? raw.description : '',
-      instructions: typeof raw.instructions === 'string' ? raw.instructions : '',
-      defaultTool: typeof raw.defaultTool === 'string' ? raw.defaultTool : 'No default tool',
-      createdAt: Number.isFinite(raw.createdAt) ? Number(raw.createdAt) : 0,
-      updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : 0,
-    };
+    return parseGemRecord(id, JSON.parse(contents));
   } catch {
     return null;
   }
@@ -37,8 +26,14 @@ const parseGem = (id: string, contents: string): Gem | null => {
 registerSyncedFolder('gems', {
   folder: 'Gems',
   extension: '.json',
+  // One list, shared by every tab through localStorage, which a deletion leaves at once: what it
+  // holds is the user's. So a Gem named like a deleted one is written, not refused for good.
+  reviveLocal: true,
 
   async readLocal() {
+    // Until it has read this browser's Gems the store is empty, which the engine would take for
+    // every Gem deleted here; a pass runs on pages that never show Gems (Media, Code) too.
+    hydrateGems();
     return gemsStore.get().map((gem) => ({
       id: gem.id,
       // Pretty-printed because these files are meant to be readable and
@@ -48,9 +43,12 @@ registerSyncedFolder('gems', {
   },
 
   async applyRemote(items) {
+    // Replaced before this browser's Gems were read, the store would be merged with them later,
+    // bringing back whatever disk had deleted.
+    hydrateGems();
     const gems = items
       .map((item) => parseGem(item.id, item.contents))
       .filter((gem): gem is Gem => gem !== null);
-    gemsStore.set(gems);
+    gemsStore.set(sortGems(gems));
   },
 });

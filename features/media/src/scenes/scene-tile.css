@@ -1,0 +1,353 @@
+/*
+ * A scene's gallery tile — Flow's `flow-scene-tile`, `flow-clip-filmstrip`, the hotbar, and the
+ * "Creating..." pending tile. Values are Flow's authored ones (components/gallery/*.css in the
+ * capture), the 16px corner included, which every gallery tile shares.
+ */
+
+.sb-scene-tile {
+  --tile-footer-block-padding: 14px;
+  --tile-footer-inline-padding: 12px;
+  --slider-hit-area: 48px;
+  --scrubber-height: 34px;
+  --playhead-height: 38px;
+  position: absolute;
+  inset: 0;
+  display: block;
+  container-type: size;
+  user-select: none;
+  -webkit-user-drag: none;
+  font-family: var(--sb-font);
+}
+
+.sb-scene-tile__container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  outline: 1px solid var(--sb-fg-10);
+  overflow: hidden;
+  background-color: var(--sb-bg-000);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sb-scene-tile__poster,
+.sb-scene-tile__video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background-color: var(--sb-bg-000);
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.sb-scene-tile__poster { object-fit: cover; }
+
+/* A scene with no clips: Flow's `.empty-state`, the name under a 40px movie_edit. */
+.sb-scene-tile__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: inherit;
+  background: var(--sb-fg-05);
+  color: var(--sb-fg-50);
+}
+
+.sb-scene-tile__empty-label {
+  padding-inline: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
+}
+/* Transparent until its first frame decodes, so the poster underneath shows instead of black. */
+.sb-scene-tile__video { display: none; background-color: transparent; }
+.sb-scene-tile__video.is-active { display: block; }
+
+.sb-scene-tile__pre {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s ease-in-out, visibility linear;
+}
+
+.sb-scene-tile__container.is-hover .sb-scene-tile__pre {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease-in-out, visibility linear 0.2s;
+}
+
+.sb-scene-tile__type {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  padding: 12px;
+  color: var(--sb-fg-100);
+  filter: drop-shadow(0 0 2px var(--sb-shadow));
+}
+
+.sb-scene-tile__hover {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease-in-out, visibility linear 0.2s;
+}
+
+.sb-scene-tile__container.is-hover .sb-scene-tile__hover,
+.sb-scene-tile__container.is-menu-open .sb-scene-tile__hover {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s ease-in-out, visibility linear;
+}
+
+.sb-hotbar-wrap {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  padding: 8px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.sb-hotbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 4px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--sb-white-50);
+  box-shadow: var(--sb-glass-shadow);
+  backdrop-filter: blur(80px);
+  color: rgba(22, 23, 24, 0.9);
+  pointer-events: auto;
+}
+
+/* Flow's hotbar `button`: no state layer — the hover is a white wash with its own blur. */
+.sb-hotbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 0.1s ease-in-out, box-shadow 0.1s ease-in-out, filter 0.1s ease-in-out, backdrop-filter 0.1s ease-in-out;
+}
+
+.sb-hotbar-btn:not(:disabled):hover,
+.sb-hotbar-btn[aria-expanded='true'] {
+  box-shadow: rgba(0, 0, 0, 0.2) 0 4px 32px -8px;
+  backdrop-filter: blur(10px);
+  background: var(--sb-white-75);
+}
+
+.sb-hotbar-btn:not(:disabled):active {
+  box-shadow: rgba(0, 0, 0, 0.2) 0 4px 32px -8px;
+  filter: blur(1.5px);
+  backdrop-filter: blur(25px);
+}
+
+.sb-scene-tile__footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--tile-footer-block-padding) var(--tile-footer-inline-padding);
+  pointer-events: none;
+}
+
+.sb-scene-tile__footer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  bottom: -1px;
+  background: linear-gradient(359deg, rgba(0, 0, 0, 0.9) -12.53%, rgba(0, 0, 0, 0.6) 9.84%, rgba(0, 0, 0, 0.35) 44.02%, rgba(0, 0, 0, 0.25) 69.25%, transparent 99.31%);
+  backdrop-filter: blur(40px);
+  mask-image: linear-gradient(0deg, rgb(0, 0, 0) 0px, rgba(0, 0, 0, 0.5) 65%, transparent);
+}
+
+.sb-scene-tile__meta {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  color: var(--sb-fg-000);
+}
+
+.sb-scene-tile__title {
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.sb-scene-tile__counts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+/* flow-clip-filmstrip: one box per clip, its width shared out by duration, the clip's first
+ * frame tiled across it — which is why a one-clip scene shows the same frame ten times. */
+.sb-filmstrip {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: var(--scrubber-height);
+}
+
+.sb-filmstrip__clip {
+  flex: var(--clip-flex-grow, 1) 1 0;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--sb-fg-25);
+  background: var(--sb-fg-10) var(--clip-thumbnail-url) left/auto 100% repeat-x;
+}
+
+/* The clips past the first two, counted: "+ 2". */
+.sb-filmstrip__overflow {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding-inline: 4px 8px;
+  border-radius: 10px;
+  background-color: var(--sb-fg-50);
+  backdrop-filter: blur(40px);
+  color: var(--sb-bg-000);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.sb-scene-tile__scrubber.has-overflow { right: 51px; }
+
+/* The playhead over the filmstrip: Material's slider with its tracks hidden and its handle made
+ * a 3px white bar, shown only while the tile is hovered. */
+.sb-scene-tile__scrubber {
+  position: absolute;
+  left: var(--tile-footer-inline-padding);
+  right: var(--tile-footer-inline-padding);
+  bottom: calc(var(--tile-footer-block-padding) + (var(--slider-hit-area) - var(--scrubber-height)) / 2);
+  height: var(--scrubber-height);
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+  cursor: pointer;
+}
+
+.sb-scene-tile__container.is-hover .sb-scene-tile__scrubber { opacity: 1; }
+
+/* What takes the pointer is Material's range input, not the slider box: 2px in from its top,
+ * 12px past its bottom and 21px past each end — so it covers the whole filmstrip. */
+.sb-scene-tile__scrubber::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: -21px;
+  bottom: -12px;
+  left: -21px;
+}
+
+.sb-scene-tile__container.is-hover .sb-scene-tile__scrubber::before { pointer-events: auto; }
+
+/* Material's thumb is a 48px box hung from the slider's top edge, so the bar's centre sits 24px
+ * down — on the filmstrip's centre line, 7px below the centre of the 34px slider. */
+.sb-scene-tile__handle {
+  position: absolute;
+  top: calc(var(--slider-hit-area) / 2);
+  width: 3px;
+  height: var(--playhead-height);
+  border-radius: 1.5px;
+  background-color: var(--sb-fg-000);
+  box-shadow: 0 0 2px var(--sb-bg-000);
+  transform: translate(-50%, -50%);
+}
+
+/* ---- pending ("Creating...") ---- */
+
+.sb-pending {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  overflow: hidden;
+  border-radius: 16px;
+  background-color: var(--sb-bg-100);
+  font-family: var(--sb-font);
+}
+
+.sb-pending.is-creating { cursor: default; }
+
+.sb-pending__chrome {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12px;
+  box-sizing: border-box;
+  color: var(--sb-fg-50);
+  pointer-events: none;
+}
+
+.sb-pending__header { display: flex; align-items: center; justify-content: space-between; }
+
+.sb-pending__footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--sb-fg-90);
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.sb-scene-tile-host:hover .sb-pending__footer { opacity: 1; }
+
+.sb-pending__title {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}

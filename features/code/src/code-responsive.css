@@ -1,0 +1,477 @@
+/*
+ * The Code tab on tablets and phones. Gemini has no coding surface to measure, so these
+ * follow the narrow pages that do: the shell's 68px top bar with the model picker beside
+ * the menu button, sideways-scrolling rows for what does not fit, bottom sheets for
+ * menus. Everything here sits inside a max-width query, so the desktop never sees it;
+ * the classes it targets are hooks added for these rules and style nothing on their own.
+ */
+
+/* ── Landing ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 960px) {
+  /*
+   * A column rather than the desktop's two pinned layers: the heading starts under the
+   * top bar and the cards take all the height between it and the "Your apps" button,
+   * so a taller screen grows the cards instead of opening a gap.
+   */
+  /* --code-apps-h is the band for the "Your apps" button: about 19px either side of it. */
+  .code-hero {
+    --code-apps-h: 72px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .code-hero .code-hero-head {
+    position: relative;
+    inset: auto;
+    flex: none;
+    padding-top: 76px;
+  }
+
+  .code-hero .code-hero-head-inner {
+    width: 100%;
+  }
+
+  /* Wrapped onto centred rows, so every category is in view. */
+  .code-hero .code-hero-pills {
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 8px;
+    padding: 0 16px;
+  }
+
+  .code-hero .code-hero-pills > * {
+    flex: none;
+  }
+
+  .code-hero .code-hero-bento {
+    position: relative;
+    inset: auto;
+    display: flex;
+    min-height: 0;
+    flex: 1 1 0;
+    flex-direction: column;
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    transform: none;
+  }
+
+  .code-hero .code-bento-fade {
+    display: none;
+  }
+
+  .code-hero .code-bento-wrap {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 0;
+    flex-direction: column;
+    padding: 28px 24px var(--code-apps-h);
+  }
+
+  /* Two columns of equal cards. The wide one sits out unless the screen has a third row for it. */
+  .code-hero .code-bento-grid {
+    min-height: 0;
+    flex: 1 1 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .code-hero .code-bento-col1,
+  .code-hero .code-bento-smalls {
+    display: contents;
+  }
+
+  .code-hero .code-bento-card {
+    min-height: 0;
+    height: auto !important;
+  }
+
+  .code-hero .code-bento-card.is-wide {
+    display: none;
+  }
+
+  /* The picture gets the card's height less the text's, so it grows and shrinks with the screen. */
+  .code-hero .code-bento-media {
+    min-height: 0;
+    flex: 1 1 0;
+    width: 100%;
+    height: auto;
+    justify-content: center;
+    margin-bottom: 10px;
+  }
+
+  .code-hero .code-bento-media > img {
+    object-position: center !important;
+  }
+
+  /* Two lines held open, so the pictures in a row end level whatever their text. */
+  .code-hero .code-bento-text {
+    min-height: 36px;
+    font-size: 13px;
+    line-height: 18px;
+    -webkit-line-clamp: 2;
+  }
+
+  .code-hero .code-composer-spacer {
+    flex: none;
+  }
+
+  /* The top bar's model pill replaces the composer's model button, as on the chat home. */
+  .code-composer .code-composer-model {
+    display: none;
+  }
+}
+
+/* A portrait tablet has the height for a third row, which the wide card spans. */
+@media (min-width: 601px) and (max-width: 960px) and (min-height: 1000px) {
+  .code-hero .code-bento-grid {
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+  }
+
+  .code-hero .code-bento-card.is-wide {
+    display: flex;
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .code-hero .code-hero-head {
+    padding-top: 68px;
+  }
+
+  .code-hero .code-hero-title {
+    font-size: 28px !important;
+    line-height: 36px !important;
+  }
+
+  .code-hero .code-hero-greeting {
+    max-width: calc(100vw - 48px);
+    font-size: 19px !important;
+    line-height: 25px !important;
+    text-wrap: balance;
+  }
+
+  .code-hero .code-hero-pills {
+    column-gap: 4px;
+    margin-top: 14px;
+  }
+
+  .code-hero .code-bento-wrap {
+    padding: 20px 16px var(--code-apps-h);
+  }
+
+  .code-hero .code-bento-card {
+    padding: 14px;
+  }
+
+  .code-hero .code-bento-media {
+    margin-bottom: 8px;
+  }
+
+  /* The Tools pill keeps its glyph and drops its word, as the workbench composer's does when narrow. */
+  .code-composer .code-tools-label {
+    display: none;
+  }
+}
+
+/* A short screen: smaller type, so the cards keep their room. */
+@media (max-width: 960px) and (max-height: 760px) {
+  .code-hero .code-hero-title {
+    font-size: 24px !important;
+    line-height: 30px !important;
+  }
+
+  .code-hero .code-hero-greeting {
+    font-size: 17px !important;
+    line-height: 22px !important;
+  }
+
+  .code-hero .code-hero-pills {
+    margin-top: 12px;
+  }
+
+  .code-hero .code-bento-wrap {
+    padding-top: 16px;
+  }
+}
+
+/* Too short for two rows of cards. */
+@media (max-width: 960px) and (max-height: 640px) {
+  .code-hero .code-bento-grid {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .code-hero .code-bento-card.is-tall {
+    display: none;
+  }
+}
+
+/*
+ * A phone on its side has room for the heading and the composer only, so the cards and
+ * the categories that filter them sit out, and the heading centres in what is left.
+ */
+@media (max-width: 960px) and (max-height: 480px) {
+  .code-hero .code-hero-head {
+    flex: 1 1 0;
+  }
+
+  .code-hero .code-hero-pills,
+  .code-hero .code-bento-grid {
+    display: none;
+  }
+
+  .code-hero .code-hero-bento,
+  .code-hero .code-bento-wrap {
+    flex: none;
+  }
+
+  .code-hero .code-bento-wrap {
+    padding-top: 0;
+  }
+}
+
+/*
+ * "Your apps": the saved-projects section under the hero, which reuses Media's showcase
+ * panel. Only this section's copy is restyled; the Media tab's is left as it is.
+ */
+@media (max-width: 960px) {
+  .code-apps-section .code-apps-scroll {
+    padding-top: 68px;
+  }
+
+  .code-apps-section .showcase-panel {
+    margin-inline: 24px;
+    padding: 0 0 32px;
+  }
+
+  /* Wrapped onto centred rows, as the hero's categories are. */
+  .code-apps-section .showcase-pills {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .code-apps-section .showcase-pills > * {
+    flex: none;
+  }
+
+  /* No hover on a touch screen, so the star and the menu button stay out. */
+  .code-apps-section .showcase-star,
+  .code-apps-section .showcase-more {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 600px) {
+  .code-apps-section .showcase-panel {
+    margin-inline: 0;
+    padding: 0 16px 24px;
+  }
+
+  .code-apps-section .showcase-head {
+    margin-bottom: 20px;
+  }
+
+  .code-apps-section .showcase-title {
+    font-size: 28px !important;
+    line-height: 36px !important;
+  }
+
+  .code-apps-section .showcase-divider {
+    margin-bottom: 20px;
+  }
+
+  .code-apps-section .showcase-pills {
+    column-gap: 4px;
+    margin-bottom: 20px;
+  }
+
+  /* Rows, as the notebook list's cards become on a phone: a small cover with the name and actions beside it. */
+  .code-apps-section .showcase-grid {
+    gap: 12px;
+  }
+
+  .code-apps-section .showcase-card {
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .code-apps-section .showcase-thumb {
+    width: 120px;
+    border-radius: 10px;
+  }
+
+  .code-apps-section .showcase-star-slot {
+    top: 4px;
+    right: 4px;
+  }
+
+  .code-apps-section .showcase-star {
+    width: 28px;
+    height: 28px;
+    border-radius: 10px;
+  }
+
+  .code-apps-section .showcase-details {
+    padding: 0;
+  }
+
+  .code-apps-section .showcase-name {
+    font-size: 16px;
+    line-height: 22px;
+  }
+
+  /* Every card's description is the same sentence, so a phone row keeps the name and actions. */
+  .code-apps-section .showcase-desc {
+    display: none;
+  }
+
+  .code-apps-section .showcase-actions {
+    padding-top: 8px;
+  }
+}
+
+/* ── Workbench ───────────────────────────────────────────────────────── */
+
+@media (max-width: 960px) {
+  /*
+   * The centred chat's header shares its band with the shell's menu button (8 to 56), so
+   * it starts right of it and is the shell bar's 64px, putting its row on the same
+   * centre line, y 32.
+   */
+  .code-workspace div.code-chat-header {
+    height: 64px;
+  }
+
+  .code-workspace .code-chat-header .code-chat-header-inner {
+    padding-left: 60px !important;
+  }
+
+  .code-workspace .code-transcript.is-chat {
+    padding-top: 84px;
+    scroll-padding-top: 84px;
+  }
+
+  /* The desktop's extra 13px on the right made room for a scrollbar a phone draws over the text. */
+  .code-transcript .code-transcript-column {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .code-user-bubble {
+    overflow-wrap: anywhere;
+  }
+
+  /* The preview's bar: Chat pill, tabs, then Problems and More, never closer than 8px. */
+  div.code-topbar {
+    column-gap: 8px;
+  }
+
+  .code-topbar .code-topbar-left {
+    gap: 8px;
+    min-width: 0;
+  }
+
+  /* With more tools open than fit, the tabs scroll sideways; Add tool stays put beside them. */
+  .code-topbar .code-topbar-nav {
+    min-width: 0;
+  }
+
+  .code-topbar .code-topbar-tabs {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .code-topbar .code-topbar-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .code-topbar .code-topbar-tabs > button {
+    flex: none;
+  }
+
+  /* The code panel: a narrower explorer, and the tab close buttons out without a hover. */
+  .code-panel .code-panel-explorer {
+    width: 220px;
+    min-width: 220px;
+    max-width: 220px;
+  }
+
+  .code-panel .code-tab-close {
+    opacity: 1;
+  }
+
+  /* The Add tool menu opens leftward from its button so it stays on screen; pins show without a hover. */
+  .code-topbar .code-add-tool-menu {
+    right: 0;
+    left: auto;
+  }
+
+  .code-topbar .code-pin-toggle {
+    opacity: 0.6;
+  }
+
+  /*
+   * Visual editing's floating prompt. Its position is clamped 12px inside the preview but
+   * its width was the input's fixed 180px plus the buttons, 363px, which a phone's preview
+   * is not; held to the preview less those 12px margins, the input takes what is left.
+   */
+  .code-ve-prompt {
+    max-width: calc(100% - 24px);
+  }
+
+  .code-ve-prompt div:has(> input) {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+
+  /* Error toasts: anchored 16px in, the text column giving way before the toast leaves the screen. */
+  div.code-error-toasts {
+    right: 16px;
+    max-width: calc(100vw - 32px);
+  }
+
+  .code-error-toasts .code-error-toast-text {
+    min-width: 0;
+  }
+
+  /* The preview's loading art is a 2:1 drawing that scales with its box. */
+  div.code-preview-loading-art {
+    width: min(400px, calc(100vw - 48px));
+    height: auto;
+    aspect-ratio: 2 / 1;
+  }
+}
+
+@media (max-width: 600px) {
+  div.code-topbar {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  /* One pane at a time: the explorer fills the panel until a file opens over it. */
+  .code-panel .code-panel-explorer.is-phone-full {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .code-panel .code-line-no {
+    width: 40px;
+    padding-right: 12px;
+  }
+
+  div.code-error-toasts {
+    left: 16px;
+  }
+}
+
+/* The narrowest phones: the Chat pill keeps its glyph and drops its word. */
+@media (max-width: 380px) {
+  .code-topbar .code-chat-pill-label {
+    display: none;
+  }
+}

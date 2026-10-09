@@ -330,3 +330,49 @@ it('ignores ids that could not survive a filesystem round trip', async () => {
 
   assert.deepEqual(ports.ids, ['good']);
 });
+
+// ── The Recycle Bin: a file moved back after its removal is the user's ─────────
+
+const deleted = (removedAt) => ({
+  revision: 3, diskRevision: 1, diskMtime: 1000, dirty: false, tombstone: true, updatedAt: 3, ...(removedAt ? { removedAt } : {}),
+});
+
+it('reads a file moved back from the Recycle Bin after its removal as the user\'s, and keeps it', async () => {
+  // Its own time, kept through the move to the bin and back: older than the removal.
+  const { ports, log } = makeFakes({ disk: { Writer: { contents: 'the gem', mtime: 1000 } }, records: { Writer: deleted(5000) } });
+
+  const result = await reconcileFolder(ports);
+
+  assert.equal(log.includes('remove:Writer'), false, 'not moved to the bin again');
+  assert.equal(ports.records.Writer.tombstone, false);
+  assert.ok(result.items.some((item) => item.id === 'Writer' && item.contents === 'the gem'));
+  assert.equal(result.changed, true);
+});
+
+it('still removes a deleted item that a copy of Willow writes again after its removal', async () => {
+  const { ports, log } = makeFakes({ disk: { Writer: { contents: 'stale copy', mtime: 9000 } }, records: { Writer: deleted(5000) } });
+
+  const result = await reconcileFolder(ports);
+
+  assert.ok(log.includes('remove:Writer'));
+  assert.equal(ports.records.Writer.tombstone, true);
+  assert.ok(!result.items.some((item) => item.id === 'Writer'));
+});
+
+it('retries a removal that has not happened yet, never reading the file as moved back', async () => {
+  const { ports, log } = makeFakes({ disk: { Writer: { contents: 'deleted here', mtime: 1000 } }, records: { Writer: deleted() } });
+
+  await reconcileFolder(ports);
+
+  assert.ok(log.includes('remove:Writer'));
+  assert.ok(ports.records.Writer.removedAt > 0, 'its removal is noted once it happens');
+});
+
+it('notes when it found a deleted item\'s file gone', async () => {
+  const { ports } = makeFakes({ disk: {}, cache: { Gone: 'x' }, records: { Gone: clean() }, ids: ['Gone'] });
+
+  const result = await reconcileFolder(ports);
+
+  assert.deepEqual(result.deleted, ['Gone']);
+  assert.ok(ports.records.Gone.removedAt > 0);
+});

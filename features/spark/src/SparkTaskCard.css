@@ -243,7 +243,7 @@
 }
 
 .spark-goal-actions-button:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: -2px;
 }
 
@@ -272,8 +272,8 @@
   gap: 4px;
   padding: 2px 12px;
   border-radius: 9999px;
-  background: #192967;
-  color: #3186ff;
+  background: var(--sync-192967, #192967);
+  color: var(--sync-3186ff, #3186ff);
   font-size: 11px;
   font-weight: 400;
   line-height: 17px;
@@ -318,7 +318,7 @@
   height: 6px;
   flex-shrink: 0;
   border-radius: 9999px;
-  background-color: #192967;
+  background-color: var(--sync-192967, #192967);
   pointer-events: none;
   transition:
     background-color 500ms cubic-bezier(0.2, 0, 0, 1),
@@ -333,27 +333,27 @@
 
 .spark-status-pulse-dot.is-complete {
   animation: none;
-  background-color: #3186ff;
+  background-color: var(--sync-3186ff, #3186ff);
   box-shadow: none;
 }
 
 @keyframes spark-dot-pulse-fade {
   0% {
-    background-color: rgba(49, 134, 255, 0.75);
+    background-color: rgba(var(--sync-3186ff-rgb, 49, 134, 255), 0.75);
     box-shadow:
-      0 0 0 0 rgba(49, 134, 255, 0.5),
-      0 0 0 0 rgba(49, 134, 255, 0.28);
+      0 0 0 0 rgba(var(--sync-3186ff-rgb, 49, 134, 255), 0.5),
+      0 0 0 0 rgba(var(--sync-3186ff-rgb, 49, 134, 255), 0.28);
   }
 
   80% {
-    background-color: #192967;
+    background-color: var(--sync-192967, #192967);
     box-shadow:
       0 0 6px 5px transparent,
       0 0 14px 8px transparent;
   }
 
   100% {
-    background-color: #192967;
+    background-color: var(--sync-192967, #192967);
     box-shadow:
       0 0 0 0 transparent,
       0 0 0 0 transparent;
@@ -426,6 +426,99 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * A touch screen has no hover to reveal the timestamp and menu, so Gemini shows both:
+ *
+ *   @media (hover: none) {
+ *     .goal-time-ago { opacity:1; visibility:visible; max-width:none; overflow:visible;
+ *                      margin-inline-end: var(--gem-sys-spacing--s) }
+ *     remy-goal-action-menu { opacity:1; visibility:visible; width:auto; overflow:visible } }
+ *
+ * The menu button is then its base 24px, and the pulse pill drops the 36px box it only
+ * takes under `(hover: hover)`. The selectors carry the card so they also outrank the
+ * hover, open and pinned widths above, which a tap leaves applied.
+ */
+@media (hover: none) {
+  .spark-goal-card .spark-goal-time-ago {
+    max-width: none;
+    margin-inline-end: 8px;
+    overflow: visible;
+    opacity: 1;
+  }
+
+  .spark-goal-card .spark-goal-card-actions .spark-goal-action-menu {
+    width: auto;
+    overflow: visible;
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .spark-goal-card .spark-goal-actions-button {
+    width: 24px;
+    height: 24px;
+    flex-basis: 24px;
+  }
+
+  .spark-goal-card .spark-status-pill--pulse {
+    width: auto;
+    height: auto;
+  }
+}
+
+/*
+ * <=960px theme: surface #000 (the row is that at 50%), surface-bright #1c1c1c, and
+ * on-surface #e0e0e0.
+ */
+@media (max-width: 960px) {
+  .spark-goal-card {
+    background-color: color-mix(in srgb, var(--studio-surface, #0f0f0f) 50%, transparent);
+  }
+
+  .spark-goal-card:hover,
+  .spark-goal-card.is-selected {
+    background-color: #1c1c1c;
+  }
+
+  /* `gem-icon.scheduled-icon` is 16px Luminous at weight 330. */
+  .spark-goal-secondary-icon {
+    font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 16, "wght" 330 !important;
+    font-weight: 330 !important;
+  }
+
+  .spark-goal-description,
+  .spark-goal-actions-button {
+    color: #e0e0e0;
+  }
+
+  /*
+   * The menu keeps its geometry but takes the theme's surface-bright, a gds-body-s label
+   * (13px/17px/400) and an 8px margin on the icon on top of the row's 8px gap: label at
+   * icon + 40, measured 134.8 -> 174.8.
+   */
+  /* Portalled to <body>, whose family is Inter, so the panel names Gemini's face itself. */
+  .spark-goal-menu-panel {
+    background: #1c1c1c;
+    font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  }
+
+  .spark-goal-menu-item {
+    color: #e0e0e0;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 17px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-goal-menu-item > :first-child {
+    margin-inline-end: 8px;
+  }
+
+  .spark-goal-menu-item:hover,
+  .spark-goal-menu-item:focus-visible {
+    background: rgba(224, 224, 224, 0.08);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -505,8 +598,8 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-status-pill {
-  background: #d3e3fd;
-  color: #041e49;
+  background: var(--sync-d3e3fd, #d3e3fd);
+  color: var(--sync-041e49, #041e49);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-status-pill--failed {
@@ -515,9 +608,9 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-status-pulse-dot {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-status-pulse-dot.is-complete {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
 }

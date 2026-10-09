@@ -1,12 +1,24 @@
-import OpenAI from 'openai';
+import { resolveEndpointTransport, type ProviderId } from './providers/endpoints';
+import { apiKeysForBinding, resolveProviderBinding } from './providers/profiles';
 
 export const DEFAULT_TRANSCRIPTION_MODEL = 'gemini-3.5-flash-lite';
-/** Browser-provided speech recognition. It does not require a Willow/provider API key. */
+/**
+ * The browser's own speech recognition (the Web Speech API): Chrome's and Edge's
+ * recognizers, Safari's. No API key. The id is Chrome's for the settings saved
+ * before other browsers counted; it means "whatever this browser has".
+ */
 export const CHROME_NATIVE_TRANSCRIPTION_MODEL = 'chrome-native';
-export const CHROME_NATIVE_TRANSCRIPTION_NAME = 'Chrome on-device';
+export const CHROME_NATIVE_TRANSCRIPTION_NAME = 'Browser speech recognition';
+/** Whisper running in the page (WebAssembly), for every browser and webview. No API key. */
+export const ON_DEVICE_TRANSCRIPTION_MODEL = 'on-device-whisper';
+export const ON_DEVICE_TRANSCRIPTION_NAME = 'On this device (Whisper)';
 
 export const isChromeNativeTranscriptionModel = (modelId: unknown): boolean => (
   modelId === CHROME_NATIVE_TRANSCRIPTION_MODEL
+);
+
+export const isOnDeviceTranscriptionModel = (modelId: unknown): boolean => (
+  modelId === ON_DEVICE_TRANSCRIPTION_MODEL
 );
 
 /**
@@ -22,54 +34,39 @@ export const isLiveOnlyTranscriptionModel = (modelId: unknown): boolean => (
   typeof modelId === 'string' && /transcribe-live$/i.test(modelId.trim())
 );
 
-type TranscriptionProvider =
-  | 'gemini'
-  | 'openai'
-  | 'anthropic'
-  | 'moonshot'
-  | 'spacexai'
-  | 'zhipuai';
+type TranscriptionProvider = ProviderId;
 
-interface TranscriptionRequest {
-  audio: Blob;
-  apiKeys: TranscriptionApiKeys;
-  modelConfig: any;
-  signal?: AbortSignal;
-}
+/**
+ * How a model takes a recording, or null when it can't.
+ *
+ * - `gemini`: any Gemini model that reads input (every chat model hears audio);
+ *   not the image, video, speech-out, embedding or live-only ones.
+ * - `openai-transcription`: Whisper and the `*-transcribe` models, which answer on
+ *   `/audio/transcriptions` and nowhere else — a chat-completions request with
+ *   audio is a 404 for them.
+ * - `openai-chat-audio`: the audio chat models (`gpt-4o-audio-preview`,
+ *   `gpt-audio`), which take `input_audio` in a chat completion.
+ *
+ * Anthropic, Moonshot, xAI and Zhipu models take no audio, so none of them can.
+ */
+export type TranscriptionRoute = 'gemini' | 'openai-transcription' | 'openai-chat-audio';
 
-interface TranscriptionApiKeys {
-  gemini?: string[];
-  openai?: string[];
-  anthropic?: string[];
-  moonshot?: string[];
-  spacexai?: string[];
-  zhipuai?: string[];
-}
-
-interface ResolvedTranscriptionModel {
-  provider: TranscriptionProvider;
-  modelId: string;
-  apiKey: string;
-  baseUrl?: string;
-}
-
-const PROVIDERS: TranscriptionProvider[] = [
-  'gemini',
-  'openai',
-  'anthropic',
-  'moonshot',
-  'spacexai',
-  'zhipuai',
-];
-
-const DEFAULT_BASE_URLS: Partial<Record<TranscriptionProvider, string>> = {
-  openai: 'https://api.openai.com/v1',
-  moonshot: 'https://api.moonshot.cn/v1',
-  spacexai: 'https://api.x.ai/v1',
-  zhipuai: 'https://open.bigmodel.cn/api/paas/v4',
+export const transcriptionRoute = (provider: string, modelId: unknown): TranscriptionRoute | null => {
+  if (typeof modelId !== 'string' || !modelId.trim()) return null;
+  const id = modelId.trim().toLowerCase();
+  if (isChromeNativeTranscriptionModel(id) || isOnDeviceTranscriptionModel(id) || isLiveOnlyTranscriptionModel(id)) return null;
+  if (provider === 'gemini') {
+    if (/(?:^|[-_.])(?:tts|image|imagen|veo|embedding|embed|lyria|live|native-audio|robotics|computer-use)(?:$|[-_.])/.test(id)) return null;
+    return 'gemini';
+  }
+  if (provider === 'openai') {
+    if (/whisper|transcribe/.test(id)) return 'openai-transcription';
+    if (/(?:^|[-_])audio(?:$|[-_])|^gpt-audio/.test(id) && !/tts/.test(id)) return 'openai-chat-audio';
+  }
+  return null;
 };
 
-const firstApiKey = (keys?: string[]) => keys?.find((key) => key.trim())?.trim() || '';
+export const canTranscribeAudio = (provider: string, modelId: unknown): boolean => transcriptionRoute(provider, modelId) !== null;
 
 const inferProvider = (modelId: string): TranscriptionProvider => {
   const normalized = modelId.toLowerCase();
@@ -81,44 +78,107 @@ const inferProvider = (modelId: string): TranscriptionProvider => {
   return 'openai';
 };
 
-const resolveTranscriptionModel = (
-  modelConfig: any,
-  apiKeys: TranscriptionApiKeys,
-): ResolvedTranscriptionModel => {
-  const selectedId = modelConfig?.systemDefaults?.transcription || DEFAULT_TRANSCRIPTION_MODEL;
-  let provider: TranscriptionProvider | undefined;
-  let modelId = selectedId;
+const PROVIDERS: TranscriptionProvider[] = ['gemini', 'openai', 'anthropic', 'moonshot', 'spacexai', 'zhipuai'];
 
-  for (const candidateProvider of PROVIDERS) {
-    const providerConfig = modelConfig?.[candidateProvider];
-    const savedModel = (providerConfig?.savedModels || []).find(
-      (model: any) => model.modelId === selectedId || model.id === selectedId,
-    );
-    if (savedModel) {
-      provider = candidateProvider;
-      modelId = savedModel.modelId || savedModel.id;
-      break;
-    }
+/** A model that can transcribe a recording, with the profile it was saved under. */
+export interface TranscriptionCandidate {
+  provider: TranscriptionProvider;
+  modelId: string;
+  name: string;
+  savedModel?: { profileId?: string } | null;
+}
 
-    if (providerConfig?.model === selectedId) {
-      provider = candidateProvider;
-      break;
-    }
+interface SavedModelLike { id?: string; modelId?: string; name?: string; profileId?: string }
+
+const savedModelsOf = (modelConfig: any, provider: TranscriptionProvider): SavedModelLike[] => (
+  Array.isArray(modelConfig?.[provider]?.savedModels) ? modelConfig[provider].savedModels : []
+);
+
+const findSaved = (modelConfig: any, selectedId: string): TranscriptionCandidate | null => {
+  for (const provider of PROVIDERS) {
+    const saved = savedModelsOf(modelConfig, provider).find((model) => model.modelId === selectedId || model.id === selectedId);
+    if (saved) return { provider, modelId: saved.modelId || saved.id || selectedId, name: saved.name || selectedId, savedModel: saved };
+    if (modelConfig?.[provider]?.model === selectedId) return { provider, modelId: selectedId, name: selectedId };
   }
+  return null;
+};
 
-  provider ||= inferProvider(modelId);
-  const apiKey = firstApiKey(apiKeys?.[provider]) || modelConfig?.[provider]?.apiKey?.trim?.() || '';
+/** The keys a candidate may use, in order: its profile's bucket, then a legacy per-provider key. */
+export const transcriptionKeys = (modelConfig: any, apiKeys: unknown, candidate: TranscriptionCandidate): string[] => {
+  const binding = resolveProviderBinding(modelConfig, candidate.provider, candidate.savedModel);
+  const keys = apiKeysForBinding(binding, candidate.provider, apiKeys);
+  const legacy = typeof modelConfig?.[candidate.provider]?.apiKey === 'string' ? modelConfig[candidate.provider].apiKey.trim() : '';
+  return keys.length ? keys : legacy ? [legacy] : [];
+};
 
-  if (!apiKey) {
-    throw new Error(`Add an API key for the selected transcription model in Settings > Models & API.`);
-  }
+/**
+ * The selected transcription model, when it is an API model: null for the browser's
+ * recognizer, on-device Whisper, or nothing chosen. A selection that can't take
+ * audio (a chat model with no ears) is returned too, so the caller can say why.
+ */
+export const selectedTranscriptionCandidate = (modelConfig: any): TranscriptionCandidate | null => {
+  const selectedId = modelConfig?.systemDefaults?.transcription;
+  if (typeof selectedId !== 'string' || !selectedId.trim()) return null;
+  if (isChromeNativeTranscriptionModel(selectedId) || isOnDeviceTranscriptionModel(selectedId)) return null;
+  return findSaved(modelConfig, selectedId) || { provider: inferProvider(selectedId), modelId: selectedId, name: selectedId };
+};
 
-  return {
-    provider,
-    modelId,
-    apiKey,
-    baseUrl: modelConfig?.[provider]?.baseUrl || DEFAULT_BASE_URLS[provider],
+/** The cheapest Gemini model saved for chat reads audio as well as any; failing that, the default. */
+const geminiPreference = (model: SavedModelLike) => {
+  const id = (model.modelId || model.id || '').toLowerCase();
+  if (id.includes('flash-lite') || id.includes('flash lite')) return 0;
+  if (id.includes('flash')) return 1;
+  return 2;
+};
+
+/**
+ * Every model that could transcribe a recording with the keys at hand, best first:
+ * the selected one when it can take audio, then a saved Gemini model (the default
+ * flash-lite when none is saved), then OpenAI's transcription models. What a take
+ * falls back to when its first route fails.
+ */
+export const transcriptionCandidates = (modelConfig: any, apiKeys: unknown): TranscriptionCandidate[] => {
+  const out: TranscriptionCandidate[] = [];
+  const seen = new Set<string>();
+  const push = (candidate: TranscriptionCandidate | null) => {
+    if (!candidate || !canTranscribeAudio(candidate.provider, candidate.modelId)) return;
+    const key = `${candidate.provider}:${candidate.modelId}`;
+    if (seen.has(key) || !transcriptionKeys(modelConfig, apiKeys, candidate).length) return;
+    seen.add(key);
+    out.push(candidate);
   };
+  push(selectedTranscriptionCandidate(modelConfig));
+  const gemini = savedModelsOf(modelConfig, 'gemini')
+    .filter((model) => canTranscribeAudio('gemini', model.modelId || model.id))
+    .sort((a, b) => geminiPreference(a) - geminiPreference(b));
+  gemini.forEach((model) => push({ provider: 'gemini', modelId: model.modelId || model.id || '', name: model.name || '', savedModel: model }));
+  push({ provider: 'gemini', modelId: DEFAULT_TRANSCRIPTION_MODEL, name: 'Gemini 3.5 Flash Lite' });
+  savedModelsOf(modelConfig, 'openai')
+    .filter((model) => canTranscribeAudio('openai', model.modelId || model.id))
+    .forEach((model) => push({ provider: 'openai', modelId: model.modelId || model.id || '', name: model.name || '', savedModel: model }));
+  push({ provider: 'openai', modelId: 'gpt-4o-mini-transcribe', name: 'GPT-4o mini Transcribe' });
+  return out;
+};
+
+interface ResolvedTranscriptionModel {
+  provider: TranscriptionProvider;
+  route: TranscriptionRoute;
+  modelId: string;
+  apiKey: string;
+  baseUrl?: string;
+}
+
+const resolveCandidate = (modelConfig: any, apiKeys: unknown, candidate: TranscriptionCandidate): ResolvedTranscriptionModel => {
+  const route = transcriptionRoute(candidate.provider, candidate.modelId);
+  if (!route) {
+    throw new Error(`${candidate.name || candidate.modelId} can't transcribe audio. Choose a Gemini model, an OpenAI transcription model, or the browser in Settings > Models & API.`);
+  }
+  const [apiKey] = transcriptionKeys(modelConfig, apiKeys, candidate);
+  if (!apiKey) {
+    throw new Error(`Add an API key for ${candidate.name || candidate.modelId} in Settings > Models & API.`);
+  }
+  const binding = resolveProviderBinding(modelConfig, candidate.provider, candidate.savedModel);
+  return { provider: candidate.provider, route, modelId: candidate.modelId, apiKey, baseUrl: binding.baseUrl };
 };
 
 const bytesToBase64 = (bytes: Uint8Array) => {
@@ -275,19 +335,27 @@ const extractInteractionTranscript = (data: any): string => {
   return '';
 };
 
+/** Where a Gemini request goes: the official API, or a custom gateway (through the dev proxy). */
+const geminiTransport = (model: ResolvedTranscriptionModel) => {
+  const transport = resolveEndpointTransport('gemini', model.baseUrl, 'origin');
+  return { origin: transport.url.replace(/\/+$/, ''), headers: transport.headers ?? {} };
+};
+
 const uploadFileToGemini = async (
   audio: Blob,
-  apiKey: string,
+  model: ResolvedTranscriptionModel,
   signal?: AbortSignal,
 ): Promise<string> => {
+  const { origin, headers } = geminiTransport(model);
   const mimeType = (audio.type || 'audio/wav').split(';')[0].trim();
   const size = audio.size;
 
   const initRes = await fetch(
-    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${encodeURIComponent(apiKey)}`,
+    `${origin}/upload/v1beta/files?key=${encodeURIComponent(model.apiKey)}`,
     {
       method: 'POST',
       headers: {
+        ...headers,
         'X-Goog-Upload-Protocol': 'resumable',
         'X-Goog-Upload-Command': 'start',
         'X-Goog-Upload-Header-Content-Length': String(size),
@@ -334,8 +402,10 @@ const uploadFileToGemini = async (
 const transcribeWithGemini = async (
   audio: Blob,
   model: ResolvedTranscriptionModel,
+  language: string | undefined,
   signal?: AbortSignal,
 ) => {
+  const { origin, headers } = geminiTransport(model);
   const wavAudio = await convertToWav(audio).catch(() => audio);
   const mimeType = (wavAudio.type || audio.type || 'audio/wav').split(';')[0].trim();
   const audioData = await blobToBase64(wavAudio);
@@ -360,10 +430,11 @@ const transcribeWithGemini = async (
     // 1. Try Interactions API with inline audio
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/interactions?key=${encodeURIComponent(model.apiKey)}`,
+        `${origin}/v1beta/interactions?key=${encodeURIComponent(model.apiKey)}`,
         {
           method: 'POST',
           headers: {
+            ...headers,
             'Content-Type': 'application/json',
             'x-goog-api-key': model.apiKey,
           },
@@ -389,18 +460,20 @@ const transcribeWithGemini = async (
         noteFailure(await responseError(response));
       }
     } catch (error) {
+      if (signal?.aborted) throw error;
       noteFailure(error);
       // Fall through to Files API
     }
 
     // 2. Try Interactions API via Files API upload
     try {
-      const fileUri = await uploadFileToGemini(wavAudio, model.apiKey, signal);
+      const fileUri = await uploadFileToGemini(wavAudio, model, signal);
       const fileResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/interactions?key=${encodeURIComponent(model.apiKey)}`,
+        `${origin}/v1beta/interactions?key=${encodeURIComponent(model.apiKey)}`,
         {
           method: 'POST',
           headers: {
+            ...headers,
             'Content-Type': 'application/json',
             'x-goog-api-key': model.apiKey,
           },
@@ -426,6 +499,7 @@ const transcribeWithGemini = async (
         noteFailure(await responseError(fileResponse));
       }
     } catch (error) {
+      if (signal?.aborted) throw error;
       noteFailure(error);
       // Fall through to generateContent
     }
@@ -433,17 +507,17 @@ const transcribeWithGemini = async (
 
   // Standard generateContent endpoint
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model.modelId)}:generateContent?key=${encodeURIComponent(model.apiKey)}`,
+    `${origin}/v1beta/models/${encodeURIComponent(model.modelId)}:generateContent?key=${encodeURIComponent(model.apiKey)}`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...headers, 'Content-Type': 'application/json' },
       signal,
       body: JSON.stringify({
         contents: [{
           role: 'user',
           parts: [
             {
-              text: 'Transcribe this audio exactly. Preserve the spoken language, wording, punctuation, and line breaks where natural. Return only the transcript.',
+              text: `Transcribe this audio exactly${language ? ` (the speaker's language is most likely ${language})` : ''}. Preserve the spoken language, wording, punctuation, and line breaks where natural. Return only the transcript, or nothing if no one speaks.`,
             },
             {
               inlineData: {
@@ -467,52 +541,74 @@ const transcribeWithGemini = async (
   return cleanTranscript(transcript);
 };
 
-const transcribeWithOpenAICompatible = async (
+/** Where an OpenAI request goes: the official API, or a custom gateway (through the dev proxy). */
+const openAITransport = (model: ResolvedTranscriptionModel) => {
+  const transport = resolveEndpointTransport('openai', model.baseUrl, 'v1');
+  return { base: transport.url.replace(/\/+$/, ''), headers: transport.headers ?? {} };
+};
+
+const extensionFor = (mimeType: string) => {
+  const type = mimeType.split(';')[0].trim();
+  if (type === 'audio/webm' || type === 'video/webm') return 'webm';
+  if (type === 'audio/mp4' || type === 'video/mp4') return 'mp4';
+  if (type === 'audio/ogg') return 'ogg';
+  if (type === 'audio/mpeg') return 'mp3';
+  if (type === 'audio/wav' || type === 'audio/x-wav') return 'wav';
+  return 'webm';
+};
+
+/** Whisper and the `*-transcribe` models: the recording as a file on `/audio/transcriptions`. */
+const transcribeWithOpenAITranscriptions = async (
+  audio: Blob,
+  model: ResolvedTranscriptionModel,
+  language: string | undefined,
+  signal?: AbortSignal,
+) => {
+  const { base, headers } = openAITransport(model);
+  const mimeType = audio.type || 'audio/webm';
+  const form = new FormData();
+  form.append('file', new File([audio], `dictation.${extensionFor(mimeType)}`, { type: mimeType.split(';')[0] }));
+  form.append('model', model.modelId);
+  form.append('response_format', 'json');
+  if (language) form.append('language', language);
+  const response = await fetch(`${base}/audio/transcriptions`, {
+    method: 'POST',
+    headers: { ...headers, Authorization: `Bearer ${model.apiKey}` },
+    body: form,
+    signal,
+  });
+  if (!response.ok) throw new Error(await responseError(response));
+  const data = await response.json().catch(() => null);
+  return cleanTranscript(typeof data?.text === 'string' ? data.text : '');
+};
+
+/** The audio chat models: the recording as `input_audio` in a chat completion. */
+const transcribeWithOpenAIChatAudio = async (
   audio: Blob,
   model: ResolvedTranscriptionModel,
   signal?: AbortSignal,
 ) => {
+  const { base, headers } = openAITransport(model);
   const wavAudio = await convertToWav(audio).catch(() => audio);
-  const audioData = await blobToBase64(wavAudio);
-  const isDevelopment = typeof window !== 'undefined'
-    && (window.location.hostname === 'localhost'
-      || window.location.hostname === '127.0.0.1'
-      || window.location.port === '3000');
-  const useDynamicProxy = model.provider !== 'openai' && isDevelopment;
-  const baseURL = useDynamicProxy
-    ? `${window.location.origin}/llm-proxy`
-    : model.baseUrl;
-
-  const client = new OpenAI({
-    apiKey: model.apiKey,
-    baseURL,
-    dangerouslyAllowBrowser: true,
-    defaultHeaders: useDynamicProxy && model.baseUrl
-      ? { 'x-proxy-target': model.baseUrl }
-      : undefined,
+  const response = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json', Authorization: `Bearer ${model.apiKey}` },
+    signal,
+    body: JSON.stringify({
+      model: model.modelId,
+      modalities: ['text'],
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Transcribe this audio exactly. Return only the transcript, or nothing if no one speaks.' },
+          { type: 'input_audio', input_audio: { data: await blobToBase64(wavAudio), format: wavAudio.type === 'audio/wav' ? 'wav' : 'mp3' } },
+        ],
+      }],
+    }),
   });
-
-  const response = await client.chat.completions.create({
-    model: model.modelId,
-    messages: [{
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: 'Transcribe this audio exactly. Return only the transcript.',
-        },
-        {
-          type: 'input_audio',
-          input_audio: {
-            data: audioData,
-            format: wavAudio.type === 'audio/wav' ? 'wav' : 'webm',
-          },
-        },
-      ],
-    }],
-  } as any, signal ? { signal } : undefined);
-
-  const content: unknown = response.choices?.[0]?.message?.content;
+  if (!response.ok) throw new Error(await responseError(response));
+  const data = await response.json();
+  const content: unknown = data?.choices?.[0]?.message?.content;
   const transcript = typeof content === 'string'
     ? content
     : Array.isArray(content)
@@ -521,21 +617,30 @@ const transcribeWithOpenAICompatible = async (
   return cleanTranscript(transcript);
 };
 
+interface TranscriptionRequest {
+  audio: Blob;
+  apiKeys: unknown;
+  modelConfig: any;
+  signal?: AbortSignal;
+  /** Which model to use; the selected one when omitted. */
+  candidate?: TranscriptionCandidate;
+  /** A BCP 47 language hint (`en`, `hi`), when the caller knows one. */
+  language?: string;
+}
+
 export const transcribeRecordedAudio = async ({
   audio,
   apiKeys,
   modelConfig,
   signal,
+  candidate,
+  language,
 }: TranscriptionRequest) => {
-  const model = resolveTranscriptionModel(modelConfig, apiKeys);
-
-  if (model.provider === 'gemini') {
-    return transcribeWithGemini(audio, model, signal);
-  }
-
-  if (model.provider === 'anthropic') {
-    throw new Error('The selected Anthropic model does not accept recorded audio. Choose an audio-capable model for transcription.');
-  }
-
-  return transcribeWithOpenAICompatible(audio, model, signal);
+  const chosen = candidate || selectedTranscriptionCandidate(modelConfig)
+    || { provider: 'gemini' as const, modelId: DEFAULT_TRANSCRIPTION_MODEL, name: 'Gemini 3.5 Flash Lite' };
+  const model = resolveCandidate(modelConfig, apiKeys, chosen);
+  const hint = language?.split('-')[0]?.toLowerCase() || undefined;
+  if (model.route === 'gemini') return transcribeWithGemini(audio, model, hint, signal);
+  if (model.route === 'openai-transcription') return transcribeWithOpenAITranscriptions(audio, model, hint, signal);
+  return transcribeWithOpenAIChatAudio(audio, model, signal);
 };

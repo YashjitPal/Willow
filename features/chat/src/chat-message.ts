@@ -12,6 +12,9 @@ import {
 import type { MessageCitations } from '@willow/ai/grounding';
 import type { CodeExecution } from '@willow/ai/code-execution';
 import type { CanvasKind, CanvasRef } from './canvas/canvas-store';
+import { sanitizeSavedMedia, type GeneratedMedia } from './media/generated-media';
+import { sanitizeSavedResearch, type ResearchRecord } from './research/research-types';
+import { sanitizeChatCreatedItems, type ChatCreatedItem } from './library/library-tools';
 
 export interface ChatMsg {
   id: string;
@@ -52,6 +55,12 @@ export interface ChatMsg {
    *  offset where its card renders. The version history IS this, folded over the
    *  thread — see `canvas/canvas-store.ts`. */
   canvasRefs?: CanvasRef[];
+  /** Images, videos and tracks this turn's media tools made, in call order. */
+  media?: GeneratedMedia[];
+  /** A Deep Research plan, or the run it started (see research/research-types). */
+  research?: ResearchRecord;
+  /** Scheduled actions and skills this turn saved, as their cards first showed them. */
+  created?: ChatCreatedItem[];
   /**
    * Written by the Code workbench, never by this UI, and never rendered here.
    *
@@ -84,9 +93,12 @@ export interface ChatMsg {
  * messages.
  */
 export const hasSavedMessageContent = (
-  message: Pick<ChatMsg, 'content' | 'attachments' | 'wasStopped' | 'codeExecutions' | 'canvasRefs'>,
+  message: Pick<ChatMsg, 'content' | 'attachments' | 'wasStopped' | 'codeExecutions' | 'canvasRefs' | 'media' | 'research' | 'created'>,
 ): boolean =>
   message.content.trim().length > 0
+  || (!!message.research && message.research.status !== 'planning')
+  || !!message.media?.length
+  || !!message.created?.length
   || !!message.attachments?.length
   || !!message.wasStopped
   || !!message.codeExecutions?.length
@@ -102,6 +114,7 @@ export const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerat
     isNew: _isNew,
     errorDetail: _errorDetail,
     attachments,
+    media,
     ...persisted
   } = message;
   return {
@@ -109,8 +122,55 @@ export const serializeChatMessage = (message: ChatMsg): Omit<ChatMsg, 'isGenerat
     ...(attachments?.length
       ? { attachments: attachments.map(toPersistedChatAttachment) }
       : {}),
+    ...(media?.length
+      ? {
+        media: media.map((item) => ({
+          ...item,
+          attachment: item.attachment ? toPersistedChatAttachment(item.attachment) : undefined,
+          cover: item.cover ? toPersistedChatAttachment(item.cover) : undefined,
+        })),
+      }
+      : {}),
   };
 };
+
+/**
+ * A message read back from a saved chat file, with every runtime flag cleared.
+ * `attachments` are the caller's to resolve: the thread on screen gives them
+ * object URLs, a turn resumed in another tab keeps metadata only.
+ *
+ * Every flag `serializeChatMessage` writes must be read back here. This list
+ * once omitted `wasStopped`, so a stopped turn lost its "You stopped this
+ * response" notice on any reload, including the disk-sync reload that fires
+ * after the next turn is saved. Run `decodeCanvasHistory` over the file first:
+ * older canvas revisions are stored as reverse patches, and
+ * `sanitizeSavedCanvasRefs` drops any ref with no `content`.
+ */
+export const restoreSavedChatMessage = (saved: any, attachments: ChatAttachment[] | undefined): ChatMsg => ({
+  id: saved.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
+  role: saved.role,
+  content: saved.content || '',
+  attachments,
+  thinkingTime: saved.thinkingTime,
+  thinkingText: typeof saved.thinkingText === 'string' ? saved.thinkingText : undefined,
+  modelSnapshot: saved.modelSnapshot,
+  isError: saved.isError,
+  isGenerating: false,
+  isTranscribing: false,
+  isLive: false,
+  wasInterrupted: saved.wasInterrupted,
+  wasStopped: saved.wasStopped,
+  citations: sanitizeSavedCitations(saved.citations),
+  codeExecutions: sanitizeSavedCodeExecutions(saved.codeExecutions, (saved.content || '').length),
+  canvasRefs: sanitizeSavedCanvasRefs(saved.canvasRefs, (saved.content || '').length),
+  media: sanitizeSavedMedia(saved.media),
+  research: sanitizeSavedResearch(saved.research),
+  created: sanitizeChatCreatedItems(saved.created),
+  // Not rendered by Chat, carried so it survives the round trip: it is a Code
+  // chat's only proof on disk that it belongs to the workbench, and dropping it
+  // permanently demoted such a chat to an ordinary one on its next save.
+  willowMode: saved.willowMode === 'code' ? 'code' as const : undefined,
+});
 
 /**
  * Read grounded citations back off disk.

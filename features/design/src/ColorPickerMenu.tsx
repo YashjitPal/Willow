@@ -248,6 +248,8 @@ export const ColorPickerMenu: React.FC<ColorPickerMenuProps> = ({ onSelect, onCl
 
     // Listener for theme colors response from iframe
     const handleMessage = (e: MessageEvent) => {
+      // The frame being edited: a hidden Code screen's preview posts its colours here too.
+      if (e.source !== getIframeRef()?.contentWindow) return;
       if (e.data?.type === 'THEME_COLORS_RESPONSE' && e.data.colors) {
         themeColors.set(e.data.colors);
         console.log('[ColorPickerMenu] Theme colors received via message:', Object.keys(e.data.colors).length);

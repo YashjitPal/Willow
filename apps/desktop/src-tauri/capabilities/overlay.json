@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "The pet's transparent window, a page bundled with the app: it collects the surface it was opened with, asks for pointer input and keyboard focus while they are wanted, and sends messages to the page that opened it.",
+  "windows": ["overlay"],
+  "permissions": [
+    "allow-overlay-surface",
+    "allow-overlay-attached",
+    "allow-overlay-set-interactive",
+    "allow-overlay-set-focusable",
+    "allow-overlay-send"
+  ]
+}

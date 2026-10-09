@@ -64,9 +64,12 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
 
   return (
     <div
-      className={`relative min-w-0 max-w-full sm:max-w-[508px] overflow-visible rounded-[28px] sm:rounded-[40px] ${
-        isLight ? 'bg-[#f2f0f0] text-[#1f1f1f]' : 'bg-[#171717] text-[#e3e3e3]'
-      } px-4 py-3 sm:px-7 sm:py-5 text-[15px] sm:text-[17px] font-normal leading-6 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
+      // One box at every width, measured off Gemini at 390, 480, 600, 640, 700,
+      // 768, 800 and 960: 508px at most (452 of text), 20/28 padding, 40px corners,
+      // 17/24 type. Only the fill differs below 961px, where Gemini uses #141414.
+      className={`relative min-w-0 max-w-[508px] overflow-visible rounded-[40px] ${
+        isLight ? 'bg-[#f2f0f0] text-[#1f1f1f]' : 'bg-[#171717] text-[#e3e3e3] max-[960px]:bg-[#141414]'
+      } px-7 py-5 text-[17px] font-normal leading-6 font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
       style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
     >
       <div
@@ -97,7 +100,7 @@ export const UserMessageBubble: React.FC<Pick<ChatMsg, 'content' | 'isTranscribi
               className={`absolute right-0 top-1/2 z-10 h-[22px] w-[92px] -translate-y-1/2 ${
                 isLight
                   ? 'bg-[linear-gradient(to_right,transparent,#f2f0f0_56px,#f2f0f0_100%)]'
-                  : 'bg-[linear-gradient(to_right,transparent,#171717_56px,#171717_100%)]'
+                  : 'bg-[linear-gradient(to_right,transparent,#171717_56px,#171717_100%)] max-[960px]:bg-[linear-gradient(to_right,transparent,#141414_56px,#141414_100%)]'
               }`}
             />
           )}

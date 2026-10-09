@@ -1,0 +1,265 @@
+/*
+ * Gemini Spark's composer menus, measured at 1536x826 off the live app
+ * (`tools/ui-research/captures/spark/135-skills-connectors/pickers/`).
+ *
+ * "@" is `.mat-mdc-menu-panel.at-mentions-menu.lm-menu-theme`: #1f1f1f, 16px corners, 8px padding,
+ * `0 0 20px rgba(0,0,0,.28)`, content-sized between 112px and 280px, at most 45vh tall, scrolling
+ * with Gemini's 12px scrollbar. "/" is the same panel with `.slash-menu`: 242px wide, #1e1f20,
+ * Material's level-1 shadow, 8px side padding and 6px above and below the rows, which scroll
+ * past min(45vh, 300px). Rows are 36px with 12px corners, 8px of padding, a 24px icon box, an
+ * 8px gap and a 13px/17px label; the highlighted row takes the 8% on-surface layer. Both open
+ * with Material's `_mat-menu-enter`: 120ms from scale(0.8) on the standard decelerate curve.
+ *
+ * "/" is plain Material because Gemini's `lmMenuTheme` adds `lm-menu-theme` once, at init, and the
+ * menu's class binding drops it on switching to `slash-menu`. The same overwrite leaves "@" plain
+ * too (#1e1f20, no padding) once "/" has been used, until the composer remounts. That is a bug
+ * there, so "@" here always keeps its themed look.
+ */
+
+.spark-mention-pane {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+}
+
+.spark-mention-menu {
+  box-sizing: border-box;
+  min-width: 112px;
+  max-width: 280px;
+  max-height: 45vh;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 16px;
+  background: #1f1f1f;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  transform-origin: left top;
+  animation: spark-mention-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.spark-mention-pane.is-above .spark-mention-menu {
+  transform-origin: left bottom;
+}
+
+.spark-mention-menu--slash {
+  width: 242px;
+  max-width: 242px;
+  max-height: none;
+  overflow: visible;
+  padding: 0 8px;
+  background: #1e1f20;
+  box-shadow: 0 3px 1px -2px rgba(0, 0, 0, 0.2), 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 1px 5px 0 rgba(0, 0, 0, 0.12);
+}
+
+.spark-mention-menu--slash .spark-mention-menu__content {
+  max-height: min(45vh, 300px);
+  overflow-y: auto;
+  padding-block: 6px;
+}
+
+@keyframes spark-mention-menu-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
+ * Gemini's scrollbar: 12px, invisible until the scroller is hovered. Like Gemini's, these rules
+ * are for a mouse only; a finger gets the browser's thin overlay bar, which takes no width.
+ */
+@media (pointer: fine) {
+  .spark-mention-menu::-webkit-scrollbar,
+  .spark-mention-menu__content::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+    background: transparent;
+  }
+
+  .spark-mention-menu::-webkit-scrollbar-thumb,
+  .spark-mention-menu__content::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background: content-box transparent;
+  }
+
+  .spark-mention-menu:hover::-webkit-scrollbar-thumb {
+    background: content-box #333537;
+  }
+
+  .spark-mention-menu::-webkit-scrollbar-thumb:hover,
+  .spark-mention-menu::-webkit-scrollbar-thumb:active {
+    background: content-box #444746;
+  }
+
+  /* The slash list's own thumb, from its `infinite-scroller` rule. */
+  .spark-mention-menu__content::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    background: content-box rgba(154, 155, 156, 0.4);
+  }
+}
+
+.spark-mention-menu__item {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #e3e3e3;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.spark-mention-menu__item.is-highlighted {
+  background: rgba(230, 230, 230, 0.08);
+}
+
+.spark-mention-menu__item:focus-visible {
+  outline: 2px solid #e3e3e3;
+  outline-offset: 1px;
+}
+
+.spark-mention-menu__item.is-dimmed {
+  opacity: 0.38;
+}
+
+.spark-mention-menu__item.is-disabled-skill {
+  opacity: 0.63;
+}
+
+.spark-mention-menu__icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+}
+
+.spark-mention-menu__icon img {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.spark-mention-menu__glyph {
+  color: #c4c7c5;
+}
+
+.spark-mention-menu__label {
+  overflow: hidden;
+  color: #e6e6e6;
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 400;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * A skill's description on hover: Gemini's `menu-item-tooltip`, #1f3760 (primary-container), 12px
+ * corners, 12px by 16px of padding, 17px/24px at weight 370, 150px to 250px wide. It sits right of
+ * the row's content box, or above it, narrowed, where the right has no room (`placeMentionTooltip`).
+ * It fades in over 200ms.
+ */
+.spark-mention-tooltip {
+  position: fixed;
+  z-index: 1001;
+  box-sizing: border-box;
+  min-width: 150px;
+  max-width: 250px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--sync-1f3760, #1f3760);
+  box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  color: #e3e3e3;
+  font-family: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', sans-serif;
+  font-size: 17px;
+  font-weight: 370;
+  font-variation-settings: 'ROND' 0, 'slnt' 0, 'wdth' 92, 'wght' 370;
+  line-height: 24px;
+  pointer-events: none;
+  animation: spark-mention-tooltip-in 200ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+@keyframes spark-mention-tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The mentions in the box, traced over the textarea's own text so they read bold at the same width. */
+.spark-mention-highlight {
+  position: absolute;
+  z-index: 1;
+  margin: 0;
+  overflow: hidden;
+  border-color: transparent;
+  background: transparent;
+  color: transparent;
+  pointer-events: none;
+}
+
+.spark-mention-highlight__mention {
+  -webkit-text-stroke: 0.45px var(--spark-mention-ink, #fff);
+}
+
+/* At 960px and below Gemini remaps its surfaces: the "@" panel is #1c1c1c and on-surface #e0e0e0, so
+ * labels and the 8% highlight follow it. The "/" panel keeps #1e1f20. Measured at 390x844 and 800x1280. */
+@media (max-width: 960px) {
+  .spark-mention-menu {
+    background: #1c1c1c;
+  }
+
+  .spark-mention-menu--slash {
+    background: #1e1f20;
+  }
+
+  .spark-mention-menu__item.is-highlighted {
+    background: rgba(224, 224, 224, 0.08);
+  }
+
+  .spark-mention-menu__label {
+    color: #e0e0e0;
+  }
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-mention-menu {
+  background: #ffffff;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.16);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-mention-menu--slash {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-mention-menu__item {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-mention-menu__item.is-highlighted {
+  background: rgba(31, 31, 31, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-mention-menu__label {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-mention-menu__glyph {
+  color: #444746;
+}

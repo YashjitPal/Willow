@@ -1,0 +1,89 @@
+{
+  "expo": {
+    "name": "Willow",
+    "slug": "willow-android",
+    "version": "1.0.0",
+    "platforms": ["android"],
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0f0f0f",
+    "android": {
+      "package": "com.willow.android",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png",
+        "backgroundColor": "#0f0f0f"
+      },
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE"
+      ],
+      "blockedPermissions": ["android.permission.SYSTEM_ALERT_WINDOW"]
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "buildArchs": ["arm64-v8a", "x86_64"]
+          }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/willow.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#faf9f9",
+          "dark": {
+            "image": "./assets/willow.png",
+            "backgroundColor": "#0f0f0f"
+          }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Willow uses the camera to scan your PC's pairing code, and for photos you allow.",
+          "recordAudioAndroid": true,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Agents on your PC can ask where this phone is.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#4a7b40"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Agents on your PC can ask for a photo; you approve each one."
+        }
+      ],
+      "./plugins/with-release-debug-signing.js"
+    ]
+  }
+}

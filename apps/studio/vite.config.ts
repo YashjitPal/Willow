@@ -1,4 +1,5 @@
 import path from "path";
+import { statSync } from "fs";
 import { pathToFileURL } from "url";
 import http from "http";
 import https from "https";
@@ -88,6 +89,34 @@ function conditionalCrossOriginHeaders(): Plugin {
 }
 
 /*
+ * The Codex dot character frame (features/spark/src/dots, assets under
+ * public/codex/assets). As in the Codex app, only this frame is isolated, with
+ * Document-Isolation-Policy: the character engine gets SharedArrayBuffer and its
+ * own renderer process while the rest of Willow stays without COOP/COEP, which
+ * would break Firebase sign-in. vercel.json sends the same headers in production.
+ */
+const DOT_CHARACTER_FRAME_PATH = /^\/codex\/assets\/orbit-character-[a-f0-9]{16}\/[a-f0-9]{16}\/frame\.html$/;
+
+function dotCharacterFrameIsolation(): Plugin {
+  const addHeaders = (req: http.IncomingMessage, res: http.ServerResponse, next: () => void) => {
+    if (DOT_CHARACTER_FRAME_PATH.test(new URL(req.url ?? '/', 'http://localhost').pathname)) {
+      res.setHeader('Document-Isolation-Policy', 'isolate-and-require-corp');
+      res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+    }
+    next();
+  };
+  return {
+    name: 'dot-character-frame-isolation',
+    configureServer(server) {
+      server.middlewares.use(addHeaders);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(addHeaders);
+    },
+  };
+}
+
+/*
  * Mounts `api/fetch-source.js` at `/api/fetch-source` for the dev server.
  *
  * The SAME handler that Vercel serves in production, imported at runtime rather
@@ -125,6 +154,42 @@ function sourceFetchEndpoint(): Plugin {
           res.statusCode = 500;
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ error: (error as Error)?.message || 'fetch-source failed' }));
+        }
+      });
+    },
+  };
+}
+
+/*
+ * Mounts Spark's remote-browser proxy (`api/_browse-proxy.js`) on the dev server.
+ *
+ * The proxy routes by Host, not by path: every site is served from its own
+ * `<base32 origin>.wb.localhost:3000`, so this claims any request whose Host is one
+ * of those, whatever its path, and passes everything else straight on. That is also
+ * why it has to run before the other middlewares — a proxied page asking for
+ * `/api/v1/…` on its own host means the site's API, not Willow's.
+ *
+ * The proxy is closed by default; the dev server is the user's own machine, so it
+ * opts in here, as `sourceFetchEndpoint` does.
+ */
+function remoteBrowserProxy(): Plugin {
+  return {
+    name: 'remote-browser-proxy',
+    apply: 'serve',
+    configureServer(server) {
+      process.env.BROWSE_PROXY_ENABLED ??= '1';
+      server.middlewares.use(async (req, res, next) => {
+        if (!/\.wb\.localhost(?::\d+)?$/i.test(req.headers.host ?? '')) return next();
+        try {
+          const file = path.resolve(ROOT, 'api', '_browse-proxy.js');
+          // Node caches imports for the life of the process, Vite restarts included.
+          const entry = `${pathToFileURL(file).href}?v=${statSync(file).mtimeMs}`;
+          const { handleBrowseRequest } = await import(entry);
+          if (!(await handleBrowseRequest(req, res))) next();
+        } catch (error) {
+          res.statusCode = 502;
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.end((error as Error)?.message || 'remote browser proxy failed');
         }
       });
     },
@@ -195,6 +260,39 @@ function agentRequestLog(): Plugin {
       server.config.logger.info(
         `  \x1b[32m➜\x1b[0m  Agent request log: \x1b[36m.agent/requests.jsonl\x1b[0m`,
       );
+    },
+  };
+}
+
+/*
+ * Answers "did anything change while my HMR socket was down?" for
+ * `src/app/hmr-resume.ts`.
+ *
+ * Chrome closes a page's WebSockets when it freezes the tab (background tabs, and
+ * every tab during Modern Standby), and Vite's client reloads any page that lost
+ * its socket the moment it runs again — so clicking a Willow tab reloaded it with
+ * nothing changed. A server restart re-runs this hook, so `startedAt` changes too.
+ */
+function hmrResumeState(): Plugin {
+  return {
+    name: 'hmr-resume-state',
+    apply: 'serve',
+    configureServer(server) {
+      const startedAt = Date.now();
+      let changedAt = startedAt;
+      // Every hot update and full reload Vite pushes to open tabs goes through here.
+      const ws = server.ws as unknown as { send: (...args: unknown[]) => void };
+      const send = ws.send.bind(ws);
+      ws.send = (...args) => {
+        const type = (args[0] as { type?: unknown } | undefined)?.type;
+        if (type === 'update' || type === 'full-reload') changedAt = Date.now();
+        send(...args);
+      };
+      server.middlewares.use('/__willow/hmr-state', (_req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ startedAt, changedAt }));
+      });
     },
   };
 }
@@ -304,7 +402,7 @@ export default defineConfig(() => {
      * Plugin order is middleware order here, so going first means this one gets
      * first refusal on its own path and calls `next()` for everything else.
      */
-    plugins: [react(), sourceFetchEndpoint(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dynamicLlmProxy(), agentRequestLog()],
+    plugins: [react(), remoteBrowserProxy(), sourceFetchEndpoint(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dotCharacterFrameIsolation(), dynamicLlmProxy(), agentRequestLog(), hmrResumeState()],
     define: {
       // @babel/types checks these build-time flags while loading the visual editor.
       // Replace only the flags it needs instead of exposing a Node `process` shim.
@@ -328,6 +426,7 @@ export default defineConfig(() => {
         { find: "@willow/figma", replacement: path.resolve(ROOT, "features/figma/src") },
         { find: "@willow/media", replacement: path.resolve(ROOT, "features/media/src") },
         { find: "@willow/spark", replacement: path.resolve(ROOT, "features/spark/src") },
+        { find: "@willow/harness", replacement: path.resolve(ROOT, "features/harness/src") },
         { find: "@willow/chat", replacement: path.resolve(ROOT, "features/chat/src") },
         { find: "@willow/code", replacement: path.resolve(ROOT, "features/code/src") },
         { find: "@willow/gems", replacement: path.resolve(ROOT, "features/gems/src") },

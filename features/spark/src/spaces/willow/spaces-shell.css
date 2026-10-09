@@ -1,0 +1,374 @@
+/*
+ * The Spaces shell inside Spark: the page, the top bar a Page puts its header
+ * in, the side sheet beside it and the snackbars. Gemini's language, as Spark
+ * uses it: Google Sans Flex on a 92% width axis, tonal surface containers,
+ * 24px sheets, 8% state layers and Material Symbols.
+ */
+
+.spaces-shell {
+  --spaces-ease: cubic-bezier(0.2, 0, 0, 1);
+  --viewer-header-height: 56px;
+  --app-shell-header-height: 56px;
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  background: var(--ws-surface);
+  color: var(--ws-on-surface);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-stretch: 92%;
+}
+
+.spaces-shell :is(button, input, textarea, select) {
+  font-stretch: inherit;
+}
+
+.spaces-shell__workspace {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.spaces-shell__topbar {
+  display: flex;
+  min-height: 56px;
+  flex: none;
+  align-items: center;
+  padding: 8px 12px 0 16px;
+}
+
+.spaces-shell__topbar > * {
+  min-width: 0;
+  flex: 1;
+}
+
+.spaces-shell__main {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* A scrolled page's own title bar (`PaneHeader`) sits on the page, as Gemini's does. */
+.spaces-shell__topbar.is-pane-header {
+  position: absolute;
+  z-index: 25;
+  top: 0;
+  right: 0;
+  left: 0;
+  padding: 8px 24px;
+  background: color-mix(in srgb, var(--ws-surface) 88%, transparent);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 1px 0 var(--ws-outline-variant);
+  animation: spaces-topbar-in 200ms var(--spaces-ease);
+}
+
+@keyframes spaces-topbar-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── Material icon button ───────────────────────────────────────────────── */
+
+.spaces-icon-button {
+  position: relative;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--ws-on-surface-variant);
+  cursor: pointer;
+  transition: background-color 150ms var(--spaces-ease), color 150ms var(--spaces-ease);
+}
+
+.spaces-icon-button:hover {
+  background: color-mix(in srgb, var(--ws-on-surface) 8%, transparent);
+  color: var(--ws-on-surface);
+}
+
+.spaces-icon-button:active {
+  background: color-mix(in srgb, var(--ws-on-surface) 12%, transparent);
+}
+
+.spaces-icon-button:focus-visible {
+  outline: 2px solid var(--ws-primary);
+  outline-offset: 2px;
+}
+
+/* ── Side sheet: Codex's right panel ────────────────────────────────────── */
+
+.spaces-side-panel {
+  display: flex;
+  width: min(520px, 44%);
+  min-width: 360px;
+  flex: none;
+  flex-direction: column;
+  margin: 8px 8px 8px 0;
+  overflow: hidden;
+  border-radius: 24px;
+  background: var(--ws-container-low);
+  animation: spaces-side-panel-in 300ms var(--spaces-ease);
+}
+
+.spaces-side-panel.is-full-width {
+  position: absolute;
+  z-index: 20;
+  inset: 8px;
+  width: auto;
+  margin: 0;
+  box-shadow: var(--ws-shadow-3);
+}
+
+@keyframes spaces-side-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+.spaces-side-panel__header {
+  display: flex;
+  min-height: 56px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+}
+
+.spaces-side-panel__tabs {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.spaces-side-panel__tab {
+  display: inline-flex;
+  max-width: 240px;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--ws-on-surface-variant);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 150ms var(--spaces-ease);
+}
+
+.spaces-side-panel__tab:hover {
+  background: color-mix(in srgb, var(--ws-on-surface) 8%, transparent);
+}
+
+.spaces-side-panel__tab.is-active {
+  background: var(--ws-secondary-container);
+  color: var(--ws-on-secondary-container);
+}
+
+.spaces-side-panel__tab-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.spaces-side-panel__tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spaces-side-panel__tab-close {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  opacity: 0.72;
+}
+
+.spaces-side-panel__tab-close:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  opacity: 1;
+}
+
+.spaces-side-panel__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.spaces-side-panel__body,
+.spaces-side-panel__detail {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.spaces-side-panel__tab-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.spaces-side-panel__tab-panel[hidden] {
+  display: none;
+}
+
+/* ── Snackbars (sonner) ─────────────────────────────────────────────────── */
+
+.spaces-snackbars {
+  --width: 400px;
+}
+
+.spaces-snackbar {
+  display: flex;
+  width: var(--width);
+  max-width: calc(100vw - 32px);
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 8px 12px 16px;
+  border-radius: 12px;
+  background: var(--ws-inverse-surface);
+  box-shadow: var(--ws-shadow-3);
+  color: var(--ws-inverse-on-surface);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-stretch: 92%;
+  line-height: 20px;
+}
+
+.spaces-snackbar__title {
+  font-weight: 500;
+}
+
+.spaces-snackbar__description {
+  opacity: 0.8;
+}
+
+.spaces-snackbar__icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.spaces-snackbar__action {
+  flex: none;
+  height: 36px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--ws-inverse-primary);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.spaces-snackbar__action:hover {
+  background: color-mix(in srgb, var(--ws-inverse-primary) 12%, transparent);
+}
+
+.spaces-snackbar__close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+/* ── The portal host for menus, popovers, tooltips and dialogs ──────────── */
+
+.willow-spaces-portal-root {
+  position: relative;
+  z-index: 1000;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-stretch: 92%;
+  color: var(--ws-on-surface);
+}
+
+.willow-spaces-portal-root :is(button, input, textarea, select) {
+  font-stretch: inherit;
+}
+
+/* ── Tablet and phone (≤960px): Willow's drawer sidebar ─────────────────── */
+
+@media (max-width: 960px) {
+  /* Willow's menu button floats at 8px/8px and is 48px square: a Page's bar starts after
+   * it, and pages without a bar of their own keep that 56px band clear, as Spark's do. */
+  .spaces-shell__workspace:not([data-page-header]) {
+    padding-top: 56px;
+  }
+
+  .spaces-shell__topbar {
+    min-height: 64px;
+    padding: 0 4px 0 56px;
+  }
+
+  .spaces-shell__topbar.is-pane-header {
+    min-height: 56px;
+    padding: 4px 16px 4px 64px;
+  }
+
+  /* A Page's own bar holds its actions in that corner, so Spark's Beta label steps aside. Only
+   * the Page on show: one kept behind another tab (`inert`) leaves that tab alone. */
+  body:has(.spaces-shell__topbar:not(.is-pane-header):not([inert] *)) .spark-top-controls,
+  body:has(.spaces-shell[data-side-panel]:not([inert] *)) .spark-top-controls {
+    display: none;
+  }
+
+  /* The side sheet covers the page and closes itself, as the task detail does. */
+  body:has(.spaces-shell[data-side-panel]:not([inert] *)) .studio-sidebar-mobile-open {
+    display: none;
+  }
+
+  .spaces-side-panel {
+    position: absolute;
+    z-index: 30;
+    inset: 0;
+    width: auto;
+    min-width: 0;
+    margin: 0;
+    border-radius: 0;
+    background: var(--ws-surface);
+  }
+
+  .spaces-side-panel__header {
+    min-height: 64px;
+    padding: 8px 8px 8px 16px;
+  }
+
+  .spaces-snackbars {
+    --width: calc(100vw - 32px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spaces-side-panel {
+    animation: none;
+  }
+}

@@ -76,15 +76,15 @@ const SPARK_PATH =
 /** 18px row mark, standing in for Gemini's `producticons/gemini.png`. */
 const ProductIcon: React.FC = () => (
   <svg className="activity-row-product-icon" viewBox="0 0 24 24" aria-hidden="true">
-    <path d={SPARK_PATH} fill="#8ab4f8" />
+    <path d={SPARK_PATH} style={{ fill: 'var(--sync-8ab4f8, #8ab4f8)' }} />
   </svg>
 );
 
 /** 24px banner mark, standing in for Gemini's `safer_with_google_dark_24px` image. */
 const PrivacyIcon: React.FC = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" fill="#8ab4f8" opacity="0.24" />
-    <path d={SPARK_PATH} fill="#8ab4f8" transform="translate(12 12) scale(0.5) translate(-12 -12)" />
+    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" style={{ fill: 'var(--sync-8ab4f8, #8ab4f8)' }} opacity="0.24" />
+    <path d={SPARK_PATH} style={{ fill: 'var(--sync-8ab4f8, #8ab4f8)' }} transform="translate(12 12) scale(0.5) translate(-12 -12)" />
   </svg>
 );
 

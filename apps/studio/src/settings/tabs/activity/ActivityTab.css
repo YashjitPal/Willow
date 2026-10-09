@@ -53,7 +53,7 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  background-color: rgba(209, 225, 255, 0.08);
+  background-color: rgba(var(--sync-d1e1ff-rgb, 209, 225, 255), 0.08);
   border-radius: 1rem;
 }
 
@@ -100,7 +100,7 @@
 }
 
 .activity-card-note a {
-  color: #8ab4f8;
+  color: var(--sync-8ab4f8, #8ab4f8);
   text-decoration: none;
 }
 
@@ -129,7 +129,7 @@
   gap: 8px;
   border: none;
   border-radius: 20px;
-  background-color: #004a77;
+  background-color: var(--sync-004a77, #004a77);
   cursor: pointer;
   user-select: none;
   vertical-align: middle;
@@ -145,19 +145,19 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background-color: #004a77;
+  background-color: var(--sync-004a77, #004a77);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s linear;
 }
 
 .activity-chip:hover::before {
-  background-color: #d3e3fd;
+  background-color: var(--sync-d3e3fd, #d3e3fd);
   opacity: 0.08;
 }
 
 .activity-chip:active::before {
-  background-color: #d3e3fd;
+  background-color: var(--sync-d3e3fd, #d3e3fd);
   opacity: 0.1;
 }
 
@@ -171,7 +171,7 @@
 
 .activity-chip-icon {
   display: inline-flex;
-  fill: #a8c7fa;
+  fill: var(--sync-a8c7fa, #a8c7fa);
   z-index: 1;
 }
 
@@ -265,14 +265,14 @@
 }
 
 .activity-checkbox-box.is-checked {
-  background-color: #a8c7fa;
-  border-color: #a8c7fa;
+  background-color: var(--sync-a8c7fa, #a8c7fa);
+  border-color: var(--sync-a8c7fa, #a8c7fa);
 }
 
 .activity-checkbox-tick {
   width: 14.8px;
   height: 14.8px;
-  stroke: #062e6f;
+  stroke: var(--sync-062e6f, #062e6f);
   stroke-width: 3.12;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -324,7 +324,7 @@
   padding: 0;
   border: none;
   background: none;
-  color: #8ab4f8;
+  color: var(--sync-8ab4f8, #8ab4f8);
   font: inherit;
   cursor: pointer;
 }
@@ -355,7 +355,7 @@
   border: 1px solid #5f6368;
   border-radius: 4px;
   background: transparent;
-  color: #8ab4f8;
+  color: var(--sync-8ab4f8, #8ab4f8);
   font-family: 'Google Sans', Roboto, Arial, sans-serif;
   font-size: 0.875rem;
   font-weight: 500;
@@ -373,7 +373,7 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background-color: #8ab4f8;
+  background-color: var(--sync-8ab4f8, #8ab4f8);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s linear;
@@ -693,23 +693,23 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-card-note a {
-  color: #1a73e8;
+  color: var(--sync-1a73e8, #1a73e8);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-chip {
-  background-color: #c2e7ff;
+  background-color: var(--sync-c2e7ff, #c2e7ff);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-chip::before {
-  background-color: #001d35;
+  background-color: var(--sync-001d35, #001d35);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-chip-label {
-  color: #001d35;
+  color: var(--sync-001d35, #001d35);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-chip-icon {
-  fill: #001d35;
+  fill: var(--sync-001d35, #001d35);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-since {
@@ -739,8 +739,8 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-checkbox-box.is-checked {
-  background-color: #0b57d0;
-  border-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-checkbox-tick {
@@ -754,16 +754,16 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-privacy-link {
-  color: #1a73e8;
+  color: var(--sync-1a73e8, #1a73e8);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-delete-button {
   border-color: #dadce0;
-  color: #1a73e8;
+  color: var(--sync-1a73e8, #1a73e8);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-delete-button::before {
-  background-color: #1a73e8;
+  background-color: var(--sync-1a73e8, #1a73e8);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-group-header {
@@ -785,11 +785,11 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-row-product-icon path {
-  fill: #1a73e8;
+  fill: var(--sync-1a73e8, #1a73e8);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-privacy-icon path {
-  fill: #1a73e8;
+  fill: var(--sync-1a73e8, #1a73e8);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-row-title {
@@ -801,7 +801,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-row-details {
-  color: #1a73e8;
+  color: var(--sync-1a73e8, #1a73e8);
 }
 
 :is(.light-theme, [data-theme="light"]) .activity-icon-button {
@@ -836,5 +836,30 @@
 
 :is(.light-theme, [data-theme="light"]) .activity-empty {
   color: #5f6368;
+}
+
+/*
+ * At 960px and below My Activity keeps a fixed #131314 top app bar over the page: 64px on a
+ * tablet, Material's 56px under 600px (title at y=88 and y=80, measured at 800x1280 and
+ * 390x844). Willow's menu button takes that bar's place, so the page scrolls below it and
+ * the bar is painted by a shadow cast into the space the margin leaves.
+ */
+@media (max-width: 960px) {
+  .activity-page {
+    --activity-app-bar: 64px;
+    height: calc(100% - var(--activity-app-bar));
+    margin-top: var(--activity-app-bar);
+    box-shadow: 0 calc(-1 * var(--activity-app-bar)) 0 0 #131314;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .activity-page {
+    box-shadow: 0 calc(-1 * var(--activity-app-bar)) 0 0 var(--studio-surface, #ffffff);
+  }
+}
+
+@media (max-width: 599.98px) {
+  .activity-page {
+    --activity-app-bar: 56px;
+  }
 }
 

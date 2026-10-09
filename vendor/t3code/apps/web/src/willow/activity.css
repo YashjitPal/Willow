@@ -1,0 +1,1040 @@
+/*
+ * A turn's work as the Codex app draws it, from the Codex app UI clone (styles/tokens.css and
+ * index.css, components/thread): one line per piece of work, 14px/22px, 16px apart, a 16px icon
+ * at 60% and the summary at 60% (inside an opened group too; 30% for reasoning), full strength
+ * while pointed at, a 14px chevron after it that shows on hover and turns when open. Commands
+ * open to a shell card, edits to a unified diff; a finished turn folds behind "Worked for 6s"
+ * over a rule. Willow's type and glyphs throughout (Google Sans Flex, Material Symbols).
+ */
+
+:root {
+  --codex-ink: #1a1c1f;
+  --codex-ink-secondary: rgb(26 28 31 / 69.5%);
+  --codex-ink-tertiary: rgb(26 28 31 / 49.5%);
+  --codex-border: rgb(26 28 31 / 7.8%);
+  --codex-border-heavy: rgb(26 28 31 / 11.7%);
+  --codex-secondary-soft: rgb(26 28 31 / 5.3%);
+  --codex-button-secondary: rgb(26 28 31 / 4.9%);
+  --codex-tertiary-hover: rgb(26 28 31 / 9.8%);
+  --codex-surface: #ffffff;
+  --codex-surface-under: #f6f6f6;
+  --codex-surface-tertiary: #fafafa;
+  --codex-elevated-secondary: rgb(255 255 255 / 96%);
+  --codex-git-added: #00a240;
+  --codex-git-deleted: #ba2623;
+  --codex-diff-added-bg: rgb(0 162 64 / 15%);
+  --codex-diff-deleted-bg: rgb(186 38 35 / 15%);
+  --codex-text-accent: #339cff;
+  --codex-danger: #e02e2a;
+  --codex-shimmer-highlight: #000000cc;
+  --codex-activity-summary: color-mix(in oklab, var(--codex-ink) 60%, transparent);
+  --codex-activity-child: color-mix(in oklab, var(--codex-ink) 60%, transparent);
+  --codex-activity-dim: color-mix(in oklab, var(--codex-ink) 30%, transparent);
+  --codex-icon: color-mix(in oklab, var(--codex-ink) 60%, transparent);
+  --codex-shimmer-base: color-mix(in srgb, var(--codex-ink-tertiary) 55%, transparent);
+  --codex-chat-font-size: 14px;
+  --codex-item-gap: 16px;
+  --codex-grouped-gap: 4px;
+}
+
+:root.dark {
+  --codex-ink: #dfdfdf;
+  --codex-ink-secondary: rgb(255 255 255 / 71%);
+  --codex-ink-tertiary: rgb(255 255 255 / 49.8%);
+  --codex-border: rgb(255 255 255 / 8.4%);
+  --codex-border-heavy: rgb(255 255 255 / 15.6%);
+  --codex-secondary-soft: rgb(255 255 255 / 7.8%);
+  --codex-button-secondary: rgb(255 255 255 / 5.2%);
+  --codex-tertiary-hover: rgb(255 255 255 / 6.8%);
+  --codex-surface: #181818;
+  --codex-surface-under: #141414;
+  --codex-surface-tertiary: #282828;
+  --codex-elevated-secondary: rgb(255 255 255 / 3.2%);
+  --codex-git-added: #40c977;
+  --codex-git-deleted: #fa423e;
+  --codex-diff-added-bg: rgb(64 201 119 / 23%);
+  --codex-diff-deleted-bg: rgb(250 66 62 / 23%);
+  --codex-text-accent: rgb(131 195 255);
+  --codex-danger: #ff6764;
+  --codex-shimmer-highlight: #ffffffbf;
+}
+
+/* ── One line of activity (ActivityRow) ───────────────────────────────────── */
+
+[data-willow-activity-row] {
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+[data-willow-activity-row] > [data-willow-activity-line] {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 22px;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-size: var(--codex-chat-font-size);
+  line-height: 22px;
+  vertical-align: top;
+}
+
+[data-willow-activity-icon] {
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 2px;
+}
+
+[data-willow-activity-icon] :is(svg, img, span) {
+  width: 16px;
+  height: 16px;
+  color: var(--codex-icon);
+  opacity: 1;
+  filter: none;
+}
+
+[data-willow-activity-label] {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--codex-activity-summary);
+}
+
+[data-willow-activity-row="nested"] [data-willow-activity-label] {
+  color: var(--codex-activity-child);
+}
+
+[data-willow-activity-kind="reasoning"] > [data-willow-activity-line] [data-willow-activity-label] {
+  color: var(--codex-activity-dim);
+}
+
+[data-willow-activity-label] :is(p, span, div):not(.text-destructive, .text-warning, .text-foreground) {
+  color: inherit;
+}
+
+[data-willow-activity-label] :is(p, span) {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* A file named in a row stays at 60% among the row's dimmer words (Codex's file links). */
+[data-willow-activity-row] [data-willow-activity-label] .willow-activity-file {
+  color: color-mix(in srgb, var(--codex-ink) 60%, transparent);
+}
+
+/* What an opened row without its own card shows: Codex's tertiary code type. */
+[data-willow-activity-details] pre {
+  color: var(--codex-ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  font-weight: 500;
+  line-height: 20px;
+}
+
+[data-willow-activity-label] p {
+  width: auto;
+}
+
+@media (hover: hover) {
+  [data-willow-activity-line]:hover [data-willow-activity-label],
+  [data-willow-activity-row="nested"] > [data-willow-activity-line]:hover [data-willow-activity-label],
+  [data-willow-activity-kind="reasoning"] > [data-willow-activity-line]:hover [data-willow-activity-label] {
+    color: var(--codex-ink);
+  }
+
+  [data-willow-activity-line]:hover .willow-activity-chevron {
+    opacity: 1;
+  }
+}
+
+/* Codex shows no time against a row. */
+[data-willow-activity-line] [data-timeline-timestamp] {
+  display: none !important;
+}
+
+.willow-activity-chevron-slot {
+  position: relative;
+  display: flex;
+  pointer-events: none;
+}
+
+.willow-activity-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--codex-icon);
+  opacity: 0;
+  transition:
+    transform 300ms,
+    opacity 150ms;
+}
+
+.willow-activity-chevron[data-expanded] {
+  opacity: 1;
+  transform: rotate(90deg);
+}
+
+:is([data-willow-activity-row], [data-timeline-row-kind="turn-fold"] button):focus-visible .willow-activity-chevron {
+  opacity: 1;
+}
+
+/* Rows of one opened group sit 4px apart (--conversation-grouped-item-gap). */
+[data-tool-group-scroll] .legend-list-content-container > div > div {
+  padding-bottom: var(--codex-grouped-gap);
+}
+
+[data-tool-group-scroll] {
+  padding-top: 4px;
+}
+
+/* An opened row's own detail: under its label, no indent (ActivityBody, pt-2 pb-1). */
+[data-willow-activity-details="panel"] {
+  margin: 0;
+  padding: 8px 0 4px;
+}
+
+[data-willow-activity-details="text"] {
+  margin-inline-start: 0;
+}
+
+/* Reasoning, opened: 140px of its text at half strength, fading at both edges (ReasoningItem). */
+[data-willow-activity-kind="reasoning"] [data-willow-activity-details] {
+  max-height: 140px;
+  margin-top: 4px;
+  padding: 0 8px 0 0;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 1rem, #000 calc(100% - 1rem), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 1rem, #000 calc(100% - 1rem), transparent 100%);
+}
+
+[data-willow-activity-kind="reasoning"] [data-willow-activity-details] :is(.chat-markdown, .chat-markdown *) {
+  color: color-mix(in oklab, var(--codex-ink) 50%, transparent);
+  font-size: var(--codex-chat-font-size);
+  line-height: 22px;
+}
+
+/* A viewed image opens to Codex's strip of 112px thumbnails on hairline frames (ImageViewItem). */
+[data-willow-activity-details="media"] {
+  padding: 8px 0 4px;
+}
+
+[data-willow-activity-details="media"] img {
+  height: 112px;
+  width: auto;
+  max-width: 224px;
+  border: 1px solid var(--codex-border);
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+/*
+ * A tool call opened: its input and result in Codex's pane (McpToolCallItem's Pane), a hairline
+ * card on the soft fill with the text in its tertiary code type.
+ */
+[data-v2-item-inspector="dynamic_tool"] > div,
+[data-v2-item-inspector="file_search"],
+[data-v2-item-inspector="web_search"],
+[data-v2-item-inspector="todo_list"],
+[data-v2-item-inspector="notification"] {
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid var(--codex-border);
+  border-radius: 10px;
+  background: var(--codex-secondary-soft);
+  color: var(--codex-ink-tertiary);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  line-height: 20px;
+}
+
+[data-v2-item-inspector] :is(pre, code, .font-mono) {
+  color: var(--codex-ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+}
+
+[data-v2-item-inspector] a {
+  color: color-mix(in oklab, var(--codex-ink) 60%, transparent);
+}
+
+[data-v2-item-inspector] a:hover {
+  color: var(--codex-ink);
+}
+
+/* A failed step reads as Codex's error card: the danger colour at 35% round 8% of it. */
+[data-willow-activity-tone="error"] {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--codex-danger) 35%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--codex-danger) 8%, transparent);
+}
+
+[data-willow-activity-tone="error"] [data-willow-activity-icon] :is(svg, span) {
+  color: var(--codex-danger);
+}
+
+[data-willow-activity-tone="error"] [data-willow-activity-label],
+[data-willow-activity-tone="error"] [data-willow-activity-label] * {
+  color: var(--codex-ink) !important;
+  font-weight: 400;
+}
+
+/* ── A proposed plan (SystemItems PlanCard) ───────────────────────────────── */
+
+[data-timeline-row-kind="proposed-plan"] > div {
+  padding-inline: 0;
+}
+
+.willow-plan-card {
+  overflow: hidden;
+  border: 1px solid var(--codex-border);
+  border-radius: 16px;
+  background: var(--codex-elevated-secondary);
+}
+
+.willow-plan-card__header {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 16px;
+  border-bottom: 1px solid var(--codex-border);
+}
+
+.willow-plan-card__icon {
+  width: 16px;
+  height: 16px;
+  color: var(--codex-icon);
+}
+
+.willow-plan-card__label {
+  margin: 0;
+  color: var(--codex-ink);
+  font-size: var(--codex-chat-font-size);
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.willow-plan-card__title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--codex-ink-tertiary);
+  font-size: var(--codex-chat-font-size);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-plan-card__body {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 12px 16px;
+  scrollbar-color: var(--codex-border-heavy) transparent;
+  scrollbar-width: thin;
+}
+
+/* ── What a turn changed (TurnDiffCard) ───────────────────────────────────── */
+
+.willow-turn-diff {
+  margin-top: var(--codex-item-gap);
+  overflow: hidden;
+  border: 1px solid var(--codex-border);
+  border-radius: 12px;
+  background: var(--codex-surface);
+}
+
+.willow-turn-diff__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+}
+
+.willow-turn-diff__title {
+  color: var(--codex-ink);
+  font-size: var(--codex-chat-font-size);
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.willow-turn-diff__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: auto;
+}
+
+.willow-turn-diff__files {
+  border-top: 1px solid var(--codex-border);
+}
+
+.willow-turn-diff__file,
+.willow-turn-diff__more {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  line-height: 18px;
+  text-align: start;
+  cursor: default;
+}
+
+.willow-turn-diff__file:hover {
+  background: var(--codex-tertiary-hover);
+}
+
+.willow-turn-diff__icon {
+  color: color-mix(in oklab, var(--codex-ink) 50%, transparent);
+}
+
+.willow-turn-diff__name {
+  overflow: hidden;
+  color: var(--codex-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-turn-diff__dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--codex-ink-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-turn-diff__stats {
+  margin-inline-start: auto;
+}
+
+.willow-turn-diff__more {
+  color: var(--codex-ink-tertiary);
+}
+
+.willow-turn-diff__more:hover {
+  color: var(--codex-ink);
+}
+
+/* Codex's small rounded text buttons (Button.tsx PillButton, size sm). */
+.willow-pill-button {
+  display: inline-flex;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--codex-ink-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+  transition: background-color 150ms, color 150ms;
+}
+
+.willow-pill-button:hover {
+  background: var(--codex-tertiary-hover);
+  color: var(--codex-ink);
+}
+
+.willow-pill-button--secondary {
+  background: var(--codex-button-secondary);
+  color: var(--codex-ink);
+}
+
+.willow-pill-button--secondary:hover {
+  background: var(--codex-secondary-soft);
+}
+
+.willow-pill-button__trailing {
+  opacity: 0.7;
+}
+
+/* ── A pending approval (ApprovalRequest's ApprovalCard) ──────────────────── */
+
+.willow-approval {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.willow-approval__header {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--codex-ink-secondary);
+  font-size: var(--codex-chat-font-size);
+  line-height: 20px;
+}
+
+.willow-approval__icon {
+  width: 18px;
+  height: 18px;
+}
+
+.willow-approval__count {
+  margin-inline-start: auto;
+  color: var(--codex-ink-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.willow-approval__question {
+  color: var(--codex-ink);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.willow-approval__detail {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--codex-surface-tertiary);
+  color: var(--codex-ink-tertiary);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  font-weight: 500;
+  line-height: 20px;
+  scrollbar-color: var(--codex-border-heavy) transparent;
+  scrollbar-width: thin;
+}
+
+/* Deny and Allow: Codex's 32px pills, an outline and the ink-filled primary. */
+[data-slot="button"][data-approval-decision] {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+[data-slot="button"][data-approval-decision="decline"] {
+  border: 1px solid var(--codex-border);
+  background: transparent;
+  color: var(--codex-ink);
+}
+
+[data-slot="button"][data-approval-decision="decline"]:hover {
+  background: var(--codex-tertiary-hover);
+}
+
+[data-slot="button"][data-approval-decision="accept"],
+[data-slot="button"][data-approval-decision="accept"]:hover {
+  border: 0;
+  background: #1a1c1f;
+  box-shadow: none;
+  color: #ffffff;
+}
+
+:root.dark [data-slot="button"][data-approval-decision="accept"],
+:root.dark [data-slot="button"][data-approval-decision="accept"]:hover {
+  background: #dfdfdf;
+  color: #2d2d2d;
+}
+
+[data-slot="button"][data-approval-decision="accept"]:hover {
+  opacity: 0.9;
+}
+
+/* ── "Worked for 6s" (WorkedFor) ──────────────────────────────────────────── */
+
+/*
+ * "Worked for 2m 14s" and, while the turn runs, "Working for 12s" (WorkedFor): the tertiary
+ * label, then 4px under it a rule across the column, then the timeline's 16px.
+ */
+:is([data-timeline-row-kind="turn-fold"], [data-timeline-row-kind="working"]) {
+  padding-bottom: var(--codex-item-gap);
+}
+
+[data-timeline-row-kind="turn-fold"] > div {
+  padding: 0 0 4px;
+  border-bottom-color: var(--codex-border);
+}
+
+[data-timeline-row-kind="turn-fold"] button[aria-expanded] {
+  gap: 4px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--codex-ink-tertiary);
+  font-size: var(--codex-chat-font-size);
+  line-height: 22px;
+}
+
+[data-timeline-row-kind="turn-fold"] button[aria-expanded]:hover {
+  color: var(--codex-ink);
+}
+
+[data-timeline-row-kind="turn-fold"] button[aria-expanded]:hover .willow-activity-chevron {
+  opacity: 1;
+}
+
+[data-timeline-row-kind="turn-fold"] [data-timeline-timestamp] {
+  display: none !important;
+}
+
+/* "Working for 12s", while the turn runs. */
+[data-timeline-row-kind="working"] > div {
+  padding: 0 0 4px;
+  border-bottom-color: var(--codex-border);
+}
+
+[data-timeline-row-kind="working"] > div > div {
+  height: 22px;
+  padding: 0;
+  color: var(--codex-ink-tertiary);
+  font-size: var(--codex-chat-font-size);
+  line-height: 22px;
+}
+
+/* Compaction is Codex's divider: 13px tertiary words between two rules, without a glyph. */
+[data-timeline-row-kind="context-compaction"] [role="separator"] {
+  gap: 12px;
+  padding: 4px 0;
+  color: var(--codex-ink-tertiary);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  line-height: 20px;
+}
+
+[data-timeline-row-kind="context-compaction"] [role="separator"] > span:is(:first-child, :last-child) {
+  background: var(--codex-border);
+}
+
+[data-timeline-row-kind="context-compaction"] [role="separator"] svg {
+  display: none;
+}
+
+/* A reply between pieces of work is a piece of the timeline too, 16px from the next. */
+[data-timeline-row-kind="message"][data-message-role="assistant"] {
+  padding-bottom: var(--codex-item-gap);
+}
+
+/* It fades in as Willow's thinking row does when a turn starts (ChatView, 160ms). */
+[data-timeline-row-kind="working"] {
+  animation: willow-working-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes willow-working-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── The cadenced shimmer: one 1s sweep every 4s, the first after 600ms (Shimmer.tsx) ── */
+
+.live-tool-shine {
+  background-image:
+    linear-gradient(to right, transparent, var(--codex-shimmer-highlight), transparent),
+    linear-gradient(var(--codex-shimmer-base), var(--codex-shimmer-base));
+  animation: willow-codex-shine 4s steps(192, end) 600ms infinite;
+}
+
+.live-activity-focus {
+  animation: willow-codex-focus 4s linear 600ms infinite;
+}
+
+.live-activity-focus-counter {
+  animation: willow-codex-focus-counter 4s linear 600ms infinite;
+}
+
+@keyframes willow-codex-shine {
+  0% {
+    background-position:
+      -4.5rem 0,
+      0 0;
+  }
+
+  25%,
+  100% {
+    background-position:
+      calc(100% + 4.5rem) 0,
+      0 0;
+  }
+}
+
+@keyframes willow-codex-focus {
+  0% {
+    transform: translateX(0);
+  }
+
+  25%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes willow-codex-focus-counter {
+  0% {
+    transform: translateX(0);
+  }
+
+  25%,
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+/* ── Buttons and icon sizes the cards share (Button.tsx IconButton, .icon-*) ── */
+
+.willow-icon-button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--codex-icon);
+  cursor: default;
+  transition:
+    color 150ms,
+    background-color 150ms;
+}
+
+.willow-icon-button:hover {
+  background: var(--codex-tertiary-hover);
+  color: var(--codex-ink);
+}
+
+.willow-icon-button--sm {
+  width: 24px;
+  height: 24px;
+}
+
+.willow-icon-2xs {
+  width: 14px;
+  height: 14px;
+}
+
+.willow-icon-xxs {
+  width: 12px;
+  height: 12px;
+}
+
+/* ── The shell card under a command (ShellBlock) ──────────────────────────── */
+
+.willow-shell {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--codex-border-heavy);
+  border-radius: 10px;
+  background: var(--codex-secondary-soft);
+  cursor: auto;
+  user-select: text;
+}
+
+.willow-shell__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  color: var(--codex-ink-tertiary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 18px;
+  user-select: none;
+}
+
+.willow-shell__body {
+  position: relative;
+}
+
+.willow-shell__command-row {
+  position: relative;
+  padding: 8px 32px 0 8px;
+}
+
+.willow-shell__command {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--codex-ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  font-weight: 400;
+  line-height: 20px;
+  word-break: break-all;
+}
+
+.willow-shell__prompt {
+  margin-inline-end: 1ch;
+  color: var(--codex-ink-tertiary);
+}
+
+.willow-shell__copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  transition: opacity 150ms;
+}
+
+.willow-shell__command-row:hover .willow-shell__copy,
+.willow-shell__output-row:hover .willow-shell__copy--output {
+  opacity: 1;
+}
+
+.willow-shell__output-row {
+  position: relative;
+  min-height: 20px;
+}
+
+.willow-shell__copy--output {
+  top: 0;
+  right: 10px;
+}
+
+.willow-shell__output {
+  display: flex;
+  max-height: 144px;
+  flex-direction: column-reverse;
+  overflow: auto;
+  color: var(--codex-ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  font-weight: 400;
+  line-height: 20px;
+  white-space: pre;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 2rem, #000 calc(100% - 2rem), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 2rem, #000 calc(100% - 2rem), transparent 100%);
+}
+
+.willow-shell__output,
+.willow-diff__scroll,
+[data-tool-group-scroll] {
+  scrollbar-color: var(--codex-border-heavy) transparent;
+  scrollbar-width: thin;
+}
+
+.willow-shell__output-text {
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+}
+
+.willow-shell__footer {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 2px 10px 4px;
+  color: var(--codex-ink-tertiary);
+  font-family: var(--font-sans);
+  font-size: var(--codex-chat-font-size);
+  line-height: 22px;
+}
+
+.willow-shell__success {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── A web search's sources (WebSearchItem) ───────────────────────────────── */
+
+.willow-web-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 4px 24px;
+}
+
+.willow-web-results__item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--codex-activity-child);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  line-height: 20px;
+  text-decoration: none;
+}
+
+a.willow-web-results__item:hover {
+  color: var(--codex-ink);
+}
+
+.willow-web-results__icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--codex-ink) 40%, transparent);
+}
+
+.willow-web-results__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-web-results__domain {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--codex-ink) 40%, transparent);
+}
+
+/* ── An edit's diff (DiffView, DiffStats) ─────────────────────────────────── */
+
+.willow-diff-stats {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  font-variant-numeric: tabular-nums;
+}
+
+.willow-diff-stats__added {
+  color: var(--codex-git-added);
+}
+
+.willow-diff-stats__deleted {
+  color: var(--codex-git-deleted);
+}
+
+.willow-diff {
+  overflow: hidden;
+  border: 1px solid var(--codex-border);
+  border-radius: 10px;
+  background: var(--codex-surface);
+  cursor: auto;
+  user-select: text;
+}
+
+.willow-diff__header {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 12px;
+  border-bottom: 1px solid var(--codex-border);
+  background: color-mix(in srgb, var(--codex-surface-under) 60%, transparent);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.willow-diff__file-icon {
+  color: var(--codex-icon);
+}
+
+.willow-diff__path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--codex-ink);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-diff__new {
+  color: var(--codex-ink-tertiary);
+  font-size: 12px;
+}
+
+.willow-diff__actions {
+  display: flex;
+  align-items: center;
+  margin-inline-start: auto;
+}
+
+.willow-diff__scroll {
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 21.6px;
+}
+
+.willow-diff__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.willow-diff__hunk {
+  background: color-mix(in srgb, var(--codex-text-accent) 8%, transparent);
+  color: var(--codex-ink-tertiary);
+}
+
+.willow-diff__hunk td {
+  padding: 2px 12px;
+  font-size: 11px;
+}
+
+.willow-diff__hunk span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-diff-line="add"] {
+  background: var(--codex-diff-added-bg);
+}
+
+[data-diff-line="delete"] {
+  background: var(--codex-diff-deleted-bg);
+}
+
+.willow-diff__gutter {
+  width: 1%;
+  min-width: 4ch;
+  padding: 0 8px;
+  color: color-mix(in oklab, var(--codex-ink) 30%, transparent);
+  text-align: right;
+  vertical-align: top;
+  user-select: none;
+}
+
+.willow-diff__code {
+  position: relative;
+  padding: 0 16px;
+  color: var(--codex-ink);
+  vertical-align: top;
+  white-space: pre;
+}
+
+.willow-diff__sign {
+  position: absolute;
+  left: 4px;
+  user-select: none;
+}
+
+[data-diff-line="add"] .willow-diff__sign {
+  color: var(--codex-git-added);
+}
+
+[data-diff-line="delete"] .willow-diff__sign {
+  color: var(--codex-git-deleted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-tool-shine,
+  .live-activity-focus,
+  .live-activity-focus-counter,
+  [data-timeline-row-kind="working"] {
+    animation: none;
+  }
+}

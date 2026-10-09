@@ -1,0 +1,624 @@
+/*
+ * Willow's breakpoints in the agents' page. willow/viewport.ts marks the root with the tiers
+ * Willow's window falls in (its page sends the width: Willow measures its whole window, rail
+ * included, which this page's frame is narrower than), and the page changes where Willow's own
+ * pages do:
+ *
+ *   960px and below (`data-willow-compact`): the sidebar is a drawer behind a 48px menu button,
+ *   the header's controls sit in a 64px band with the model picker beside the button, side panels
+ *   cover the page, the page is black in the dark theme, and the prompt box takes its touch sizes;
+ *   a new thread's box docks at the bottom under its greeting, over the glow rising from below.
+ *   769–960px (`data-willow-tablet`) and 768px and below (`data-willow-phone`): the prompt box's
+ *   tiers. 720px and below: search's narrow column.
+ *
+ * Read off apps/studio Sidebar.css, StudioLayout.tsx and index.html, and features/chat
+ * Composer.tsx, Composer.css, ChatView.tsx, UserMessageBubble.tsx and canvas.css.
+ */
+
+/* ── The page ─────────────────────────────────────────────────────────────── */
+
+html.dark[data-willow-compact] {
+  --background: #000000;
+}
+
+html.dark[data-willow-compact] :is(.willow-search-page, [data-willow-settings-page]) {
+  background: #000000;
+}
+
+/* ── The sidebar's drawer (Sidebar.css `.studio-sidebar` at 960px and below) ── */
+
+/*
+ * min(320px, 85vw) from the left edge, full height, #1c1c1c in the dark theme, sliding in over
+ * 300ms cubic-bezier(0.2, 0, 0, 1) with a 12px 0 32px shadow at 36% once open, over Willow's 45%
+ * scrim (primitives.css's sheets).
+ */
+/* The scrim is the drawer's viewport, which covers the page: it fades in and goes as it closes. */
+html[data-willow-compact] [data-slot="sheet-viewport"]:has(> [data-sidebar="sidebar"][data-mobile="true"]) {
+  padding: 0;
+  background: rgb(0 0 0 / 45%);
+  animation: willow-drawer-scrim-in 150ms ease-out;
+}
+
+html[data-willow-compact]
+  [data-slot="sheet-viewport"]:has(> [data-sidebar="sidebar"][data-mobile="true"][data-ending-style]) {
+  background: transparent;
+  animation: none;
+}
+
+@keyframes willow-drawer-scrim-in {
+  from {
+    background: transparent;
+  }
+}
+
+html[data-willow-compact] [data-sidebar="sidebar"][data-mobile="true"] {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(320px, 85vw);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: 12px 0 32px rgb(0 0 0 / 36%);
+  transition-property: translate, box-shadow;
+  transition-duration: 300ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1), ease;
+}
+
+html[data-willow-compact] [data-sidebar="sidebar"][data-mobile="true"]::before {
+  display: none;
+}
+
+html[data-willow-compact] [data-sidebar="sidebar"][data-mobile="true"]:is([data-starting-style], [data-ending-style]) {
+  opacity: 1;
+  translate: -100% 0;
+  box-shadow: none;
+}
+
+html.dark[data-willow-compact] [data-sidebar="sidebar"][data-mobile="true"],
+html.dark[data-willow-compact] [data-sidebar="sidebar"][data-mobile="true"] [data-app-sidebar] {
+  --background: #1c1c1c;
+  --sidebar: #1c1c1c;
+  background: #1c1c1c;
+}
+
+/* The drawer's rows (Sidebar.tsx `max-[960px]:h-11`): 44px, 17px/24px, 28px glyphs at weight 260. */
+html[data-willow-compact] [data-mobile="true"] :is(.willow-sidebar-row, .willow-sidebar-heading) {
+  height: 44px;
+}
+
+html[data-willow-compact] [data-mobile="true"] .willow-sidebar-row__label,
+html[data-willow-compact] [data-mobile="true"] .willow-sidebar-heading,
+html[data-willow-compact] [data-mobile="true"] .willow-project-heading__toggle,
+html[data-willow-compact] [data-mobile="true"] .willow-projects [data-thread-item] [data-testid^="thread-title-"] {
+  font-size: 17px;
+  line-height: 24px;
+}
+
+html[data-willow-compact] [data-mobile="true"] .willow-sidebar-row__icon {
+  width: 28px;
+  height: 28px;
+  margin-inline: -2px;
+}
+
+html[data-willow-compact] [data-mobile="true"] .willow-sidebar-row__icon .willow-glyph {
+  font-size: 28px;
+  line-height: 28px;
+  font-variation-settings: "FILL" 0, "wght" 260, "GRAD" 0, "opsz" 28, "ROND" 100;
+}
+
+html[data-willow-compact] [data-mobile="true"] .willow-project-heading,
+html[data-willow-compact] [data-mobile="true"] .willow-project-heading__toggle {
+  height: 44px;
+}
+
+html[data-willow-compact] [data-mobile="true"] .willow-project-heading__toggle {
+  padding-left: 16px;
+}
+
+html[data-willow-compact] [data-mobile="true"] .willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"],
+html[data-willow-compact]
+  [data-mobile="true"]
+  .willow-projects
+  [data-sidebar="menu-sub"]
+  > li:not([data-thread-item])
+  > :is([data-sidebar="menu-sub-button"], div) {
+  height: 44px;
+  font-size: 17px;
+  line-height: 24px;
+}
+
+/* A row's own buttons are always there at this width, 36px with their glyph at 28px. */
+html[data-willow-compact] [data-mobile="true"] :is(.willow-project-heading__actions, .willow-sidebar-heading__actions) {
+  visibility: visible;
+}
+
+html.dark[data-willow-compact] [data-mobile="true"] .willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"][data-active="true"],
+html.dark[data-willow-compact] [data-mobile="true"] .willow-sidebar-row[data-active="true"] {
+  background: #141414;
+}
+
+html.dark[data-willow-compact] [data-mobile="true"] :is(.willow-sidebar-row__label, .willow-sidebar-row) {
+  color: #e0e0e0;
+}
+
+/* The button that opens it (StudioLayout's `.studio-sidebar-mobile-open`; WillowDrawerButton). */
+.willow-drawer-open {
+  position: fixed;
+  z-index: 40;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  width: 48px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #1f1f1f;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.willow-drawer-open:hover {
+  background: rgb(0 0 0 / 6%);
+}
+
+.willow-drawer-open:active {
+  background: rgb(0 0 0 / 12%);
+}
+
+.dark .willow-drawer-open {
+  color: #e0e0e0;
+}
+
+.dark .willow-drawer-open:hover {
+  background: rgb(255 255 255 / 8%);
+  color: #ffffff;
+}
+
+.dark .willow-drawer-open:active {
+  background: rgb(227 227 227 / 18%);
+}
+
+.willow-drawer-open:focus-visible {
+  outline: 2px solid #a8c7fa;
+  outline-offset: -2px;
+}
+
+.willow-drawer-open__glyph {
+  font-family: "Luminous Symbols", "Google Symbols", "Material Symbols Rounded", sans-serif;
+  font-size: 32px;
+  font-weight: 240;
+  line-height: 32px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 32, "wght" 240;
+  font-feature-settings: "liga";
+  user-select: none;
+}
+
+/* ── The header ───────────────────────────────────────────────────────────── */
+
+/*
+ * The controls ride in a 64px band, the menu button's 48px 8px down, and what leads the header
+ * starts after it, 56px in. A thread's header gives its place to the model picker, as Willow's
+ * compact header does: Gemini's `.logo-pill-btn`, 56px in and 20px down, 24px tall with 12px in,
+ * the name set at 18px and drawn at 16px, the effort after it at 55%.
+ */
+html[data-willow-compact] {
+  --workspace-topbar-height: 64px;
+}
+
+html[data-willow-compact] :is([data-chat-header], [data-slot="workspace-page-header"]) {
+  padding-inline-start: 56px;
+}
+
+html[data-willow-compact] [data-chat-header] :is(nav[aria-label="Thread breadcrumb"], h2) {
+  visibility: hidden;
+}
+
+html[data-willow-compact] [data-chat-composer-footer="true"] .willow-model-pill {
+  position: fixed;
+  z-index: 40;
+  top: 20px;
+  left: 56px;
+  height: 24px;
+  gap: 2px;
+  padding: 0 12px;
+  background: transparent;
+}
+
+html[data-willow-compact] [data-chat-composer-footer="true"] .willow-model-pill:is(:hover, [data-popup-open]) {
+  background: rgb(6 46 111 / 8%);
+}
+
+html.dark[data-willow-compact] [data-chat-composer-footer="true"] .willow-model-pill:is(:hover, [data-popup-open]) {
+  background: rgb(168 199 250 / 8%);
+}
+
+html[data-willow-compact] [data-chat-composer-footer="true"] .willow-model-pill__label {
+  margin-right: 0;
+}
+
+html[data-willow-compact] [data-chat-composer-footer="true"] :is(.willow-model-pill__name, .willow-model-pill__effort) {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+html[data-willow-compact] [data-chat-composer-footer="true"] .willow-model-pill__name {
+  color: #1f1f1f;
+}
+
+html[data-willow-compact] [data-chat-composer-footer="true"] .willow-model-pill__effort {
+  color: #70757a;
+}
+
+html.dark[data-willow-compact] [data-chat-composer-footer="true"] .willow-model-pill__name {
+  color: #e0e0e0;
+}
+
+html.dark[data-willow-compact] [data-chat-composer-footer="true"] .willow-model-pill__effort {
+  color: rgb(255 255 255 / 55%);
+}
+
+html[data-willow-compact] [data-chat-composer-footer="true"] .willow-model-pill__chevron {
+  width: 20px;
+  height: 20px;
+  flex-basis: 20px;
+  font-size: 20px;
+  line-height: 20px;
+}
+
+/* ── The conversation (ChatView's column, UserMessageBubble) ──────────────── */
+
+/* 24px in at this width; the docked box's bar 16px. */
+html[data-willow-compact] [data-chat-canvas] .messages-timeline-scroll {
+  padding-inline: calc(24px + var(--chat-lane-inset-start, 0px) - var(--chat-timeline-gutter, 0px))
+    calc(24px + var(--chat-lane-inset-end, 0px) - var(--chat-timeline-gutter, 0px));
+}
+
+html[data-willow-compact] .chat-composer-lane {
+  padding-inline: calc(env(safe-area-inset-left) + 16px + var(--chat-lane-inset-start, 0px))
+    calc(env(safe-area-inset-right) + 16px + var(--chat-lane-inset-end, 0px));
+}
+
+/* A sent message keeps 52px clear of the left edge, on #141414 in the dark theme. */
+html[data-willow-compact] [data-willow-user-row] {
+  padding-left: 52px;
+  padding-right: 8px;
+}
+
+html.dark[data-willow-compact] .willow-user-bubble {
+  background: #141414;
+}
+
+/* ── The prompt box (Composer.tsx's tiers) ────────────────────────────────── */
+
+/* 36px corners at 769–960px, 40px at 768px and below. */
+html[data-willow-tablet]
+  :is([data-slot="composer-host"], [data-chat-composer-main-surface="true"], [data-chat-composer-surface="true"]) {
+  border-radius: 36px;
+}
+
+html[data-willow-phone]
+  :is([data-slot="composer-host"], [data-chat-composer-main-surface="true"], [data-chat-composer-surface="true"]) {
+  border-radius: 40px;
+}
+
+/* The prompt 24px down at 768px and below. */
+html[data-willow-phone] [data-chat-composer-body="true"] {
+  padding-top: 24px;
+}
+
+/* The bar under it 68px at 769–960px and 72px below, its controls 16px and 20px off the bottom. */
+html[data-willow-compact] [data-chat-composer-footer="true"] {
+  align-items: flex-end;
+}
+
+html[data-willow-tablet] [data-chat-composer-footer="true"] {
+  min-height: 68px;
+  padding-bottom: 16px;
+}
+
+html[data-willow-phone] [data-chat-composer-footer="true"] {
+  min-height: 72px;
+  padding-bottom: 20px;
+}
+
+html[data-willow-compact] [data-chat-composer-footer="true"] :is([data-chat-composer-controls="left"], [data-chat-composer-actions="right"]) {
+  min-height: 40px;
+  align-items: center;
+}
+
+html[data-willow-compact] [data-chat-composer-actions="right"] {
+  top: 0;
+}
+
+/* The plus 40px with its glyph at 28px, weight 260, at 960px and below; send 40px at 768px. */
+html[data-willow-compact] .willow-composer-plus {
+  flex-basis: 40px;
+  width: 40px;
+  height: 40px;
+}
+
+html[data-willow-compact] :is(.willow-composer-plus__glyph, .willow-composer-send-glyph) {
+  width: 28px;
+  height: 28px;
+  font-size: 28px;
+  line-height: 28px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260;
+}
+
+html.dark[data-willow-compact] .willow-composer-plus {
+  color: #e0e0e0;
+}
+
+html[data-willow-phone] [data-composer-send="true"] {
+  width: 40px;
+  height: 40px;
+}
+
+/*
+ * The placeholder: on a new thread 20px at weight 375 (opsz 22, wdth 100) in 55% ink; in a
+ * thread the prompt's own 17px at 400, #9a9b9c in the dark theme.
+ */
+html[data-willow-compact] [data-chat-composer-body="true"] .flow-root > [class~="text-placeholder/75"] {
+  color: rgb(0 0 0 / 55%);
+}
+
+html.dark[data-willow-compact] [data-chat-composer-body="true"] .flow-root > [class~="text-placeholder/75"] {
+  color: #9a9b9c;
+}
+
+html[data-willow-compact]
+  [data-chat-composer-overlay="true"]:has(> .willow-home-glow-layer)
+  [data-chat-composer-body="true"]
+  .flow-root
+  > [class~="text-placeholder/75"] {
+  font-size: 20px;
+  font-weight: 375;
+  line-height: 24px;
+  font-optical-sizing: none;
+  font-variation-settings: "ROND" 0, "opsz" 22, "slnt" 0, "wdth" 100;
+}
+
+html.dark[data-willow-compact]
+  [data-chat-composer-overlay="true"]:has(> .willow-home-glow-layer)
+  [data-chat-composer-body="true"]
+  .flow-root
+  > [class~="text-placeholder/75"] {
+  color: rgb(255 255 255 / 55%);
+}
+
+/* 660px wide above 768px; the full width of its bar below. */
+html[data-willow-phone] [data-slot="composer-shell"],
+html[data-willow-phone] [data-willow-composer-utility="true"] {
+  max-width: none;
+}
+
+/* ── A new thread (ChatView's zero state at 960px and below) ──────────────── */
+
+/*
+ * The box docks at the bottom, 16px up above 768px and 12px below, and the greeting stays at the
+ * middle of the page over it.
+ */
+html[data-willow-compact] [data-chat-composer-overlay="true"]:has(> .willow-home-glow-layer) {
+  align-items: flex-end;
+  padding-bottom: 16px;
+}
+
+html[data-willow-phone] [data-chat-composer-overlay="true"]:has(> .willow-home-glow-layer) {
+  padding-bottom: 12px;
+}
+
+html[data-willow-compact] [data-chat-composer-overlay="true"]:has(> .willow-home-glow-layer) [data-chat-composer-stack="true"] {
+  position: static;
+}
+
+html[data-willow-compact]
+  [data-chat-composer-overlay="true"]:has(> .willow-home-glow-layer)
+  [data-chat-composer-stack="true"]
+  > .absolute.bottom-full {
+  top: 50%;
+  bottom: auto;
+  translate: 0 -50%;
+}
+
+/* Willow's glow at this width (index.html): a bloom rising from below the box, fading in over 1s. */
+html[data-willow-compact] .willow-home-glow-layer {
+  overflow: visible;
+}
+
+html[data-willow-compact] .willow-home-glow-layer::before,
+html[data-willow-compact] .willow-home-glow-layer::after {
+  position: fixed;
+  top: auto;
+  width: 1484px;
+  max-width: none;
+  -webkit-mask-image: url("/willow/glow-mask.svg");
+  mask-image: url("/willow/glow-mask.svg");
+}
+
+html[data-willow-compact] .willow-home-glow-layer::before {
+  bottom: -445.7px;
+  left: calc(50% + 45px);
+  transform: translateX(-50%);
+  background: var(--willow-glow-light);
+  animation: willow-lm-background-mobile-fade 1s cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+html.dark[data-willow-compact] .willow-home-glow-layer::before {
+  background: var(--willow-glow-mobile);
+}
+
+html[data-willow-compact] .willow-home-glow-layer::after {
+  bottom: -412.3px;
+  left: calc(50% - 26.1px);
+  transform: translateX(-50%) rotate(15.37deg);
+  animation: willow-lm-glow-bloom-fade 1s cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes willow-lm-background-mobile-fade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes willow-lm-glow-bloom-fade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0.5;
+  }
+}
+
+/* ── The side panel (Canvas at 960px and below: the whole page) ───────────── */
+
+html[data-willow-compact] [data-slot="sheet-viewport"]:has(> [data-right-panel-sheet]) {
+  padding: 0;
+}
+
+html[data-willow-compact] [data-right-panel-sheet] {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+html[data-willow-compact] [data-right-panel-sheet]::before {
+  display: none;
+}
+
+/*
+ * ── The plus menu's touch layout (PlusDropdownMenu at 960px and below) ──────
+ * #1c1c1c (white in light) on 20px corners, 8px in, 260px at least and min(440px, 42vh) at most,
+ * scrolling inside; 48px rows of 12px padding on 12px corners, 17px/24px labels in #e0e0e0 and
+ * their glyphs at 24px, weight 300.
+ */
+html[data-willow-compact] [data-slot="menu-popup"].willow-plus-menu {
+  width: max-content;
+  min-width: 260px;
+  max-width: calc(100vw - 16px);
+  max-height: min(440px, 42vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 8px;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+html.dark[data-willow-compact] [data-slot="menu-popup"].willow-plus-menu {
+  background: #1c1c1c;
+}
+
+html[data-willow-compact] .willow-plus-menu :is([data-slot="menu-item"], [data-slot="menu-sub-trigger"]) {
+  height: 48px;
+  min-height: 48px;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 17px;
+  line-height: 24px;
+}
+
+html.dark[data-willow-compact] .willow-plus-menu :is([data-slot="menu-item"], [data-slot="menu-sub-trigger"]) {
+  color: #e0e0e0;
+}
+
+html[data-willow-compact] .willow-plus-menu :is(.willow-plus-menu__label, .willow-plus-menu__label--tool) {
+  margin-left: 0;
+}
+
+html[data-willow-compact] .willow-plus-menu [data-slot="menu-item"] .willow-plus-menu__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+html[data-willow-compact] .willow-plus-menu__glyph {
+  font-size: 24px;
+  line-height: 24px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300;
+}
+
+html.dark[data-willow-compact] :is(.willow-plus-menu__glyph, .willow-plus-menu__icon) {
+  color: #e3e3e3;
+}
+
+/*
+ * ── Confirmations (GeminiDialog's message dialog at 960px and below) ────────
+ * In the middle of the page rather than T3's sheet at the bottom, calc(100vw - 32px) up to 332px
+ * on #1c1c1c with its words in #e0e0e0, its pills splitting the row: 48px tall, 0 16px round a
+ * 15px/20px label that wraps, tonal on #141414.
+ */
+html[data-willow-compact] :has(> [data-slot="alert-dialog-popup"]) {
+  grid-template-rows: none;
+  place-items: center;
+  padding: 16px;
+}
+
+html[data-willow-compact] [data-slot="alert-dialog-popup"]:not(.dialog-media) {
+  width: calc(100vw - 32px);
+  max-width: 332px;
+  border: 0;
+  border-radius: 32px;
+}
+
+html.dark[data-willow-compact] [data-slot="alert-dialog-popup"]:not(.dialog-media) {
+  background: #1c1c1c;
+  color: #e0e0e0;
+}
+
+html[data-willow-compact] [data-slot="alert-dialog-footer"] {
+  flex-direction: row;
+}
+
+html[data-willow-compact] [data-slot="alert-dialog-footer"] :is(button, a)[data-variant][data-size] {
+  height: auto;
+  min-height: 48px;
+  flex: 1 1 0%;
+  padding: 0 16px;
+  font-size: 15px;
+  line-height: 20px;
+  white-space: normal;
+}
+
+html.dark[data-willow-compact] [data-slot="alert-dialog-footer"] :is(button, a)[data-variant][data-size] {
+  background: #141414;
+  color: #e0e0e0;
+}
+
+/* ── Search (SearchChats.css at 960px and below: 12px under the 68px band) ── */
+
+html[data-willow-compact] .willow-search-page {
+  padding-top: 80px;
+}
+
+html[data-willow-max-720] :is(.willow-search-bar, .willow-search-results__heading, .willow-search-results__inner) {
+  width: calc(100% - 24px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-willow-compact] .willow-home-glow-layer::before,
+  html[data-willow-compact] .willow-home-glow-layer::after {
+    animation: none;
+  }
+}

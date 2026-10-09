@@ -32,8 +32,10 @@
   animation: willow-flow-fade-in var(--loading-page-transition-duration, 0.5s) ease-in-out;
 }
 
+/* The page shows through as this fades: a press is meant for it, not for a marquee over the overlay. */
 .flow-loading-host.loading-page-fade-out {
   animation: willow-flow-fade-out var(--loading-page-transition-duration, 0.5s) ease-in-out forwards;
+  pointer-events: none;
 }
 
 @keyframes willow-flow-fade-in {
@@ -102,4 +104,21 @@
   line-height: 1rem;
   font-weight: 500;
   white-space: nowrap;
+}
+
+/*
+ * The user's light theme (theme-mode.ts marks the root), whatever the page around it
+ * is in: Flow's colours turned over, white for black and black for white, the
+ * disclaimer's grey likewise.
+ */
+:is(.light-theme, [data-theme="light"]) .flow-loading-host {
+  background-color: #fff;
+}
+
+:is(.light-theme, [data-theme="light"]) .flow-loading-text-container {
+  color: #000;
+}
+
+:is(.light-theme, [data-theme="light"]) .flow-loading-disclaimer-text {
+  color: rgba(37, 35, 31, 0.75);
 }

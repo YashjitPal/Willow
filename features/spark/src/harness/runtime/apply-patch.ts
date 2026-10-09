@@ -83,8 +83,15 @@ const EOF_MARKER = '*** End of File';
  * Tolerant about two things the grammar is strict on, because models get them
  * wrong constantly and neither is ambiguous: leading/trailing blank lines
  * around the envelope, and a missing trailing newline after `*** End Patch`.
+ *
+ * `normalize` turns a header path into the key the patch is applied under. The
+ * default is the sandbox's rooted form; the desktop app's native runtime passes
+ * one that resolves paths on disk.
  */
-export function parsePatch(source: string): PatchOp[] {
+export function parsePatch(
+  source: string,
+  normalize: (raw: string, line: number) => string = normalizePath,
+): PatchOp[] {
   const lines = source.replace(/\r\n/g, '\n').split('\n');
 
   let index = 0;
@@ -117,7 +124,7 @@ export function parsePatch(source: string): PatchOp[] {
     }
 
     if (line.startsWith(ADD)) {
-      const path = normalizePath(line.slice(ADD.length).trim(), index + 1);
+      const path = normalize(line.slice(ADD.length).trim(), index + 1);
       index += 1;
       const body: string[] = [];
       while (index < lines.length && lines[index]!.startsWith('+')) {
@@ -131,7 +138,7 @@ export function parsePatch(source: string): PatchOp[] {
     if (line.startsWith(DELETE)) {
       ops.push({
         kind: 'delete',
-        path: normalizePath(line.slice(DELETE.length).trim(), index + 1),
+        path: normalize(line.slice(DELETE.length).trim(), index + 1),
         hunks: [],
       });
       index += 1;
@@ -139,12 +146,12 @@ export function parsePatch(source: string): PatchOp[] {
     }
 
     if (line.startsWith(UPDATE)) {
-      const path = normalizePath(line.slice(UPDATE.length).trim(), index + 1);
+      const path = normalize(line.slice(UPDATE.length).trim(), index + 1);
       index += 1;
 
       let movePath: string | undefined;
       if (lines[index]?.startsWith(MOVE)) {
-        movePath = normalizePath(lines[index]!.slice(MOVE.length).trim(), index + 1);
+        movePath = normalize(lines[index]!.slice(MOVE.length).trim(), index + 1);
         index += 1;
       }
 

@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Willow</title>
+    <style>
+      /*
+       * The strip across the top of Willow's window: back and forward, Codex's File, Edit and View,
+       * the pet's paw, and Windows' caption buttons (macOS's, at the left, from Labs), on the shell
+       * of the frame around Willow's page: the workspace colour's as Willow reports it, so the
+       * strip, the rail and the page's margin read as one surface, as Codex's title bar and rail
+       * do. On Windows 11 that shell is Mica with the colour laid over it (html.mica). Hovers are
+       * white laid over the strip. 40px tall, as STRIP_HEIGHT in tabs.rs.
+       */
+      :root {
+        color-scheme: dark;
+        --strip: #1f1f1f;
+        --base: #202020;
+        --text: #c4c7c5;
+        --text-strong: #e3e3e3;
+        --control-hover: rgba(255, 255, 255, 0.08);
+        --control-pressed: rgba(255, 255, 255, 0.12);
+        --light-idle: #4d4d4d;
+        --menu-rest: rgba(255, 255, 255, 0.5);
+        --menu-hover: rgba(223, 223, 223, 0.05);
+        --menu-selection: rgba(223, 223, 223, 0.025);
+        --menu-open: #dfdfdf;
+        --nav-hover: rgba(255, 255, 255, 0.08);
+        --nav-active: rgba(223, 223, 223, 0.16);
+      }
+
+      html.light {
+        color-scheme: light;
+        --strip: #f3f3f3;
+        --base: #f3f3f3;
+        --text: #444746;
+        --text-strong: #1f1f1f;
+        --control-hover: rgba(0, 0, 0, 0.05);
+        --control-pressed: rgba(0, 0, 0, 0.09);
+        --light-idle: #dcdcdc;
+        --menu-rest: rgba(26, 28, 31, 0.5);
+        --menu-hover: rgba(26, 28, 31, 0.05);
+        --menu-selection: rgba(26, 28, 31, 0.025);
+        --menu-open: #1a1c1f;
+        --nav-hover: rgba(26, 28, 31, 0.05);
+        --nav-active: rgba(26, 28, 31, 0.12);
+      }
+
+      /* The colour as a light tint over the grey Mica falls back to, as the frame lays it (AppRail.css). */
+      html,
+      body {
+        height: 40px;
+        margin: 0;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--strip) var(--tint, 35%), var(--base));
+        color: var(--text);
+        font: 400 12px/16px "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+        user-select: none;
+        cursor: default;
+      }
+
+      /* Over Mica the colour is a light tint, as the frame around the page lays it (AppRail.css). */
+      html.mica {
+        background: transparent;
+      }
+
+      html.mica body {
+        background: color-mix(in srgb, var(--strip) var(--tint, 35%), transparent);
+      }
+
+      #strip {
+        position: relative;
+        display: flex;
+        height: 40px;
+        align-items: center;
+        padding-left: 8px;
+      }
+
+      /* Room for window buttons at the left: macOS's own, or the strip's macOS ones (Labs). */
+      html[data-platform="macos"] #strip,
+      html.mac-buttons #strip {
+        padding-left: 78px;
+      }
+
+      /* The top edge resizes the window: the strip covers the window's own top border. */
+      #grip {
+        position: absolute;
+        z-index: 2;
+        top: 0;
+        right: 0;
+        left: 0;
+        height: 4px;
+        cursor: ns-resize;
+      }
+
+      html.maximized #grip,
+      html[data-platform="macos"] #grip {
+        display: none;
+      }
+
+      .spacer {
+        min-width: 32px;
+        height: 100%;
+        flex: 1;
+      }
+
+      /*
+       * Back and forward, as Codex's title bar has them, and the pet's paw beside them in the
+       * same buttons: its ghost secondary buttons, 28px square with 6px corners (`size: md`,
+       * `uniform`), 16px arrows (`arrow-left-lg-light-16`, forward the same one turned round),
+       * 6px apart and 6px before the menus; the faded text colour at rest, the text colour over
+       * an 8% wash on hover, deeper and drawn in while pressed, and dimmed to 40% where the page
+       * has nowhere to go.
+       */
+      .history {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 6px;
+        margin-inline-end: 6px;
+      }
+
+      .history button,
+      #pet {
+        position: relative;
+        display: flex;
+        width: 28px;
+        height: 28px;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--menu-rest);
+      }
+
+      .history button::before,
+      #pet::before {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: var(--nav-hover);
+        content: "";
+        opacity: 0;
+        transform: scale(0.96);
+        transition: opacity 0.12s, transform 0.12s;
+      }
+
+      .history button svg,
+      #pet svg {
+        position: relative;
+      }
+
+      .history button:not(:disabled):hover,
+      #pet:hover {
+        color: var(--menu-open);
+      }
+
+      .history button:not(:disabled):hover::before,
+      #pet:hover::before {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      .history button:not(:disabled):active::before,
+      #pet:active::before {
+        background: var(--nav-active);
+        transform: scale(0.96);
+      }
+
+      .history button:disabled {
+        opacity: 0.4;
+      }
+
+      /*
+       * Codex's application menu bar on Windows (`windowsMenuBar`), less Help: 14px names in
+       * buttons 10px in and 4px down, radius 8px, 2px apart; the faded text colour at rest, a 5%
+       * wash on hover, the open one in the text colour. The menus themselves open over the page,
+       * which draws them (AppMenu in Willow's page). Each name's access key underlines while Alt
+       * is held. macOS has its own menus. Where the strip has no room for the names (a larger
+       * text size in a narrow window) they go, and their keys still open the menus.
+       */
+      .menubar {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 2px;
+        padding: 0 8px 0 4px;
+      }
+
+      html[data-platform="macos"] .menubar,
+      html.cramped .menubar {
+        display: none;
+      }
+
+      .menu-trigger {
+        padding: 4px 10px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        outline: none;
+        background: transparent;
+        color: var(--menu-rest);
+        font: 400 14px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+      }
+
+      .menu-trigger:hover,
+      .menu-trigger:focus-visible {
+        background: var(--menu-hover);
+      }
+
+      .menu-trigger[aria-expanded="true"] {
+        background: var(--menu-selection);
+        color: var(--menu-open);
+      }
+
+      .menu-trigger u {
+        text-decoration: none;
+      }
+
+      html.mnemonics .menu-trigger u {
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
+      /* The pet's paw shows or hides the pet: just the paw, in the text colour while the pet is out. */
+      #pet {
+        margin-right: 8px;
+      }
+
+      #pet[aria-pressed="true"] {
+        color: var(--menu-open);
+      }
+
+      #pet[hidden] {
+        display: none;
+      }
+
+      /* A test build says so (tabs::test_copy): its data is its own, none of it the user's. */
+      #test-copy {
+        flex: none;
+        margin-right: 8px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        background: #f0b429;
+        color: #1f1f1f;
+        font: 600 11px/14px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+        white-space: nowrap;
+      }
+
+      #test-copy[hidden] {
+        display: none;
+      }
+
+      /*
+       * The agents' side panel's tabs (tabs::strip_panel_tabs), over the panel up to the window
+       * buttons, as the panel drew them in Willow's look: 28px, 10px corners, no edge, the chosen
+       * one on Willow's chips' fill and the rest in the faded text colour over its rows' hover,
+       * the site's icon or the tab's glyph, a close button while pointed at or chosen; then the
+       * panel's +, and room to drag the window by. Too many scroll sideways, fading out at
+       * whichever end has more rather than running into the window buttons.
+       */
+      :root {
+        --tab-hover: rgba(230, 230, 230, 0.08);
+        --tab-chosen: rgba(255, 255, 255, 0.12);
+      }
+
+      html.light {
+        --tab-hover: rgba(0, 0, 0, 0.05);
+        --tab-chosen: rgba(0, 0, 0, 0.08);
+      }
+
+      #panel-tabs {
+        position: absolute;
+        z-index: 1;
+        top: 0;
+        bottom: 0;
+        display: flex;
+        min-width: 0;
+        align-items: center;
+      }
+
+      #panel-tabs[hidden] {
+        display: none;
+      }
+
+      .panel-tabs__scroller {
+        display: flex;
+        min-width: 0;
+        height: 100%;
+        flex: 0 1 auto;
+        align-items: center;
+        gap: 2px;
+        padding: 0 2px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;
+      }
+
+      #panel-tabs.fade-start .panel-tabs__scroller {
+        mask-image: linear-gradient(to right, transparent, #000 24px);
+      }
+
+      #panel-tabs.fade-end .panel-tabs__scroller {
+        mask-image: linear-gradient(to left, transparent, #000 32px);
+      }
+
+      #panel-tabs.fade-start.fade-end .panel-tabs__scroller {
+        mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 32px), transparent);
+      }
+
+      .panel-tab {
+        position: relative;
+        display: flex;
+        min-width: 56px;
+        max-width: 200px;
+        height: 28px;
+        flex: none;
+        align-items: center;
+        gap: 6px;
+        padding: 0 4px 0 10px;
+        border-radius: 10px;
+        color: var(--text);
+        font: 400 12px/16px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+        transition: background-color 0.12s, color 0.12s;
+      }
+
+      .panel-tab:hover {
+        background: var(--tab-hover);
+        color: var(--text-strong);
+      }
+
+      .panel-tab[aria-selected="true"] {
+        background: var(--tab-chosen);
+        color: var(--text-strong);
+      }
+
+      .panel-tab__icon {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border-radius: 3px;
+        object-fit: contain;
+      }
+
+      .panel-tab__glyph {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        background: currentColor;
+        mask-position: center;
+        mask-repeat: no-repeat;
+        mask-size: 16px 16px;
+      }
+
+      .panel-tab__title {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .panel-tab__dot {
+        position: absolute;
+        top: 5px;
+        left: 22px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .panel-tab__close,
+      .panel-tabs__add {
+        display: flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: 9999px;
+        background: transparent;
+        color: inherit;
+      }
+
+      .panel-tab__close {
+        width: 20px;
+        height: 20px;
+        opacity: 0;
+      }
+
+      .panel-tab:hover .panel-tab__close,
+      .panel-tab[aria-selected="true"] .panel-tab__close {
+        opacity: 1;
+      }
+
+      .panel-tab__close:hover {
+        background: var(--control-hover);
+      }
+
+      .panel-tabs__add {
+        width: 28px;
+        height: 28px;
+        margin-left: 2px;
+        color: var(--menu-rest);
+      }
+
+      .panel-tabs__add:hover {
+        background: var(--nav-hover);
+        color: var(--menu-open);
+      }
+
+      .panel-tabs__add[hidden] {
+        display: none;
+      }
+
+      .panel-tabs__room {
+        min-width: 8px;
+        height: 100%;
+        flex: 1;
+      }
+
+      /* Windows' caption buttons at the right end, unless Labs has asked for macOS's (below). */
+      .controls {
+        display: flex;
+        height: 100%;
+        flex: none;
+      }
+
+      html[data-platform="macos"] .controls,
+      html.mac-buttons .controls {
+        display: none;
+      }
+
+      .controls button {
+        display: flex;
+        width: 46px;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--text-strong);
+        transition: background-color 0.1s;
+      }
+
+      /* On Windows a native window over the maximise button owns its mouse (for snap layouts)
+         and reports hover and press through these classes. */
+      .controls button:hover,
+      .controls button.hovered {
+        background: var(--control-hover);
+      }
+
+      .controls button.pressed {
+        background: var(--control-pressed);
+      }
+
+      .controls button.close-window:hover {
+        background: #c42b1c;
+        color: #fff;
+      }
+
+      .restore-icon,
+      html.maximized .maximize-icon {
+        display: none;
+      }
+
+      html.maximized .restore-icon {
+        display: block;
+      }
+
+      /*
+       * macOS's window buttons on Windows and Linux, when Labs turns them on; macOS shows its
+       * own. 12px lights in 14px buttons, 20px apart from 16px in and centred in the strip,
+       * where Codex puts macOS's (`trafficLightPosition`); snap.rs keeps its snap-layouts window
+       * on the third. Their marks show while the pointer is over any of them, and behind another
+       * window they go grey.
+       */
+      .traffic {
+        position: absolute;
+        z-index: 3;
+        top: 13px;
+        left: 16px;
+        display: none;
+        gap: 6px;
+      }
+
+      html.mac-buttons:not([data-platform="macos"]) .traffic {
+        display: flex;
+      }
+
+      .traffic button {
+        display: flex;
+        width: 12px;
+        height: 12px;
+        align-items: center;
+        justify-content: center;
+        margin: 1px;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+      }
+
+      .traffic .close-window {
+        background: #ff5f57;
+        color: #4d0000;
+      }
+
+      .traffic .minimize {
+        background: #febc2e;
+        color: #995700;
+      }
+
+      .traffic .maximize {
+        background: #28c840;
+        color: #006500;
+      }
+
+      html.inactive .traffic:not(:hover, .hovered) button {
+        background: var(--light-idle);
+      }
+
+      .traffic svg {
+        opacity: 0;
+      }
+
+      /* On Windows a native window over the maximise button owns its mouse (for snap layouts)
+         and reports hover and press through these classes. */
+      .traffic:is(:hover, .hovered) svg {
+        opacity: 1;
+      }
+
+      .traffic button:active,
+      .traffic button.pressed {
+        filter: brightness(0.82);
+      }
+
+      svg {
+        display: block;
+      }
+    </style>
+    <script>
+      // The frame's colour, from the snapshot; the one saved last time paints the strip from the start.
+      function paintFrame(frame) {
+        if (!frame) return;
+        document.documentElement.style.setProperty('--strip', frame.color);
+        document.documentElement.classList.toggle('light', frame.light);
+      }
+      paintFrame(window.__WILLOW_FRAME__);
+      document.documentElement.classList.toggle('mica', window.__WILLOW_MATERIAL__ === 'mica');
+      // Which window buttons Labs has chosen, as Willow last said (tabs::window_buttons).
+      document.documentElement.classList.toggle('mac-buttons', window.__WILLOW_MAC_BUTTONS__ === true);
+    </script>
+  </head>
+  <body>
+    <div id="strip" data-tauri-drag-region>
+      <div id="grip"></div>
+      <div class="traffic" role="group" aria-label="Window">
+        <button type="button" class="close-window" data-tip="Close" aria-label="Close">
+          <svg width="6" height="6" viewBox="0 0 6 6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" aria-hidden="true"><path d="M0.7 0.7l4.6 4.6M5.3 0.7l-4.6 4.6" /></svg>
+        </button>
+        <button type="button" class="minimize" data-tip="Minimize" aria-label="Minimize">
+          <svg width="7" height="2" viewBox="0 0 7 2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" aria-hidden="true"><path d="M0.6 1h5.8" /></svg>
+        </button>
+        <button type="button" class="maximize" data-tip="Maximize" aria-label="Maximize">
+          <svg width="6" height="6" viewBox="0 0 6 6" fill="currentColor" aria-hidden="true"><path d="M0.5 0.5h3.4L0.5 3.9z" /><path d="M5.5 5.5H2.1l3.4-3.4z" /></svg>
+        </button>
+      </div>
+      <div class="history" role="group" aria-label="History">
+        <button type="button" id="back" data-tip="Back" aria-label="Back" disabled>
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.96231 2.96214C7.16727 2.7574 7.49953 2.75742 7.7045 2.96214C7.90913 3.16712 7.9092 3.49939 7.7045 3.70433L3.93301 7.47483H13.3334C13.6232 7.47501 13.8578 7.71038 13.8578 8.00022C13.8577 8.28999 13.6232 8.52544 13.3334 8.52562H3.93301L7.7045 12.2951C7.90924 12.5001 7.90909 12.8323 7.7045 13.0373C7.49953 13.2423 7.16735 13.2422 6.96231 13.0373L2.53067 8.60667L2.47208 8.54124C2.21571 8.22666 2.21566 7.77279 2.47208 7.45823L2.53067 7.3928L6.96231 2.96214Z" fill="currentColor" /></svg>
+        </button>
+        <button type="button" id="forward" data-tip="Forward" aria-label="Forward" disabled>
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="transform: scaleX(-1)"><path d="M6.96231 2.96214C7.16727 2.7574 7.49953 2.75742 7.7045 2.96214C7.90913 3.16712 7.9092 3.49939 7.7045 3.70433L3.93301 7.47483H13.3334C13.6232 7.47501 13.8578 7.71038 13.8578 8.00022C13.8577 8.28999 13.6232 8.52544 13.3334 8.52562H3.93301L7.7045 12.2951C7.90924 12.5001 7.90909 12.8323 7.7045 13.0373C7.49953 13.2423 7.16735 13.2422 6.96231 13.0373L2.53067 8.60667L2.47208 8.54124C2.21571 8.22666 2.21566 7.77279 2.47208 7.45823L2.53067 7.3928L6.96231 2.96214Z" fill="currentColor" /></svg>
+        </button>
+      </div>
+      <div class="menubar" role="menubar" aria-label="Application menu">
+        <button type="button" class="menu-trigger" data-menu="file" role="menuitem" aria-haspopup="menu" aria-expanded="false"><u>F</u>ile</button>
+        <button type="button" class="menu-trigger" data-menu="edit" role="menuitem" aria-haspopup="menu" aria-expanded="false"><u>E</u>dit</button>
+        <button type="button" class="menu-trigger" data-menu="view" role="menuitem" aria-haspopup="menu" aria-expanded="false"><u>V</u>iew</button>
+      </div>
+      <button id="pet" type="button" data-tip="Show or hide the pet" aria-label="Pet" aria-pressed="false" hidden>
+        <svg width="18" height="18" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M180-475q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM360-635q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM600-635q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM780-475q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM220-250a260 190 0 1 0 520 0a260 190 0 1 0-520 0Z" /></svg>
+      </button>
+      <span id="test-copy" data-tip="A test build with its own data: not your Willow, and nothing done here stays" hidden>Test copy</span>
+      <div class="spacer" data-tauri-drag-region></div>
+      <div id="panel-tabs" hidden>
+        <div class="panel-tabs__scroller" role="tablist" aria-label="Panel tabs"></div>
+        <button type="button" class="panel-tabs__add" data-tip="New tab" aria-label="New tab" hidden>
+          <svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+        </button>
+        <div class="panel-tabs__room" data-tauri-drag-region></div>
+      </div>
+      <div class="controls">
+        <button type="button" class="minimize" data-tip="Minimize" aria-label="Minimize">
+          <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor"><path d="M0 5.5h10" /></svg>
+        </button>
+        <button type="button" class="maximize" data-tip="Maximize" aria-label="Maximize">
+          <svg class="maximize-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x="0.5" y="0.5" width="9" height="9" rx="1" /></svg>
+          <svg class="restore-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x="0.5" y="2.5" width="7" height="7" rx="1" /><path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" /></svg>
+        </button>
+        <button type="button" class="close-window" data-tip="Close" aria-label="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-linecap="round"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg>
+        </button>
+      </div>
+    </div>
+    <script>
+      const platform = window.__WILLOW_PLATFORM__ || 'windows';
+      document.documentElement.dataset.platform = platform;
+      document.getElementById('test-copy').hidden = !window.__WILLOW_TEST_COPY__;
+      const invoke = (command, args) => window.__TAURI_INTERNALS__.invoke(command, args);
+
+      let state = { maximized: false };
+
+      // The menus and the tooltips are drawn by the page, under these buttons (tabs::menu_open,
+      // tabs::strip_tooltip): the strip has no room below its 40px. Where they go is told in
+      // device pixels, since the strip and the page may be zoomed apart.
+      // While a menu is open, moving to another opens that one, as a menu bar does.
+      const menuTriggers = [...document.querySelectorAll('.menu-trigger')];
+      function openMenu(menu) {
+        const trigger = menuTriggers.find((element) => element.dataset.menu === menu);
+        if (trigger) invoke('menu_open', { menu, left: trigger.getBoundingClientRect().left * devicePixelRatio });
+      }
+      let tipFor = null;
+      function showTip(element) {
+        if (!element.dataset.tip || tipFor === element) return;
+        tipFor = element;
+        const box = element.getBoundingClientRect();
+        invoke('strip_tooltip', { text: element.dataset.tip, left: box.left * devicePixelRatio, right: box.right * devicePixelRatio });
+      }
+      function hideTip() {
+        if (!tipFor) return;
+        tipFor = null;
+        invoke('strip_tooltip', { text: null, left: 0, right: 0 });
+      }
+      for (const element of document.querySelectorAll('[data-tip]')) {
+        element.addEventListener('pointerenter', () => showTip(element));
+        element.addEventListener('pointerleave', hideTip);
+        element.addEventListener('pointerdown', hideTip);
+      }
+      window.addEventListener('blur', hideTip);
+      // The strip has no right-click menu.
+      document.addEventListener('contextmenu', (event) => event.preventDefault());
+      for (const trigger of menuTriggers) {
+        trigger.addEventListener('pointerdown', (event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          if (state.menu === trigger.dataset.menu) invoke('menu_open', { menu: null });
+          else openMenu(trigger.dataset.menu);
+        });
+        trigger.addEventListener('pointerenter', () => {
+          if (state.menu && state.menu !== trigger.dataset.menu) openMenu(trigger.dataset.menu);
+        });
+        trigger.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          openMenu(trigger.dataset.menu);
+        });
+      }
+      // Anywhere else in the strip closes it.
+      document.addEventListener('pointerdown', (event) => {
+        if (state.menu && !event.target.closest('.menu-trigger')) invoke('menu_open', { menu: null });
+      }, true);
+      // The menus' names stay while everything fits beside them.
+      const stripElement = document.getElementById('strip');
+      function fit() {
+        document.documentElement.classList.remove('cramped');
+        document.documentElement.classList.toggle('cramped', stripElement.scrollWidth > stripElement.clientWidth);
+      }
+      new ResizeObserver(() => {
+        fit();
+        placePanelTabs();
+      }).observe(stripElement);
+
+      // The agents' side panel's tabs (tabs::strip_panel_tabs). What is done to them goes to the
+      // page (tabs::panel_tab), which acts on its tabs and draws what opens under the strip.
+      const panelTabs = document.getElementById('panel-tabs');
+      const panelScroller = panelTabs.querySelector('.panel-tabs__scroller');
+      const panelAdd = panelTabs.querySelector('.panel-tabs__add');
+      const CLOSE_GLYPH = '<svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" /></svg>';
+      let panelTabsDrawn = '';
+      const panelTabAction = (action, id, x) =>
+        invoke('panel_tab', { action, id: id ?? null, left: x === undefined ? null : x * devicePixelRatio, right: x === undefined ? null : x * devicePixelRatio });
+
+      // From the panel's left edge, never over the strip's own buttons, to the window buttons.
+      function placePanelTabs() {
+        if (!state.panel_tabs) return;
+        let start = 8;
+        for (const element of document.querySelectorAll('.history, .menubar, #pet, #test-copy')) {
+          if (element.offsetParent === null) continue;
+          start = Math.max(start, element.getBoundingClientRect().right + 8);
+        }
+        const controls = document.querySelector('.controls');
+        const end = controls && controls.offsetParent !== null ? controls.offsetWidth : 8;
+        panelTabs.style.left = `${Math.max(start, state.panel_tabs.left / devicePixelRatio)}px`;
+        panelTabs.style.right = `${end}px`;
+        fadePanelTabs();
+      }
+
+      // More than the scroller's own padding hidden at an end, whose tabs then fade out there.
+      function fadePanelTabs() {
+        const { scrollLeft, scrollWidth, clientWidth } = panelScroller;
+        panelTabs.classList.toggle('fade-start', scrollLeft > 4);
+        panelTabs.classList.toggle('fade-end', scrollLeft + clientWidth < scrollWidth - 4);
+      }
+
+      function panelTabGlyph(mask) {
+        const glyph = document.createElement('span');
+        glyph.className = 'panel-tab__glyph';
+        glyph.style.maskImage = `url("${mask}")`;
+        return glyph;
+      }
+
+      function panelTab(tab) {
+        const element = document.createElement('div');
+        element.className = 'panel-tab';
+        element.setAttribute('role', 'tab');
+        element.setAttribute('aria-selected', String(tab.active));
+        element.dataset.tip = tab.title;
+        if (tab.image) {
+          const image = document.createElement('img');
+          image.className = 'panel-tab__icon';
+          image.alt = '';
+          image.src = tab.image;
+          image.addEventListener('error', () => (tab.mask ? image.replaceWith(panelTabGlyph(tab.mask)) : image.remove()), { once: true });
+          element.append(image);
+        } else if (tab.mask) {
+          element.append(panelTabGlyph(tab.mask));
+        }
+        const title = document.createElement('span');
+        title.className = 'panel-tab__title';
+        title.textContent = tab.title;
+        element.append(title);
+        if (tab.pending) {
+          const dot = document.createElement('span');
+          dot.className = 'panel-tab__dot';
+          element.append(dot);
+        }
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'panel-tab__close';
+        close.setAttribute('aria-label', `Close ${tab.title}`);
+        close.innerHTML = CLOSE_GLYPH;
+        close.addEventListener('click', (event) => {
+          event.stopPropagation();
+          panelTabAction('close', tab.id);
+        });
+        element.append(close);
+        element.addEventListener('click', () => panelTabAction('select', tab.id));
+        // The middle button closes, as a browser's tab does.
+        element.addEventListener('mousedown', (event) => {
+          if (event.button === 1) event.preventDefault();
+        });
+        element.addEventListener('auxclick', (event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          panelTabAction('close', tab.id);
+        });
+        element.addEventListener('contextmenu', (event) => panelTabAction('menu', tab.id, event.clientX));
+        element.addEventListener('pointerenter', () => showTip(element));
+        element.addEventListener('pointerleave', hideTip);
+        element.addEventListener('pointerdown', hideTip);
+        return element;
+      }
+
+      function drawPanelTabs() {
+        const panel = state.panel_tabs;
+        panelTabs.hidden = !panel;
+        const drawn = panel ? JSON.stringify([panel.tabs, panel.add]) : '';
+        if (drawn !== panelTabsDrawn) {
+          panelTabsDrawn = drawn;
+          if (tipFor && panelScroller.contains(tipFor)) hideTip();
+          panelScroller.replaceChildren(...(panel ? panel.tabs.map(panelTab) : []));
+          panelAdd.hidden = !panel || !panel.add;
+          panelScroller.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+        placePanelTabs();
+      }
+
+      panelScroller.addEventListener('scroll', fadePanelTabs, { passive: true });
+      // The wheel scrolls the tabs sideways.
+      panelScroller.addEventListener('wheel', (event) => {
+        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+        if (!delta) return;
+        event.preventDefault();
+        panelScroller.scrollLeft += event.deltaMode === WheelEvent.DOM_DELTA_LINE ? delta * 16 : delta;
+      }, { passive: false });
+      panelAdd.addEventListener('click', () => {
+        const box = panelAdd.getBoundingClientRect();
+        invoke('panel_tab', { action: 'add', id: null, left: box.left * devicePixelRatio, right: box.right * devicePixelRatio });
+      });
+
+      function draw() {
+        paintFrame(state.frame);
+        document.documentElement.classList.toggle('inactive', state.focused === false);
+        document.documentElement.classList.toggle('mnemonics', state.mnemonics === true);
+        for (const trigger of menuTriggers) trigger.setAttribute('aria-expanded', String(state.menu === trigger.dataset.menu));
+        // A menu closes with the window going behind another, as Codex's does.
+        if (state.menu && state.focused === false) invoke('menu_open', { menu: null });
+        document.documentElement.classList.toggle('maximized', state.maximized);
+        document.documentElement.classList.toggle('mac-buttons', state.mac_buttons === true);
+        document.getElementById('back').disabled = !state.back;
+        document.getElementById('forward').disabled = !state.forward;
+        for (const button of document.querySelectorAll('.maximize')) {
+          button.dataset.tip = state.maximized ? 'Restore' : 'Maximize';
+          button.setAttribute('aria-label', button.dataset.tip);
+        }
+        const pet = document.getElementById('pet');
+        pet.hidden = state.pet === null || state.pet === undefined;
+        pet.setAttribute('aria-pressed', String(state.pet === true));
+        fit();
+        drawPanelTabs();
+      }
+
+      window.willowTabs = {
+        render(snapshot) {
+          state = snapshot;
+          draw();
+        },
+        // The snap-layouts window over the maximise button has its mouse, so it reports the hover
+        // and the press, and the button's tooltip comes and goes with them.
+        maximizeButton({ hover, pressed }) {
+          const mac = document.documentElement.classList.contains('mac-buttons');
+          const button = document.querySelector(mac ? '.traffic .maximize' : '.controls .maximize');
+          (mac ? document.querySelector('.traffic') : button).classList.toggle('hovered', hover);
+          button.classList.toggle('pressed', pressed);
+          if (hover && !pressed) showTip(button);
+          else if (tipFor === button) hideTip();
+        },
+        // A page's Alt+F, Alt+E, Alt+V or F10 (tabs::menu_key).
+        openMenu,
+      };
+      invoke('tabs_snapshot').then(window.willowTabs.render);
+
+      document.getElementById('back').addEventListener('click', () => invoke('tab_history', { step: -1 }));
+      document.getElementById('forward').addEventListener('click', () => invoke('tab_history', { step: 1 }));
+      document.getElementById('pet').addEventListener('click', () => invoke('pets_toggle'));
+      // Both sets of window buttons, Windows' and macOS's, do the same.
+      const closeWindow = () => invoke('plugin:window|close', { label: 'main' });
+      for (const [name, command] of [['minimize', 'minimize'], ['maximize', 'toggle_maximize'], ['close-window', 'close']]) {
+        for (const button of document.querySelectorAll(`.${name}`)) button.addEventListener('click', () => invoke(`plugin:window|${command}`, { label: 'main' }));
+      }
+      document.getElementById('grip').addEventListener('mousedown', (event) => {
+        if (event.button === 0) invoke('plugin:window|start_resize_dragging', { label: 'main', value: 'North' });
+      });
+
+      // The menus' access keys while the strip has the keyboard, as in Willow's pages (tabs::page_script).
+      if (platform !== 'macos') {
+        const menuKeys = { f: 'file', e: 'edit', v: 'view' };
+        window.addEventListener('keydown', (event) => {
+          if (event.key === 'Alt' && !event.ctrlKey && !event.shiftKey) {
+            if (!event.repeat) invoke('menu_mnemonics', { shown: true });
+            return;
+          }
+          const menu = event.altKey && !event.ctrlKey && !event.shiftKey && menuKeys[event.key.toLowerCase()];
+          if (menu || (event.key === 'F10' && !event.altKey && !event.ctrlKey && !event.shiftKey)) {
+            event.preventDefault();
+            invoke('menu_mnemonics', { shown: false });
+            openMenu(menu || 'file');
+          } else if (event.key === 'Escape' && state.menu) {
+            invoke('menu_open', { menu: null });
+          }
+        });
+        window.addEventListener('keyup', (event) => {
+          if (event.key === 'Alt') invoke('menu_mnemonics', { shown: false });
+        });
+        window.addEventListener('blur', () => {
+          if (state.mnemonics) invoke('menu_mnemonics', { shown: false });
+        });
+      }
+
+      // The same shortcuts as Willow's pages, for when the strip has focus.
+      window.addEventListener('keydown', (event) => {
+        if (event.altKey || event.shiftKey || !(platform === 'macos' ? event.metaKey : event.ctrlKey)) return;
+        if (event.key.toLowerCase() === 'w' || (platform !== 'macos' && event.key === 'F4')) closeWindow();
+        else if (event.key === '[' || event.key === ']') invoke('tab_history', { step: event.key === '[' ? -1 : 1 });
+        else return;
+        event.preventDefault();
+      });
+    </script>
+  </body>
+</html>

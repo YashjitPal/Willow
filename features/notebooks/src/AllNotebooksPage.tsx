@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useAuth } from '@willow/auth/AuthContext';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 
 import './notebooks.css';
+import { NotebookActionsMenu, type NotebookActionsTarget } from './NotebookActionsMenu';
+import { MENU_TRIGGER_ATTR, rectOf, type AnchorRect } from './NotebookMenu';
 import { NotebooksSplashScreen } from './NotebooksSplashScreen';
 import { formatSourceCount } from './notebook-types';
 import type { Notebook } from './notebook-types';
@@ -47,10 +52,14 @@ const NotebookCard: React.FC<{
   notebook: Notebook;
   index: number;
   onOpen: () => void;
-}> = ({ notebook, index, onOpen }) => {
+  /** Below 961px the card's menu is the page's `NotebookActionsMenu`, opened from here. */
+  isCompactMenuOpen: boolean;
+  onOpenCompactMenu: (anchor: AnchorRect) => void;
+}> = ({ notebook, index, onOpen, isCompactMenuOpen, onOpenCompactMenu }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { deleteNotebookWithFolder } = useNotebookDisk();
   const { isLight } = useThemeMode();
+  const isCompact = useCompactViewport();
 
   return (
     <div
@@ -63,14 +72,54 @@ const NotebookCard: React.FC<{
           onOpen();
         }
       }}
-      className={`nb-card nb-card-enter outline-none focus-visible:ring-2 ${isLight ? 'focus-visible:ring-[#0b57d0]' : 'focus-visible:ring-[#a8c7fa]'}`}
+      className={`nb-card nb-card-enter outline-none focus-visible:ring-2 ${isLight ? 'focus-visible:ring-[color:var(--sync-0b57d0,#0b57d0)]' : 'focus-visible:ring-[color:var(--sync-a8c7fa,#a8c7fa)]'}${isCompact && isCompactMenuOpen ? ' is-menu-open' : ''}`}
       style={{ ['--nb-i' as string]: index }}
     >
-      <div className="flex items-start justify-between">
+      <div className="nb-card-header flex items-start justify-between">
         <span className="nb-card-emoji" aria-hidden="true">
           {notebook.emoji}
         </span>
 
+        {isCompact ? (
+          /*
+           * Gemini's touch layout keeps ONE 36px trigger in a 24px slot: the pin while
+           * pinned (labelled "Pinned"), the ⋮ otherwise and whenever the card is hovered
+           * or its menu is open. Both open the same menu; none of them toggle the pin.
+           */
+          <div className="nb-card-trigger-slot">
+            <button
+              type="button"
+              {...MENU_TRIGGER_ATTR}
+              aria-label={notebook.pinned ? 'Pinned' : 'Open notebook actions menu'}
+              aria-haspopup="menu"
+              aria-expanded={isCompactMenuOpen}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenCompactMenu(rectOf(event.currentTarget));
+              }}
+              className={`nb-card-trigger${notebook.pinned ? ' is-pinned' : ''}`}
+            >
+              <MaterialSymbol
+                name="push_pin"
+                family="luminous"
+                size={24}
+                weight={300}
+                roundness={100}
+                opticalSize={24}
+                className="nb-card-trigger-pin"
+              />
+              <MaterialSymbol
+                name="more_vert"
+                family="luminous"
+                size={28}
+                weight={260}
+                roundness={100}
+                opticalSize={28}
+                className="nb-card-trigger-more"
+              />
+            </button>
+          </div>
+        ) : (
         <div className={`flex items-center gap-1 ${isMenuOpen ? 'nb-card-menu is-forced' : 'nb-card-menu'}`}>
           {/*
            * Unlike the sidebar row, the card DOES show a pin — Gemini renders its
@@ -164,9 +213,10 @@ const NotebookCard: React.FC<{
             </div>
           )}
         </div>
+        )}
       </div>
 
-      <div className="flex flex-col">
+      <div className="nb-card-body flex flex-col">
         <span className="nb-card-title line-clamp-1">{notebook.title}</span>
         <span className="nb-card-sources">{formatSourceCount(notebook.sources.length)}</span>
       </div>
@@ -178,6 +228,9 @@ export const AllNotebooksPage: React.FC<AllNotebooksPageProps> = ({ onOpenNotebo
   const notebooks = useStore(notebooksStore);
   const isHydrated = useStore(notebooksHydratedStore);
   const { isLight } = useThemeMode();
+  const { workspaceColor } = useAuth();
+  const theme = getWorkspaceTheme(workspaceColor);
+  const [compactMenu, setCompactMenu] = useState<NotebookActionsTarget | null>(null);
 
   useEffect(() => {
     hydrateNotebooks();
@@ -204,21 +257,27 @@ export const AllNotebooksPage: React.FC<AllNotebooksPageProps> = ({ onOpenNotebo
   }
 
   return (
-    <div className="nb-spring nb-surface h-full w-full overflow-y-auto p-6">
-      <div className="flex h-[60px] items-center justify-between">
+    <div
+      className="nb-spring nb-surface nb-grid-page h-full w-full overflow-y-auto p-6"
+      style={{
+        '--nb-grid-create-bg': theme.accentButton.bg,
+        '--nb-grid-create-hover': theme.accentButton.hover,
+      } as React.CSSProperties}
+    >
+      <div className="nb-grid-header flex h-[60px] items-center justify-between">
         {/* gds-headline-m */}
-        <h1 className={`text-[24px] font-[400] leading-7 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}>Notebooks</h1>
+        <h1 className={`nb-grid-title text-[24px] font-[400] leading-7 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}>Notebooks</h1>
         <button
           type="button"
           onClick={onCreateNotebook}
-          className={`flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-[540] leading-[17px] transition-all duration-200 ${
+          className={`nb-grid-create flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-[540] leading-[17px] transition-all duration-200 ${
             isLight
-              ? 'bg-[#0b57d0] text-white hover:bg-[#0842a0]'
-              : 'bg-[#a8c7fa] text-[#062e6f] hover:opacity-90'
+              ? 'bg-[color:var(--sync-0b57d0,#0b57d0)] text-white hover:bg-[color:var(--sync-0842a0,#0842a0)]'
+              : 'bg-[color:var(--sync-a8c7fa,#a8c7fa)] text-[color:var(--sync-062e6f,#062e6f)] hover:opacity-90'
           }`}
         >
           <MaterialSymbol name="add_2" family="luminous" size={16} weight={330} roundness={100} opticalSize={16} />
-          New notebook
+          <span className="nb-grid-create-label">New notebook</span>
         </button>
       </div>
 
@@ -229,9 +288,15 @@ export const AllNotebooksPage: React.FC<AllNotebooksPageProps> = ({ onOpenNotebo
             notebook={notebook}
             index={index}
             onOpen={() => onOpenNotebook(notebook.id)}
+            isCompactMenuOpen={compactMenu?.notebookId === notebook.id}
+            onOpenCompactMenu={(anchor) => setCompactMenu((open) => (
+              open?.notebookId === notebook.id ? null : { notebookId: notebook.id, anchor }
+            ))}
           />
         ))}
       </div>
+
+      <NotebookActionsMenu target={compactMenu} onClose={() => setCompactMenu(null)} />
     </div>
   );
 };

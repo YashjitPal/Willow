@@ -1,0 +1,1042 @@
+/*
+ * T3's settings pages as Willow's full-page settings (its LabsPage.css and ModelsApiPage.css, which
+ * share one rhythm): a #0f0f0f / #faf9f9 page with one centred 800px column 68px down, a 32px/38px
+ * headline at 360 over a 17px/24px description, #1e1f20 / #f0f4f9 section cards on a 12px corner
+ * with 20px/24px headings at 470, rows of 16px/22px titles over 15px/20px descriptions split by
+ * hairlines, 44px fields on #282a2c, 40px tonal and filled pills, 36px round icon buttons, #1b1b1b
+ * child rows and dashed empty states.
+ *
+ * Everything hangs off [data-willow-settings-page], the page column settingsLayout.tsx marks when
+ * Willow embeds the client, so T3's own layout is untouched elsewhere.
+ */
+
+:root {
+  --willow-settings-card: #f0f4f9;
+  --willow-settings-child: #ffffff;
+  --willow-settings-child-hover: #f0f4f9;
+  --willow-settings-on-surface: #1f1f1f;
+  --willow-settings-variant: #444746;
+  --willow-settings-outline: #747775;
+  --willow-settings-divider: #e3e3e3;
+  --willow-settings-field-border: #c4c7c5;
+  --willow-settings-tonal: #e3e3e3;
+  --willow-settings-tonal-hover: #d1d5db;
+  --willow-settings-hover: rgb(0 0 0 / 6%);
+  --willow-settings-primary: var(--willow-accent);
+  --willow-settings-error: #b3261e;
+  --willow-settings-mark: #f0f4f9;
+}
+
+:root.dark {
+  --willow-settings-card: #1e1f20;
+  --willow-settings-child: #1b1b1b;
+  --willow-settings-child-hover: #232324;
+  --willow-settings-on-surface: #e3e3e3;
+  --willow-settings-variant: #c4c7c5;
+  --willow-settings-outline: #8e918f;
+  --willow-settings-divider: rgb(68 71 70 / 50%);
+  --willow-settings-field-border: #444746;
+  --willow-settings-tonal: #282a2c;
+  --willow-settings-tonal-hover: #323436;
+  --willow-settings-hover: rgb(227 227 227 / 8%);
+  --willow-settings-primary: var(--willow-toggle-track);
+  --willow-settings-error: #f2b8b5;
+  --willow-settings-mark: #000000;
+}
+
+/* ── The page ─────────────────────────────────────────────────────────────── */
+
+/* Willow's settings pages scroll without a fade under a top bar they do not have. */
+[data-settings-page-scroll]:has(> [data-willow-settings-page]) {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+[data-willow-settings-page] {
+  box-sizing: border-box;
+  max-width: 800px;
+  gap: 16px;
+  margin: 68px auto 24px;
+  padding: 0 24px 24px;
+  color: var(--willow-settings-on-surface);
+}
+
+.willow-settings-page__header {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.willow-settings-page__headline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+}
+
+.willow-settings-page__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--willow-settings-on-surface);
+  font-size: 32px;
+  font-weight: 360;
+  line-height: 38px;
+  letter-spacing: normal;
+}
+
+.willow-settings-page__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--willow-settings-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.willow-settings-page__actions:empty {
+  display: none;
+}
+
+/* A section's actions brought up beside the headline (the section repeated the page's name). */
+.willow-settings-page__actions > [data-slot="settings-section-actions"] {
+  gap: 8px;
+}
+
+/* Its description sits 12px under the headline and 32px over the first card (12px of its own
+   padding, then the column's 16px gap and 4px more). */
+.willow-settings-page__description {
+  margin: 12px 0 0;
+  padding-bottom: 16px;
+  color: var(--willow-settings-variant);
+  font-size: 17px;
+  line-height: 24px;
+}
+
+.willow-settings-page__description:empty {
+  display: none;
+}
+
+.willow-settings-page__description > p {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* The scope's pickers read as the description's links: the workspace colour at 500, underlined
+   under the pointer, with their chevron in the same colour. */
+.willow-settings-page__description button {
+  gap: 4px;
+  color: var(--willow-settings-primary);
+  font-weight: 500;
+  text-decoration-line: none;
+}
+
+.willow-settings-page__description button:is(:hover, [data-popup-open]) {
+  text-decoration-line: underline;
+  text-decoration-style: solid;
+  text-decoration-color: currentColor;
+}
+
+.willow-settings-page__description button svg {
+  width: 18px;
+  height: 18px;
+  color: currentColor;
+}
+
+/* ── Section cards ────────────────────────────────────────────────────────── */
+
+[data-willow-settings-page] [data-slot="settings-section"][data-variant="grouped"] {
+  box-sizing: border-box;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--willow-settings-card);
+}
+
+[data-willow-settings-page] [data-slot="settings-section-header"] {
+  align-items: center;
+  gap: 12px;
+  min-height: 2rem;
+  margin-block: 0;
+  padding: 0;
+}
+
+[data-willow-settings-page] [data-slot="settings-section-header"] > :first-child {
+  flex: 1 1 auto;
+}
+
+[data-willow-settings-page] [data-slot="settings-section-title"] {
+  gap: 12px;
+  min-height: 2rem;
+  color: var(--willow-settings-on-surface);
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  letter-spacing: normal;
+}
+
+[data-willow-settings-page] [data-slot="settings-section-title"] svg {
+  width: 20px;
+  height: 20px;
+  color: var(--willow-settings-variant);
+}
+
+[data-willow-settings-page] [data-slot="settings-section-actions"] {
+  gap: 8px;
+  min-height: 2rem;
+  color: var(--willow-settings-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* A plain section is a heading over cards of its own. */
+[data-willow-settings-page]
+  [data-slot="settings-section"][data-variant="plain"]
+  > [data-slot="settings-section-header"] {
+  margin-bottom: 4px;
+}
+
+/* ── Groups and rows ──────────────────────────────────────────────────────── */
+
+/* A grouped group is a card; inside a section's card it is that card's row list. */
+[data-willow-settings-page] [data-slot="settings-group"][data-variant="grouped"] {
+  padding: 20px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--willow-settings-card);
+  box-shadow: none;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-section"][data-variant="grouped"]
+  > [data-slot="settings-group"] {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-willow-settings-page] [data-slot="settings-section-header"] + [data-slot="settings-group"] {
+  margin-block: 16px 0;
+}
+
+[data-willow-settings-page] [data-slot="settings-group"][data-divided] > * + * {
+  border-top: 1px solid var(--willow-settings-divider);
+}
+
+[data-willow-settings-page] [data-slot="settings-row"] {
+  padding: 16px 0;
+  border-radius: 0;
+}
+
+/* Rows a list wraps in a div of its own (the keybindings) are still the card's rows. */
+[data-willow-settings-page]
+  [data-slot="settings-group"]
+  > div:not([data-slot])
+  > [data-slot="settings-row"]
+  + [data-slot="settings-row"] {
+  border-top: 1px solid var(--willow-settings-divider);
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-group"]
+  > div:not([data-slot]):first-child
+  > [data-slot="settings-row"]:first-child {
+  padding-top: 0;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-group"]
+  > div:not([data-slot]):last-child
+  > [data-slot="settings-row"]:last-child {
+  padding-bottom: 0;
+}
+
+[data-willow-settings-page] [data-slot="settings-group"] > [data-slot="settings-row"]:first-child {
+  padding-top: 0;
+}
+
+[data-willow-settings-page] [data-slot="settings-group"] > [data-slot="settings-row"]:last-child {
+  padding-bottom: 0;
+}
+
+[data-willow-settings-page] [data-slot="settings-row-title"] {
+  color: var(--willow-settings-on-surface);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+[data-willow-settings-page] [data-slot="settings-row-description"] {
+  max-width: none;
+  color: var(--willow-settings-variant);
+  font-size: 15px;
+  line-height: 20px;
+}
+
+[data-willow-settings-page] [data-slot="settings-row-status"] {
+  padding-top: 4px;
+  color: var(--willow-settings-outline);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+/* Side by side, the copy keeps to 60% of the row and the control sits 20px from it. */
+@container settings-row (min-width: 32rem) {
+  [data-willow-settings-page] [data-slot="settings-row"] > :first-child {
+    column-gap: 20px;
+  }
+
+  [data-willow-settings-page] [data-slot="settings-row-text"] {
+    max-width: 60cqi;
+  }
+}
+
+/* ── Fields ───────────────────────────────────────────────────────────────── */
+
+[data-willow-settings-page] [data-slot="settings-row-control"] {
+  gap: 8px;
+  color: var(--willow-settings-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+[data-willow-settings-page]
+  :is([data-slot="settings-row-control"], [data-slot="settings-row"])
+  [data-slot="select-trigger"] {
+  min-height: 44px;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+/* A row's only dropdown or field is Willow's 260px control (a Select keeps a hidden input beside
+   its trigger). */
+[data-willow-settings-page]
+  [data-slot="settings-row-control"]
+  > [data-slot="select-trigger"]:first-child:is(
+    :last-child,
+    :has(+ input[aria-hidden="true"]:last-child)
+  ),
+[data-willow-settings-page]
+  [data-slot="settings-row-control"]
+  > div:only-child
+  > [data-slot="select-trigger"]:first-child:is(
+    :last-child,
+    :has(+ input[aria-hidden="true"]:last-child)
+  ),
+[data-willow-settings-page]
+  [data-slot="settings-row-control"]
+  > [data-slot="input-control"].border:only-child,
+[data-willow-settings-page]
+  [data-slot="settings-row-control"]
+  > div:only-child
+  > [data-slot="input-control"].border:only-child {
+  width: 260px;
+  max-width: 100%;
+}
+
+/* The composer's model and effort pickers, in a row, are its dropdown triggers too. */
+[data-willow-settings-page] [data-slot="settings-row-control"] button[data-composer-control] {
+  min-height: 44px;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  border: 1px solid var(--willow-field-border);
+  border-radius: 8px;
+  background: var(--willow-field);
+  box-shadow: none;
+  color: var(--willow-settings-on-surface);
+  font-size: 15px;
+  line-height: 20px;
+  transition: border-color 150ms linear;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-row-control"]
+  button[data-composer-control]::before {
+  display: none;
+}
+
+[data-willow-settings-page] [data-slot="settings-row-control"] button[data-composer-control]:hover {
+  border-color: var(--willow-field-hover);
+  background: var(--willow-field);
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-row-control"]
+  button[data-composer-control]:is([data-popup-open], :focus-visible) {
+  border-color: var(--willow-field-focus);
+  background: var(--willow-field);
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-row-control"]
+  button[data-composer-control]
+  [data-composer-control-chevron] {
+  width: 18px;
+  height: 18px;
+  color: var(--willow-settings-variant);
+  opacity: 1;
+}
+
+[data-willow-settings-page] [data-slot="select-trigger"] [data-slot="select-icon"] svg,
+[data-willow-settings-page] [data-slot="select-trigger"] > svg:last-child {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  color: var(--willow-settings-variant);
+  opacity: 1;
+  transition: rotate 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-willow-settings-page]
+  [data-slot="select-trigger"][data-popup-open]
+  [data-slot="select-icon"]
+  svg,
+[data-willow-settings-page] [data-slot="select-trigger"][data-popup-open] > svg:last-child {
+  rotate: 180deg;
+}
+
+[data-willow-settings-page] [data-slot="input-control"].border {
+  min-height: 44px;
+}
+
+[data-willow-settings-page] [data-slot="input-control"].border > [data-slot="input"] {
+  height: 42px;
+  padding: 0 16px;
+  font-size: 15px;
+  line-height: 42px;
+}
+
+[data-willow-settings-page] [data-slot="input-control"].border.font-mono > [data-slot="input"] {
+  font-size: 13px;
+}
+
+[data-willow-settings-page] [data-slot="textarea-control"].border > [data-slot="textarea"] {
+  padding: 12px 16px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+[data-willow-settings-page] [data-slot="number-field-group"] {
+  min-height: 44px;
+}
+
+[data-willow-settings-page] [data-slot="number-field-input"] {
+  height: 42px;
+  font-size: 15px;
+  line-height: 42px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+/*
+ * Text buttons a page, a section or a row offers are Willow's tonal pills (ma-button-tonal):
+ * #282a2c / #e3e3e3 under its text, deepening under the pointer, 40px in a row and 36px beside a
+ * heading; the filled ones stay its CTA.
+ */
+[data-willow-settings-page]
+  :is(
+    .willow-settings-page__actions,
+    [data-slot="settings-section-actions"],
+    [data-slot="settings-row-control"],
+    [data-slot="theme-library-header"],
+    [data-willow-settings-actions]
+  )
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):not(
+    [data-size^="icon"],
+    [data-size="micro"],
+    [data-variant="link"]
+  ) {
+  min-height: 40px;
+  gap: 8px;
+  padding: 0 20px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  font-variation-settings: var(--willow-text-axes);
+}
+
+[data-willow-settings-page]
+  :is([data-slot="settings-section-actions"], [data-slot="theme-library-header"])
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):not(
+    [data-size^="icon"],
+    [data-size="micro"],
+    [data-variant="link"]
+  ) {
+  min-height: 36px;
+  padding: 0 16px;
+}
+
+[data-willow-settings-page]
+  :is(
+    .willow-settings-page__actions,
+    [data-slot="settings-section-actions"],
+    [data-slot="settings-row-control"],
+    [data-slot="theme-library-header"],
+    [data-willow-settings-actions]
+  )
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):is(
+    [data-variant="outline"],
+    [data-variant="ghost"],
+    [data-variant="ghost-muted"],
+    [data-variant="secondary"],
+    [data-variant="destructive-outline"],
+    [data-variant="ghost-destructive"]
+  ):not([data-size^="icon"], [data-size="micro"]) {
+  border-color: transparent;
+  background: var(--willow-settings-tonal);
+  color: var(--willow-settings-on-surface);
+  transition: background-color 150ms linear;
+}
+
+[data-willow-settings-page]
+  :is(
+    .willow-settings-page__actions,
+    [data-slot="settings-section-actions"],
+    [data-slot="settings-row-control"],
+    [data-slot="theme-library-header"],
+    [data-willow-settings-actions]
+  )
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):is(
+    [data-variant="outline"],
+    [data-variant="ghost"],
+    [data-variant="ghost-muted"],
+    [data-variant="secondary"],
+    [data-variant="destructive-outline"],
+    [data-variant="ghost-destructive"]
+  ):not([data-size^="icon"], [data-size="micro"])::before {
+  display: none;
+}
+
+[data-willow-settings-page]
+  :is(
+    .willow-settings-page__actions,
+    [data-slot="settings-section-actions"],
+    [data-slot="settings-row-control"],
+    [data-slot="theme-library-header"],
+    [data-willow-settings-actions]
+  )
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):is(
+    [data-variant="outline"],
+    [data-variant="ghost"],
+    [data-variant="ghost-muted"],
+    [data-variant="secondary"],
+    [data-variant="destructive-outline"],
+    [data-variant="ghost-destructive"]
+  ):not([data-size^="icon"], [data-size="micro"]):is(:hover, [data-pressed], [data-popup-open]) {
+  background: var(--willow-settings-tonal-hover);
+}
+
+[data-willow-settings-page]
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):is(
+    [data-variant="destructive-outline"],
+    [data-variant="ghost-destructive"]
+  ):not([data-size^="icon"], [data-size="micro"]) {
+  color: var(--willow-settings-error);
+}
+
+[data-willow-settings-page]
+  :is(
+    .willow-settings-page__actions,
+    [data-slot="settings-section-actions"],
+    [data-slot="settings-row-control"],
+    [data-slot="theme-library-header"],
+    [data-willow-settings-actions]
+  )
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):disabled {
+  opacity: 0.6;
+}
+
+[data-willow-settings-page]
+  :is(
+    .willow-settings-page__actions,
+    [data-slot="settings-section-actions"],
+    [data-slot="settings-row-control"],
+    [data-slot="theme-library-header"],
+    [data-willow-settings-actions]
+  )
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):is(
+    [data-variant="outline"],
+    [data-variant="ghost"],
+    [data-variant="ghost-muted"],
+    [data-variant="secondary"]
+  ):disabled {
+  background: var(--willow-settings-field-border);
+  color: var(--willow-settings-variant);
+}
+
+/* Icon buttons are its 36px round ones: the variant colour, an 8% layer and the text colour under
+   the pointer. The 20px reset arrows and info marks beside a title keep their size. */
+[data-willow-settings-page]
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):is(
+    [data-size="icon"],
+    [data-size="icon-sm"],
+    [data-size="icon-xs"],
+    [data-size="icon-lg"]
+  ) {
+  width: 36px;
+  height: 36px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--willow-settings-variant);
+}
+
+[data-willow-settings-page]
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):is(
+    [data-size="icon"],
+    [data-size="icon-sm"],
+    [data-size="icon-xs"],
+    [data-size="icon-lg"]
+  ):is(:hover, [data-pressed], [data-popup-open]) {
+  color: var(--willow-settings-on-surface);
+}
+
+[data-willow-settings-page]
+  :is(button, a)[data-variant][data-size]:not([data-slot="toggle"]):is(
+    [data-size="icon"],
+    [data-size="icon-sm"],
+    [data-size="icon-xs"],
+    [data-size="icon-lg"]
+  )
+  svg:not([class*="text-"]) {
+  width: 20px;
+  height: 20px;
+  color: currentColor;
+}
+
+/* ── Appearance: the color scheme and the theme library as two cards ─────── */
+
+[data-willow-settings-page] [data-slot="theme-library-part"] {
+  margin-block: 0;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--willow-settings-card);
+}
+
+[data-willow-settings-page] [data-slot="theme-library-part"] + [data-slot="theme-library-part"] {
+  margin-top: 16px;
+}
+
+[data-willow-settings-page] [data-slot="theme-library-part"] > * {
+  margin-block: 0;
+}
+
+[data-willow-settings-page] [data-slot="theme-library-part"] > * + * {
+  margin-top: 16px;
+}
+
+[data-willow-settings-page] [data-slot="theme-library-header"] {
+  min-height: 2rem;
+  padding: 0;
+}
+
+[data-willow-settings-page] [data-slot="theme-library-title"] {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0;
+  color: var(--willow-settings-on-surface);
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+}
+
+/* The scheme tiles and theme cards are its child surfaces (#1b1b1b, #232324 under the pointer);
+   the one in use carries the workspace colour's 2px ring, as a configured provider does. */
+[data-willow-settings-page] [aria-label="Appearance mode"] > button,
+[data-willow-settings-page] [data-theme-library-card] {
+  border: 0;
+  background: var(--willow-settings-child);
+  transition: background-color 150ms linear;
+}
+
+[data-willow-settings-page] [aria-label="Appearance mode"] > button {
+  gap: 10px;
+  padding: 8px 8px 12px;
+  border-radius: 16px;
+}
+
+[data-willow-settings-page] [data-theme-library-card] {
+  border-radius: 12px;
+}
+
+[data-willow-settings-page]
+  :is([aria-label="Appearance mode"] > button, [data-theme-library-card]):hover {
+  background: var(--willow-settings-child-hover);
+}
+
+[data-willow-settings-page] [aria-label="Appearance mode"] > button[aria-pressed="true"],
+[data-willow-settings-page] [data-theme-library-card][style*="box-shadow"] {
+  --ring: var(--willow-settings-primary);
+  background: var(--willow-settings-child);
+  outline: 2px solid var(--willow-settings-primary);
+  outline-offset: -2px;
+}
+
+[data-willow-settings-page] [aria-label="Appearance mode"] > button > span {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+[data-willow-settings-page]
+  [data-theme-library-card]
+  button[aria-pressed]:not([aria-label*="variant"]) {
+  font-size: 15px;
+  line-height: 20px;
+}
+
+/* ── Badges are its pill chips (ma-model-price), 12px/16px ──────────────────── */
+
+[data-willow-settings-page] [data-slot="badge"] {
+  height: auto;
+  min-height: 20px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+/* ── Source control's tools and hosts: the card's rows in its type ─────────── */
+
+[data-willow-settings-page] [data-slot="settings-discovery-row"] {
+  border-radius: 0;
+}
+
+[data-willow-settings-page] [data-slot="settings-discovery-row"]:hover {
+  background: transparent;
+}
+
+[data-willow-settings-page] [data-slot="settings-discovery-row"] > div:first-child {
+  padding: 16px 0;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-group"]
+  > [data-slot="settings-discovery-row"]:first-child
+  > div:first-child {
+  padding-top: 0;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-group"]
+  > [data-slot="settings-discovery-row"]:last-child
+  > div:first-child {
+  padding-bottom: 0;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-discovery-row"]
+  > [data-slot="collapsible"]
+  > *
+  > div {
+  padding: 0 0 16px;
+}
+
+[data-willow-settings-page] [data-slot="settings-discovery-row"] .text-sm.font-medium {
+  color: var(--willow-settings-on-surface);
+  font-size: 16px;
+  line-height: 22px;
+}
+
+[data-willow-settings-page] [data-slot="settings-discovery-row"] p.text-xs {
+  color: var(--willow-settings-variant);
+  font-size: 15px;
+  line-height: 20px;
+}
+
+/* ── A folded group's heading is its expander (ma-expander-trigger) ───────── */
+
+[data-willow-settings-page]
+  [data-settings-scroll-target]:has(> h2 > [data-slot="settings-fold-trigger"]) {
+  padding: 0;
+}
+
+[data-willow-settings-page]
+  [data-settings-scroll-target]
+  > h2:has(> [data-slot="settings-fold-trigger"]) {
+  flex: 1 1 auto;
+}
+
+[data-willow-settings-page] [data-slot="settings-fold-trigger"] {
+  width: 100%;
+  min-height: 48px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--willow-settings-field-border);
+  border-radius: 12px;
+  color: var(--willow-settings-on-surface);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  transition: background-color 150ms linear;
+}
+
+[data-willow-settings-page] [data-slot="settings-fold-trigger"]:hover {
+  background: var(--willow-settings-hover);
+}
+
+[data-willow-settings-page] [data-slot="settings-fold-trigger"] svg {
+  width: 20px;
+  height: 20px;
+  color: var(--willow-settings-variant);
+}
+
+[data-willow-settings-page] [data-slot="settings-fold-trigger"] h2 {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+[data-willow-settings-page] [data-slot="collapsible-panel"] > [data-slot="settings-group"] {
+  margin-top: 12px;
+}
+
+/* ── A drilled-in page's way back (ma-back-button): 40px round on a 24px arrow ── */
+
+.willow-settings-page__back {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 -4px 0 -8px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--willow-settings-on-surface);
+  cursor: pointer;
+  transition: background-color 150ms linear;
+}
+
+.willow-settings-page__back:hover {
+  background: var(--willow-settings-hover);
+}
+
+.willow-settings-page__back:focus-visible {
+  outline: 2px solid var(--willow-settings-primary);
+  outline-offset: 2px;
+}
+
+.willow-settings-page__back svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* ── Providers: its provider rows (ma-provider-row) ───────────────────────── */
+
+[data-willow-settings-page] [data-willow-provider-list] {
+  display: grid;
+  gap: 8px;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-group"]
+  > [data-slot="settings-row"][data-provider-drill-in] {
+  position: relative;
+  min-height: 0;
+  gap: 16px;
+  padding: 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--willow-settings-child);
+  transition: background-color 150ms linear;
+}
+
+[data-willow-settings-page] [data-slot="settings-row"][data-provider-drill-in]:hover {
+  background: var(--willow-settings-child-hover);
+}
+
+/* The whole row opens the provider; its switch stays its own. */
+[data-willow-settings-page] [data-provider-drill-in] > div:first-child {
+  position: static;
+  align-items: center;
+  gap: 16px;
+}
+
+[data-willow-settings-page] [data-provider-drill-in] > span:has([data-slot="switch"]) {
+  position: relative;
+  z-index: 1;
+}
+
+[data-willow-settings-page] [data-provider-drill-in] [data-slot="provider-mark"] {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background: var(--willow-settings-mark);
+}
+
+[data-willow-settings-page] [data-provider-drill-in] .text-sm.font-medium {
+  color: var(--willow-settings-on-surface);
+  font-size: 16px;
+  line-height: 22px;
+}
+
+[data-willow-settings-page] [data-provider-drill-in] .text-xs {
+  color: var(--willow-settings-variant);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+[data-willow-settings-page] [data-provider-drill-in] [data-slot="provider-chevron"] {
+  color: var(--willow-settings-variant);
+}
+
+/* ── Lists inside a row: its child rows (ma-model-list) ───────────────────── */
+
+[data-willow-settings-page] [data-slot="settings-list"] {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+}
+
+[data-willow-settings-page] [data-slot="settings-list-item"] {
+  min-height: 56px;
+  gap: 16px;
+  padding: 8px 8px 8px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--willow-settings-child);
+  color: var(--willow-settings-on-surface);
+  font-size: 15px;
+  line-height: 20px;
+  transition: background-color 150ms linear;
+}
+
+[data-willow-settings-page] [data-slot="settings-list-item"]:hover {
+  background: var(--willow-settings-child-hover);
+}
+
+[data-willow-settings-page] [data-slot="settings-list-item"] .text-sm {
+  font-size: 15px;
+  line-height: 20px;
+}
+
+/* ── Empty states: its dashed panel (ma-empty) ────────────────────────────── */
+
+[data-willow-settings-page] [data-slot="settings-row"][data-settings-empty],
+[data-willow-settings-page]
+  [data-slot="settings-group"]
+  > [data-slot="settings-row"][data-settings-empty] {
+  padding: 24px;
+  border: 1px dashed var(--willow-settings-field-border);
+  border-radius: 12px;
+  text-align: center;
+}
+
+[data-willow-settings-page] [data-slot="settings-row"][data-settings-empty] > :first-child {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-row"][data-settings-empty]
+  [data-slot="settings-row-text"] {
+  max-width: none;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-row"][data-settings-empty]
+  [data-slot="settings-row-text"]
+  > div {
+  justify-content: center;
+}
+
+/* The title row keeps an empty slot for a reset arrow; centred copy has none to keep. */
+[data-willow-settings-page]
+  [data-slot="settings-row"][data-settings-empty]
+  [data-slot="settings-row-title"]
+  ~ span:empty {
+  display: none;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-row"][data-settings-empty]
+  [data-slot="settings-row-description"] {
+  color: var(--willow-settings-outline);
+}
+
+[data-willow-settings-page] [data-slot="empty"] {
+  min-height: 0;
+  gap: 12px;
+  padding: 24px;
+  border: 1px dashed var(--willow-settings-field-border);
+  border-radius: 12px;
+  color: var(--willow-settings-outline);
+}
+
+[data-willow-settings-page] [data-slot="empty-media"] {
+  color: var(--willow-settings-variant);
+}
+
+[data-willow-settings-page] [data-slot="empty-title"] {
+  color: var(--willow-settings-on-surface);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+[data-willow-settings-page] [data-slot="empty-description"] {
+  color: var(--willow-settings-outline);
+  font-size: 15px;
+  line-height: 20px;
+}
+
+/* ── T3's own dashboards (Diagnostics) in the page's type and surfaces ───────
+   Tracked capitals read as Willow's usage labels (UsageLimitsView.css: 13px/17px at 540 in 55%
+   ink) as they are written; a bordered panel inside a section is a child surface on a 12px
+   corner, its rules the page's hairline. */
+[data-willow-settings-page] .uppercase[class*="tracking-wide"] {
+  color: var(--willow-usage-muted);
+  font-size: 13px;
+  font-weight: 540;
+  letter-spacing: normal;
+  line-height: 17px;
+  text-transform: none;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-section"]
+  .bg-card.border:is(.rounded-xl, .rounded-2xl) {
+  border: 0;
+  border-radius: 12px;
+  background: var(--willow-settings-child);
+  box-shadow: none;
+}
+
+[data-willow-settings-page]
+  [data-slot="settings-section"]
+  :is([class*="divide-border"] > *, [class*="border-border"]) {
+  border-color: var(--willow-settings-divider);
+}
+
+[data-willow-settings-page] [data-slot="settings-section"] thead.bg-card {
+  background: var(--willow-settings-child);
+}
+
+/* Readings keep their tabular figures in the page's face; paths and commands stay monospace. */
+[data-willow-settings-page] [data-slot="settings-section"] .font-mono.tabular-nums {
+  font-family: var(--font-sans);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-willow-settings-page] [data-slot="select-trigger"] [data-slot="select-icon"] svg,
+  [data-willow-settings-page] [data-slot="select-trigger"] > svg:last-child {
+    transition: none;
+  }
+}

@@ -1,0 +1,535 @@
+/*
+ * Gemini's connect popup, `tool-consent-dialog`, measured at 1536x826 (dpr 1.25) on
+ * gemini.google.com/apps with Granola, Webflow and the extracted GitHub and first-party
+ * Workspace components. Captures: tools/ui-research/captures/gemini/apps-connect/.
+ *
+ * The class names follow Gemini's nodes: host = cdk-global-overlay-wrapper, pane =
+ * cdk-overlay-pane (calc(100vw - 48px), at most 512), inner = mat-mdc-dialog-inner-container
+ * (carries the fade), surface = mat-mdc-dialog-surface (carries the scale).
+ */
+
+/* Gemini's page is `color-scheme: dark`, which is what draws its links' focus ring light. */
+.cc-host {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color-scheme: dark;
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-host {
+  color-scheme: light;
+}
+
+.cc-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  transition: opacity 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.cc-backdrop--shown {
+  opacity: 1;
+}
+
+.cc-pane {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  width: calc(100vw - 48px);
+  max-width: 512px;
+  max-height: 100%;
+}
+
+.cc-inner {
+  display: flex;
+  width: 100%;
+  max-height: 100%;
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.cc-inner--shown {
+  opacity: 1;
+}
+
+.cc-inner--closing {
+  opacity: 0;
+  transition-duration: 75ms;
+}
+
+.cc-surface {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 280px;
+  max-width: 512px;
+  max-height: 100%;
+  overflow: auto;
+  border-radius: 32px;
+  background: rgb(31, 31, 31);
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+  color: rgb(227, 227, 227);
+  font-size: 16px;
+  line-height: normal;
+  transform: scale(0.8);
+  transition: transform 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.cc-inner--shown .cc-surface {
+  transform: none;
+}
+
+.cc-inner--closing .cc-surface {
+  transform: scale(0.8);
+  transition-duration: 75ms;
+}
+
+/* The third-party banner: 30px logos 16px apart, 34px above and 16px below. */
+.cc-banner {
+  padding: 34px 0 16px;
+}
+
+.cc-banner-items {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.cc-banner-logo {
+  display: block;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
+/* `.5px solid var(--bard-color-icon-separator)`, which computes to 0.8px of #7a7a7a here,
+   outside the 24px: 25.6px tall in all. */
+.cc-banner-line {
+  box-sizing: content-box;
+  width: 0;
+  height: 24px;
+  align-self: center;
+  border: 0.5px solid #7a7a7a;
+  border-radius: 100px;
+}
+
+/* The first-party banner: 24pt logos 8px apart under 24px of padding, nothing below. */
+.cc-banner--first-party {
+  padding: 24px 0 0;
+}
+
+.cc-banner--first-party .cc-banner-items {
+  gap: 8px;
+}
+
+.cc-banner--first-party .cc-banner-logo {
+  width: 24pt;
+  height: 24pt;
+}
+
+/* `h1.mat-mdc-dialog-title`, set in the lumi dialog to title-l. */
+.cc-title {
+  position: relative;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 24px 24px 0;
+  color: rgb(227, 227, 227);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 20px;
+  font-weight: 470;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  line-height: 24px;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+/* The server-block layout keeps Material's own 1px under the title. */
+.cc-title--generic {
+  margin-bottom: 1px;
+}
+
+/* The first-party heading is not a dialog title: `.consent-dialog-header`, headline-m at 1.5rem. */
+.cc-first-party-title {
+  margin: 16px 0 0;
+  padding: 0;
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 24px;
+  font-weight: 380;
+  font-variation-settings: "wdth" 100, "slnt" 0, "ROND" 20, "wght" 380;
+  line-height: 28px;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+.cc-title:focus,
+.cc-first-party-title:focus {
+  outline: none;
+}
+
+.cc-account {
+  display: flex;
+  justify-content: center;
+  margin: 24px 0;
+}
+
+.cc-account-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid #444746;
+  border-radius: 58px;
+}
+
+.cc-account-picture {
+  display: flex;
+  align-items: center;
+}
+
+.cc-account-picture img,
+.cc-account-initial {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.cc-account-initial {
+  background: linear-gradient(135deg, #1e3a29, #4a7c59, #8fb896);
+  color: #fff;
+  font-family: "Google Sans Flex", "Google Sans", sans-serif;
+  font-size: 9px;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* `.gds-body-s.user-email`: 13px/17px at weight 500 over a "wght" 400 axis. */
+.cc-account-email {
+  display: block;
+  color: rgb(196, 199, 197);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 17px;
+}
+
+/* The first-party pill sets the email in label-m-alt instead. */
+.cc-account-email--first-party {
+  font-size: 12px;
+  font-variation-settings: "wdth" 95, "slnt" 0, "ROND" 0, "wght" 400;
+  line-height: 16px;
+  letter-spacing: 0.00625rem;
+}
+
+/*
+ * `mat-dialog-content`: body-m in #e6e6e6, 16px down and 24px in, scrolling past
+ * `calc(100vh - 325px)`. The lumi dialog keeps a stable gutter for Gemini's 12px scrollbar, so
+ * the text column is 12px narrower than the padding alone would make it — on a mouse; touch has
+ * no such scrollbar and keeps the full column.
+ */
+.cc-content {
+  display: block;
+  box-sizing: border-box;
+  max-height: calc(100vh - 325px);
+  padding: 16px 24px 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  color: rgb(230, 230, 230);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+}
+
+/* Gemini's global scrollbar, on fine pointers: 12px, transparent, a thumb only under the pointer. */
+@media (pointer: fine) {
+  .cc-content::-webkit-scrollbar,
+  .cc-content::-webkit-scrollbar-corner {
+    width: 12px;
+    height: 12px;
+    background: transparent;
+  }
+
+  .cc-content::-webkit-scrollbar-thumb {
+    min-width: 48px;
+    min-height: 48px;
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background: content-box transparent;
+  }
+
+  .cc-content::-webkit-scrollbar-thumb:hover,
+  .cc-content::-webkit-scrollbar-thumb:active {
+    background: content-box #444746;
+  }
+
+  .cc-content::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+  }
+}
+
+.cc-content > :first-child {
+  margin-top: 0;
+}
+
+.cc-content > :last-child {
+  margin-bottom: 0;
+}
+
+.cc-content p {
+  margin: 0;
+}
+
+/*
+ * Subheadings declare weight 700 over the content's "wght" 400 axis. Google Sans Flex is
+ * declared 280-540 (Gemini's face and index.html's), so 700 is drawn as synthetic bold on
+ * regular glyphs — which is how Gemini's look too.
+ */
+.cc-subheader {
+  font-weight: 700;
+}
+
+/* title-s, as `.gds-title-s.dialog-content-subheader` in the GitHub layout: no margins. */
+.cc-subheader--small,
+.cc-subheader--first-party {
+  margin: 0;
+  font-size: 13px;
+  line-height: 17px;
+}
+
+/* The first-party "How … respects your privacy:" is an h3 with no margin rule of its own. */
+.cc-subheader--heading {
+  margin: 1em 0;
+}
+
+/* `h2.gds-title-m.dialog-content-subheader.no-margin-bottom`: the h2's own 0.83em above. */
+.cc-subheader--block {
+  margin: 0.83em 0 0;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.cc-list {
+  margin: 0 0 14px;
+  padding-inline-start: 16px;
+  list-style: disc;
+}
+
+.cc-list--first-party {
+  margin: 0;
+}
+
+.cc-list-item {
+  margin: 4px 0;
+  padding: 0;
+}
+
+.cc-text {
+  margin: 0;
+}
+
+/* The lumi dialog's own rule for every link in its content, over each layout's `.link`. */
+.cc-link {
+  color: rgb(230, 230, 230);
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-underline-position: from-font;
+  cursor: pointer;
+}
+
+/* `mat-dialog-actions` with Gemini's small `gem-button`s, flush right. */
+.cc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 52px;
+  padding: 16px;
+  text-align: end;
+}
+
+.cc-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: rgb(230, 230, 230);
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: normal;
+  text-align: center;
+  cursor: default;
+  user-select: none;
+  transition: box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cc-button--tonal {
+  background: rgb(23, 23, 23);
+}
+
+/* The persistent ripple carries the hover tint; the button's own fill never changes. */
+.cc-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgb(230, 230, 230);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cc-button:hover::before {
+  opacity: 0.08;
+}
+
+.cc-button:active::before {
+  opacity: 0.12;
+}
+
+/* `.mat-mdc-button-ripple` and its `.mat-ripple-element`s. launchMaterialRipple sets the geometry
+   and the 225ms / 150ms durations inline. */
+.cc-button-ripples {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.cc-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background-color: rgba(230, 230, 230, 0.1);
+  pointer-events: none;
+  transform: scale3d(0, 0, 0);
+  transition: opacity, transform 0ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* Material's focus indicator: 3px at a 2px offset, which computes to 2.4px / 1.6px here. */
+.cc-button:focus-visible {
+  outline: 3px solid rgb(230, 230, 230);
+  outline-offset: 2px;
+}
+
+.cc-button-label {
+  position: relative;
+  display: block;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+/*
+ * At 960px and below Gemini remaps the dialog's surfaces, measured at 800x1280 and 390x844: the
+ * surface to #1c1c1c, body text, links and button labels to #e0e0e0, the tonal button to
+ * #141414. The title, the account pill and the divider keep their desktop colours.
+ */
+@media (max-width: 960px) {
+  .cc-surface {
+    background: rgb(28, 28, 28);
+  }
+
+  .cc-content,
+  .cc-link,
+  .cc-button {
+    color: rgb(224, 224, 224);
+  }
+
+  .cc-button--tonal {
+    background: rgb(20, 20, 20);
+  }
+}
+
+/*
+ * At 768px and below the panel is `100dvh` tall (`.global-consent-dialog-panel`) and the dialog's
+ * own container `height: 100vh; max-height: 650px; width: fit-content`, so the surface runs the
+ * full height of the screen, 24px in from each side, with the content and buttons at its top.
+ */
+@media (max-width: 768px) {
+  .cc-pane {
+    height: 100dvh;
+  }
+
+  .cc-container {
+    width: fit-content;
+    height: 100vh;
+    max-height: 650px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-backdrop,
+  .cc-inner,
+  .cc-surface {
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Light theme: the values GeminiDialog.css measured on Gemini's light dialogs. Not measured here. */
+:is(.light-theme, [data-theme="light"]) .cc-surface {
+  background: #ffffff;
+  box-shadow: rgba(0, 0, 0, 0.2) 0 11px 15px -7px, rgba(0, 0, 0, 0.14) 0 24px 38px 3px, rgba(0, 0, 0, 0.12) 0 9px 46px 8px;
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-title,
+:is(.light-theme, [data-theme="light"]) .cc-first-party-title {
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-content,
+:is(.light-theme, [data-theme="light"]) .cc-account-email {
+  color: rgb(68, 71, 70);
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-account-pill {
+  border-color: rgb(196, 199, 197);
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-link {
+  color: var(--sync-0b57d0, rgb(11, 87, 208));
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-button {
+  color: rgb(68, 71, 70);
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-button--tonal {
+  background: rgb(242, 240, 240);
+  color: rgb(31, 31, 31);
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-button::before {
+  background: rgb(0, 0, 0);
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-ripple {
+  background-color: rgba(31, 31, 31, 0.1);
+}
+
+:is(.light-theme, [data-theme="light"]) .cc-button:focus-visible {
+  outline-color: rgb(31, 31, 31);
+}

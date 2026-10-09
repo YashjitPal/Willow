@@ -1,0 +1,123 @@
+/*
+ * Willow's additions to Flow's Tools stylesheets (flow-tools.css, generated): the surface the
+ * pages sit on, and the row that puts Media's own rail beside Flow's content. Flow's pages are a
+ * column — its 76px header over `flow-project-sidenav-container` — and so is each page here, with
+ * `.wt-tools-body` in the container's place.
+ */
+
+/* Flow's app frame keeps an 8px scrollbar gutter on the right whether or not anything scrolls. */
+.wt-tools-surface {
+  position: fixed;
+  /* The whole window, or in the desktop app's frame its page (shell/rail/AppRail.css). */
+  inset: var(--willow-frame-inset, 0);
+  border-radius: var(--willow-frame-page-radius, 0);
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding-inline-end: 8px;
+  background: #000;
+  /* Flow's page text is white; its pages' content inherits on-surface from mat-sidenav-content (.wt-tools-main). */
+  color: #fff;
+  font-family: 'Google Sans Text', 'Google Sans', sans-serif;
+  overflow: hidden;
+}
+
+.wt-tools-loading {
+  flex: 1;
+  background: #000;
+}
+
+/* The page's host fills the surface (Flow's hosts fill flow-project-shell). */
+.wt-tools-surface > [class^='ng-flow-'],
+.wt-tools-surface > [class*=' ng-flow-'] {
+  flex: 1;
+  min-height: 0;
+}
+
+.wt-tools-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.wt-tools-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  color: var(--mat-sys-on-surface);
+}
+
+/* Media's rail sits on Flow's black, as Flow's sidenav does. */
+.wt-tools-body > aside {
+  background: #000;
+}
+
+/* Flow's corner disclaimer sits over the rail, which in Willow is a stacking layer of its own (z 75). */
+.wt-tools-surface .ng-flow-footer-disclaimer {
+  z-index: 80;
+}
+
+/* Create tool's panel runs to the window's bottom, as Flow's does inside its sidenav content. */
+.wt-create-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Create tool's prompt: a textarea standing in for Flow's ProseMirror editor, styled as its contenteditable. */
+.ng-flow-tools .wt-rich-input {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 1.25rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  cursor: text;
+}
+
+/* The overlay root wears .ng-flow-tools for Flow's tokens, and with it the isolation Flow gives its
+   <body>. A stacking context of its own would sink the overlay container (z-index 1000) under the
+   Tools surface (900): every dialog, picker and tooltip opened behind the page. */
+.ng-flow-tools.ng-flow-tools-overlays {
+  isolation: auto;
+  background-color: transparent;
+}
+
+/* Flow's icons change colour at once: no fade from the app-wide icon rule. Flow's own icon
+   transitions (a chevron turning) are on more specific selectors and still win; Media's rail
+   keeps the fade it has on every Media page. */
+:where(.ng-flow-tools) span.google-symbols:not(aside *),
+:where(.ng-flow-tools) span.material-symbols-rounded:not(aside *) {
+  transition: none;
+}
+
+/* Flow's Tool/Edit toggles set no letter-spacing (its toggles elsewhere take label-medium's 0.006rem),
+   as its Explore tools toggles do. */
+:where(.ng-flow-tools) :where(.ng-flow-applet-view-header) .applet-view-toggles:not(.ng-) {
+  --mat-button-toggle-label-text-tracking: var(--mat-sys-label-large-tracking);
+}
+
+/* The debug menu's "Mock Error on Next Send" line (the menu itself is Willow's mat-menu port, outside the Tools scope). */
+.wt-debug-menu-header {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 8px 16px 4px;
+  user-select: none;
+}

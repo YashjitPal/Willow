@@ -1,0 +1,873 @@
+/*
+ * Media on tablets (601-960px) and phones (600px and below): Willow's own narrow layout, designed
+ * here rather than taken from Flow, whose narrow screens are its desktop squeezed. The splits are
+ * Willow's (`use-media-viewport.ts`): 960px, where the rest of the app goes narrow, and 600px.
+ *
+ * Every rule sits in a max-width block, so none of them reaches the desktop, which was measured off
+ * Flow and must not move. Pinned by apps/studio/test/media-responsive.test.mjs.
+ */
+
+@media (max-width: 960px) {
+  @keyframes media-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes media-sheet-enter {
+    from { transform: translateY(100%); }
+    to { transform: none; }
+  }
+
+  @keyframes media-sheet-exit {
+    from { transform: none; }
+    to { transform: translateY(100%); }
+  }
+
+  /* The screen's own height: 100vh runs under a phone's browser bars. */
+  .media-root {
+    height: 100dvh !important;
+  }
+
+  /* ---- The rail's drawer (MediaSidebar), Willow's drawer metrics ---------------------------- */
+
+  .media-drawer-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 140;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .media-drawer-scrim.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .media-drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 141;
+    display: flex;
+    width: min(320px, 85vw);
+    height: 100dvh;
+    flex-direction: column;
+    box-sizing: border-box;
+    padding: calc(4px + env(safe-area-inset-top)) 12px calc(8px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: #1c1c1c;
+    color: #e8eaed;
+    box-shadow: 12px 0 32px rgba(0, 0, 0, 0.36);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 300ms cubic-bezier(0.2, 0, 0, 1), visibility 0s linear 300ms;
+    scrollbar-width: none;
+  }
+
+  .media-drawer.is-open {
+    transform: none;
+    visibility: visible;
+    transition: transform 300ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .media-drawer > nav:first-of-type {
+    margin-bottom: auto;
+  }
+
+  .media-drawer > nav:last-of-type {
+    margin-top: 16px;
+    margin-bottom: 0;
+  }
+
+  .media-drawer-head {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    margin-bottom: 8px;
+  }
+
+  .media-drawer-home {
+    display: flex;
+    height: 48px;
+    align-items: center;
+    gap: 16px;
+    padding: 0 16px 0 12px;
+    border: 0;
+    border-radius: 16px;
+    background: transparent;
+    color: #e8eaed;
+    font: 500 14px/20px "Google Sans Text", "Google Sans", sans-serif;
+    cursor: pointer;
+  }
+
+  .media-drawer-home:hover,
+  .media-drawer-close:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .media-drawer-close {
+    display: flex;
+    width: 44px;
+    height: 44px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #c4c7c5;
+    cursor: pointer;
+  }
+
+  /* ---- The header (MediaCompactHeader) ------------------------------------------------------ */
+
+  .media-compact-header {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 80;
+    box-sizing: border-box;
+    height: calc(64px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 8px 0;
+    pointer-events: none;
+  }
+
+  .mch-bar,
+  .mch-search {
+    pointer-events: auto;
+  }
+
+  .mch-bar {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .mch-bar.is-searching {
+    visibility: hidden;
+  }
+
+  .mch-title {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    align-items: center;
+    padding-left: 4px;
+    font-family: "Google Sans Text", "Inter", system-ui, -apple-system, sans-serif;
+  }
+
+  .mch-name {
+    flex: 0 1 auto;
+  }
+
+  /* As wide as the name, so the chevron sits right after it: `size` alone leaves Chrome's input a
+   * few characters wider than its text. */
+  .mch-title input {
+    min-width: 1ch;
+    max-width: 100% !important;
+    field-sizing: content;
+    text-overflow: ellipsis;
+  }
+
+  .mch-title .mch-button {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .mch-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+  }
+
+  .mch-button,
+  .mch-avatar {
+    display: flex;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 150ms ease;
+  }
+
+  .mch-button:hover {
+    background: rgba(218, 220, 224, 0.1);
+  }
+
+  .mch-button:active,
+  .mch-button[aria-expanded="true"] {
+    background: rgba(218, 220, 224, 0.16);
+  }
+
+  .mch-search {
+    position: absolute;
+    top: calc(env(safe-area-inset-top) + 8px);
+    right: 8px;
+    left: 8px;
+    display: flex;
+    height: 48px;
+    align-items: center;
+    gap: 2px;
+    padding: 0 2px;
+    border-radius: 24px;
+    background: rgba(40, 42, 44, 0.94);
+    backdrop-filter: blur(40px);
+    animation: media-fade-in 150ms ease-out;
+  }
+
+  /* 16px, so a phone does not zoom in on the field when it takes focus. */
+  .mch-search input {
+    min-width: 0;
+    height: 100%;
+    flex: 1 1 auto;
+    padding: 0 4px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #fff;
+    font: 400 16px/24px "Google Sans Text", "Inter", system-ui, sans-serif;
+  }
+
+  .mch-search input::placeholder {
+    color: rgba(218, 220, 224, 0.5);
+  }
+
+  .mch-search input::-webkit-search-cancel-button {
+    display: none;
+  }
+
+  /* ---- The gallery ---------------------------------------------------------------------------- */
+
+  .media-main {
+    margin-left: 0 !important;
+    padding-left: 12px !important;
+  }
+
+  .media-gallery-frame {
+    padding-top: calc(72px + env(safe-area-inset-top)) !important;
+    padding-bottom: calc(180px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .media-empty-state {
+    left: 50% !important;
+    width: calc(100% - 48px);
+    text-align: center;
+  }
+
+  /* ---- The composer ------------------------------------------------------------------------- */
+
+  .media-composer {
+    right: auto;
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--media-keyboard-inset, 0px)) !important;
+    left: 50% !important;
+    width: calc(100% - 32px) !important;
+    max-width: 600px !important;
+    transform: translateX(-50%) !important;
+  }
+
+  .media-settings-label {
+    max-width: 34vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The settings popover above the composer becomes a sheet. */
+  .media-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 109;
+    background: rgba(0, 0, 0, 0.32);
+    animation: media-fade-in 200ms ease-out;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .media-settings-sheet {
+    top: auto !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: auto !important;
+    max-height: min(85dvh, 640px);
+    overflow-y: auto !important;
+    box-sizing: border-box;
+    padding: 16px 12px calc(16px + env(safe-area-inset-bottom)) !important;
+    gap: 8px !important;
+    border-radius: 28px 28px 0 0 !important;
+    background-color: rgba(28, 28, 30, 0.98) !important;
+    animation: media-sheet-enter 195ms cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  .media-settings-sheet button {
+    min-height: 44px;
+  }
+
+  /* Its rows are sized for 34px toggles; here they grow to the 44px ones they hold. */
+  .media-settings-sheet div:has(> button) {
+    height: auto;
+  }
+
+  /* A model list opens in place and pushes the rows below it down: the sheet scrolls, where a
+   * floating list would be cut off at the sheet's edge. */
+  .media-settings-sheet .media-model-list {
+    position: static;
+    margin-top: 4px;
+    box-shadow: none;
+  }
+
+  /* ---- Menus: every FlowMatMenu is a bottom sheet ---------------------------------------------- */
+
+  .sb-menu-backdrop.is-sheet {
+    background: rgba(0, 0, 0, 0.32);
+    animation: media-fade-in 200ms ease-out;
+  }
+
+  .sb-menu.is-sheet,
+  .sb-popover.is-sheet {
+    top: auto !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: min(85dvh, 720px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-sizing: border-box;
+    padding: 0 8px calc(12px + env(safe-area-inset-bottom));
+    border-radius: 28px 28px 0 0;
+    background-color: rgba(28, 28, 30, 0.98);
+    transform-origin: bottom center;
+    animation: media-sheet-enter 195ms cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  .sb-menu.is-sheet::before,
+  .sb-popover.is-sheet::before {
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 10px auto 6px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.32);
+    content: "";
+  }
+
+  .sb-menu.is-sheet.sb-menu--closing,
+  .sb-popover.is-sheet.sb-menu--closing {
+    animation: media-sheet-exit 120ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
+
+  .sb-menu.is-sheet .sb-menu__content {
+    padding: 0 0 4px;
+  }
+
+  .sb-menu.is-sheet .sb-menu-item {
+    min-height: 48px;
+    font-size: 15px;
+  }
+
+  /* ---- Filters (SortFilterMenu): a sheet, its rows of groups wrapping ------------------------ */
+
+  .hp-filter-backdrop {
+    z-index: 999;
+  }
+
+  .hp-filter.is-sheet {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-height: min(85dvh, 720px);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-radius: 28px 28px 0 0;
+    background-color: rgba(28, 28, 30, 0.98);
+    animation: media-sheet-enter 195ms cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  .hp-filter.is-sheet .hp-filter__groups {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+
+  .hp-filter.is-sheet .hp-filter__group {
+    min-width: min(150px, 40%);
+  }
+
+  .hp-filter.is-sheet .hp-filter__group--wide {
+    flex-basis: 100%;
+  }
+
+  /* ---- The agent's and the music player's panels: over the gallery, not beside it --------- */
+
+  .agent-sidebar-container,
+  .music-player-sidebar {
+    top: calc(8px + env(safe-area-inset-top) + var(--willow-frame-top, 0px)) !important;
+    right: calc(8px + var(--willow-frame-right, 0px)) !important;
+    bottom: calc(8px + env(safe-area-inset-bottom) + var(--media-keyboard-inset, 0px) + var(--willow-frame-bottom, 0px)) !important;
+    z-index: 130 !important;
+    width: min(400px, calc(100vw - 96px)) !important;
+  }
+
+  /* The agent's welcome centres in the room above its prompt box, and scrolls when a short screen
+   * (a phone on its side, or with its keyboard up) leaves too little, instead of running under it. */
+  .agent-sidebar-container .agent-empty-state {
+    justify-content: safe center;
+    padding-top: 24px;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+}
+
+/* ---- Touch screens, at any width ---------------------------------------------------------------
+ * Nothing hovers, so the tile chrome hover would bring up stays at rest (on iOS a tap that reveals
+ * hidden content is spent on the reveal, and the tile would not open), and three dots in the corner
+ * and a long press (use-long-press.ts) open the tile's menu instead. */
+
+@media (hover: none) {
+  .group:hover .gt-pre,
+  .cg-tile:hover .cg-tile__pre-hover {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  /* Gone rather than faded: their own rules raise them on hover and while their menu is open. */
+  .gt-hover,
+  .ct-container .ct-hover,
+  .sb-scene-tile__container .sb-scene-tile__hover,
+  .cg-tile .cg-tile__hover {
+    display: none !important;
+  }
+
+  .gallery-tile,
+  .cg-tile {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .gallery-tile .gt-touch-more,
+  .cg-tile .gt-touch-more {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    z-index: 31;
+    display: flex;
+    width: 44px;
+    height: 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    isolation: isolate;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .gallery-tile .gt-touch-more--top {
+    top: 0;
+    bottom: auto;
+  }
+
+  .gallery-tile .gt-touch-more::before,
+  .cg-tile .gt-touch-more::before {
+    position: absolute;
+    inset: 7px;
+    z-index: -1;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(8px);
+    content: "";
+  }
+
+  .gallery-tile .gt-touch-more:active::before,
+  .cg-tile .gt-touch-more:active::before {
+    background: rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* ---- Tablets: the icon rail holds the left 80px, so what floats over the gallery centres on the
+ * rest ------------------------------------------------------------------------------------------ */
+
+@media (min-width: 601px) and (max-width: 960px) {
+  .media-composer {
+    left: calc(50% + 40px) !important;
+    width: calc(100% - 112px) !important;
+  }
+
+  /* A tablet's sheets stop at 640px, centred, as Material's do past a phone's width. */
+  .sb-menu.is-sheet,
+  .sb-popover.is-sheet,
+  .hp-filter.is-sheet,
+  .media-settings-sheet {
+    max-width: 640px !important;
+    margin-right: auto !important;
+    margin-left: auto !important;
+  }
+
+  .media-empty-state {
+    left: calc(50% + 40px) !important;
+    width: calc(100% - 128px);
+  }
+}
+
+/* ---- A phone on its side: a tablet's width under a phone's height. Its rail is the drawer
+ * (useRailDrawer), so nothing holds the left 80px. Before the phone block, whose widths win on a
+ * screen narrow enough for both. ----------------------------------------------------------------- */
+
+@media (max-width: 960px) and (max-height: 500px) {
+  .media-composer {
+    left: 50% !important;
+    width: calc(100% - 32px) !important;
+  }
+
+  .media-empty-state {
+    left: 50% !important;
+    width: calc(100% - 48px);
+  }
+
+  /* The add panel spans the room above the composer, from 8px under the screen's top to its own
+   * 8px above the composer: at its own height it would start above the screen. Its categories
+   * scroll, and since a press adds an asset, the list takes the preview's room. */
+  body .sb-picker.sb-picker--popover {
+    top: 8px;
+    height: auto;
+  }
+
+  body .sb-picker--popover .sb-picker__nav {
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  body .sb-picker--popover .sb-picker__list {
+    flex: 1 1 0%;
+    width: auto;
+  }
+
+  body .sb-picker--popover .sb-detail {
+    display: none;
+  }
+}
+
+/* ---- Phones ------------------------------------------------------------------------------------ */
+
+@media (max-width: 600px) {
+  .media-compact-header {
+    height: calc(56px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 4px 0;
+  }
+
+  .mch-search {
+    top: calc(env(safe-area-inset-top) + 4px);
+    right: 4px;
+    left: 4px;
+  }
+
+  .media-main {
+    padding-left: 8px !important;
+  }
+
+  .media-gallery-frame {
+    padding-top: calc(60px + env(safe-area-inset-top)) !important;
+    padding-bottom: calc(150px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .media-composer {
+    bottom: calc(10px + env(safe-area-inset-bottom) + var(--media-keyboard-inset, 0px)) !important;
+    width: calc(100% - 16px) !important;
+  }
+
+  .media-settings-label {
+    max-width: 30vw;
+  }
+
+  .flow-account-menu[data-willow-account-menu] {
+    inset: calc(8px + env(safe-area-inset-top)) 8px auto 8px;
+    width: auto;
+  }
+
+  /* Snackbars span the screen under the header. */
+  body .sb-snackbar {
+    top: calc(64px + env(safe-area-inset-top));
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-width: none;
+  }
+
+  /* ---- The prompt's Add panel (AssetMenuModal): one column, as wide as the prompt ------------ *
+   * Search across the top, the project and the sort under it, the kinds as a row of chips, the
+   * list (a press adds the asset), then Add sketch and Upload media side by side. */
+
+  .asset-menu-modal-container.aml-phone {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "search search"
+      "project sort"
+      "cats cats"
+      "list list"
+      "actions actions";
+    max-width: none;
+    border-radius: 24px;
+  }
+
+  .asset-menu-modal-container.aml-phone[data-mode="main"] {
+    right: 0;
+    left: 0;
+    width: auto;
+  }
+
+  .asset-menu-modal-container.aml-phone[data-mode="sidebar"] {
+    right: 8px !important;
+    left: 8px;
+    width: auto;
+  }
+
+  .asset-menu-modal-container.aml-phone[data-mode="instruction-reference"] {
+    width: calc(100vw - 16px);
+  }
+
+  .aml-phone .aml-side,
+  .aml-phone .aml-main,
+  .aml-phone .aml-search-row,
+  .aml-phone .aml-body {
+    display: contents;
+  }
+
+  .aml-phone .aml-search {
+    grid-area: search;
+    margin: 12px 12px 8px;
+    height: 44px;
+  }
+
+  .aml-phone .aml-search input {
+    font-size: 16px;
+  }
+
+  .aml-phone .aml-project {
+    grid-area: project;
+    padding: 0 8px 8px 12px;
+  }
+
+  .aml-phone .aml-sort {
+    grid-area: sort;
+    margin: 0 12px 8px 0;
+  }
+
+  .aml-phone .aml-cats {
+    grid-area: cats;
+    flex-direction: row;
+    gap: 6px;
+    padding: 0 12px 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .aml-phone .aml-cats > button {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 18px;
+  }
+
+  .aml-phone .aml-list {
+    grid-area: list;
+    width: auto;
+    min-height: 0;
+  }
+
+  .aml-phone .aml-list > div {
+    padding: 0 8px 8px;
+  }
+
+  .aml-phone .aml-list > div > div {
+    min-height: 52px;
+  }
+
+  .aml-phone .aml-preview {
+    display: none;
+  }
+
+  .aml-phone .aml-preview.is-sketch {
+    display: flex;
+    grid-area: list;
+    padding: 0 12px 8px;
+  }
+
+  .aml-phone .aml-actions {
+    grid-area: actions;
+    flex-direction: row;
+    gap: 8px;
+    padding: 8px 12px 12px;
+    border-top: 0.8px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .aml-phone .aml-actions > button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-height: 44px;
+    border-radius: 22px;
+    background-color: rgba(255, 255, 255, 0.06);
+  }
+
+  /* ---- The media picker (SceneMediaPicker): a sheet from the bottom, its panes stacked ------ *
+   * The project and Upload, the kinds as chips, the search, then the list over the chosen asset
+   * (a clip's trimmer, a character's views) and its Add button. */
+
+  body .sb-dialog-wrap {
+    align-items: flex-end;
+  }
+
+  body .sb-picker {
+    width: 100vw;
+    height: min(92dvh, 760px);
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    border-radius: 28px 28px 0 0;
+  }
+
+  body .sb-picker.sb-picker--popover {
+    top: auto;
+    right: 8px;
+    left: 8px !important;
+    width: auto;
+    height: min(70dvh, 560px);
+    padding-bottom: 12px;
+    border-radius: 24px;
+    transform: none;
+  }
+
+  body .sb-picker__panels {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  body .sb-picker__nav {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "select upload"
+      "tabs tabs";
+    gap: 8px;
+    width: auto;
+  }
+
+  body .sb-picker__nav > :first-child {
+    grid-area: select;
+  }
+
+  body .sb-picker__nav > :last-child {
+    grid-area: upload;
+  }
+
+  body .sb-picker__tabs {
+    grid-area: tabs;
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  body .sb-picker__tab {
+    flex: 0 0 auto;
+    padding-right: 14px;
+    border-radius: 18px;
+  }
+
+  body .sb-picker__tab-icon {
+    margin: 0 6px 0 10px;
+  }
+
+  body .sb-picker__upload.sb-btn {
+    width: auto;
+    height: 36px;
+    padding: 0 12px;
+  }
+
+  body .sb-picker__search-input {
+    font-size: 16px;
+  }
+
+  body .sb-picker__search {
+    min-width: 0;
+  }
+
+  body .sb-picker__sort {
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+
+  body .sb-picker__content {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  body .sb-picker__list {
+    flex: 1 1 0%;
+    width: auto;
+    height: auto;
+    min-height: 96px;
+  }
+
+  body .sb-asset {
+    height: 52px;
+  }
+
+  body .sb-detail {
+    flex: 0 1 auto;
+    height: auto;
+    max-height: 48%;
+    min-height: 0;
+  }
+
+  /* The preview gives way before Add does. */
+  body .sb-detail > :first-child:not(.sb-detail__actions) {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body .sb-detail__actions {
+    flex-shrink: 0;
+  }
+
+  /* The popover takes an asset on a press, so its preview would only crowd the list. */
+  body .sb-picker--popover .sb-detail {
+    display: none;
+  }
+
+  /* The agent and the music player take the screen, down to the keyboard while one is up. */
+  .agent-sidebar-container,
+  .music-player-sidebar {
+    /* The screen, or the page in the desktop app's frame. */
+    top: var(--willow-frame-top, 0px) !important;
+    right: var(--willow-frame-right, 0px) !important;
+    bottom: calc(var(--media-keyboard-inset, 0px) + var(--willow-frame-bottom, 0px)) !important;
+    left: var(--willow-frame-left, 0px) !important;
+    width: auto !important;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-radius: 0 !important;
+  }
+}

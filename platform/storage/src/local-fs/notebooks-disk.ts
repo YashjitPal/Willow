@@ -38,6 +38,7 @@ import {
 } from '@willow/notebooks/notebooks-backend';
 
 import { readProjectManifest, writeProjectManifest } from '../adapters/local-disk';
+import { moveToRecycleBin } from './recycle-bin';
 import type { DiskDeps } from './disk-deps';
 
 /** Only the folder half of DiskDeps; a notebook is not project-addressed. */
@@ -230,6 +231,68 @@ export const ensureNotebookDirIn = async (
   }
 };
 
+/**
+ * Every notebook folder's manifest, by folder name: what a copy of Willow with no row for a
+ * folder's notebook rebuilds it from (`notebookFromManifest`). Null when `Notebooks/` cannot be
+ * read, which is not the same answer as "no notebooks".
+ */
+export const readNotebookManifests = async (
+  rootDir: FileSystemDirectoryHandle,
+): Promise<Array<{ folderName: string; manifest: { id: string } & Record<string, unknown> }> | null> => {
+  let notebooksRoot: FileSystemDirectoryHandle;
+  try {
+    notebooksRoot = await rootDir.getDirectoryHandle(NOTEBOOKS_DIR_NAME);
+  } catch (error) {
+    return (error as DOMException | undefined)?.name === 'NotFoundError' ? [] : null;
+  }
+  const found: Array<{ folderName: string; manifest: { id: string } & Record<string, unknown> }> = [];
+  try {
+    for await (const [folderName, handle] of (notebooksRoot as any).entries() as AsyncIterable<[string, FileSystemHandle]>) {
+      if (handle.kind !== 'directory') continue;
+      const manifest = await readProjectManifest(handle as FileSystemDirectoryHandle);
+      if (typeof manifest?.id === 'string' && manifest.id) found.push({ folderName, manifest: manifest as { id: string } });
+    }
+  } catch {
+    return null;
+  }
+  return found;
+};
+
+/**
+ * Write a notebook's whole manifest (its id and details) into its existing folder. Never makes
+ * the folder, and refuses one whose manifest names another notebook, as `ensureNotebookDirIn` does.
+ * Writes nothing when the file already says `text`.
+ */
+export const writeNotebookManifest = async (
+  rootDir: FileSystemDirectoryHandle,
+  folderName: string,
+  notebookId: string,
+  text: string,
+): Promise<boolean> => {
+  if (!folderName || !notebookId) return false;
+  try {
+    const notebooksRoot = await rootDir.getDirectoryHandle(NOTEBOOKS_DIR_NAME);
+    const notebookDir = await notebooksRoot.getDirectoryHandle(folderName);
+    let current = '';
+    try {
+      current = await (await (await notebookDir.getFileHandle('.willow.json')).getFile()).text();
+    } catch {
+      // No manifest yet: this writes the first one.
+    }
+    if (current === text) return true;
+    if (current) {
+      const existing = JSON.parse(current) as { id?: unknown } | null;
+      if (existing?.id && existing.id !== notebookId) return false;
+    }
+    const writable = await (await notebookDir.getFileHandle('.willow.json', { create: true })).createWritable();
+    await writable.write(text);
+    await writable.close();
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** `ensureNotebookDirIn` for callers that hold deps rather than a root handle. */
 export const ensureNotebookDir = async (
   { getActiveHandle }: NotebookDiskDeps,
@@ -316,7 +379,7 @@ export const deleteNotebookSourceFromDisk = async (
     const notebooksRoot = await rootHandle.getDirectoryHandle(NOTEBOOKS_DIR_NAME);
     const notebookDir = await notebooksRoot.getDirectoryHandle(folderName);
     const sourcesDir = await notebookDir.getDirectoryHandle(NOTEBOOK_SOURCES_DIR_NAME);
-    await sourcesDir.removeEntry(fsName);
+    await moveToRecycleBin({ root: rootHandle, path: [NOTEBOOKS_DIR_NAME, folderName, NOTEBOOK_SOURCES_DIR_NAME] }, sourcesDir, fsName);
     return true;
   } catch {
     return false;
@@ -445,7 +508,7 @@ export const deleteNotebookFolder = async (
       // No Chats/ at all is the empty case, not a reason to refuse.
     }
 
-    await notebooksRoot.removeEntry(folderName, { recursive: true });
+    await moveToRecycleBin({ root: rootHandle, path: [NOTEBOOKS_DIR_NAME] }, notebooksRoot, folderName);
     return true;
   } catch {
     return false;

@@ -385,7 +385,11 @@ test('the prompt Copy button raises the prompt snackbar, not the response one', 
 
   const at = chatViewCode.indexOf('handleCopyPrompt(msg)');
   assert.ok(at > -1, 'the prompt Copy button must call handleCopyPrompt');
-  assert.match(chatViewCode.slice(at, at + 800), /aria-label="Copy prompt"/);
+  // Bounded by the element, not a character count: the button's themed
+  // className sits between the handler and its label and grows with the theme.
+  const end = chatViewCode.indexOf('</button>', at);
+  assert.ok(end > at, 'handleCopyPrompt is no longer called from a button');
+  assert.match(chatViewCode.slice(at, end), /aria-label="Copy prompt"/);
 });
 
 test('App owns the reset and threads it in as a prop', () => {

@@ -41,6 +41,13 @@ vs `projectName` split that caused media to disappear.)
 - Steps 2–3 don't happen; the item stays `isSavedToFS: false`, so its base64
   `url` is kept in IndexedDB. It displays from base64. (Unchanged old behavior.)
 
+### A failed generation is session-only
+Its "Failed" tile stays on screen for the session that saw it fail, including
+across realtime refreshes, but `saveProjectMedia` never persists a `status:
+'failed'` item — so it is gone after a reload or on reopening the project.
+`loadMedia` also drops failed and stale `generating` entries (a browser closed
+mid-run) from records written before this rule, and the next save cleans them.
+
 ### Reload / open a project — the **single** load path (`MediaView.loadMedia`, keyed by projectId)
 1. If folder connected → `refreshLocalMedia(projectId, projectName)`:
    reconciles IndexedDB metadata with the disk folder (drops files deleted
@@ -114,6 +121,19 @@ already has a live `blob:` URL on screen. If so, it reuses that exact URL instea
 of creating a new one. Without this, each reload revokes the old URL and creates a
 new one → the browser unloads the `<img>` (height collapses to 0) → masonry layout
 re-flows → tiles visibly jump.
+
+"Live" is checked, not assumed: a URL is reused only while it is still in
+`mediaBlobUrlsRef`. Reusing one that was already revoked is what turned whole
+galleries into broken-image icons that no refresh could fix.
+
+### 2b. Only the newest load commits
+The first (non-realtime) load preloads images for up to 2.5s before committing.
+A realtime refresh — fired on every window focus — can start and commit inside
+that window and revoke the URLs the first load is holding. So `loadMedia`
+re-checks `loadGenRef` after the preload and bails if it was superseded, and
+only then revokes old URLs and calls `setMediaItems`. Whichever load commits
+first takes the loading screen down; reserving that for the initial load left it
+stuck on "Loading..." whenever a refresh superseded it.
 
 ### 3. Structural diff gate
 After hydration, `loadMedia` compares the incoming items against

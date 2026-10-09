@@ -30,8 +30,11 @@ const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
 interface GithubTokenRowProps {
   /** The connected account's login, or null when no token is held. */
   login: string | null;
-  /** Verifies the token against GitHub, stores it, and connects. False if rejected. */
-  onConnect: (token: string) => Promise<boolean>;
+  /**
+   * Asks for consent, then verifies the token against GitHub, stores it, and connects.
+   * False if GitHub rejected the token, null if the user declined in the consent popup.
+   */
+  onConnect: (token: string) => Promise<boolean | null>;
 }
 
 export const GithubTokenRow: React.FC<GithubTokenRowProps> = ({ login, onConnect }) => {
@@ -52,9 +55,10 @@ export const GithubTokenRow: React.FC<GithubTokenRowProps> = ({ login, onConnect
         const ok = await onConnect(trimmed);
         // Cleared on success only. A rejected token is usually a token that was
         // pasted short, and wiping the field would make the user go back to GitHub
-        // for a value they cannot see any more — GitHub shows it once.
+        // for a value they cannot see any more — GitHub shows it once. Declining the
+        // consent popup keeps the token and says nothing about it.
         if (ok) setToken('');
-        else setRejected(true);
+        else if (ok === false) setRejected(true);
       } finally {
         setBusy(false);
       }

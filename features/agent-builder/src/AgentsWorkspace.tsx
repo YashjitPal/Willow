@@ -67,8 +67,8 @@ const AgentCard: React.FC<{
   workspaceColor?: string;
   onOpen: (id: string) => void;
 }> = ({ workflow, workspaceColor, onOpen }) => {
-  const { userProfile } = useAuth();
-  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
+  const { workspaceColor: currentWorkspaceColor } = useAuth();
+  const effectiveWorkspaceColor = workspaceColor || currentWorkspaceColor;
   const iconBg = getAgentIconBg(effectiveWorkspaceColor);
 
   return (
@@ -170,8 +170,8 @@ const TemplateCard: React.FC<{
   workspaceColor?: string;
   onSelect: () => void;
 }> = ({ template, workspaceColor, onSelect }) => {
-  const { userProfile } = useAuth();
-  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
+  const { workspaceColor: currentWorkspaceColor } = useAuth();
+  const effectiveWorkspaceColor = workspaceColor || currentWorkspaceColor;
   const iconBg = getAgentIconBg(effectiveWorkspaceColor);
 
   return (
@@ -237,8 +237,7 @@ const AgentsHome: React.FC<{
   onOpen: (id: string) => void;
   onRetry: () => void;
 }> = ({ workflows, prompt, loading, error, onPromptChange, onCreate, onOpen, onRetry }) => {
-  const { userProfile } = useAuth();
-  const effectiveWorkspaceColor = userProfile?.workspaceColor || 'green';
+  const { workspaceColor: effectiveWorkspaceColor } = useAuth();
   const theme = getWorkspaceTheme(effectiveWorkspaceColor);
   const { isLight } = useThemeMode();
   const [isSubmitHovered, setIsSubmitHovered] = useState(false);

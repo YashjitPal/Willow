@@ -18,6 +18,7 @@
  */
 
 import { refreshAuthorizations } from './authorization';
+import { userClientId } from './client-ids';
 import { createTokenCache, setTokenSource, type CachedToken, type TokenSource } from './token-source';
 
 /** Set in the deployed app; normally unset in dev. */
@@ -266,13 +267,14 @@ export const initBrowserTokenSource = async (options: GisOptions = {}): Promise<
 
   // Re-installing on a login hint change matters: the hint is baked into the
   // source, and a stale one sends the previous user's email to the consent
-  // screen after an account switch.
-  if (installed && options.loginHint === lastHint) return true;
+  // screen after an account switch. So does a new client id the user pasted.
+  if (installed && options.loginHint === lastHint && clientId === lastClientId) return true;
 
   await loadGisScript();
   if (!oauth2()) return false;
 
   lastHint = options.loginHint;
+  lastClientId = clientId;
   installed = createGisTokenSource({ clientId, loginHint: options.loginHint });
   setTokenSource(installed);
 
@@ -299,8 +301,12 @@ export const initBrowserTokenSource = async (options: GisOptions = {}): Promise<
 };
 
 let lastHint: string | undefined;
+let lastClientId: string | undefined;
 
-const readClientId = (): string | undefined => {
+/** The deployment's client id, else the one the user pasted for this build (`client-ids.ts`). */
+const readClientId = (): string | undefined => readEnvClientId() ?? userClientId('google');
+
+const readEnvClientId = (): string | undefined => {
   try {
     /*
      * `import.meta.env`, spelled exactly like that.

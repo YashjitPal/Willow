@@ -170,6 +170,13 @@ export interface CommandCall extends CallBase {
   /** Appended to progressively while running. */
   output: OutputChunk[];
   exitCode?: number;
+  /**
+   * The shell that ran it. Set only by the desktop app's native runtime, whose
+   * commands are real shell commands rather than sandbox operations.
+   */
+  shell?: string;
+  /** Set on a `write_stdin` round: polling a running command, or typing into it. */
+  interaction?: 'wait' | 'write';
 }
 
 /* ---------------------------------------------------------------------- */
@@ -197,6 +204,8 @@ export interface ComputerAction {
 export interface ComputerUseCall extends CallBase {
   kind: 'computer';
   objective: string;
+  /** Spark's short label for the step, shown on its timeline row. */
+  title?: string;
   actions: ComputerAction[];
   /** Latest frame, as a data URI. Replaced rather than accumulated. */
   screenshot?: string;
@@ -224,6 +233,8 @@ export interface AppCall extends CallBase {
   kind: 'app';
   app: string;
   action: string;
+  /** The step's label on the timeline, written by the model: "Listing recently modified files in Drive". */
+  title?: string;
   input?: Record<string, unknown>;
   output?: string;
 }
@@ -232,8 +243,16 @@ export interface McpCall extends CallBase {
   kind: 'mcp';
   server: string;
   tool: string;
+  /** The step's label on the timeline, written by the model. */
+  title?: string;
   input?: Record<string, unknown>;
   output?: string;
+}
+
+/** A `use_skill` call: the model read a skill's instructions. */
+export interface SkillCall extends CallBase {
+  kind: 'skill';
+  skill: string;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -283,6 +302,7 @@ export type ToolCall =
   | TaskCall
   | AppCall
   | McpCall
+  | SkillCall
   | ProposedPlanCall
   | UserInputCall;
 
@@ -358,6 +378,11 @@ export interface ToolContext {
   emit: (call: ToolCall) => string;
   /** Updates an already-emitted call. */
   patch: (id: string, patch: Partial<ToolCall>) => void;
+  /**
+   * Ends the turn after this call, with `response` as the turn's answer. Only the
+   * root thread's turn loop provides it.
+   */
+  stopTurn?: (response: string) => void;
 }
 
 export interface ToolResult {
@@ -365,6 +390,12 @@ export interface ToolResult {
   observation: string;
   /** Set when the tool failed; the model is expected to recover. */
   failed?: boolean;
+  /**
+   * Set when the tool may have changed something a patch would otherwise have:
+   * a shell command in the desktop app's native runtime. Counts as the turn's
+   * mutation, so a request to change files can be met without a patch.
+   */
+  mutated?: boolean;
 }
 
 export interface ToolHandler {

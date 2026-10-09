@@ -678,15 +678,51 @@ it('keeps all pre-final prose in the timeline across multiple tool calls', async
   assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'Together, the notes describe one complete process.');
 });
 
-it('recovers once when a model ignores the final-response marker', async () => {
+it('answers with the last message, without another round, when a model omits the final-response marker', async () => {
   const { events, scripted } = await run('Explain a practical note-taking tradeoff.', [
-    '*** Work Title: Weighing note-taking tradeoffs\nI am comparing structure with retrieval flexibility.',
-    'Folders are easier to maintain, while tags make cross-cutting retrieval faster.',
+    '*** Work Title: Weighing note-taking tradeoffs\nFolders are easier to maintain, while tags make cross-cutting retrieval faster.',
+    'A second round is never requested.',
   ], {}, AGENTIC_PROFILE);
 
-  assert.equal(scripted.turns, 2);
-  assert.match(scripted.conversations[1].at(-1).content, /Final Response/);
+  assert.equal(scripted.turns, 1);
   assert.equal(events.filter((event) => event.type === 'text').map((event) => event.chunk).join(''), 'Folders are easier to maintain, while tags make cross-cutting retrieval faster.');
+});
+
+it('keeps function-call rounds apart and answers with the last one when the marker is missing', async () => {
+  let requests = 0;
+  const scripted = async (_messages, options, onToken, _onStart, _system, _onPhase, onToolCall) => {
+    requests += 1;
+    onToken('*** Work Title: Checking the goal\nChecking whether a goal is active.');
+    options.onToolCallStart?.('get_goal', {});
+    await onToolCall('get_goal', {});
+    onToken('No goal is active, so there is nothing to resume.');
+  };
+  const events = [];
+  const result = await runSparkHarnessTurn({
+    prompt: 'Is there an active goal I should resume?',
+    model: { ...MODEL.options, label: MODEL.label },
+    scope: 'no-goal-scope',
+    threadId: 'no-goal-thread',
+    capabilities: { skills: [], connectedApps: [] },
+    workspace: { readFiles: async () => ({}), writeFiles: async () => {} },
+    transport: scripted,
+    onEvent: (event) => events.push(event),
+  });
+
+  assert.equal(requests, 1);
+  assert.equal(result.response, 'No goal is active, so there is nothing to resume.');
+  assert.deepEqual(events.filter((event) => event.type === 'work-log').map((event) => event.text), [
+    'Checking whether a goal is active.',
+  ]);
+});
+
+it('tells the model why and how every work batch ends, with no corrective round to fall back on', () => {
+  const prompt = createSparkHarnessProfile({ skills: [], connectedApps: [] }).systemPrompt;
+  assert.match(prompt, /only what follows the marker becomes your reply/);
+  assert.match(prompt, /Every turn with a Work Title or any tool use ends this way, whether your\s+tools were function calls, call envelopes, or patches/);
+  assert.match(prompt, /\n\*\*\* Final Response\n<the complete answer>\n/);
+  assert.match(prompt, /Never end a message on a\s+progress update/);
+  assert.match(prompt, /When the work cannot be finished/);
 });
 
 it('never executes another call after the final-response boundary', async () => {

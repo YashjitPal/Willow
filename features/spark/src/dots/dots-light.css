@@ -1,0 +1,233 @@
+/*
+ * The light theme for the Bots surfaces whose styles name Gemini's dark colours directly (SparkDots.css,
+ * DotConversation.css, computer/*.css), mapped to the light theme's counterparts as Spark's own light rules map
+ * them: #1f1f1f / #444746 / #747775 text, #f0f4f9 → #dde3ea surface containers, #ffffff cards, 6–8% dark state
+ * layers, #0b57d0 primary (tinted through `--sync-*`), #b3261e errors.
+ */
+
+/* ── The bots list ────────────────────────────────────────────────────── */
+
+:is(.light-theme, [data-theme="light"]) .spark-dots,
+:is(.light-theme, [data-theme="light"]) .spark-dots__heading,
+:is(.light-theme, [data-theme="light"]) .spark-dots-row__name {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-chip {
+  background: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-chip:hover {
+  background: #e9eef6;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-chip--input::placeholder,
+:is(.light-theme, [data-theme="light"]) .spark-dots-search__input::placeholder {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-search {
+  background: #f0f4f9;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-search__input {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-row:hover {
+  background: rgba(31, 31, 31, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-row.is-selected,
+:is(.light-theme, [data-theme="light"]) .spark-dots-row.is-selected:hover {
+  background: #e9eef6;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-row__preview,
+:is(.light-theme, [data-theme="light"]) .spark-dots-row__time,
+:is(.light-theme, [data-theme="light"]) .spark-dots__empty {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-row__pin {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-row__category {
+  background: rgba(31, 31, 31, 0.06);
+  color: #444746;
+}
+
+/* ── The profile ──────────────────────────────────────────────────────── */
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__name,
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__row,
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__computer-copy,
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__row-copy,
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__activity {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__status,
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__row-icon,
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__computer-icon {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__muted {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__action {
+  background: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__action:hover:not(:disabled) {
+  background: #e9eef6;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__action:active:not(:disabled) {
+  background: #dde3ea;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__toggle {
+  background: #1f1f1f;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__toggle.is-on {
+  background: rgba(31, 31, 31, 0.08);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__computer-icon.is-connected::after {
+  border-color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__activity--link:hover {
+  background: rgba(31, 31, 31, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__problem {
+  color: #b3261e;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__folder-input {
+  border-color: rgba(0, 0, 0, 0.16);
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-profile__folder-input:focus {
+  border-color: var(--sync-0b57d0, #0b57d0);
+}
+
+/* ── The conversation's banner and request cards ──────────────────────── */
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error {
+  background: #fce8e6;
+  color: #8c1d18;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error button {
+  background: rgba(140, 29, 24, 0.08);
+  color: #8c1d18;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error button:hover {
+  background: rgba(140, 29, 24, 0.14);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval {
+  border-color: rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval.is-pending {
+  border-color: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.45);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__heading,
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__output,
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__outcome {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval.is-pending .spark-dots-approval__heading,
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__toggle {
+  color: var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__toggle:hover {
+  background: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__command,
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__output {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__where {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__deny {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__deny:hover {
+  background: rgba(31, 31, 31, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__approve {
+  background: var(--sync-0b57d0, #0b57d0);
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval__approve:hover {
+  background: var(--sync-0842a0, #0842a0);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-approval.is-failed .spark-dots-approval__outcome {
+  color: #b3261e;
+}
+
+/* ── The bot's computer ───────────────────────────────────────────────── */
+
+:is(.light-theme, [data-theme="light"]) .dot-computer-preview.has-picture,
+:is(.light-theme, [data-theme="light"]) .dot-computer__page,
+:is(.light-theme, [data-theme="light"]) .dot-computer__off {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser .dot-computer__header-button {
+  border-color: #c4c7c5;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser .dot-computer__header-button.is-destructive {
+  border-color: #b3261e;
+  background: #b3261e;
+  color: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__confirm,
+:is(.light-theme, [data-theme="light"]) .dot-computer__off-text {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__off-icon {
+  background: #e9eef6;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__off-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-computer__off-problem {
+  color: #b3261e;
+}

@@ -1,0 +1,28 @@
+/*
+ * The browser's defaults that Willow's Tailwind preflight takes away and Flow's pages keep, which
+ * Flow's stylesheets lean on (the create page's credits line sits 1em under its prompt; a name
+ * field is 2px wider than its text). Under the Tools root, paragraphs, headings and lists get their
+ * margins back and text fields their padding.
+ *
+ * Each selector names its element twice (`p:is(p)`, specificity 0,0,2): above preflight's element
+ * rules whatever the stylesheet order, and below any class, so every rule of Flow's or Material's
+ * (a dialog title's `.mat-mdc-dialog-title` margin) still wins.
+ */
+
+:where(.ng-flow-tools) p:is(p) { margin-block: 1em; }
+:where(.ng-flow-tools) h1:is(h1) { margin-block: 0.67em; }
+:where(.ng-flow-tools) h2:is(h2) { margin-block: 0.83em; }
+:where(.ng-flow-tools) h3:is(h3) { margin-block: 1em; }
+:where(.ng-flow-tools) h4:is(h4) { margin-block: 1.33em; }
+:where(.ng-flow-tools) :is(ul, ol):is(ul, ol) { margin-block: 1em; padding-inline-start: 40px; }
+:where(.ng-flow-tools) input:is(input):where(:not([type='checkbox'], [type='radio'], [type='range'], [type='file'])) { padding: 1px 2px; }
+:where(.ng-flow-tools) textarea:is(textarea) { padding: 2px; }
+
+/* Flow's global scrollbars: 16px wide and, with no colour given, unseen; a scroller that wants a thumb styles its own. */
+:where(.ng-flow-tools) ::-webkit-scrollbar { inline-size: 16px; }
+:where(.ng-flow-tools) ::-webkit-scrollbar-corner { background: transparent; }
+:where(.ng-flow-tools) ::-webkit-scrollbar-thumb {
+  border-radius: 20px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}

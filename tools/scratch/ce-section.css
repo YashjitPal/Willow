@@ -1,0 +1,368 @@
+/* ---------------- character edit page ---------------- */
+
+/* flow-character-edit-page: the body — form and preview in a 1280px-wide grid that fills the height
+ * left over, the prompt under the preview — beside the history column. Under 640px tall or 960px
+ * wide it stacks preview, slots, form and prompt in one scrolling column; on a tablet or smaller
+ * (.is-tablet-or-smaller) the history opens over the page instead of beside it. */
+
+.ce-content { position: relative; display: flex; flex: 1 1 0%; align-items: stretch; min-height: 0; overflow: hidden; }
+
+.ce-body {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  min-height: 0;
+  padding: 64px 24px 24px;
+  overflow-y: auto;
+}
+
+.ce-layout {
+  display: grid;
+  flex: 1 1 0%;
+  grid-template-columns: 400px 1fr;
+  grid-template-rows: 1fr auto;
+  gap: 16px 24px;
+  width: 100%;
+  max-width: 1280px;
+  min-height: 0;
+}
+
+.ce-form-column { display: flex; flex-direction: column; grid-column: 1; grid-row: 1; min-height: 0; }
+
+/* flow-character-form. */
+.ce-form {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 400px;
+  min-height: 0;
+  padding: 24px 24px 0;
+  backdrop-filter: blur(40px);
+}
+
+.ce-form-section { display: flex; flex-direction: column; gap: 8px; }
+
+.ce-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sb-fg-000);
+  font-family: 'Google Sans', var(--sb-font);
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 40px;
+}
+
+.ce-name {
+  flex: 1 1 0%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+}
+
+.ce-name::placeholder { color: var(--sb-fg-000); opacity: 1; }
+.ce-edit-name.sb-icon-btn { color: var(--sb-fg-50); }
+
+/* flow-character-voice-button with no voice: Select a voice. */
+.ce-voice-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 20px;
+  background-color: var(--sb-bg-90);
+  box-shadow: var(--sb-fg-05) 0 0 0 1px inset;
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: 0.096px;
+  cursor: pointer;
+  transition: background-color 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
+}
+
+.ce-voice-btn:hover { background-color: var(--sb-bg-75); box-shadow: var(--sb-fg-10) 0 0 0 1px inset; }
+.ce-voice-btn__icon { margin-right: 4px; color: var(--sb-fg-90); }
+.ce-voice-btn__label { color: var(--sb-fg-90); font-size: 14px; line-height: 20px; }
+
+/* ...and with one: the voice as a card that plays its sample. */
+.ce-voice-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 56px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 20px;
+  background-color: var(--sb-bg-90);
+  box-shadow: var(--sb-fg-05) 0 0 0 1px inset;
+  backdrop-filter: blur(40px);
+  transition: box-shadow 0.15s ease;
+}
+
+.ce-voice-card__start {
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.ce-voice-chip { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; color: var(--sb-fg-000); }
+.ce-voice-card__info { display: flex; flex-direction: column; min-width: 0; }
+.ce-voice-card__name,
+.ce-voice-card__description { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; font-family: var(--sb-font); }
+.ce-voice-card__name { color: var(--sb-fg-90); font-size: 12px; font-weight: 400; line-height: 16px; letter-spacing: 0.096px; }
+.ce-voice-card__description { color: var(--sb-fg-60); font-size: 11.008px; font-weight: 500; line-height: 16px; letter-spacing: 0.096px; }
+.ce-voice-card__end { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
+
+.ce-voice-play {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: var(--sb-fg-15);
+  color: var(--sb-fg-000);
+  cursor: pointer;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.ce-voice-play:hover { background-color: var(--sb-fg-25); }
+
+.ce-voice-remove {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background-color: var(--sb-fg-10);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.ce-voice-remove:hover { background-color: var(--sb-fg-15); }
+
+.ce-personality { display: flex; flex: 1 1 0%; flex-direction: column; gap: 8px; }
+.ce-label-row { display: flex; align-items: center; justify-content: space-between; }
+.ce-field-label { color: var(--sb-fg-75); font-size: 12px; font-weight: 500; line-height: 16px; }
+
+.ce-textarea {
+  flex: 1 1 0%;
+  min-height: 192px;
+  padding: 16px;
+  border: 0;
+  outline: 0;
+  border-radius: 16px;
+  background-color: var(--sb-bg-50);
+  box-shadow: var(--sb-fg-15) 0 0 0 1px inset;
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  white-space: pre-wrap;
+  resize: none;
+  user-select: text;
+}
+
+.ce-textarea::placeholder { color: var(--sb-fg-50); }
+.ce-textarea:focus { outline: none; box-shadow: var(--sb-fg-100) 0 0 0 1px inset; }
+
+/* The note hangs under the field without taking height, so the field reaches the row's end. */
+.ce-disclaimer-overflow { height: 0; overflow: visible; }
+.ce-disclaimer { display: block; padding-top: 8px; color: var(--sb-fg-75); font-size: 12px; font-weight: 400; line-height: 16px; }
+
+/* flow-character-preview-panel: the image in the grid's second column, the slots under it. */
+.ce-preview { grid-column: 2; grid-row: 1; min-width: 0; }
+
+/* flow-character-image-preview: the frame takes the image's own shape, as large as the area allows. */
+.ce-image-area { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 192px; container-type: size; }
+
+.ce-frame {
+  position: relative;
+  width: min(100cqw, 100cqh * var(--ce-aspect, 1));
+  height: min(100cqh, 100cqw / var(--ce-aspect, 1));
+  aspect-ratio: var(--ce-aspect, 1);
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 16px;
+  box-shadow: var(--sb-fg-15) 0 0 0 1px;
+}
+
+.ce-frame__img { display: block; width: 100%; height: 100%; object-fit: cover; -webkit-user-drag: none; }
+
+/* .top-actions and .image-actions: shown while the image is hovered, faded 0.15s either way. */
+.ce-frame__top { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; transition: opacity 0.15s ease-in-out; }
+.ce-frame__actions { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; gap: 8px; width: fit-content; margin-inline: auto; transition: opacity 0.15s ease-in-out; }
+.ce-frame__top.is-hidden,
+.ce-frame__actions.is-hidden { opacity: 0; pointer-events: none; }
+
+/* .top-action-button: Download image, Delete image. */
+.ce-frame-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background-color: var(--sb-bg-50);
+  box-shadow: rgba(0, 0, 0, 0.5) 0 2px 4px 0;
+  color: var(--sb-fg-000);
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.ce-frame-icon:hover { background-color: var(--sb-bg-75); box-shadow: rgba(0, 0, 0, 0.5) 0 4px 8px 0; }
+
+/* .action-button: Reroll, Try again — 16px sides, the glyph 4px out from the 6px gap. */
+.sb-btn.ce-frame-btn {
+  gap: 6px;
+  padding: 0 16px;
+  background-color: var(--sb-bg-25);
+  font-weight: 400;
+  line-height: 16px;
+  --sb-layer-hover: 0.1;
+}
+
+.ce-frame-btn > .google-symbols { margin-right: 4px; }
+.sb-btn.ce-frame-btn:hover { background-color: var(--sb-bg-75); }
+
+/* .empty-container: a slot with no image. */
+.ce-empty {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  min-height: 192px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--sb-fg-10);
+  box-shadow: var(--sb-fg-15) 0 0 0 1px;
+}
+
+.ce-empty__text { padding: 16px 32px 0; color: var(--sb-fg-60); font-family: 'Google Sans', var(--sb-font); font-size: 22px; font-weight: 400; line-height: 28px; text-align: center; }
+.ce-empty__actions { display: flex; justify-content: center; gap: 24px; }
+.sb-btn.ce-empty__btn { border-radius: 32px; }
+
+/* flow-slot-chip-button. */
+.ce-slots { display: flex; align-items: center; justify-content: center; gap: 8px; grid-column: 2; grid-row: 2; }
+
+.ce-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background-color: var(--sb-fg-10);
+  color: var(--sb-fg-90);
+  font-family: var(--sb-font);
+  cursor: pointer;
+  transition: opacity 0.2s ease, background-color 0.15s ease-in-out;
+}
+
+.ce-slot:not(:disabled):hover { background-color: var(--sb-fg-15); }
+.ce-slot.is-active { background-color: var(--sb-fg-90); color: var(--sb-bg-000); cursor: default; }
+.ce-slot.is-active:not(:disabled):hover { background-color: var(--sb-fg-75); }
+.ce-slot.is-disabled { cursor: not-allowed; filter: grayscale(1); }
+
+.ce-slot__thumb {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 8px;
+  background-color: var(--sb-fg-15);
+}
+
+.ce-slot__thumb.is-active { background-color: var(--sb-bg-15); }
+.ce-slot__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ce-slot__label { font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; }
+
+/* The prompt sits under the preview, centred on it: the footer starts past the form's 400px + 24px. */
+.ce-footer { width: 100%; max-width: 1280px; padding-left: 424px; }
+.ce-footer__inner { display: flex; flex-direction: column; align-items: center; width: 100%; }
+.ce-footer .sb-prompt-wrapper { width: 100%; max-width: 576px; }
+.ce-footer .sb-prompt-box { max-width: 576px; }
+
+/* .editor-history-wrapper: 16.8rem, 64px from the header and 112px off the bottom, closed by
+ * animating its width to 0 while the list slides out (the panel's own transform). */
+.ce-history {
+  position: relative;
+  flex-shrink: 0;
+  width: 268.8px;
+  padding-block: 64px 112px;
+  overflow: hidden;
+  transition: width 0.35s ease-in-out;
+}
+
+.ce-history.is-hidden { width: 0; }
+.ce-history .ie-history,
+.ce-history .ie-history.is-hidden { width: auto; height: 100%; max-height: none; transition: none; }
+
+.ce-page.is-tablet-or-smaller .ce-body { opacity: 1; transition: visibility 0.35s ease-in-out, opacity 0.35s ease-in-out; }
+.ce-page.is-tablet-or-smaller .ce-body.is-hidden { visibility: hidden; opacity: 0; }
+.ce-page.is-tablet-or-smaller .ce-history { position: absolute; inset: 0; width: 100%; padding: 4px; }
+.ce-page.is-tablet-or-smaller .ce-history.is-hidden { width: 0; padding: 0; }
+.ce-page.is-tablet-or-smaller .ce-history .ie-history__scroll { width: 100%; }
+
+@media (max-height: 40rem), (max-width: 60rem) {
+  .ce-page .cp-header { min-height: 60px; padding: 0 12px; }
+  .ce-page .cp-header__right { gap: 4px; }
+  .ce-body { gap: 16px; padding: 16px 16px 32px; }
+  .ce-layout { display: flex; flex: none; flex-direction: column; gap: 16px; min-height: auto; }
+  .ce-form-column { order: 3; flex: none; width: 100%; min-height: auto; }
+  .ce-form { flex: none; max-width: 100%; min-height: auto; padding: 16px 16px 24px; }
+  .ce-textarea { flex: none; min-height: 128px; }
+  .ce-disclaimer-overflow { height: auto; }
+  .ce-preview { order: 1; width: 100%; height: 256px; }
+  .ce-slots { order: 2; width: 100%; }
+  .ce-footer { flex: none; padding-left: 0; }
+}

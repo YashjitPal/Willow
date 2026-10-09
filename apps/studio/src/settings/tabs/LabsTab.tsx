@@ -2,7 +2,7 @@ import React from 'react';
 import { useStore } from '@nanostores/react';
 import { useThemeMode } from '@willow/core/theme-mode';
 import { experimentsStore, setExperiment, type ExperimentId } from '@willow/core/experiments-store';
-import { LABS_DESCRIPTION, LABS_EXPERIMENTS } from '../labs-experiments';
+import { LABS_DESCRIPTION, LABS_EXPERIMENTS, isLabsRowAvailable } from '../labs-experiments';
 
 /**
  * Labs, inside the settings modal.
@@ -35,7 +35,7 @@ const ExperimentToggle: React.FC<{
     className={`w-9 h-5 rounded-full p-0.5 cursor-pointer relative group border shrink-0 transition-colors ${
       enabled
         ? isLight
-          ? 'bg-[#0b57d0] border-[#0b57d0]'
+          ? 'bg-[color:var(--sync-0b57d0,#0b57d0)] border-[color:var(--sync-0b57d0,#0b57d0)]'
           : 'bg-zinc-800 border-white/5'
         : isLight
           ? 'bg-zinc-200 border-zinc-300'
@@ -62,7 +62,7 @@ const StaticToggle: React.FC<{ enabled: boolean; isLight?: boolean }> = ({ enabl
     className={`w-9 h-5 rounded-full p-0.5 cursor-pointer relative group border shrink-0 ${
       enabled
         ? isLight
-          ? 'bg-[#0b57d0] border-[#0b57d0]'
+          ? 'bg-[color:var(--sync-0b57d0,#0b57d0)] border-[color:var(--sync-0b57d0,#0b57d0)]'
           : 'bg-zinc-800 border-white/5'
         : isLight
           ? 'bg-zinc-200 border-zinc-300'
@@ -96,7 +96,7 @@ export const LabsTab: React.FC = () => {
       </div>
 
       <div className="space-y-0 pb-10">
-        {LABS_EXPERIMENTS.map((row) => (
+        {LABS_EXPERIMENTS.map((row) => isLabsRowAvailable(row) && (
           <div
             key={row.id ?? row.title}
             className={`py-6 border-b ${isLight ? 'border-black/10' : 'border-white/5'} flex items-start justify-between gap-8`}

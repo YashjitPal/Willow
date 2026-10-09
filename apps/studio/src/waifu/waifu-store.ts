@@ -4,8 +4,16 @@
  */
 
 import { atom } from 'nanostores';
+import { requestSyncedFolderPass } from '@willow/storage/local-sync';
 import { DEFAULT_MODEL, Live2DModelMeta } from './waifu-models';
 import { DEFAULT_PERSONA, WaifuEmotion, WaifuPersona } from './waifu-personas';
+import {
+  COMPANION_HISTORY_EVENT,
+  COMPANION_HISTORY_KEY,
+  COMPANION_HISTORY_LIMIT,
+  parseCompanionHistory,
+  readCompanionHistory,
+} from './companion-history';
 
 export interface WaifuMessage {
   id: string;
@@ -30,7 +38,6 @@ const STORAGE_KEYS = {
   MODEL: 'willow:waifu:model-id',
   PERSONA: 'willow:waifu:persona-id',
   SETTINGS: 'willow:waifu:settings',
-  HISTORY: 'willow:waifu:history',
 };
 
 function readJSON<T>(key: string, fallback: T): T {
@@ -59,7 +66,8 @@ export const waifuSettingsStore = atom<WaifuSettings>(
   })
 );
 
-export const waifuHistoryStore = atom<WaifuMessage[]>([
+const savedHistory = readCompanionHistory() as WaifuMessage[] | null;
+export const waifuHistoryStore = atom<WaifuMessage[]>(savedHistory?.length ? savedHistory : [
   {
     id: 'welcome',
     role: 'assistant',
@@ -68,6 +76,27 @@ export const waifuHistoryStore = atom<WaifuMessage[]>([
     timestamp: Date.now(),
   },
 ]);
+
+// Kept in this browser, and from there in the user's folder (`register-companion-history.ts`).
+waifuHistoryStore.listen((history) => {
+  try {
+    localStorage.setItem(COMPANION_HISTORY_KEY, JSON.stringify(history.slice(-COMPANION_HISTORY_LIMIT)));
+  } catch {}
+  requestSyncedFolderPass();
+});
+
+if (typeof window !== 'undefined') {
+  const adopt = (history: unknown) => {
+    const parsed = parseCompanionHistory(history);
+    if (parsed && JSON.stringify(parsed) !== JSON.stringify(waifuHistoryStore.get())) {
+      waifuHistoryStore.set(parsed as WaifuMessage[]);
+    }
+  };
+  window.addEventListener(COMPANION_HISTORY_EVENT, (event) => adopt((event as CustomEvent<unknown>).detail));
+  window.addEventListener('storage', (event) => {
+    if (event.key === COMPANION_HISTORY_KEY) adopt(readCompanionHistory());
+  });
+}
 
 export function setActiveModel(model: Live2DModelMeta) {
   activeModelStore.set(model);

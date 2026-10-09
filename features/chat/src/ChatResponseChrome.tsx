@@ -5,8 +5,11 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { SourceCard, type SourceChipItem } from '@willow/ui/SourceChip';
 import { useInjectStyles } from '@willow/ui/streaming-markdown-styles';
 import { useThemeMode } from '@willow/core/theme-mode';
+import { useCompactViewport } from './use-compact-viewport';
 
 type Reaction = 'like' | 'dislike' | null;
+
+const noop = () => {};
 
 interface ResponseActionsProps {
   reaction: Reaction;
@@ -29,10 +32,18 @@ interface ResponseActionsProps {
    * assistant turn had it), so the two rules compose rather than conflict.
    */
   isStopped?: boolean;
+  /** Gemini's <=960px row: bigger buttons and glyphs, spaced apart. */
+  compact?: boolean;
   onLike: () => void;
   onDislike: () => void;
   onRedo: () => void;
   onCopy: () => void;
+  /**
+   * A generated-media turn. Gemini's row offers no Copy there: an image or video turn has
+   * Share in its place, a music turn neither. Below 960px the Share goes too (the card's own
+   * share button stays), leaving the ratings, regenerate and more.
+   */
+  media?: { kind: 'image' | 'video' | 'music'; onShare: () => void };
   onListen: () => void;
   onShowThinking: () => void;
   onShowSources: () => void;
@@ -45,7 +56,10 @@ interface MenuPosition {
 }
 
 const ACTION_BUTTON =
-  'flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-1 text-[#e6e6e6] transition-colors duration-150 hover:bg-white/[0.08] hover:text-[#e6e6e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25';
+  'flex shrink-0 items-center justify-center rounded-full text-[#e6e6e6] transition-colors duration-150 hover:bg-white/[0.08] hover:text-[#e6e6e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25';
+const LIGHT_ACTION_BUTTON =
+  'flex shrink-0 items-center justify-center rounded-full text-[#000000] transition-colors duration-150 hover:bg-black/[0.08] hover:text-[#000000] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25';
+const ACTION_BUTTON_SIZE = 'h-8 w-8 p-1';
 
 const RESPONSE_SYMBOL_PROPS = {
   family: 'luminous' as const,
@@ -54,6 +68,24 @@ const RESPONSE_SYMBOL_PROPS = {
   roundness: 100,
   opticalSize: 20,
 };
+
+/*
+ * Gemini's row at <=960px, measured at 390 and 800: 36px buttons around 24px
+ * `lm-icon-l` glyphs (weight 300), 12px apart in a 48px row. On a phone the row
+ * starts at the text's edge, so the glyphs sit 6px in from it; from 769px it
+ * starts 6px out, so they line up with the text the way desktop's do.
+ */
+const COMPACT_ACTION_BUTTON_SIZE = 'h-9 w-9 p-1.5';
+const COMPACT_ACTION_BUTTON =
+  'flex shrink-0 items-center justify-center rounded-full text-[#e0e0e0] transition-colors duration-150 hover:bg-white/[0.08] hover:text-[#e0e0e0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25';
+const COMPACT_RESPONSE_SYMBOL_PROPS = {
+  family: 'luminous' as const,
+  size: 24,
+  weight: 300,
+  roundness: 100,
+  opticalSize: 24,
+};
+const COMPACT_ACTION_ROW = 'flex h-12 items-center gap-3 -ml-1.5 max-[768px]:ml-0';
 
 /**
  * The "Show code" / "Hide code" pill for a turn that ran code.
@@ -109,8 +141,8 @@ export const ShowCodeToggle: React.FC<{ open: boolean; onToggle: () => void }> =
         data-test-id="toggle-code-button"
         className={`flex h-8 items-center justify-center gap-[5px] rounded-full px-4 ${
           isLight
-            ? 'text-[#0b57d0] hover:bg-black/[0.08] focus-visible:ring-black/25'
-            : 'text-[#a8c7fa] hover:bg-white/[0.08] focus-visible:ring-white/25'
+            ? 'text-[color:var(--sync-0b57d0,#0b57d0)] hover:bg-black/[0.08] focus-visible:ring-black/25'
+            : 'text-[color:var(--sync-a8c7fa,#a8c7fa)] hover:bg-white/[0.08] focus-visible:ring-white/25'
         } transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2`}
       >
         <span
@@ -119,7 +151,7 @@ export const ShowCodeToggle: React.FC<{ open: boolean; onToggle: () => void }> =
         >
           {open ? 'Hide code' : 'Show code'}
         </span>
-        <span className={`flex h-4 w-4 shrink-0 items-center justify-center ${isLight ? 'text-[#0b57d0]' : 'text-[#a8c7fa]'}`}>
+        <span className={`flex h-4 w-4 shrink-0 items-center justify-center ${isLight ? 'text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-[color:var(--sync-a8c7fa,#a8c7fa)]'}`}>
           <CodeGlyph struck={open} />
         </span>
       </button>
@@ -134,10 +166,12 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
   canShowThinking,
   canShowSources,
   isStopped = false,
+  compact = false,
   onLike,
   onDislike,
   onRedo,
   onCopy,
+  media,
   onListen,
   onShowThinking,
   onShowSources,
@@ -148,9 +182,10 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition>({ left: 0, bottom: 0 });
 
-  const actionButtonClass = isLight
-    ? 'flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-1 text-[#000000] transition-colors duration-150 hover:bg-black/[0.08] hover:text-[#000000] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/25'
-    : ACTION_BUTTON;
+  const actionButtonClass = `${compact ? COMPACT_ACTION_BUTTON_SIZE : ACTION_BUTTON_SIZE} ${
+    isLight ? LIGHT_ACTION_BUTTON : compact ? COMPACT_ACTION_BUTTON : ACTION_BUTTON
+  }`;
+  const symbolProps = compact ? COMPACT_RESPONSE_SYMBOL_PROPS : RESPONSE_SYMBOL_PROPS;
 
   /*
    * Row order is Gemini's, measured from the open menu: "View sources" sits
@@ -218,21 +253,24 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
     action?.();
   };
 
-  const rowStyle = {
-    '--response-action-size': '2rem',
-    '--response-icon-size': `${RESPONSE_SYMBOL_PROPS.size}px`,
-    marginInlineStart: 'calc((var(--response-icon-size) - var(--response-action-size)) / 2)',
-  } as React.CSSProperties;
+  const rowStyle = compact
+    ? undefined
+    : ({
+        '--response-action-size': '2rem',
+        '--response-icon-size': `${RESPONSE_SYMBOL_PROPS.size}px`,
+        marginInlineStart: 'calc((var(--response-icon-size) - var(--response-action-size)) / 2)',
+      } as React.CSSProperties);
+  const rowClass = compact ? COMPACT_ACTION_ROW : 'flex h-8 items-center';
 
   // A stopped turn gets its own short row. Returning early also keeps the
   // more_horiz menu portal unmounted, which is right: the menu is reached
   // through a button this row does not render.
   if (isStopped) {
     return (
-      <div className="flex h-8 items-center" aria-label="Response actions" style={rowStyle}>
+      <div className={rowClass} aria-label="Response actions" style={rowStyle}>
         {canRedo && (
           <button type="button" className={actionButtonClass} onClick={onRedo} aria-label="Redo" title="Redo">
-            <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="refresh" />
+            <MaterialSymbol {...symbolProps} name="refresh" />
           </button>
         )}
         <button
@@ -252,7 +290,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
           disabled
           aria-disabled
         >
-          <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="flag" />
+          <MaterialSymbol {...symbolProps} name="flag" />
         </button>
       </div>
     );
@@ -261,7 +299,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
   return (
     <>
       <div
-        className="flex h-8 items-center"
+        className={rowClass}
         aria-label="Response actions"
         style={rowStyle}
       >
@@ -272,7 +310,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
           aria-label="Good response"
           title="Good response"
         >
-          <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="thumb_up" fill={reaction === 'like'} />
+          <MaterialSymbol {...symbolProps} name="thumb_up" fill={reaction === 'like'} />
         </button>
         <button
           type="button"
@@ -281,18 +319,32 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
           aria-label="Bad response"
           title="Bad response"
         >
-          <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="thumb_down" fill={reaction === 'dislike'} />
+          <MaterialSymbol {...symbolProps} name="thumb_down" fill={reaction === 'dislike'} />
         </button>
         {canRedo && (
           <button type="button" className={actionButtonClass} onClick={onRedo} aria-label="Redo" title="Redo">
-            <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="refresh" />
+            <MaterialSymbol {...symbolProps} name="refresh" />
           </button>
         )}
-        <button type="button" className={actionButtonClass} onClick={onCopy} aria-label="Copy" title="Copy">
-          {/* No tick. Measured before and after a copy in the live app, the
-              glyph never changes — the snackbar is the whole feedback. */}
-          <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="copy" />
-        </button>
+        {media ? (
+          media.kind !== 'music' && (
+            <button
+              type="button"
+              className={`${actionButtonClass} max-[960px]:hidden`}
+              onClick={media.onShare}
+              aria-label={`Share ${media.kind}`}
+              title={`Share ${media.kind}`}
+            >
+              <MaterialSymbol {...symbolProps} name="share_1" />
+            </button>
+          )
+        ) : (
+          <button type="button" className={actionButtonClass} onClick={onCopy} aria-label="Copy" title="Copy">
+            {/* No tick. Measured before and after a copy in the live app, the
+                glyph never changes — the snackbar is the whole feedback. */}
+            <MaterialSymbol {...symbolProps} name="copy" />
+          </button>
+        )}
         <button
           ref={triggerRef}
           type="button"
@@ -302,7 +354,7 @@ export const ResponseActions: React.FC<ResponseActionsProps> = ({
           aria-expanded={menuOpen}
           title="More"
         >
-          <MaterialSymbol {...RESPONSE_SYMBOL_PROPS} name="more_horiz" />
+          <MaterialSymbol {...symbolProps} name="more_horiz" />
         </button>
       </div>
 
@@ -432,6 +484,16 @@ const parseThoughtBlocks = (text: string): ThoughtBlock[] => {
  * 400x793.6 at (1120, 16), 16px radius, 0.8px rgba(255,255,255,0.12) border,
  * a 64px header padded `12px 12px 12px 24px`, a 20/24 470-weight title and a
  * 40px `close` button in #c4c7c5 with aria-label "Close sidebar".
+ *
+ * Below 961px the same element becomes a sheet over the whole screen, top bar
+ * included, measured at 800x1280: `position: fixed` at (0, 0), #131314, no border,
+ * radius or scrim, with the header and contents unchanged. It enters on
+ * `margin-inline-end` -424px -> 0 (300ms, `cubic-bezier(0.2, 0, 0, 1)`) with opacity
+ * 0 -> 1 (200ms, linear), so its left edge never moves and only the right-aligned
+ * close button slides; leaving reverses it. Focus moves to the close button as it opens, which Gemini marks with its
+ * program-focus ring (0.8px #a8c7fa) over a 12% state layer until focus leaves.
+ * It is portalled to `body` because the shell's top-bar controls stack above
+ * anything inside the chat column.
  */
 const ContextSidebar: React.FC<{
   title: string;
@@ -439,6 +501,9 @@ const ContextSidebar: React.FC<{
   children: React.ReactNode;
 }> = ({ title, onClose, children }) => {
   const { isLight } = useThemeMode();
+  const isCompact = useCompactViewport();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const [programFocused, setProgramFocused] = useState(false);
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -446,6 +511,68 @@ const ContextSidebar: React.FC<{
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
+
+  useEffect(() => {
+    if (!isCompact) return;
+    closeRef.current?.focus({ preventScroll: true });
+    setProgramFocused(true);
+  }, [isCompact]);
+
+  if (isCompact) {
+    return createPortal(
+      <motion.aside
+        aria-label={title}
+        initial={{ opacity: 0, marginRight: -424 }}
+        animate={{ opacity: 1, marginRight: 0 }}
+        exit={{ opacity: 0, marginRight: -424 }}
+        // Keeps framer-motion off WAAPI for opacity: its hand-off when that animation
+        // ends paints one frame at the starting value, a full-screen flash here.
+        onUpdate={noop}
+        transition={{
+          marginRight: { duration: 0.3, ease: [0.2, 0, 0, 1] },
+          opacity: { duration: 0.2, ease: 'linear' },
+        }}
+        className={`fixed inset-0 z-[1000] flex flex-col overflow-hidden ${
+          isLight ? 'bg-white text-[#1f1f1f]' : 'bg-[#131314] text-[#e3e3e3]'
+        } font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+      >
+        <header className="flex h-16 shrink-0 items-center justify-between py-3 pl-6 pr-3">
+          <h2
+            className={`text-[20px] font-[470] leading-6 ${isLight ? 'text-[#1f1f1f]' : ''}`}
+            style={{ fontVariationSettings: '"ROND" 20, "slnt" 0, "wdth" 94, "wght" 470' }}
+          >
+            {title}
+          </h2>
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={onClose}
+            onBlur={() => setProgramFocused(false)}
+            className={`flex h-10 w-10 items-center justify-center rounded-full outline-none ${
+              isLight ? 'text-[#444746]' : 'text-[#c4c7c5]'
+            }`}
+            style={programFocused ? {
+              backgroundColor: isLight ? 'rgba(68, 71, 70, 0.12)' : 'rgba(196, 199, 197, 0.12)',
+              boxShadow: `inset 0 0 0 0.8px ${isLight ? 'var(--sync-0b57d0, #0b57d0)' : 'var(--sync-a8c7fa, #a8c7fa)'}`,
+            } : undefined}
+            aria-label="Close sidebar"
+            title="Close"
+          >
+            <MaterialSymbol
+              family="google-symbols"
+              name="close"
+              size={24}
+              weight={400}
+              roundness={0}
+              symbolWidth={92}
+            />
+          </button>
+        </header>
+        {children}
+      </motion.aside>,
+      document.body,
+    );
+  }
 
   return (
     <>
@@ -557,8 +684,11 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
   onClose,
 }) => {
   const { isLight } = useThemeMode();
+  const isCompact = useCompactViewport();
   const blocks = parseThoughtBlocks(thinkingText);
   const isProModel = /\bpro\b/i.test(modelLabel);
+  // Below 961px Gemini's thought titles and the dotted rail take the narrow on-surface.
+  const thoughtInk = isCompact ? '#e0e0e0' : '#e6e6e6';
 
   return (
     <ContextSidebar title="Thinking steps" onClose={onClose}>
@@ -568,7 +698,7 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
             style={{
               backgroundImage: isLight
                 ? 'radial-gradient(circle closest-side, #747775 100%, transparent 100%)'
-                : 'radial-gradient(circle closest-side, #e6e6e6 100%, transparent 100%)',
+                : `radial-gradient(circle closest-side, ${thoughtInk} 100%, transparent 100%)`,
               backgroundPosition: '0 0',
               backgroundRepeat: 'repeat-y',
               backgroundSize: '1px 4px',
@@ -581,8 +711,11 @@ export const ThinkingStepsSidebar: React.FC<ThinkingStepsSidebarProps> = ({
               >
                 {block.title && (
                   <h3
-                    className={`text-[15px] font-normal leading-5 ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
-                    style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 540' }}
+                    className={`text-[15px] font-normal leading-5 ${isLight ? 'text-[#1f1f1f]' : ''}`}
+                    style={{
+                      fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 540',
+                      ...(isLight ? {} : { color: thoughtInk }),
+                    }}
                   >
                     {block.title}
                   </h3>

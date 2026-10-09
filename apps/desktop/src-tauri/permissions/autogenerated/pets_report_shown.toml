@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pets-report-shown"
+description = "Enables the pets_report_shown command without any pre-configured scope."
+commands.allow = ["pets_report_shown"]
+
+[[permission]]
+identifier = "deny-pets-report-shown"
+description = "Denies the pets_report_shown command without any pre-configured scope."
+commands.deny = ["pets_report_shown"]

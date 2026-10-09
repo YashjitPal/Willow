@@ -12,7 +12,8 @@
  * something no one asked it to do, no matter how good the bullets were.
  */
 
-import { SCOPES } from './scopes';
+import { gmailContentsAllowed } from './connector-options';
+import { GMAIL_CONTENTS_SCOPE, SCOPES } from './scopes';
 import { tokenSource, type TokenSource } from './token-source';
 import type {
   ConnectorDefinition,
@@ -172,7 +173,9 @@ export const scopeUrls = (ids: ConnectorId[], kind: 'read' | 'write'): string[] 
   for (const id of ids) {
     const definition = connectorById(id);
     if (!definition) continue;
-    for (const scope of kind === 'read' ? definition.readScopes : definition.writeScopes) {
+    // Gmail reads with contents in place of metadata once the user turned them on (`connector-options.ts`).
+    const reads = id === 'gmail' && gmailContentsAllowed() ? [GMAIL_CONTENTS_SCOPE] : definition.readScopes;
+    for (const scope of kind === 'read' ? reads : definition.writeScopes) {
       urls.add(scope.url);
     }
   }

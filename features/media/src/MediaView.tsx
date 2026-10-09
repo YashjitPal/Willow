@@ -6,6 +6,11 @@ import { transactionalRenameProject } from '@willow/projects/rename';
 import { extractVideoFrame } from '@willow/storage/covers';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { atom } from 'nanostores';
+import { useStore } from '@nanostores/react';
+import { $mediaWorkRunning, MediaBackgroundContext } from './media-background';
+import { $mediaResume, startMediaWorkJob, type MediaWorkJob } from './media-jobs';
+import type { BackgroundJobHandle } from '@willow/core/background-jobs';
 import {
   ArrowLeft, 
   MoreVertical, 
@@ -39,14 +44,16 @@ import {
   AccountMenu,
   ProjectMenu,
   SortFilterMenu,
-  DEFAULT_VIEW_SETTINGS,
   DEFAULT_SORT_FILTER,
+  loadViewSettings,
+  saveViewSettings,
   type ViewSettings,
   type SortFilter,
 } from './HeaderMenus';
 
-/* Flow's header controls: 32x32 at a 16px radius, glyphs at 24px unfilled with weight axis 300. */
-const HEADER_ICON_BUTTON = 'w-8 h-8 shrink-0 flex items-center justify-center rounded-2xl text-white hover:bg-white/10 transition-colors outline-none';
+/* Flow's header controls: 40x40 at a 12px radius, glyphs at 24px unfilled with weight axis 300,
+ * and a hover state layer of rgb(218,220,224) at 0.1 over the whole button. */
+const HEADER_ICON_BUTTON = 'w-10 h-10 shrink-0 flex items-center justify-center rounded-xl text-white hover:bg-[rgba(218,220,224,0.1)] transition-colors outline-none';
 const HEADER_ICON_AXES = '"FILL" 0, "wght" 300';
 /* Inter runs wider than Google Sans Text at the same declared size, so naming the face matters
  * for the project title's measured width, not just its shape. */
@@ -92,33 +99,20 @@ const HEADER_GROUP_GAP = 12;
  * would not.
  */
 const SEARCH_TRANSITION = 'width 270ms ease-in-out, transform 270ms ease-in-out';
-import { getGeminiClient } from '@willow/ai/chat';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
+import { DEVICE_KEY_SLOT } from '@willow/auth/device-keys';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { AssetMenuModal } from './AssetMenuModal';
-import { AgentSidebar, AgentInstruction } from './AgentSidebar';
-import { streamChat, ChatMessage, StreamPhase, generateSessionTitle, mockExecuteTool } from '@willow/ai/chat';
-import { TextShimmer } from '@willow/ui/text-shimmer';
-import { CharactersView } from './characters/CharactersView';
+import { AgentSidebar } from './AgentSidebar';
+import { createMediaAgent, toAgentAttachments, type GenerationOutcome, type MediaAgentHost } from './agent/agent-session';
+import type { AgentModelOption } from './agent/agent-tools';
+import { AgentStatusText } from './agent/AgentStatusText';
 import { MusicView } from './music/MusicView';
 import { MusicPlayerSidebar } from './music/MusicPlayerSidebar';
-import {
-  RatioIcon,
-  AllMediaIcon,
-  ImagesIcon,
-  VideoIcon,
-  UploadsIcon,
-  CharactersIcon,
-  MusicIcon,
-  ScenesIcon,
-  ToolsIcon,
-  TrashIcon,
-  CollapseIcon,
-} from './media-icons';
+import { RatioIcon } from './media-icons';
 import type { MediaKind, MediaItem, ImageAttachment } from './types';
 import { SUNFLOWER_BOX_SHADOW } from './sunflower-art';
 import { MediaVideo, GalleryTile } from './GalleryTile';
-import { FlowVideoEditor } from './FlowVideoEditor';
 import { getImageAr, computeMaxCropBox } from './crop-math';
 import { estimateDropdownHeight, computeDropDirection } from './dropdown-placement';
 import { type Annotation, buildAnnotationSystemPrompt } from './annotations';
@@ -126,9 +120,107 @@ import { AnnotationOverlay } from './AnnotationOverlay';
 import { CropOverlay } from './CropOverlay';
 import { PenMenu } from './PenMenu';
 import { SelectMenu, CropMenu } from './ToolFlyouts';
-import { collectSavedModelsInCatalogOrder, getModelCategory } from '@willow/core/model-catalog';
+import { liveModelId } from '@willow/core/model-catalog';
+import {
+  VIDEO_MODEL_CATALOG,
+  fitVideoDuration,
+  isOmniFlashModel,
+  mediaModelLists,
+  readModelPick,
+  resolveModelPick,
+  videoApiModelId,
+  videoDurationOptions,
+  writeModelPick,
+  type MediaModelKind,
+} from './media-models';
+import { PromptNotice, type PromptNoticeState } from './PromptNotice';
 import { FlowLoadingPage } from './FlowLoadingPage';
+import { PromptValue } from './PromptTextarea';
+import { PromptEditor, type PromptEditorHandle, type PromptMention } from './PromptEditor';
+import { SceneTile } from './scenes/SceneTile';
+import { SceneMediaPicker } from './scenes/SceneMediaPicker';
+import { FlowIcon, FlowMatDivider, FlowMatMenu, FlowMatMenuItem, SceneSnackbarHost } from './scenes/flow-ui';
+import { $scenes, addVideoToScene, bindSceneProject, createEmptyScene, createSceneFromVideos, createSceneWithVideo, dropVideoScene, ensureVideoScene, getScene, isVideoScene, setSceneClips, setSceneOpener, showSnack, trashScene, updateScene as updateStoredScene, videoSceneId } from './scenes/scene-store';
+import { readScenesFromFolder, useSceneFolderSync, type SceneFolder } from './scenes/scene-folder-sync';
+import { captureFrame } from './scenes/scene-frames';
+import { $collections, $collectionsLoaded, bindCollectionProject, collectionFolder, createCollection, deleteCollection, descendantsOf, getCollection, moveCollection, parentOf, renameCollection, updateCollection, type Collection } from './collections/collection-store';
+import { CollectionTile } from './collections/CollectionTile';
+import { DragPreview, PromptDropZone, sameDropTarget, type DropTarget } from './drag/DragPreview';
+import { EditorBoundary, isChunkLoadError } from './EditorBoundary';
+import { ConfirmDialog, FlagDialog, ShareDialog } from './editor/editor-overlays';
+import { copyImage, downloadCollection } from './editor/media-download';
+import { collectionPath, listCollections } from '@willow/storage/media-collections';
+import type { SceneHost } from './scenes/scene-host';
+import type { ImageEditHost } from './editor/ImageEditor';
+import type { VideoViewHost } from './scenes/SceneBuilder';
+import { $characters, $charactersLoaded, bindCharacterProject, characterName, createCharacter, deleteCharacter, getCharacter, setCharacterOpener, updateCharacter, type Character } from './characters/character-store';
+import type { CharacterHost } from './characters/character-host';
+import { CharactersGrid, CharacterTile } from './characters/CharactersGrid';
+import { CharacterIngredientCard } from './characters/CharacterIngredientCard';
+import { expandCharacterReferences } from './characters/character-references';
+import { BatchView, type LaidOutBatch } from './batch/BatchView';
+import { BatchInfo, type BatchInfoModel } from './batch/BatchInfo';
+import { isGenerated, legacyBatchKeys, ratioValue } from './batch/batch-layout';
+import { GALLERY_GAP, layoutGallery, type GalleryCell } from './gallery-layout';
+import { preloadableLazy } from './preloadable-lazy';
+import { MediaSidebar } from './MediaSidebar';
+import { MediaCompactHeader } from './MediaCompactHeader';
+import { useKeyboardInset, useMediaViewport, useRailDrawer, useShortViewport } from './use-media-viewport';
+import type { ToolsHost } from './tools/tools-host';
+import { isToolsPath, parseToolsRoute, toolLocation, toolsLocation } from './tools/tools-routes';
+import { $dock, $toolPrefs, initToolsStore, setDockOpen, togglePin } from './tools/tools-store';
 import './flow-image-history.css';
+import './media-responsive.css';
+
+// Preloadable, so a switch between them in an editor's rail never draws an empty frame while a chunk loads.
+const SceneBuilder = preloadableLazy(() => import('./scenes/SceneBuilder'));
+const ImageEditor = preloadableLazy(() => import('./editor/ImageEditor'));
+
+/** How long an editor's rail waits for the next item to be drawable before it switches anyway. */
+const EDITOR_SWITCH_WAIT_MS = 1500;
+
+/**
+ * Resolves once `item` can open in its editor with a picture on its first frame — the editor's
+ * chunk in, a video's scene made with its opening frame as the poster, an image decoded — or once
+ * the wait is up.
+ */
+function readyToDraw(item: MediaItem): Promise<void> {
+  const url = item.url;
+  const sceneId = videoSceneId(item.id);
+  const work = item.kind === 'video'
+    ? Promise.all([
+        SceneBuilder.preload(),
+        url && ensureVideoScene({ id: item.id, url, ratio: item.ratio, name: item.shortenedPrompt || item.prompt })
+          .then(() => captureFrame(url, 0, 640))
+          .then((poster) => { if (!getScene(sceneId)?.poster) updateStoredScene(sceneId, { poster }); }),
+      ])
+    : Promise.all([ImageEditor.preload(), url && decodeImage(url)]);
+  const wait = new Promise<void>((resolve) => window.setTimeout(resolve, EDITOR_SWITCH_WAIT_MS));
+  return Promise.race([work.then(() => undefined, () => undefined), wait]);
+}
+
+const decodeImage = (url: string): Promise<void> => {
+  const image = new Image();
+  image.src = url;
+  return image.decode();
+};
+const ToolsSurface = React.lazy(() => import('./tools/ToolsSurface'));
+const NewCharacterPage = preloadableLazy(() => import('./characters/NewCharacterPage'));
+const CharacterEditPage = preloadableLazy(() => import('./characters/CharacterEditPage'));
+
+/** Scenes ride through the gallery's layout as items with this model id and a `scene:` id. */
+const SCENE_ITEM_PREFIX = 'scene:';
+/** So do collections, as square stand-ins with a `collection:` id. */
+const COLLECTION_ITEM_PREFIX = 'collection:';
+/** And characters, in All media as in Flow's, as square stand-ins with a `character:` id. */
+const CHARACTER_ITEM_PREFIX = 'character:';
+/** A file on disk after a move: its name there, and its folder (none: Images/, Videos/, Audio/). */
+type FileMove = { id: string; fsName: string; folder?: string };
+const EMPTY_ITEMS: MediaItem[] = [];
+/** A collection's, a scene's or a character's place in the gallery: each is a batch of its own. */
+const isStandIn = (m: MediaItem) => m.id.startsWith(COLLECTION_ITEM_PREFIX) || m.id.startsWith(SCENE_ITEM_PREFIX) || m.id.startsWith(CHARACTER_ITEM_PREFIX);
+const tileAspect = (m: MediaItem) => ratioValue(m.ratio);
+const tileIdOf = (m: MediaItem) => m.id;
 
 const popupItemVariants = {
   hidden: { opacity: 1, y: 0, scale: 1 },
@@ -183,20 +275,48 @@ const preloadAllImages = async (urls: string[]): Promise<void> => {
   ]);
 };
 
+/** How one generation ended. The prompt box ignores it; the agent reports it to the model. */
+type GenerationResult = { status: 'completed'; url: string } | { status: 'failed'; error: string };
 
-export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettings }) => {
+/** '1x' / 'x2' / 'x4' → 1 / 2 / 4. */
+const batchCount = (batch: string): number => Math.max(1, parseInt(batch.replace('x', ''), 10) || 1);
+
+/* An overlay of an editor kept alive off screen: still laid out, never painted or hit. */
+const BACKGROUND_OVERLAY_STYLE: React.CSSProperties = { opacity: 0, visibility: 'hidden', pointerEvents: 'none' };
+/* The Tools pages' black while their chunk loads, so the gallery never shows through. */
+const TOOLS_FALLBACK_STYLE: React.CSSProperties = {
+  position: 'fixed',
+  inset: 'var(--willow-frame-inset, 0)',
+  borderRadius: 'var(--willow-frame-page-radius, 0)',
+  zIndex: 900,
+  background: '#000',
+};
+
+export const MediaView: React.FC<{
+  onOpenSettings?: (tab?: 'models') => void;
+  /** The host's live model config; without it the saved one is read once from localStorage. */
+  modelConfig?: unknown;
+}> = ({ onOpenSettings, modelConfig }) => {
   const { user, userProfile, signInWithGoogle, signOut } = useAuth();
   const { apiKeys } = useUserDataContext();
-  const { chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, renameLocalFSMediaFile, renameLocalFSProject, loadLocalFSMediaUrl } = useLocalFS();
+  const { chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, localFolderName, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, renameLocalFSMediaFile, renameLocalFSProject, loadLocalFSMediaUrl, ensureLocalFSCollectionFolder, moveLocalFSMediaFile, renameLocalFSCollectionFolder, deleteLocalFSCollectionFolder, saveLocalFSMediaAgentSession, deleteLocalFSMediaAgentSession, saveLocalFSScene, deleteLocalFSScene, listLocalFSScenes } = useLocalFS();
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
+  // The router's own `setSearchParams` resolves "?…" against the `/media/*` route's base, which
+  // took /media/tools, a tool's page or a gallery tab to plain /media; this keeps the path. Read
+  // from the address itself, which a navigation updates at once, so two calls in one tick both land.
+  const setSearchParams = React.useCallback((update: (prev: URLSearchParams) => URLSearchParams, options?: { replace?: boolean }) => {
+    const search = update(new URLSearchParams(window.location.search)).toString();
+    navigate({ pathname: window.location.pathname, search: search ? `?${search}` : '' }, options);
+  }, [navigate]);
   const projectId = searchParams.get('projectId') || '';
 
-  const [prompt, setPrompt] = React.useState(() => {
-    return searchParams.get('prompt') || '';
-  });
+  // A store, not state: only the composer's controls subscribe (see PromptTextarea.tsx), so a
+  // keystroke re-renders them instead of this whole page. One per mount, as state was, so a
+  // project switch still starts from an empty prompt.
+  const [promptStore] = React.useState(() => atom(searchParams.get('prompt') || ''));
   const [projectName, setProjectName] = React.useState(() => {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
@@ -262,15 +382,32 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   // ── Header popover menus ────────────────────────────────────────────────
   // One piece of state rather than three booleans: the menus are mutually exclusive, and
   // opening one while another is up has to close the other, not stack them.
-  const [openHeaderMenu, setOpenHeaderMenu] = React.useState<'project' | 'settings' | 'more' | 'filter' | null>(null);
+  const [openHeaderMenu, setOpenHeaderMenu] = React.useState<'project' | 'settings' | 'more' | 'filter' | 'add' | null>(null);
+  const addMenuButtonRef = React.useRef<HTMLButtonElement>(null);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = React.useState(false);
   const projectMenuButtonRef = React.useRef<HTMLButtonElement>(null);
   const viewSettingsButtonRef = React.useRef<HTMLButtonElement>(null);
   const moreMenuButtonRef = React.useRef<HTMLButtonElement>(null);
   const sortFilterButtonRef = React.useRef<HTMLButtonElement>(null);
-  const [viewSettings, setViewSettings] = React.useState<ViewSettings>(DEFAULT_VIEW_SETTINGS);
+  const [viewSettings, setViewSettings] = React.useState<ViewSettings>(loadViewSettings);
+  React.useEffect(() => saveViewSettings(viewSettings), [viewSettings]);
   const [sortFilter, setSortFilter] = React.useState<SortFilter>(DEFAULT_SORT_FILTER);
   const closeHeaderMenu = React.useCallback(() => setOpenHeaderMenu(null), []);
+
+  // ── Phones and tablets (media-responsive.css) ───────────────────────────
+  // Below 961px the header is MediaCompactHeader, the rail is a drawer on a phone (upright or on its
+  // side) and an icon rail that opens one on a tablet, and the gallery's rows are shorter. A
+  // navigation closes the drawer.
+  const viewport = useMediaViewport();
+  const isNarrow = viewport !== 'desktop';
+  useKeyboardInset(isNarrow);
+  /** A phone on its side: a tablet's width, but a phone's rows. */
+  const isShortNarrow = useShortViewport() && isNarrow;
+  const [isNavDrawerOpen, setIsNavDrawerOpen] = React.useState(false);
+  React.useEffect(() => { setIsNavDrawerOpen(false); }, [location.pathname, location.search, isNarrow]);
+  const compactSearchFormRef = React.useRef<HTMLFormElement>(null);
+  const railAsDrawer = useRailDrawer();
+  const railPresentation = railAsDrawer ? 'drawer' : viewport === 'tablet' ? 'rail' : 'desktop';
 
   // ── Header search ───────────────────────────────────────────────────────
   // Open is a mode, not a focus state — Flow's field stays wide after the pointer goes elsewhere
@@ -370,7 +507,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       if (searchQuery) return;
       const target = e.target;
       if (!(target instanceof Element)) return;
-      if (searchGroupRef.current?.contains(target)) return;
+      if (searchGroupRef.current?.contains(target) || compactSearchFormRef.current?.contains(target)) return;
       if (target.closest('[role="menu"], [role="dialog"]')) return;
       closeSearch();
     };
@@ -446,14 +583,14 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   React.useEffect(() => {
     const urlPrompt = searchParams.get('prompt');
     if (urlPrompt) {
-      setPrompt(urlPrompt);
+      promptStore.set(urlPrompt);
       setSearchParams(prev => {
         const next = new URLSearchParams(prev);
         next.delete('prompt');
         return next;
       }, { replace: true });
     }
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, promptStore]);
 
   // Item ids with a disk write currently in flight. Generation completion
   // (saveGeneratedMedia) and the auto-sync backfill effect can both see the
@@ -480,7 +617,8 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
 
       const response = await fetch(url);
       const blob = await response.blob();
-      const finalName = await saveLocalFSMedia(currentProjectName, item.kind, filename, blob);
+      const live = mediaItemsRef.current.find(m => m.id === item.id);
+      const finalName = await saveLocalFSMedia(currentProjectName, item.kind, filename, blob, collectionFolder(live?.collectionId));
       if (finalName) {
         setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true, fsName: finalName } : m));
       }
@@ -490,8 +628,6 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       fsSaveInFlightRef.current.delete(item.id);
     }
   }, [isLocalFolderConnected, saveLocalFSMedia]);
-  const [isTopFaded, setIsTopFaded] = React.useState(false);
-  const [isBottomFaded, setIsBottomFaded] = React.useState(false);
   const [isAgentActive, setIsAgentActive] = React.useState(false);
   const [isAgentSidebarOpen, setIsAgentSidebarOpen] = React.useState(false);
   const [activeMusicItem, setActiveMusicItem] = React.useState<MediaItem | null>(null);
@@ -505,18 +641,16 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   }, [isRightSidebarOpen]);
   const [agentAnimationKey, setAgentAnimationKey] = React.useState(0);
 
-  const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
-  const [isAgentGenerating, setIsAgentGenerating] = React.useState(false);
-  const [agentStreaming, setAgentStreaming] = React.useState('');
-  const [isAgentThinking, setIsAgentThinking] = React.useState(false);
-  const [agentThinkingPhase, setAgentThinkingPhase] = React.useState<StreamPhase>('thinking');
-  const [sessionName, setSessionName] = React.useState('Untitled session');
-
-  React.useEffect(() => {
-    if (chatMessages.length === 0) {
-      setSessionName('Untitled session');
-    }
-  }, [chatMessages]);
+  // One agent conversation per mount, like the prompt. MediaView subscribes only to whether a
+  // turn is running; the transcript streams into stores that AgentSidebar alone reads. The host
+  // ref is assigned on every render further down, once the generation functions it exposes exist.
+  const agentHostRef = React.useRef<MediaAgentHost | null>(null);
+  const [mediaAgent] = React.useState(() => createMediaAgent({
+    getHost: () => agentHostRef.current as MediaAgentHost,
+    scopeId: chatScopeId,
+  }));
+  const isAgentGenerating = useStore(mediaAgent.$running);
+  React.useEffect(() => () => mediaAgent.dispose(), [mediaAgent]);
   const activeSidebarTab = React.useMemo(() => {
     const parts = location.pathname.split('/');
     const lastPart = parts[parts.length - 1];
@@ -527,6 +661,12 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   React.useEffect(() => {
     activeSidebarTabRef.current = activeSidebarTab;
   }, [activeSidebarTab]);
+  // Flow's Tools pages (/media/tools, /media/tool/<id>, /media/create-tool) sit over the gallery;
+  // the rail's dock lists the pinned and recent tools wherever Media is.
+  const toolsRoute = React.useMemo(() => parseToolsRoute(location.pathname, location.search), [location.pathname, location.search]);
+  const toolDock = useStore($dock);
+  const toolDockOpen = !!useStore($toolPrefs).dockOpen;
+  React.useEffect(() => { void initToolsStore(chatScopeId || 'guest'); }, [chatScopeId]);
   const [activeMenuId, setActiveMenuId] = React.useState<string | null>(null);
   const [canvasContextMenuCoords, setCanvasContextMenuCoords] = React.useState<{ x: number; y: number } | null>(null);
   const [canvasMenuStyle, setCanvasMenuStyle] = React.useState<React.CSSProperties>({});
@@ -559,12 +699,17 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
 
   const [hoveredTileId, setHoveredTileId] = React.useState<string | null>(null);
   const [draggingItemId, setDraggingItemId] = React.useState<string | null>(null);
-  const [dragMousePos, setDragMousePos] = React.useState({ x: 0, y: 0 });
-  const [isDragOverPrompt, setIsDragOverPrompt] = React.useState(false);
+  const [, setDragMousePos] = React.useState({ x: 0, y: 0 });
+  /** What a drop would hit right now (drag/DragPreview.tsx); set only when it changes. */
+  const [dropTarget, setDropTarget] = React.useState<DropTarget | null>(null);
+  const dropTargetRef = React.useRef<DropTarget | null>(null);
+  /** The tiles a drag carries: the whole selection when it starts on a selected tile. */
+  const dragIdsRef = React.useRef<string[]>([]);
+  const dragPreviewRef = React.useRef<HTMLDivElement>(null);
+  const dragStartPointRef = React.useRef({ x: 0, y: 0 });
   /* Focus anywhere inside the composer, not just the textarea: Flow lifts the whole shell, and
    * React's onFocus/onBlur are focusin/focusout, so one pair on the shell covers the controls. */
   const [isComposerFocused, setIsComposerFocused] = React.useState(false);
-  const [draggedOverZone, setDraggedOverZone] = React.useState<'start' | 'end' | null>(null);
   
   // React state for overlap calculations (can lag by 1 frame safely)
   const [selectionBox, setSelectionBox] = React.useState<{ 
@@ -653,7 +798,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     const handleGlobalMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target?.closest) return;
-      if (selectedItemRef.current !== null || activeSidebarTabRef.current === 'characters') return;
+      if (selectedItemRef.current !== null || activeSidebarTabRef.current === 'characters' || isToolsPath(window.location.pathname)) return;
       const isInsideTile = target.closest('.gallery-tile');
       const isButtonOrInteractive = target.closest('button, input, select, textarea, a, [role="button"], .interactive-element, .custom-scrollbar-thumb');
       
@@ -763,16 +908,38 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     setSelectedTileIds(newSelected);
   }, [selectionBox]);
 
-  React.useEffect(() => {
-    if (!draggingItemId) {
-      setDraggedOverZone(null);
-    }
-  }, [draggingItemId]);
-
   // Ref to track the mousedown origin for drag threshold detection
   const customDragStartRef = React.useRef<{ itemId: string; startX: number; startY: number } | null>(null);
   // Flag to suppress the click event that fires after mouseup ends a drag
   const wasDraggingRef = React.useRef(false);
+
+  // Flow's drop targets, by what is under the pointer: the composer's slots (drag/DragPreview.tsx),
+  // the sidebar's Trash, a collection, or — for videos only, as Willow's scenes hold video clips —
+  // a scene. Anything else takes no drop, and releasing there does nothing. A collection can't go
+  // into itself or into a collection inside it, and a drag with a collection in it takes nothing
+  // into the composer: Flow still lights the slot under the pointer, but shows no label and drops
+  // nothing there (`collectionSlot`).
+  const dragHasCollection = () => dragIdsRef.current.some((id) => id.startsWith(COLLECTION_ITEM_PREFIX));
+  const collectionSlot = (target: DropTarget | null) =>
+    (target?.kind === 'prompt' || target?.kind === 'start' || target?.kind === 'end') && dragHasCollection();
+  const dropTargetAt = (x: number, y: number): DropTarget | null => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!el) return null;
+    const draggedCollections = dragIdsRef.current.filter((id) => id.startsWith(COLLECTION_ITEM_PREFIX)).map((id) => id.slice(COLLECTION_ITEM_PREFIX.length));
+    const zone = el.closest<HTMLElement>('[data-drop-zone]')?.dataset.dropZone;
+    if (zone === 'start' || zone === 'end' || zone === 'prompt') return { kind: zone };
+    if (el.closest('[data-drop-trash]')) return { kind: 'trash' };
+    const collectionId = el.closest<HTMLElement>('[data-drop-collection]')?.dataset.dropCollection;
+    if (collectionId) {
+      const intoItself = draggedCollections.some((id) => id === collectionId || descendantsOf(id).some((c) => c.id === collectionId));
+      return intoItself ? null : { kind: 'collection', id: collectionId };
+    }
+    const sceneId = el.closest<HTMLElement>('[data-drop-scene]')?.dataset.dropScene;
+    if (sceneId && dragIdsRef.current.every((id) => mediaItemsRef.current.find((m) => m.id === id)?.kind === 'video')) {
+      return { kind: 'scene', id: sceneId };
+    }
+    return null;
+  };
 
   // Custom mouse-based drag system (replaces HTML5 drag to allow mouse wheel scrolling)
   React.useEffect(() => {
@@ -783,38 +950,34 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         const dy = e.clientY - customDragStartRef.current.startY;
         if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
           const itemId = customDragStartRef.current.itemId;
+          const withSelection = selectedTileIds.has(itemId) && selectedTileIds.size > 1;
 
           // If dragging an item that is not part of the selection, clear selection
           if (!selectedTileIds.has(itemId)) {
             setSelectedTileIds(new Set());
           }
 
+          dragIdsRef.current = withSelection ? [itemId, ...[...selectedTileIds].filter((id) => id !== itemId)] : [itemId];
+          dragStartPointRef.current = { x: e.clientX, y: e.clientY };
+          mouseViewportPosRef.current = { x: e.clientX, y: e.clientY };
           setDraggingItemId(itemId);
-          setDragMousePos({ x: e.clientX, y: e.clientY });
           document.body.style.userSelect = 'none';
         }
         return;
       }
 
-      // Update mouse position during active drag
+      // The preview follows the pointer without a render; only a change of target renders.
       if (draggingItemId) {
-        setDragMousePos({ x: e.clientX, y: e.clientY });
-
-        // Detect hover over drop zones using elementFromPoint
-        const elUnder = document.elementFromPoint(e.clientX, e.clientY);
-        if (elUnder) {
-          const isOverPromptBox = elUnder.closest('.prompt-container-box');
-          setIsDragOverPrompt(!!isOverPromptBox);
-
-          const startZone = elUnder.closest('[data-drop-zone="start"]');
-          const endZone = elUnder.closest('[data-drop-zone="end"]');
-          if (startZone) {
-            setDraggedOverZone('start');
-          } else if (endZone) {
-            setDraggedOverZone('end');
-          } else {
-            setDraggedOverZone(null);
-          }
+        mouseViewportPosRef.current = { x: e.clientX, y: e.clientY };
+        const preview = dragPreviewRef.current;
+        if (preview) {
+          preview.style.left = `${e.clientX}px`;
+          preview.style.top = `${e.clientY}px`;
+        }
+        const next = dropTargetAt(e.clientX, e.clientY);
+        if (!sameDropTarget(next, dropTargetRef.current)) {
+          dropTargetRef.current = next;
+          setDropTarget(next);
         }
       }
     };
@@ -829,72 +992,18 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       if (!draggingItemId) return;
 
       document.body.style.userSelect = '';
+      const items = dragIdsRef.current
+        .map((id) => mediaItemsRef.current.find((m) => m.id === id))
+        .filter((m): m is MediaItem => !!m);
+      const collections = dragIdsRef.current
+        .filter((id) => id.startsWith(COLLECTION_ITEM_PREFIX))
+        .map((id) => getCollection(id.slice(COLLECTION_ITEM_PREFIX.length)))
+        .filter((c): c is Collection => !!c);
+      const target = dropTargetAt(e.clientX, e.clientY);
+      dropDraggedItems(collectionSlot(target) ? null : target, items, collections);
 
-      // Check for drop on zones
-      const elUnder = document.elementFromPoint(e.clientX, e.clientY);
-      if (elUnder) {
-        const isOverPromptBox = elUnder.closest('.prompt-container-box');
-        const startZone = elUnder.closest('[data-drop-zone="start"]');
-        const endZone = elUnder.closest('[data-drop-zone="end"]');
-
-        if (startZone && isFramesModeRef.current) {
-          // Drop on start frame zone
-          const draggedItem = mediaItemsRef.current.find(m => m.id === draggingItemId);
-          if (draggedItem && draggedItem.url) {
-            setAttachments(prev => {
-              const next = [...prev];
-              next[0] = {
-                id: `${draggedItem.id}-${Math.random().toString(36).substring(7)}`,
-                url: draggedItem.url,
-                name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
-                kind: draggedItem.kind
-              };
-              return next;
-            });
-          }
-        } else if (endZone && isFramesModeRef.current) {
-          // Drop on end frame zone
-          const draggedItem = mediaItemsRef.current.find(m => m.id === draggingItemId);
-          if (draggedItem && draggedItem.url) {
-            setAttachments(prev => {
-              const next = [...prev];
-              next[1] = {
-                id: `${draggedItem.id}-${Math.random().toString(36).substring(7)}`,
-                url: draggedItem.url,
-                name: draggedItem.shortenedPrompt || draggedItem.prompt || 'Attached Media',
-                kind: draggedItem.kind
-              };
-              return next;
-            });
-          }
-        } else if (isOverPromptBox && !isFramesModeRef.current) {
-          // Drop on prompt box (non-frames mode)
-          const isMultiSelectDrag = selectedTileIds.has(draggingItemId) && selectedTileIds.size > 1;
-          const itemsToAdd = isMultiSelectDrag
-            ? mediaItemsRef.current.filter(m => selectedTileIds.has(m.id))
-            : mediaItemsRef.current.filter(m => m.id === draggingItemId);
-
-          if (itemsToAdd.length > 0) {
-            setAttachments(prev => {
-              let next = [...prev];
-              itemsToAdd.forEach(item => {
-                if (item.url && !next.some(att => att && att.url === item.url)) {
-                  next.push({
-                    id: item.id,
-                    url: item.url,
-                    name: item.shortenedPrompt || item.prompt || 'Attached Media',
-                    kind: item.kind
-                  });
-                }
-              });
-              return next;
-            });
-          }
-        }
-      }
-
-      setIsDragOverPrompt(false);
-      setDraggedOverZone(null);
+      dropTargetRef.current = null;
+      setDropTarget(null);
       setDraggingItemId(null);
       customDragStartRef.current = null;
       // Suppress the click event that the browser fires right after mouseup
@@ -924,7 +1033,8 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       }
       
       const rect = el.getBoundingClientRect();
-      const mouseY = dragMousePos.y;
+      const pointer = mouseViewportPosRef.current;
+      const mouseY = pointer.y;
       
       const threshold = 140;
       const topBoundary = rect.top + threshold;
@@ -936,7 +1046,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         el.scrollTop -= speed;
       } else if (mouseY > bottomBoundary && mouseY < rect.bottom) {
         // Don't auto-scroll down when hovering over the prompt box or frame drop zones
-        const elUnder = document.elementFromPoint(dragMousePos.x, mouseY);
+        const elUnder = document.elementFromPoint(pointer.x, mouseY);
         const isOverDropTarget = elUnder?.closest('.prompt-container-box, [data-drop-zone]');
         if (!isOverDropTarget) {
           const distance = mouseY - bottomBoundary;
@@ -952,9 +1062,9 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [draggingItemId, selectionBox !== null, dragMousePos]);
+  }, [draggingItemId, selectionBox !== null]);
 
-  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const promptEditorRef = React.useRef<PromptEditorHandle>(null);
 
   // Full-screen Image viewer modal states
   const [selectedItem, setSelectedItem] = React.useState<MediaItem | null>(null);
@@ -985,7 +1095,6 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   const targetItemRef = React.useRef<MediaItem | null>(null);
   const [editPrompt, setEditPrompt] = React.useState('');
   const [viewerModelId, setViewerModelId] = React.useState<string>('');
-  const [viewerModelName, setViewerModelName] = React.useState<string>('');
   const [isViewerModelDropdownOpen, setIsViewerModelDropdownOpen] = React.useState(false);
   const viewerModelDropdownRef = React.useRef<HTMLDivElement>(null);
   const [viewerAttachments, setViewerAttachments] = React.useState<ImageAttachment[]>([]);
@@ -1457,22 +1566,36 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     window.addEventListener('mouseup', handleMouseUp);
   }, []);
 
+  // Set only on a change. Setting the same value on every scroll event still re-runs this whole
+  // component on most of them (React renders before it can bail out), which was most of the
+  // main thread's work while the gallery scrolled.
+  const headerStateRef = React.useRef({ visible: isHeaderVisible, atTop: isAtTop });
+  const showHeader = (visible: boolean) => {
+    if (headerStateRef.current.visible === visible) return;
+    headerStateRef.current.visible = visible;
+    setIsHeaderVisible(visible);
+  };
+  const markAtTop = (atTop: boolean) => {
+    if (headerStateRef.current.atTop === atTop) return;
+    headerStateRef.current.atTop = atTop;
+    setIsAtTop(atTop);
+  };
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
     updateCustomScrollbar(e.currentTarget);
     const scrollTop = e.currentTarget.scrollTop;
     if (scrollTop <= 40) {
-      setIsHeaderVisible(true);
-      setIsAtTop(true);
+      showHeader(true);
+      markAtTop(true);
       maxScrollTop.current = scrollTop;
     } else {
-      setIsAtTop(false);
+      markAtTop(false);
       if (scrollTop > lastScrollTop.current) {
-        setIsHeaderVisible(false);
+        showHeader(false);
         maxScrollTop.current = scrollTop;
       } else if (scrollTop < lastScrollTop.current) {
         // Reappear only after scrolling up at least 100px from peak scroll position (matching Google Flow)
         if (maxScrollTop.current - scrollTop >= 100) {
-          setIsHeaderVisible(true);
+          showHeader(true);
         }
       }
     }
@@ -1496,27 +1619,25 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
 
   const [attachments, setAttachments] = React.useState<ImageAttachment[]>([]);
   const [hoveredAttachmentUrl, setHoveredAttachmentUrl] = React.useState<string | null>(null);
-  const [hoveredAttachmentRect, setHoveredAttachmentRect] = React.useState<{ left: number; width: number } | null>(null);
+  /** The hovered chip in viewport pixels, and the top of the composer it sits in. */
+  const [hoveredAttachmentRect, setHoveredAttachmentRect] = React.useState<{ left: number; top: number; width: number; shellTop: number } | null>(null);
   const [hoveredAttachmentIsEndFrame, setHoveredAttachmentIsEndFrame] = React.useState<boolean>(false);
+  const [hoveredAttachmentCharacterId, setHoveredAttachmentCharacterId] = React.useState<string | null>(null);
   const hoverTimeoutRef = React.useRef<any>(null);
   const closeTimeoutRef = React.useRef<any>(null);
   
-  const handleAttachmentMouseEnter = (e: React.MouseEvent<HTMLDivElement>, url: string, isEndFrame?: boolean) => {
+  const handleAttachmentMouseEnter = (e: React.MouseEvent<HTMLDivElement>, url: string, isEndFrame?: boolean, characterId?: string) => {
     if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     
     const rect = e.currentTarget.getBoundingClientRect();
-    const parent = e.currentTarget.closest('.prompt-container-box');
-    const leftOffset = parent ? rect.left - parent.getBoundingClientRect().left : 0;
-    const width = rect.width;
+    const shellTop = e.currentTarget.closest('.prompt-container-box')?.getBoundingClientRect().top ?? rect.top;
     
     hoverTimeoutRef.current = setTimeout(() => {
-      setHoveredAttachmentRect({
-        left: leftOffset,
-        width: width
-      });
+      setHoveredAttachmentRect({ left: rect.left, top: rect.top, width: rect.width, shellTop });
       setHoveredAttachmentUrl(url);
       setHoveredAttachmentIsEndFrame(!!isEndFrame);
+      setHoveredAttachmentCharacterId(characterId ?? null);
     }, 330);
   };
 
@@ -1620,6 +1741,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         modelName: 'Upload',
         ratio: ratio,
         timestamp: Date.now(),
+        collectionId: openCollectionRef.current,
       };
       
       setIsLayoutSuppressing(true);
@@ -1639,7 +1761,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
           
           if (isLocalFolderConnected && isLocalFolderAuthorized) {
             try {
-              finalFsName = await saveLocalFSMedia(projectName || 'Default', fileKind, filename, file);
+              finalFsName = await saveLocalFSMedia(projectName || 'Default', fileKind, filename, file, collectionFolder(newItem.collectionId));
               // saveLocalFSMedia FAILS by returning null (it doesn't throw) —
               // only mark saved when we actually got a disk filename back,
               // otherwise the auto-sync backfill skips this item forever.
@@ -1691,14 +1813,138 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
 
   // Model Menu State
   const [isModelMenuOpen, setIsModelMenuOpen] = React.useState(false);
-  const [generationError, setGenerationError] = React.useState<string | null>(null);
+  const [generationError, setGenerationError] = React.useState<PromptNoticeState | null>(null);
   const [mediaItems, setMediaItems] = React.useState<MediaItem[]>([]);
+  const isBackground = React.useContext(MediaBackgroundContext);
+  const isMediaWorking = isAgentGenerating || mediaItems.some((item) => item.status === 'generating');
+  React.useEffect(() => { $mediaWorkRunning.set(isMediaWorking); }, [isMediaWorking]);
+  React.useEffect(() => () => $mediaWorkRunning.set(false), []);
+  // For work another tab may carry on (see "Work another tab carries on" below):
+  // what each video asked for, which the item does not carry, and which items the
+  // running agent turn made — that turn runs again, so they are not restarted.
+  const videoDurationsRef = React.useRef(new Map<string, string>());
+  const agentTurnItemIdsRef = React.useRef(new Set<string>());
+  React.useEffect(() => {
+    if (isAgentGenerating) agentTurnItemIdsRef.current = new Set();
+  }, [isAgentGenerating]);
+  /* Set when this editor inherits a closed tab's work, so its job resumes under the same id. */
+  const inheritedJobIdRef = React.useRef<string | null>(null);
+  // Scenes are not media and are never saved as media; they join the layout as stand-in items
+  // so they flow through the same justified rows, and SceneTile draws them. Characters join
+  // All media the same way, drawn by CharacterTile.
+  const characters = useStore($characters);
+  const scenes = useStore($scenes);
+  const scenesById = React.useMemo(() => new Map(scenes.map((s) => [s.id, s])), [scenes]);
+  const sceneItems = React.useMemo(() => scenes
+    .filter((s) => !s.trashedAt)
+    .map((s): MediaItem => ({
+      id: `${SCENE_ITEM_PREFIX}${s.id}`,
+      kind: 'video',
+      status: 'completed',
+      url: s.poster,
+      prompt: s.name,
+      modelId: 'scene',
+      modelName: 'Scene',
+      ratio: s.aspectRatio,
+      timestamp: s.createdAt,
+    })), [scenes]);
+  // A gallery tile stands for an item's whole edit history, as in Flow: it shows the newest
+  // finished version and opens on it.
+  const latestVersions = React.useMemo(() => {
+    const latest = new Map<string, MediaItem>();
+    for (const item of mediaItems) {
+      if (!item.historyGroupId || item.status !== 'completed' || !item.url) continue;
+      const current = latest.get(item.historyGroupId);
+      if (!current || item.timestamp > current.timestamp) latest.set(item.historyGroupId, item);
+    }
+    return latest;
+  }, [mediaItems]);
+  /** Edit histories with more than one finished version: Flow badges those tiles with `stacks`. */
+  const historyGroupsWithVersions = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of mediaItems) {
+      if (!item.historyGroupId || item.status !== 'completed' || item.characterId) continue;
+      counts.set(item.historyGroupId, (counts.get(item.historyGroupId) ?? 0) + 1);
+    }
+    return new Set([...counts].filter(([, n]) => n > 1).map(([id]) => id));
+  }, [mediaItems]);
+  // ── Collections ──────────────────────────────────────────────────────────
+  // Collections live in ./collections. Like Flow's they are folders: an item in one shows only
+  // inside it (`?collection=<id>`), and at the top of the project the collection is a square tile.
+  const collections = useStore($collections);
+  const collectionIds = React.useMemo(() => new Set(collections.map((c) => c.id)), [collections]);
+  const openCollectionId = new URLSearchParams(location.search).get('collection');
+  const openCollection = openCollectionId ? collections.find((c) => c.id === openCollectionId) ?? null : null;
+  /** What is made or uploaded while a collection is open goes into it, as in Flow. */
+  const openCollectionRef = React.useRef<string | undefined>(undefined);
+  openCollectionRef.current = openCollection?.id;
+  /** The sidebar's tabs leave a collection, as Flow's do. */
+  const tabSearch = React.useMemo(() => {
+    const next = new URLSearchParams(location.search);
+    next.delete('collection');
+    const search = next.toString();
+    return search ? `?${search}` : '';
+  }, [location.search]);
+  /** The rail's rows: a gallery tab, or Tools, which also opens its dock as Flow's does. */
+  const navigateSidebarTab = (tab: string) => {
+    if (tab === 'tools') {
+      setDockOpen(true);
+      navigate(toolsLocation(tabSearch));
+      return;
+    }
+    navigate((tab === 'all' ? '/media' : `/media/${tab}`) + tabSearch);
+  };
+  const openDockTool = (id: string) => navigate(toolLocation(tabSearch, id));
+  const locationHref = (to: { pathname: string; search: string }) => to.pathname + to.search;
+  const toolsHref = locationHref(toolsLocation(tabSearch));
+  const dockToolHref = (id: string) => locationHref(toolLocation(tabSearch, id));
+  /** Which collection an item is in; one whose collection is gone is back at the top. */
+  const homeOf = React.useCallback((item: MediaItem): string | null =>
+    (item.collectionId && collectionIds.has(item.collectionId) ? item.collectionId : null), [collectionIds]);
+  /** The collection a collection sits in, if that one still exists; null at the top of the project. */
+  const parentIdOf = React.useCallback((c: Collection): string | null =>
+    (c.parentId && collectionIds.has(c.parentId) ? c.parentId : null), [collectionIds]);
+  /**
+   * Each collection's tiles — its own and those of every collection inside it, as Flow counts and
+   * covers them — its cover then newest first, each showing its newest finished version.
+   */
+  const collectionContents = React.useMemo(() => {
+    const direct = new Map<string, MediaItem[]>();
+    for (const item of [...mediaItems].sort(compareMediaItemsNewestFirst)) {
+      const home = homeOf(item);
+      if (!home || item.historyParentId || item.characterId) continue;
+      const latest = latestVersions.get(item.historyGroupId || item.id);
+      const tile = latest && latest.id !== item.id && latest.url !== item.url ? { ...item, url: latest.url } : item;
+      direct.set(home, [...(direct.get(home) ?? []), tile]);
+    }
+    const children = new Map<string, string[]>();
+    for (const c of collections) {
+      const parent = parentIdOf(c);
+      if (parent) children.set(parent, [...(children.get(parent) ?? []), c.id]);
+    }
+    const gather = (id: string, seen: Set<string>): MediaItem[] => {
+      if (seen.has(id)) return [];
+      seen.add(id);
+      return [...(direct.get(id) ?? []), ...(children.get(id) ?? []).flatMap((child) => gather(child, seen))];
+    };
+    const byCollection = new Map<string, MediaItem[]>();
+    for (const c of collections) {
+      const list = gather(c.id, new Set()).sort(compareMediaItemsNewestFirst);
+      const at = c.coverId ? list.findIndex((m) => (m.historyGroupId || m.id) === c.coverId) : -1;
+      if (at > 0) list.unshift(...list.splice(at, 1));
+      if (list.length) byCollection.set(c.id, list);
+    }
+    return byCollection;
+  }, [mediaItems, latestVersions, homeOf, collections, parentIdOf]);
   const displayMediaItems = React.useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     let filtered = mediaItems.filter((item) => {
       // Flow keeps viewer edits in the detail history rail. They should not
       // become separate tiles in the main canvas/gallery.
       if (item.historyParentId) return false;
+      // A character's images belong to the character, shown on its own page.
+      if (item.characterId) return false;
+      if (openCollection ? homeOf(item) !== openCollection.id : homeOf(item) !== null) return false;
       if (query && !(item.shortenedPrompt || item.prompt || '').toLowerCase().includes(query)) {
         return false;
       }
@@ -1715,7 +1961,53 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         return item.kind === 'audio';
       }
       return true;
+    }).map((item) => {
+      const latest = latestVersions.get(item.historyGroupId || item.id);
+      return latest && latest.id !== item.id && latest.url !== item.url ? { ...item, url: latest.url } : item;
     });
+
+    if (activeSidebarTab === 'scenes' || (activeSidebarTab === 'all' && !openCollection)) {
+      const sceneTiles = sceneItems.filter((s) => !query || s.prompt.toLowerCase().includes(query));
+      filtered = activeSidebarTab === 'scenes' ? sceneTiles : [...sceneTiles, ...filtered];
+    }
+
+    // The collections at this level: the project's own, or the ones inside the open collection.
+    if (activeSidebarTab === 'all') {
+      const level = openCollection?.id ?? null;
+      const collectionTiles = collections
+        .filter((c) => parentIdOf(c) === level && (!query || c.name.toLowerCase().includes(query)))
+        .map((c): MediaItem => ({
+          id: `${COLLECTION_ITEM_PREFIX}${c.id}`,
+          kind: 'image',
+          status: 'completed',
+          url: '',
+          prompt: c.name,
+          modelId: 'collection',
+          modelName: 'Collection',
+          ratio: '1:1',
+          timestamp: c.createdAt,
+        }));
+      filtered = [...collectionTiles, ...filtered];
+    }
+
+    // Characters are tiles of All media too, at the top of the project, by when they were made.
+    if (activeSidebarTab === 'all' && !openCollection) {
+      const characterTiles = characters
+        .filter((c) => !query || characterName(c).toLowerCase().includes(query))
+        .map((c): MediaItem => ({
+          id: `${CHARACTER_ITEM_PREFIX}${c.id}`,
+          kind: 'image',
+          status: 'completed',
+          url: '',
+          prompt: characterName(c),
+          modelId: 'character',
+          modelName: 'Character',
+          ratio: '1:1',
+          timestamp: c.createdAt,
+          ...(c.favorite ? { favorite: true } : {}),
+        }));
+      filtered = [...characterTiles, ...filtered];
+    }
 
     if (activeSidebarTab === 'music') {
       filtered = [
@@ -1733,8 +2025,29 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         ...filtered
       ];
     }
+    // The search bar's filters (SortFilterMenu), each list "any of". Willow keeps no clip duration
+    // or resolution, so those two rows narrow nothing.
+    const f = sortFilter;
+    const typeOf = (m: MediaItem) => (m.id.startsWith(COLLECTION_ITEM_PREFIX) ? 'collections'
+      : m.id.startsWith(SCENE_ITEM_PREFIX) ? 'scenes'
+        : m.id.startsWith(CHARACTER_ITEM_PREFIX) ? 'characters'
+          : m.kind === 'video' ? 'videos' : m.kind === 'image' ? 'images' : 'other');
+    const shapeOf = (m: MediaItem) => {
+      const [w, h] = (m.ratio || '').split(':').map(Number);
+      return !w || !h || w === h ? 'freeform' : w > h ? 'landscape' : 'portrait';
+    };
+    const isMedia = (m: MediaItem) => !isStandIn(m);
+    if (f.types.length) filtered = filtered.filter((m) => f.types.includes(typeOf(m)));
+    if (f.ratios.length) filtered = filtered.filter((m) => !m.id.startsWith(COLLECTION_ITEM_PREFIX) && !m.id.startsWith(CHARACTER_ITEM_PREFIX) && f.ratios.includes(shapeOf(m)));
+    if (f.created.length) {
+      filtered = filtered.filter((m) => isMedia(m) && (
+        (f.created.includes('uploaded') && m.modelId === 'upload')
+        || (f.created.includes('generated') && m.modelId !== 'upload')
+        || (f.created.includes('favorites') && !!m.favorite)
+      ));
+    }
     return filtered;
-  }, [mediaItems, activeSidebarTab, searchQuery]);
+  }, [mediaItems, sceneItems, characters, activeSidebarTab, searchQuery, latestVersions, collections, openCollection, homeOf, parentIdOf, sortFilter]);
 
   React.useEffect(() => {
     if (activeSidebarTab === 'music') {
@@ -1778,6 +2091,28 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       }
     }
   }, [mediaItems, selectedItem]);
+  // A video opens in the Scenebuilder on a scene of its own, built when it opens and dropped when it
+  // closes, so the next open starts from the video as it is then.
+  const openVideoId = selectedItem?.kind === 'video' && selectedItem.url ? selectedItem.id : null;
+  React.useEffect(() => {
+    if (!openVideoId) return undefined;
+    const item = mediaItemsRef.current.find((m) => m.id === openVideoId);
+    if (item?.url) {
+      // Without its scene the view stays an empty page, so a video that can't be read closes it.
+      void ensureVideoScene({ id: item.id, url: item.url, ratio: item.ratio, name: item.shortenedPrompt || item.prompt }).catch(() => {
+        setSelectedItem((current) => (current?.id === openVideoId ? null : current));
+        showSnack({ icon: 'error', tone: 'error', text: 'This video could not be opened.', actions: [{ label: 'Dismiss' }] });
+      });
+    }
+    return () => dropVideoScene(openVideoId);
+  }, [openVideoId]);
+  /** An editor that failed to load or render: back to the gallery, saying why. */
+  const onEditorFailed = useEventCallback((error: Error, close: () => void) => {
+    close();
+    showSnack(isChunkLoadError(error)
+      ? { icon: 'error', tone: 'error', text: 'Willow needs to reload to open this.', actions: [{ label: 'Reload', run: () => window.location.reload() }, { label: 'Dismiss' }] }
+      : { icon: 'error', tone: 'error', text: 'This could not be opened.', actions: [{ label: 'Dismiss' }] });
+  });
   const materializingProjectRef = React.useRef<string | null>(null);
 
   // Synchronously bind the canvas items & fullscreen viewer globally in the render body so StreamingMarkdown can preview them instantly during render
@@ -1872,6 +2207,10 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   // in IndexedDB). We OWN these and must revoke them on project change / unmount
   // to avoid leaking memory.
   const mediaBlobUrlsRef = React.useRef<string[]>([]);
+  // The folder each of those URLs was read from ('' for Images/, Videos/ and Audio/). A URL reads
+  // its file where it was when made, so it stops loading once the file moves — into a
+  // collection, or with its collection's folder — and is only reused while the file stays put.
+  const blobFolderRef = React.useRef(new Map<string, string>());
   const attachmentsRef = React.useRef<ImageAttachment[]>([]);
   React.useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
 
@@ -1885,6 +2224,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         keptUrls.push(u);
       } else {
         try { URL.revokeObjectURL(u); } catch {}
+        blobFolderRef.current.delete(u);
       }
     }
     mediaBlobUrlsRef.current = keptUrls;
@@ -1908,10 +2248,13 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   // clobbers an in-progress generation.
   const initialLoadCompletedRef = React.useRef(false);
 
+  /** The project folder's Scenes/ (set with the scene sync below); read after each reconcile. */
+  const sceneFolderRef = React.useRef<SceneFolder | null>(null);
   const loadMedia = React.useCallback(async (skipIfGenerating: boolean) => {
     const loadStartTime = Date.now();
+    // Not reserved for the initial load: a realtime refresh can supersede it, and
+    // then this refresh is the only load left to take the loading screen down.
     const finishLoading = () => {
-      if (skipIfGenerating) return;
       if (initialLoadCompletedRef.current) return;
       initialLoadCompletedRef.current = true;
       const elapsed = Date.now() - loadStartTime;
@@ -1975,41 +2318,67 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       ? await refreshLocalMedia(projectId, projectName, itemsBelongHere ? mediaItemsRef.current : undefined)
       : await loadProjectMedia(projectId, chatScopeId);
 
-    // Crash recovery: a freshly loaded record can't legitimately be
-    // mid-generation — a stale 'generating' entry (browser closed mid-run)
-    // would otherwise show a spinner forever. Surface it as failed instead.
-    const loaded = (items || []).map((m: any) =>
-      m?.status === 'generating' ? { ...m, status: 'failed' } : m
+    // Failed generations last only for the session that saw them fail: saving
+    // drops them, and a stored record from before that rule — or one holding a
+    // 'generating' entry from a browser closed mid-run — is cleaned up here.
+    // Failures this session is already showing stay on screen.
+    const liveFailed = itemsBelongHere ? mediaItemsRef.current.filter((m) => m.status === 'failed') : [];
+    const liveFailedIds = new Set(liveFailed.map((m) => m.id));
+    // Except the ones a closed tab was generating, when this tab inherited that
+    // work: they stay, and the resume starts each one again.
+    const resume = $mediaResume.get();
+    const resumingIds = resume && (projectId === resume.job.payload.projectId || projectId === `temp_${resume.job.payload.projectId}`)
+      ? new Set(resume.job.payload.itemIds)
+      : null;
+    if (resume && resumingIds) inheritedJobIdRef.current = resume.job.id;
+    const loaded = (items || []).filter((m: any) =>
+      m
+      && (m.status !== 'generating' || resumingIds?.has(m.id))
+      && (m.status !== 'failed' || liveFailedIds.has(m.id))
     );
+    const loadedIds = new Set(loaded.map((m: any) => m.id));
+    loaded.push(...liveFailed.filter((m) => !loadedIds.has(m.id)));
 
     const freshBlobUrls: string[] = [];
+    const freshFolders = new Map<string, string>();
     // INVARIANT #14: reuse the currently-displayed blob: URL when the same
     // item (id + fsName + kind) is already on screen with a live one. Minting
     // a fresh URL (and revoking the old) forces every <img> to unload and
     // reload, visibly collapsing/reflowing the masonry on each realtime
     // refresh even when nothing changed on disk.
+    // Live means still in mediaBlobUrlsRef. A URL revoked by any path — a
+    // superseded load, Fast Refresh re-running the unmount cleanup — must be
+    // re-minted, or the tile keeps a dead URL that every later refresh reuses.
+    const liveBlobUrls = new Set(mediaBlobUrlsRef.current);
     const prevById = new Map(mediaItemsRef.current.map((i: any) => [i?.id, i]));
     const reusedUrls = new Set<string>();
+    // Read fresh rather than from the store: the reconcile above may just have adopted a folder.
+    const stored = connected ? await listCollections(projectId, chatScopeId).catch(() => []) : [];
+    const storedById = new Map(stored.map((c) => [c.id, c]));
+    const folderOf = new Map<string, string>(stored.map((c): [string, string] => [c.id, collectionPath(c, storedById)]));
     const hydrated = await Promise.all(loaded.map(async (m: any) => {
       if (m?.url) return m; // browser-only base64 (or already hydrated) — use as-is
       if (connected && m?.fsName && m?.kind) {
         const isAudioFile = m.kind === 'audio' && /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(m.fsName);
+        const folder = m.collectionId ? folderOf.get(m.collectionId) : undefined;
+        const readHere = (url: string) => liveBlobUrls.has(url) && blobFolderRef.current.get(url) === (folder ?? '');
         const prev = prevById.get(m.id);
         if (prev && prev.fsName === m.fsName && prev.kind === m.kind) {
           if (isAudioFile) {
             // Only when the item doesn't carry real (data:/http) audio of its
             // own — mirrors the keep-real-audio guard below.
-            if ((!m.audioUrl || m.audioUrl.startsWith('blob:')) && prev.audioUrl?.startsWith('blob:')) {
+            if ((!m.audioUrl || m.audioUrl.startsWith('blob:')) && readHere(prev.audioUrl)) {
               reusedUrls.add(prev.audioUrl);
               return { ...m, audioUrl: prev.audioUrl };
             }
-          } else if (prev.url?.startsWith('blob:')) {
+          } else if (readHere(prev.url)) {
             reusedUrls.add(prev.url);
             return { ...m, url: prev.url };
           }
         }
-        const blobUrl = await loadLocalFSMediaUrl(projectName, m.kind, m.fsName);
+        const blobUrl = await loadLocalFSMediaUrl(projectName, m.kind, m.fsName, folder);
         if (blobUrl) {
+          freshFolders.set(blobUrl, folder ?? '');
           // For audio items the Audio/ file is usually the cover ART (an image
           // written at save time). But an externally dropped song file (.mp3
           // etc.) IS the audio — route that to audioUrl so the player works,
@@ -2038,13 +2407,18 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       return;
     }
     // INVARIANT #15: structural change-only gate. If every item is identical
-    // (id/url/status/fsName/kind/prompt/timestamp), skip the setState — each
+    // (id/url/status/fsName/kind/prompt/timestamp/collection), skip the setState — each
     // realtime poll otherwise re-renders the whole masonry and tiles visibly
     // reposition even though nothing changed on disk. (With the URL reuse
     // above, unchanged items keep identical blob: urls, so idle refreshes and
-    // post-rename reloads actually hit this gate.)
+    // post-rename reloads actually hit this gate.) The collection counts: a file moved between
+    // collection folders on disk changes nothing else.
     const itemSig = (m: any) =>
-      [m?.id, m?.url ?? '', m?.audioUrl ?? '', m?.status, m?.fsName ?? '', m?.kind, m?.prompt ?? '', m?.timestamp ?? 0].join('\u0000');
+      [m?.id, m?.url ?? '', m?.audioUrl ?? '', m?.status, m?.fsName ?? '', m?.kind, m?.prompt ?? '', m?.timestamp ?? 0, m?.collectionId ?? ''].join('\u0000');
+    // Scenes in the folder's Scenes/ point at videos by place, which this reconcile has settled.
+    const readScenes = () => {
+      if (connected && sceneFolderRef.current) void readScenesFromFolder(sceneFolderRef.current, projectId, projectName, hydrated, collectionFolder);
+    };
     const prevItems = mediaItemsRef.current;
     if (lastLoadedProjectIdRef.current === projectId && prevItems.length === hydrated.length) {
       const prevSigs = new Set(prevItems.map(itemSig));
@@ -2052,25 +2426,35 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         for (const u of freshBlobUrls) { try { URL.revokeObjectURL(u); } catch {} }
         mediaLoadedRef.current = true;
         finishLoading();
+        readScenes();
         return;
       }
     }
-    const keptUrls = revokeMediaBlobUrls(reusedUrls); // release previous URLs not reused / not held by attachments
-    mediaBlobUrlsRef.current = [...freshBlobUrls, ...keptUrls];
-
     const imageUrls = hydrated
       .filter((item: any) => item && (item.kind === 'image' || item.kind === 'audio' || item.coverUrl))
       .map((item: any) => item.coverUrl || item.url)
       .filter((url: any): url is string => typeof url === 'string' && url.length > 0 && !url.startsWith('blob:null'));
 
-    if (imageUrls.length > 0 && !skipIfGenerating) {
+    // Whichever load will take the loading screen down preloads first, so the
+    // gallery appears decoded — including a realtime refresh (see finishLoading).
+    if (imageUrls.length > 0 && (!skipIfGenerating || !initialLoadCompletedRef.current)) {
       await preloadAllImages(imageUrls);
+      // The preload can take seconds: long enough for a newer load to commit and
+      // revoke the URLs held here. Committing after it would show every tile broken.
+      if (gen !== loadGenRef.current || mediaItemsRef.current.some(i => i.status === 'generating')) {
+        for (const u of freshBlobUrls) { try { URL.revokeObjectURL(u); } catch {} }
+        return;
+      }
     }
 
+    const keptUrls = revokeMediaBlobUrls(reusedUrls); // release previous URLs not reused / not held by attachments
+    mediaBlobUrlsRef.current = [...freshBlobUrls, ...keptUrls];
+    for (const [url, folder] of freshFolders) blobFolderRef.current.set(url, folder);
     setMediaItems(hydrated);
     lastLoadedProjectIdRef.current = projectId;
     mediaLoadedRef.current = true;
     finishLoading();
+    readScenes();
   }, [projectId, projectName, chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, refreshLocalMedia, loadLocalFSMediaUrl, revokeMediaBlobUrls]);
 
   // (Re)load on project / folder change.
@@ -2167,7 +2551,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
 
           const response = await fetch(item.url);
           const blob = await response.blob();
-          const finalName = await saveLocalFSMedia(projectName, item.kind, filename, blob);
+          const finalName = await saveLocalFSMedia(projectName, item.kind, filename, blob, collectionFolder(live?.collectionId ?? item.collectionId));
           if (finalName) {
             setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true, fsName: finalName } : m));
           }
@@ -2333,87 +2717,65 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     window.dispatchEvent(new Event('willow_projects_updated'));
   }, [projectId, chatScopeId, saveLocalFSCover]);
   const [renamingItemId, setRenamingItemId] = React.useState<string | null>(null);
-  // Read user saved models from localStorage
-  const savedConfigRaw = typeof window !== 'undefined' ? localStorage.getItem('modelConfig') : null;
-  const userSavedModels = React.useMemo(() => {
+  // The models added in Settings → Models. The host passes its live config, so a model added
+  // while Media is open is offered at once.
+  const savedModelConfig = React.useMemo(() => {
+    if (modelConfig) return modelConfig;
     try {
-      const parsed = savedConfigRaw ? JSON.parse(savedConfigRaw) : null;
-      if (!parsed) return [];
-      return collectSavedModelsInCatalogOrder(parsed);
+      return JSON.parse(localStorage.getItem('modelConfig') || 'null');
     } catch {
-      return [];
+      return null;
     }
-  }, [savedConfigRaw]);
+  }, [modelConfig]);
+  const { image: imageModels, video: videoModels, music: musicModels } = React.useMemo(
+    () => mediaModelLists(savedModelConfig),
+    [savedModelConfig],
+  );
+
+  /*
+   * Each selection is the remembered pick while that model is still added, else the first
+   * added model, else '' — and on '' Generate asks for a model instead of using one the user
+   * never added.
+   */
+  const [imagePick, setImagePick] = React.useState(() => readModelPick('image', chatScopeId));
+  const [videoPick, setVideoPick] = React.useState(() => readModelPick('video', chatScopeId));
+  const [musicPick, setMusicPick] = React.useState(() => readModelPick('music', chatScopeId));
+  const pickModel = (kind: MediaModelKind, id: string) => {
+    const live = liveModelId(id);
+    (kind === 'image' ? setImagePick : kind === 'video' ? setVideoPick : setMusicPick)(live);
+    writeModelPick(kind, live, chatScopeId);
+  };
+  const openModelSettings = () => onOpenSettings?.('models');
 
   type ImageModelId = string;
-  const [imageModel, setImageModel] = React.useState<ImageModelId>('gemini-3-pro-image-preview');
-  const [musicModel, setMusicModel] = React.useState<string>('lyria-3-pro');
+  const imageModel: ImageModelId = resolveModelPick(imagePick, imageModels);
+  const setImageModel = (id: ImageModelId) => pickModel('image', id);
+  const musicModel = resolveModelPick(musicPick, musicModels);
+  const setMusicModel = (id: string) => pickModel('music', id);
+  // Song covers go through Gemini, so they use a Gemini image model the user added, theirs first.
+  const coverImageModel = [imageModel, ...imageModels.map((m) => m.id)].find((id) => id.startsWith('gemini-')) ?? '';
   const [isImageModelDropdownOpen, setIsImageModelDropdownOpen] = React.useState(false);
   const [imageModelDropDirection, setImageModelDropDirection] = React.useState<'down' | 'up'>('down');
   const imageModelDropdownRef = React.useRef<HTMLDivElement>(null);
   const imageModelButtonRef = React.useRef<HTMLButtonElement>(null);
 
-  const availableImageModels = React.useMemo(() => {
-    const userImageModels = userSavedModels.filter((model: any) => getModelCategory(model) === 'image');
-    if (userImageModels.length > 0) {
-      return userImageModels.map((m: any) => ({
-        id: m.modelId || m.id,
-        name: m.name || (m.modelId === 'grok-imagine' ? 'Grok Imagine' : 'Nano Banana')
-      }));
-    }
-    return [{ id: 'none', name: 'No image models configured' }];
-  }, [userSavedModels]);
-
   type VideoModelId = string;
-  const DEFAULT_VIDEO_MODELS: { id: VideoModelId; name: string; apiId: string }[] = [
-    { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast', apiId: 'veo-3.1-fast-generate-preview' },
-    { id: 'veo-3.1', name: 'Veo 3.1', apiId: 'veo-3.1-generate-preview' },
-    { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite', apiId: 'veo-3.0-fast-generate-001' },
-    { id: 'omni-flash', name: 'Gemini Omni Flash 1', apiId: 'gemini-omni-flash-preview' },
-    { id: 'omni-flash-1.1', name: 'Gemini Omni Flash 1.1', apiId: 'gemini-omni-flash-1.1-preview' },
-  ];
+  const DEFAULT_VIDEO_MODELS = VIDEO_MODEL_CATALOG;
+  const VIDEO_MODELS = videoModels;
 
-  const availableVideoModels = React.useMemo(() => {
-    const userVideoModels = userSavedModels.filter((model: any) => getModelCategory(model) === 'video');
-    if (userVideoModels.length > 0) {
-      return userVideoModels.map((m: any) => {
-        const id = m.modelId || m.id;
-        const match = DEFAULT_VIDEO_MODELS.find(v => v.id === id);
-        return {
-          id: id,
-          name: m.name || match?.name || 'Video Model',
-          apiId: match?.apiId || id
-        };
-      });
-    }
-    return [{ id: 'none', name: 'No video models configured', apiId: '' }];
-  }, [userSavedModels]);
-
-  const availableMusicModels = React.useMemo(() => {
-    const userMusicModels = userSavedModels.filter((m: any) => {
-      const id = (m.modelId || m.id || '').toLowerCase();
-      const name = (m.name || '').toLowerCase();
-      return id.includes('lyria') || id.includes('voice') || name.includes('lyria') || name.includes('voice');
-    });
-    if (userMusicModels.length > 0) {
-      return userMusicModels.map((m: any) => ({
-        id: m.modelId || m.id,
-        name: m.name || (m.modelId === 'grok-voice' ? 'Grok Voice' : 'Lyria 3 Pro')
-      }));
-    }
-    return [{ id: 'none', name: 'No music models configured' }];
-  }, [userSavedModels]);
-
-  const VIDEO_MODELS = availableVideoModels;
-
-  const getVideoApiModelId = (id: VideoModelId) =>
-    availableVideoModels.find(m => m.id === id)?.apiId ?? 'veo-3.1-fast-generate-preview';
-  const [videoModel, setVideoModel] = React.useState<VideoModelId>('omni-flash');
+  const videoModel: VideoModelId = resolveModelPick(videoPick, videoModels);
+  const setVideoModel = (id: VideoModelId) => pickModel('video', id);
   const [isVideoModelDropdownOpen, setIsVideoModelDropdownOpen] = React.useState(false);
   const [videoModelDropDirection, setVideoModelDropDirection] = React.useState<'down' | 'up'>('down');
   const videoModelDropdownRef = React.useRef<HTMLDivElement>(null);
   const videoModelButtonRef = React.useRef<HTMLButtonElement>(null);
-  const getVideoModelName = (id: VideoModelId) => availableVideoModels.find(m => m.id === id)?.name ?? 'Gemini Omni Flash';
+  const getVideoModelName = (id: VideoModelId) =>
+    videoModels.find((m) => m.id === id)?.name ?? VIDEO_MODEL_CATALOG.find((m) => m.id === id)?.name ?? (id || 'No video model');
+  // A "no model added" notice clears itself once a model of that kind is added.
+  const visibleGenerationError = generationError?.missingModel
+    && (generationError.missingModel === 'image' ? imageModels : videoModels).length > 0
+    ? null
+    : generationError;
   const getVideoModelDisplayName = (id: VideoModelId) => {
     const name = getVideoModelName(id);
     if (!name) return 'Model';
@@ -2431,7 +2793,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       const next = !open;
       if (next) {
         setImageModelDropDirection(
-          computeDropDirection(imageModelButtonRef.current, estimateDropdownHeight(2)),
+          computeDropDirection(imageModelButtonRef.current, estimateDropdownHeight(Math.max(2, imageModels.length))),
         );
       }
       return next;
@@ -2443,12 +2805,17 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       const next = !open;
       if (next) {
         setVideoModelDropDirection(
-          computeDropDirection(videoModelButtonRef.current, estimateDropdownHeight(VIDEO_MODELS.length)),
+          computeDropDirection(videoModelButtonRef.current, estimateDropdownHeight(Math.max(2, VIDEO_MODELS.length))),
         );
       }
       return next;
     });
   };
+  // Below 961px a model list opens in place inside the settings sheet (media-responsive.css), which
+  // can leave it under the sheet's scrolled edge.
+  const revealModelList = React.useCallback((list: HTMLDivElement | null) => {
+    if (list && isNarrow) list.scrollIntoView({ block: 'nearest' });
+  }, [isNarrow]);
 
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -2478,14 +2845,8 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     };
   }, [isVideoModelDropdownOpen]);
 
-  const getImageModelName = (id: string) => {
-    const found = availableImageModels.find(m => m.id === id);
-    if (found) return found.name;
-    if (id === 'gemini-3-pro-image-preview') return 'Nano Banana Pro';
-    if (id === 'gemini-3.1-flash-image-preview') return 'Nano Banana 2';
-    if (id === 'grok-imagine') return 'Grok Imagine';
-    return 'Nano Banana Lite';
-  };
+  const getImageModelName = (id: string) =>
+    imageModels.find((m) => m.id === liveModelId(id))?.name ?? (id || 'No image model');
 
   const menuRef = React.useRef<HTMLDivElement>(null);
   const popupRef = React.useRef<HTMLDivElement>(null);
@@ -2546,10 +2907,10 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   const [modelMode, setModelMode] = useState<'image' | 'video'>('image');
   
   const [isAssetMenuOpen, setIsAssetMenuOpen] = useState(false);
-  const assetMenuPlusRef = useRef<HTMLButtonElement>(null);
+  /** The add menu's trigger: the add button, or in Frames mode (which has none) the frame row. */
+  const assetMenuPlusRef = useRef<HTMLElement>(null);
   const [assetMenuSource, setAssetMenuSource] = useState<'main' | 'sidebar' | 'instruction-reference'>('main');
   const [sidebarButtonRef, setSidebarButtonRef] = useState<React.RefObject<HTMLButtonElement> | null>(null);
-  const [instructions, setInstructions] = useState<AgentInstruction[]>([]);
   const [activeInstructionId, setActiveInstructionId] = useState<string | null>(null);
   const [instructionButtonRef, setInstructionButtonRef] = useState<React.RefObject<any> | null>(null);
 
@@ -2561,7 +2922,9 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
   const [videoMode, setVideoMode] = React.useState<'frames' | 'ingredients'>('ingredients');
   const [videoRatio, setVideoRatio] = React.useState('16:9');
   const [videoBatch, setVideoBatch] = React.useState('x4');
-  const [videoDuration, setVideoDuration] = React.useState('10s');
+  const [videoDurationPick, setVideoDuration] = React.useState('10s');
+  // Veo rejects 10s, so a Veo model gets the nearest length it takes; the pick itself is kept.
+  const videoDuration = fitVideoDuration(videoModel, videoDurationPick);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false);
   const [isLayoutSuppressing, setIsLayoutSuppressing] = React.useState(false);
   
@@ -2710,48 +3073,6 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     prevItemCountRef.current = displayMediaItems.length;
   }, [displayMediaItems.length]);
 
-  const updateFades = (target: HTMLTextAreaElement) => {
-    const scrollHeight = target.scrollHeight;
-    const clientHeight = target.clientHeight;
-    const scrollTop = target.scrollTop;
-
-    // Use a 4px tolerance to handle fractional browser scaling/zoom & line heights
-    const hasScrollableHeight = scrollHeight > clientHeight + 4;
-    const scrolledFromTop = scrollTop > 2;
-    const canScrollMore = scrollHeight - scrollTop > clientHeight + 4;
-
-    setIsTopFaded(hasScrollableHeight && scrolledFromTop);
-    setIsBottomFaded(hasScrollableHeight && canScrollMore);
-  };
-
-  React.useEffect(() => {
-    const adjustHeight = () => {
-      if (textareaRef.current) {
-        const el = textareaRef.current;
-        el.style.height = 'auto';
-        el.style.height = `${Math.min(el.scrollHeight, 384)}px`;
-        updateFades(el);
-      }
-    };
-
-    adjustHeight();
-
-    const handle = requestAnimationFrame(adjustHeight);
-    
-    if (typeof document !== 'undefined' && 'fonts' in document) {
-      document.fonts.ready.then(adjustHeight);
-    }
-
-    const timer = setTimeout(adjustHeight, 200);
-    window.addEventListener('resize', adjustHeight);
-
-    return () => {
-      cancelAnimationFrame(handle);
-      clearTimeout(timer);
-      window.removeEventListener('resize', adjustHeight);
-    };
-  }, [prompt]);
-
   const updateViewerFades = (target: HTMLTextAreaElement) => {
     const scrollHeight = target.scrollHeight;
     const clientHeight = target.clientHeight;
@@ -2856,6 +3177,12 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     }
   };
 
+  // The user's renaming model when it is a Gemini one, since this request goes to Gemini.
+  const chosenNamingModel = (savedModelConfig as any)?.systemDefaults?.chatRenaming;
+  const namingModel = typeof chosenNamingModel === 'string' && chosenNamingModel.startsWith('gemini-')
+    ? chosenNamingModel
+    : 'gemini-3.1-flash-lite';
+
   const rephrasePromptForItems = async (itemIds: string[], activePrompt: string, apiKey: string) => {
     try {
       const fetchRephrase = async (model: string) => {
@@ -2875,7 +3202,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         );
       };
 
-      const rephraseResp = await fetchRephrase('gemini-1.5-flash');
+      const rephraseResp = await fetchRephrase(namingModel);
       
       if (rephraseResp.ok) {
         const rephraseData = await rephraseResp.json();
@@ -2901,7 +3228,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     ratio: string,
     apiKey: string,
     activeAttachments: ImageAttachment[],
-  ) => {
+  ): Promise<GenerationResult> => {
     try {
       const isGrok = modelId === 'grok-imagine';
       const isOpenAi = modelId === 'gpt-image-2';
@@ -2920,11 +3247,10 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         // Load baseUrl from local config
         let baseUrl = config?.baseUrl;
         
-        // If not found in config, look up from willow:providerState session storage cache
-        if (!baseUrl && typeof window !== 'undefined' && user?.uid) {
+        // If not found in config, use the endpoint saved alongside the keys
+        if (!baseUrl && typeof window !== 'undefined') {
           try {
-            const providerStateKey = `willow:providerState:${user.uid}`;
-            const serialized = sessionStorage.getItem(providerStateKey);
+            const serialized = localStorage.getItem(DEVICE_KEY_SLOT.providerState);
             if (serialized) {
               const ps = JSON.parse(serialized);
               baseUrl = ps?.[provider]?.baseUrl;
@@ -3007,13 +3333,13 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         if (isLocalFolderConnected) {
           void saveGeneratedMedia({ ...item, url: imageUrl }, imageUrl);
         }
-        return;
+        return { status: 'completed', url: imageUrl };
       }
 
       const inlineParts = await Promise.all(activeAttachments.map(getGeminiInlinePart));
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${liveModelId(modelId)}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3077,13 +3403,16 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       if (isLocalFolderConnected) {
         void saveGeneratedMedia({ ...item, url }, url);
       }
+      return { status: 'completed', url };
     } catch (err: any) {
       console.error(`[image ${item.id}] failed:`, err);
+      const error = err?.message || 'Generation failed.';
       setMediaItems(prev =>
         prev.map(m =>
-          m.id === item.id ? { ...m, status: 'failed', error: err?.message || 'Generation failed.' } : m,
+          m.id === item.id ? { ...m, status: 'failed', error } : m,
         ),
       );
+      return { status: 'failed', error };
     }
   };
 
@@ -3095,15 +3424,16 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
     durationStr: string,
     apiKey: string,
     activeAttachments: ImageAttachment[],
-  ) => {
+  ): Promise<GenerationResult> => {
+    videoDurationsRef.current.set(item.id, durationStr);
     try {
-      const apiModelId = getVideoApiModelId(videoModelKey);
-      const durationSec = parseInt(durationStr.replace('s', ''), 10) || 8;
+      const apiModelId = videoApiModelId(videoModelKey);
+      const durationSec = parseInt(fitVideoDuration(videoModelKey, durationStr), 10) || 8;
 
       const inlineParts = await Promise.all(activeAttachments.map(getGeminiInlinePart));
       const firstImagePart = inlineParts[0]?.inlineData;
 
-      if (videoModelKey === 'omni-flash' || videoModelKey === 'omni-flash-1.1') {
+      if (isOmniFlashModel(videoModelKey)) {
         const interactionsInput = [
           { 
             type: 'text', 
@@ -3206,7 +3536,7 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
         if (isLocalFolderConnected) {
           void saveGeneratedMedia({ ...item, url: videoUrl }, videoUrl);
         }
-        return videoUrl;
+        return { status: 'completed', url: videoUrl };
       }
 
       const instance: any = { prompt: activePrompt };
@@ -3309,730 +3639,714 @@ export const MediaView: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSet
       if (isLocalFolderConnected) {
         void saveGeneratedMedia({ ...item, url }, url);
       }
+      return { status: 'completed', url };
     } catch (err: any) {
       console.error(`[video ${item.id}] failed:`, err);
+      const error = err?.message || 'Video generation failed.';
       setMediaItems(prev =>
         prev.map(m =>
-          m.id === item.id ? { ...m, status: 'failed', error: err?.message || 'Video generation failed.' } : m,
+          m.id === item.id ? { ...m, status: 'failed', error } : m,
         ),
       );
+      return { status: 'failed', error };
     }
   };
 
-  const handleAgentSend = async (text: string) => {
-    if (!text.trim() && attachments.length === 0) return;
-    if (isAgentGenerating) return;
+  // ── Media agent host ─────────────────────────────────────────────────────
+  // The conversation, its streaming and its tool loop live in ./agent/agent-session.ts. This
+  // is the half it cannot own: generations run through the same functions the prompt box uses,
+  // so agent media is named, saved to disk and shown exactly like everything else.
+  const getImageApiKey = (modelId: string): string => {
+    const provider = modelId === 'grok-imagine' ? 'spacexai' : modelId === 'gpt-image-2' ? 'openai' : 'gemini';
+    return apiKeys?.[provider]?.[0] || '';
+  };
 
-    const activeAttachments = attachments.filter(Boolean);
-    const attachmentIds = activeAttachments.map(att => att.id);
+  // Only what the user added: the agent can't make a kind of media the prompt box can't.
+  const agentImageModels: AgentModelOption[] = imageModels;
+  const agentVideoModels: AgentModelOption[] = videoModels;
+  const agentUserName = String(userProfile?.displayName || user?.displayName || '').trim().split(/\s+/)[0] || undefined;
 
-    if (attachmentIds.length > 0) {
-      setRemovingIds(prev => {
-        const next = new Set(prev);
-        attachmentIds.forEach(id => next.add(id));
-        return next;
-      });
-      setTimeout(() => {
-        setAttachments([]);
-        setRemovingIds(prev => {
-          const next = new Set(prev);
-          attachmentIds.forEach(id => next.delete(id));
-          return next;
-        });
-      }, 200);
-    } else {
-      setAttachments([]);
-    }
+  const toReferenceAttachment = (item: MediaItem): ImageAttachment => ({
+    id: item.id,
+    url: item.url || '',
+    name: item.shortenedPrompt || item.prompt || 'Reference',
+    kind: item.kind,
+  });
 
-    setPrompt('');
+  const createAgentItems = (
+    kind: 'image' | 'video',
+    spec: { prompt: string; model: string; modelName: string; ratio: string; count: number; attachments: ImageAttachment[] },
+  ): MediaItem[] => {
+    const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const items: MediaItem[] = allocateMediaBatchTimestamps(spec.count).map((timestamp, i) => ({
+      id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+      kind,
+      status: 'generating',
+      prompt: spec.prompt,
+      modelId: spec.model,
+      modelName: spec.modelName,
+      ratio: spec.ratio,
+      timestamp,
+      batchId,
+      collectionId: openCollectionRef.current,
+      ...(spec.attachments.length ? { attachments: spec.attachments } : {}),
+      ...(kind === 'image' ? { effort: imageEffort, quality: imageQuality, resolution: imageResolution } : {}),
+    }));
+    items.forEach((item) => agentTurnItemIdsRef.current.add(item.id));
+    setIsLayoutSuppressing(true);
+    setMediaItems((prev) => [...items, ...prev]);
+    setTimeout(() => setIsLayoutSuppressing(false), 150);
+    const namingKey = apiKeys?.gemini?.[0];
+    if (namingKey) void rephrasePromptForItems(items.map((item) => item.id), spec.prompt, namingKey);
+    return items;
+  };
 
-    setIsAgentGenerating(true);
-    setIsAgentThinking(true);
-    setAgentThinkingPhase('thinking');
-    setAgentStreaming('');
+  const toOutcome = (id: string, result: GenerationResult): GenerationOutcome =>
+    result.status === 'completed' ? { id, status: 'completed', url: result.url } : { id, status: 'failed', error: result.error };
 
-    const convertedAttachments = await Promise.all(
-      activeAttachments.map(async (att) => {
-        try {
-          if (att.url.startsWith('data:')) {
-            const match = att.url.match(/^data:([^;]+);base64,(.+)$/);
-            if (match) {
-              return {
-                type: 'image',
-                mimeType: match[1],
-                data: match[2],
-                name: att.name
-              };
-            }
-          }
-          if (att.file) {
-            return new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const result = reader.result as string;
-                const match = result.match(/^data:([^;]+);base64,(.+)$/);
-                if (match) {
-                  resolve({
-                    type: 'image',
-                    mimeType: match[1],
-                    data: match[2],
-                    name: att.name
-                  });
-                } else {
-                  reject(new Error('Failed to parse file data'));
-                }
-              };
-              reader.onerror = reject;
-              reader.readAsDataURL(att.file);
-            });
-          }
-          const res = await fetch(att.url);
-          const blob = await res.blob();
-          return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const result = reader.result as string;
-              const match = result.match(/^data:([^;]+);base64,(.+)$/);
-              if (match) {
-                resolve({
-                  type: 'image',
-                  mimeType: match[1],
-                  data: match[2],
-                  name: att.name
-                });
-              } else {
-                reject(new Error('Failed to parse file data'));
-              }
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        } catch (e) {
-          return null;
-        }
-      })
-    );
+  const startAgentImages: MediaAgentHost['startImages'] = ({ prompt, apiPrompt, model, ratio, count, references }) => {
+    if (!model) return { error: 'No image model is added. Add one in Settings → Models.' };
+    const apiKey = getImageApiKey(model);
+    if (!apiKey) return { error: `${getImageModelName(model)} needs an API key. Add one in Settings > Models & API.` };
+    const attachments = references.map(toReferenceAttachment);
+    const items = createAgentItems('image', { prompt, model, modelName: getImageModelName(model), ratio, count, attachments });
+    const done = Promise.all(items.map(async (item) =>
+      toOutcome(item.id, await generateSingleImage(item, apiPrompt ?? prompt, model, ratio, apiKey, attachments))));
+    return { ids: items.map((item) => item.id), done };
+  };
 
-    const activeCanvasImages = mediaItemsRef.current
-      .filter(m => m.kind === 'image' && m.status === 'completed' && m.url)
-      .slice(0, 10);
-
-    const canvasImageAttachments = await Promise.all(
-      activeCanvasImages.map(async (m) => {
-        try {
-          const res = await fetch(m.url!);
-          const blob = await res.blob();
-          return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_SIZE = 512;
-              let width = img.width;
-              let height = img.height;
-              
-              if (width > height) {
-                if (width > MAX_SIZE) {
-                  height *= MAX_SIZE / width;
-                  width = MAX_SIZE;
-                }
-              } else {
-                if (height > MAX_SIZE) {
-                  width *= MAX_SIZE / height;
-                  height = MAX_SIZE;
-                }
-              }
-              
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                ctx.drawImage(img, 0, 0, width, height);
-              }
-              
-              const result = canvas.toDataURL('image/jpeg', 0.5);
-              const match = result.match(/^data:([^;]+);base64,(.+)$/);
-              if (match) {
-                resolve({
-                  type: 'image',
-                  mimeType: match[1],
-                  data: match[2],
-                  id: m.id,
-                  name: `media-id: ${m.id}`
-                });
-              } else {
-                reject(new Error('Failed to parse file data'));
-              }
-              URL.revokeObjectURL(img.src);
-            };
-            img.onerror = () => {
-              URL.revokeObjectURL(img.src);
-              reject(new Error('Failed to load image'));
-            };
-            img.src = URL.createObjectURL(blob);
-          });
-        } catch (e) {
-          return null;
-        }
-      })
-    );
-
-    const validAttachments = convertedAttachments.filter(Boolean) as any[];
-
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: text,
-      ...(validAttachments.length > 0 ? { attachments: validAttachments } : {})
-    };
-
-    const newMessages: ChatMessage[] = [
-      ...chatMessages,
-      userMsg,
-      { role: 'assistant', content: '' }
-    ];
-
-    setChatMessages(newMessages);
-
+  const startAgentVideos: MediaAgentHost['startVideos'] = ({ prompt, apiPrompt, model, ratio, duration, count, frames }) => {
+    if (!model) return { error: 'No video model is added. Add one in Settings → Models.' };
     const apiKey = apiKeys?.gemini?.[0];
-    if (!apiKey) {
-      setChatMessages(prev => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.role === 'assistant') {
-          last.content = 'Google Gemini API Key is missing. Please add it under Settings > Models & API.';
-        }
-        return next;
-      });
-      setIsAgentGenerating(false);
-      setIsAgentThinking(false);
+    if (!apiKey) return { error: 'Video generation needs a Google Gemini API key. Add one in Settings > Models & API.' };
+    const attachments = frames.map(toReferenceAttachment);
+    const items = createAgentItems('video', { prompt, model, modelName: getVideoModelName(model), ratio, count, attachments });
+    const done = Promise.all(items.map(async (item) =>
+      toOutcome(item.id, await generateSingleVideo(item, apiPrompt ?? prompt, model as VideoModelId, ratio, duration, apiKey, attachments))));
+    return { ids: items.map((item) => item.id), done };
+  };
+
+  // ── Work another tab carries on ────────────────────────────────────────────
+  // While anything runs, the editor holds one background job (`media-jobs.ts`)
+  // naming what another tab would start again if this one closed.
+  const workJobRef = React.useRef<BackgroundJobHandle<MediaWorkJob> | null>(null);
+  const workPayload = (): MediaWorkJob => {
+    const agentRunning = isAgentGenerating;
+    const generating = mediaItems.filter((item) => item.status === 'generating' && item.modelId !== 'upload');
+    const question = [...mediaAgent.$messages.get()].reverse().find((message) => message.role === 'user');
+    return {
+      projectId: persistProjectId,
+      agentSessionId: agentRunning ? mediaAgent.$session.get().id : null,
+      agentPrompt: agentRunning && question ? question.content : null,
+      itemIds: generating
+        .filter((item) => !(agentRunning && agentTurnItemIdsRef.current.has(item.id)))
+        .map((item) => item.id),
+      videoDurations: Object.fromEntries(generating
+        .filter((item) => item.kind === 'video')
+        .map((item) => [item.id, videoDurationsRef.current.get(item.id) ?? videoDuration])),
+    };
+  };
+  const workKey = isMediaWorking && persistProjectId ? JSON.stringify(workPayload()) : '';
+  React.useEffect(() => {
+    if (!workKey) {
+      workJobRef.current?.finish();
+      workJobRef.current = null;
       return;
     }
-
-    let activeImageModelName = 'Nano Banana Lite';
-    if (imageModel === 'gemini-3-pro-image-preview') activeImageModelName = 'Nano Banana Pro';
-    if (imageModel === 'gemini-3.1-flash-image-preview') activeImageModelName = 'Nano Banana 2';
-    const activeVideoModelName = videoModel === 'veo-3.1-fast' ? 'Veo 3.1 Fast' : videoModel === 'veo-3.1' ? 'Veo 3.1' : videoModel === 'veo-3.1-lite' ? 'Veo 3.1 Lite' : 'Omni Flash';
-
-    const activeGuidelines = instructions
-      .filter(i => i.isActive && i.content.trim())
-      .map(i => `- [${i.title}]: ${i.content}`)
-      .join('\n');
-
-    /* ─────────────────────────────────────────────────────────────────────
-     * DEFERRED: media capability self-description
-     *
-     * SLOTS INTO: `systemPrompt` below, as a trailing section.
-     * BLOCKED ON: nothing structural — this agent already sets
-     *   `enableMediaTools: true` a few lines down, so it is the one surface
-     *   that may honestly claim these. What it needs is a pass to reconcile
-     *   the text against what Willow really wires up.
-     *
-     * This came from the source prompt Chat's `CHAT_SYSTEM_PROMPT` was adapted
-     * from, and it is the reason Chat must never carry it: chat turns leave
-     * `enableMediaTools` off, so `generate_image` / `generate_video` are never
-     * declared to them. A chat model told it can generate video announces a
-     * render that never lands. Media is the correct home, which is why the
-     * block was parked here rather than in `features/chat`.
-     *
-     * Reconcile before pasting — the model names here are the source's, while
-     * the live ones are resolved just above from `imageModel` / `videoModel`
-     * (`activeImageModelName`, `activeVideoModelName`). Prefer those variables
-     * over hardcoding, or the prompt will drift from the picker. Willow has no
-     * subscription tiers, so the source's per-day allowances are already
-     * deleted rather than renumbered.
-     *
-     * ───8<─────── paste from here ───────
-     *
-     * The following information block is strictly for answering questions
-     * about your capabilities. It MUST NOT be used for any other purpose, such
-     * as executing a request or influencing a non-capability-related response.
-     * If there are questions about your capabilities, use the following info to
-     * answer appropriately:
-     *
-     * * Generative Abilities: You can generate text, images, videos, music.
-     * * Image Tools (image_generation & image_edit):
-     *     * Description: Can help generate and edit images. This is powered by
-     *       the "Nano Banana 2" model, which has an official name of Gemini 3
-     *       Flash Image. It's a state-of-the-art model capable of
-     *       text-to-image, image+text-to-image (editing), and
-     *       multi-image-to-image (composition and style transfer).
-     * * Video Tools (video_generation):
-     *     * Description: Can help generate videos. This uses the "Veo" model.
-     *       Veo is Google's state-of-the-art model for generating high-fidelity
-     *       videos with natively generated audio. Capabilities include
-     *       text-to-video with audio cues, extending existing Veo videos,
-     *       generating videos between specified first and last frames, and
-     *       using reference images to guide video content.
-     *     * Constraints: Unsafe content.
-     * * Music Tools (music_generation):
-     *     * Description: Can help generate high-fidelity music tracks. This is
-     *       powered by the "Lyria 3" model. It is a multimodal model capable of
-     *       text-to-music, image-to-music, and video-to-music generation. It
-     *       supports professional-grade arrangements, including automated lyric
-     *       writing and realistic vocal performances in multiple languages.
-     *     * Features: Produces 30-second tracks with granular control over
-     *       tempo, genre, and emotional mood.
-     *     * Constraints: All tracks include SynthID watermarking for
-     *       AI-identification.
-     * * Willow Live Mode: You have a conversational mode called Willow Live.
-     *     * Description: This mode allows for a more natural, real-time voice
-     *       conversation. You can be interrupted and engage in free-flowing
-     *       dialogue.
-     *     * Key Features:
-     *         * Natural Voice Conversation: Speak back and forth in real-time.
-     *         * Camera Sharing: Share your camera feed to ask questions about
-     *           what you see.
-     *         * Screen Sharing: Share your screen for contextual help on apps
-     *           or content.
-     *         * Image/File Discussion: Upload images or files to discuss their
-     *           content.
-     *     * Use Cases: Real-time assistance, brainstorming, language learning,
-     *       translation, getting information about surroundings, help with
-     *       on-screen tasks.
-     *
-     * ───8<─────── to here ───────
-     *
-     * The Live paragraph is the one part that is already true elsewhere — Chat
-     * ships live voice today (`liveSystemPrompt` in `@willow/chat/chat-model`).
-     * If any of this is wanted sooner, it is that paragraph, trimmed to the
-     * surfaces Willow actually ships, and it belongs to Chat rather than here.
-     * ───────────────────────────────────────────────────────────────────── */
-    const systemPrompt = `You are a creative co-pilot AI Agent assisting the user in crafting elite-tier media prompts, storytelling, and refining video/image properties.
-At any point, you can suggest full storyboard ideas, prompt scripts, or style guidelines. Keep your formatting gorgeous with clean headings and bullets.
-
-Active Workspace Generation Settings:
-- Default Image Generator: ${activeImageModelName} (Aspect Ratio: ${imageRatio}, Batch Size: ${imageBatch})
-- Default Video Generator: ${activeVideoModelName} (Aspect Ratio: ${videoRatio}, Batch Size: ${videoBatch})
-
-${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\n${activeGuidelines}` : ''}`;
-
-    const isFirstPrompt = chatMessages.length === 0;
-
-    if (isFirstPrompt) {
-      void (async () => {
-        try {
-          const title = await generateSessionTitle(text, apiKey);
-          if (title && title.trim()) {
-            setSessionName(title.trim());
-          }
-        } catch (e) {
-          // ignore
-        }
-      })();
+    const payload = JSON.parse(workKey) as MediaWorkJob;
+    if (workJobRef.current) {
+      workJobRef.current.update(payload);
+      return;
     }
+    workJobRef.current = startMediaWorkJob(inheritedJobIdRef.current ?? undefined, chatScopeId || 'guest', payload);
+    inheritedJobIdRef.current = null;
+  }, [workKey]);
+  // Unmounting is leaving the work behind (another project): not for another tab
+  // to pick up. A closed tab never unmounts, so its work still is.
+  React.useEffect(() => () => {
+    workJobRef.current?.finish();
+    workJobRef.current = null;
+  }, []);
 
-    const apiValidAttachments = [...validAttachments, ...canvasImageAttachments.filter(Boolean)] as any[];
-    const apiUserMsg: ChatMessage = {
-      role: 'user',
-      content: text,
-      ...(apiValidAttachments.length > 0 ? { attachments: apiValidAttachments } : {})
+  /** Starts a saved generating item again from what it recorded. */
+  const restartGeneration = (item: MediaItem, durationStr?: string) => {
+    // A reference is re-read from this gallery: the closed tab's `blob:` URLs died with it.
+    const attachments = (item.attachments ?? []).flatMap((attachment) => {
+      const source = attachment.id ? mediaItemsRef.current.find((candidate) => candidate.id === attachment.id) : undefined;
+      const url = source?.url || (attachment.url && !attachment.url.startsWith('blob:') ? attachment.url : '');
+      return url ? [{ ...attachment, url }] : [];
+    });
+    if (item.kind === 'video') {
+      void generateSingleVideo(item, item.prompt, item.modelId as VideoModelId, item.ratio, durationStr || videoDuration, apiKeys?.gemini?.[0] || '', attachments);
+    } else {
+      void generateSingleImage(item, item.prompt, item.modelId, item.ratio, getImageApiKey(item.modelId), attachments);
+    }
+  };
+
+  /*
+   * Work a closed tab left, inherited by this one: once the gallery has loaded
+   * (keeping the items it was still generating), start each of those again, and
+   * run the agent's interrupted request again in its own conversation.
+   */
+  const mediaResume = useStore($mediaResume);
+  const resumedJobRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!mediaResume || resumedJobRef.current === mediaResume.job.id) return;
+    const { projectId: wanted, itemIds, videoDurations, agentSessionId, agentPrompt } = mediaResume.job.payload;
+    if (wanted !== persistProjectId || isInitialLoading || !mediaLoadedRef.current) return;
+    resumedJobRef.current = mediaResume.job.id;
+    inheritedJobIdRef.current = mediaResume.job.id;
+    for (const id of itemIds) {
+      const item = mediaItemsRef.current.find((candidate) => candidate.id === id && candidate.status === 'generating');
+      if (item) restartGeneration(item, videoDurations[id]);
+    }
+    if (!agentSessionId) {
+      mediaResume.settle();
+      return;
+    }
+    setIsAgentActive(true);
+    setIsAgentSidebarOpen(true);
+    void (async () => {
+      await mediaAgent.openSession(agentSessionId);
+      const question = [...mediaAgent.$messages.get()].reverse().find((message) => message.role === 'user');
+      // The request this turn answered never reached the conversation if the tab
+      // closed before the save at the turn's start landed.
+      if (agentPrompt && question?.content !== agentPrompt) mediaAgent.send({ text: agentPrompt });
+      else mediaAgent.resumeInterrupted();
+      mediaResume.settle();
+    })();
+  }, [mediaResume, persistProjectId, isInitialLoading]);
+
+  const AGENT_TAB_LABELS: Record<string, string> = {
+    all: 'All media', images: 'Images', video: 'Videos', characters: 'Characters',
+    music: 'Music', scenes: 'Scenes', uploads: 'Uploads', tools: 'Tools',
+  };
+  const sceneRef = (item: MediaItem) => ({ id: item.id, url: item.url, ratio: item.ratio });
+
+  agentHostRef.current = {
+    projectId: persistProjectId,
+    scopeId: chatScopeId,
+    geminiKeys: apiKeys?.gemini ?? [],
+    userName: agentUserName,
+    // Beside the project's media, under the folder name its saves use.
+    saveSessionToDisk: (session, files) => (
+      isLocalFolderConnected ? saveLocalFSMediaAgentSession(projectName || 'Default', session, files) : Promise.resolve(false)
+    ),
+    deleteSessionFromDisk: (sessionId) => (
+      isLocalFolderConnected ? deleteLocalFSMediaAgentSession(projectName || 'Default', sessionId) : Promise.resolve(false)
+    ),
+    get mediaItems() {
+      return mediaItemsRef.current;
+    },
+    defaults: {
+      imageModel,
+      imageRatio,
+      imageCount: batchCount(imageBatch),
+      videoModel,
+      videoRatio,
+      videoCount: batchCount(videoBatch),
+      videoDuration,
+    },
+    imageModels: agentImageModels,
+    videoModels: agentVideoModels,
+    get collections() {
+      return $collections.get().map((c) => ({ id: c.id, name: c.name }));
+    },
+    get characters() {
+      return $characters.get();
+    },
+    get scenes() {
+      return $scenes.get();
+    },
+    get focus() {
+      return {
+        tab: AGENT_TAB_LABELS[activeSidebarTab] ?? 'All media',
+        collectionId: openCollectionId ?? undefined,
+        viewerId: selectedItem?.id,
+        sceneId: activeSceneId && !isVideoScene(activeSceneId) ? activeSceneId : undefined,
+        characterId: activeCharacter && activeCharacter !== 'new' ? activeCharacter : undefined,
+        selection: [...selectedTileIds].map((id) => (
+          id.startsWith(SCENE_ITEM_PREFIX) ? { kind: 'scene' as const, id: id.slice(SCENE_ITEM_PREFIX.length) }
+            : id.startsWith(COLLECTION_ITEM_PREFIX) ? { kind: 'collection' as const, id: id.slice(COLLECTION_ITEM_PREFIX.length) }
+              : { kind: 'media' as const, id }
+        )),
+      };
+    },
+    startImages: startAgentImages,
+    startVideos: startAgentVideos,
+    createCharacter: ({ name, prompt, personality, voice }) =>
+      createCharacter({ name, prompt, ...(personality ? { personality } : {}), ...(voice ? { voice: { name: voice } } : {}) }).id,
+    updateCharacter: (id, { voice, ...patch }) => {
+      updateCharacter(id, { ...patch, ...(voice ? { voice: { name: voice } } : {}) });
+    },
+    deleteCharacter: (id) => deleteCharacter(id),
+    startCharacterImage: ({ characterId, slot, prompt, model, references, parent }) => {
+      const started = launchCharacterImage({ prompt, modelId: model, references, characterId, slot, parent });
+      if ('notice' in started) return { error: started.notice.message };
+      return { id: started.item.id, done: started.done.then((result) => toOutcome(started.item.id, result)) };
+    },
+    createScene: ({ name, videos }) => createSceneFromVideos(videos.map(sceneRef), name),
+    updateScene: async (id, { name, plan }) => {
+      if (name) updateStoredScene(id, { name });
+      if (!plan) return getScene(id);
+      return setSceneClips(
+        id,
+        plan.map((entry) => ('clip' in entry ? entry.clip : sceneRef(entry.video))),
+        (mediaId) => mediaItemsRef.current.find((m) => m.id === mediaId)?.url,
+      );
+    },
+  };
+
+  // ── Scenebuilder host ────────────────────────────────────────────────────
+  // Scenes live in ./scenes (store, tiles, editor). The editor opens on `?scene=<id>`, so the
+  // browser's Back closes it, and reaches the gallery only through this host.
+  React.useEffect(() => {
+    void bindSceneProject(persistProjectId, chatScopeId);
+  }, [persistProjectId, chatScopeId]);
+
+  // Each scene is also a small file in the project folder's Scenes/, its clips pointing at their
+  // videos' files there (scenes/scene-folder-sync.ts).
+  const sceneFolder = React.useMemo<SceneFolder>(() => ({
+    key: localFolderName || '',
+    list: listLocalFSScenes,
+    save: saveLocalFSScene,
+    remove: deleteLocalFSScene,
+  }), [localFolderName, listLocalFSScenes, saveLocalFSScene, deleteLocalFSScene]);
+  React.useEffect(() => { sceneFolderRef.current = sceneFolder; }, [sceneFolder]);
+  useSceneFolderSync({
+    folder: sceneFolder,
+    projectId: persistProjectId,
+    projectName,
+    connected: isLocalFolderConnected && isLocalFolderAuthorized && !!projectName && !!projectId && !projectId.startsWith('temp_'),
+    items: mediaItems,
+    folderOf: collectionFolder,
+    collectionsKey: collections,
+  });
+
+  const openSceneEditor = useEventCallback((sceneId: string) => {
+    const next = new URLSearchParams(location.search);
+    next.set('scene', sceneId);
+    navigate({ pathname: location.pathname, search: `?${next.toString()}` });
+  });
+  const closeSceneEditor = useEventCallback(() => {
+    const next = new URLSearchParams(location.search);
+    next.delete('scene');
+    const search = next.toString();
+    navigate({ pathname: location.pathname, search: search ? `?${search}` : '' });
+  });
+  React.useEffect(() => {
+    setSceneOpener(openSceneEditor);
+    return () => setSceneOpener(null);
+  }, [openSceneEditor]);
+
+  // ── Characters ───────────────────────────────────────────────────────────
+  // Characters live in ./characters. The tab shows their grid; the new-character page opens on
+  // `?character=new` and a character on `?character=<id>`.
+  const charactersLoaded = useStore($charactersLoaded);
+  React.useEffect(() => {
+    void bindCharacterProject(persistProjectId, chatScopeId);
+  }, [persistProjectId, chatScopeId]);
+  // The page a click asked for (null: none), shown on that click's own frame. react-router renders
+  // navigations as transitions, which would leave the old page up a few frames. It holds only
+  // while the location is the one it was asked from; once any navigation lands, the URL decides.
+  const [characterRequest, setCharacterRequest] = React.useState<{ page: string | null; from: string } | null>(null);
+  const openCharacterPage = useEventCallback((target: string | null) => {
+    setCharacterRequest({ page: target, from: location.key });
+    const next = new URLSearchParams(location.search);
+    if (target) next.set('character', target);
+    else next.delete('character');
+    const search = next.toString();
+    navigate({ pathname: location.pathname, search: search ? `?${search}` : '' }, { replace: !target });
+  });
+  React.useEffect(() => {
+    setCharacterOpener(openCharacterPage);
+    return () => setCharacterOpener(null);
+  }, [openCharacterPage]);
+  const activeCharacter = new URLSearchParams(location.search).get('character');
+  // With no characters yet, Flow's Characters tab opens straight onto New character. That is decided
+  // here, in render, so the empty grid never paints first; the effect only puts it in the URL.
+  const charactersTabEmpty = activeSidebarTab === 'characters' && charactersLoaded && characters.length === 0;
+  const pendingCharacterRequest = characterRequest?.from === location.key ? characterRequest : null;
+  const characterPage = (pendingCharacterRequest ? pendingCharacterRequest.page : activeCharacter) ?? (charactersTabEmpty ? 'new' : null);
+  React.useEffect(() => {
+    if (!charactersTabEmpty || activeCharacter) return;
+    const next = new URLSearchParams(location.search);
+    next.set('character', 'new');
+    navigate({ pathname: location.pathname, search: `?${next.toString()}` }, { replace: true });
+  }, [charactersTabEmpty, activeCharacter]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Both character pages and both editors are fetched ahead, so none opens onto a frame of what is
+  // behind it while its chunk loads: at idle, or at once when the Characters tab or a page is up.
+  const characterPagesWanted = activeSidebarTab === 'characters' || !!characterPage;
+  React.useEffect(() => {
+    const preload = () => {
+      void NewCharacterPage.preload();
+      void CharacterEditPage.preload();
+      void SceneBuilder.preload();
+      void ImageEditor.preload();
     };
-    const apiMessages: ChatMessage[] = [
-      ...chatMessages,
-      apiUserMsg,
-      { role: 'assistant', content: '' }
-    ];
+    if (characterPagesWanted) { preload(); return; }
+    if (typeof window.requestIdleCallback !== 'function') {
+      const timer = window.setTimeout(preload, 3000);
+      return () => window.clearTimeout(timer);
+    }
+    const idle = window.requestIdleCallback(preload, { timeout: 5000 });
+    return () => window.cancelIdleCallback(idle);
+  }, [characterPagesWanted]);
 
-    let acc = '';
+  // ── @ mentions ───────────────────────────────────────────────────────────
+  // Flow's prompt box: "@" at a word start opens the add menu as a popover over the box, and a
+  // pick lands twice, as an ingredient and as a chip in the text that names it. A character's
+  // ingredient stands for its portrait and body; toGenerationInput sends both under its name.
+  // In Frames mode a character can't be an ingredient, so its chip is left invalid, as Flow's is.
+  // The add button opens the same menu, as Flow's does; its picks join the ingredients only.
+  const [mentionOpen, setMentionOpen] = React.useState(false);
+  const [mentionAnchor, setMentionAnchor] = React.useState<DOMRect | null>(null);
+  const mentionPickedRef = React.useRef(false);
+  const addMenuFromRef = React.useRef<'mention' | 'plus'>('mention');
+  const validMentionIds = React.useMemo(
+    () => new Set(attachments.filter(Boolean).map((att) => att.characterId ?? att.id)),
+    [attachments],
+  );
+  // Read while the picker renders its list, so not through mediaItemsRef (an effect behind).
+  const mentionItemById = React.useCallback((id: string) => mediaItems.find((m) => m.id === id), [mediaItems]);
+  // A character's own images are reached through the character, as on its pages.
+  const mentionItems = React.useMemo(() => mediaItems.filter((m) => !m.characterId), [mediaItems]);
+  const hoveredCharacter = hoveredAttachmentCharacterId ? characters.find((c) => c.id === hoveredAttachmentCharacterId) : undefined;
+  const hoveredCharacterImages = hoveredCharacter
+    ? [hoveredCharacter.portraitId, hoveredCharacter.bodyId]
+      .map((id) => (id ? mediaItems.find((m) => m.id === id && m.status === 'completed' && !!m.url) : undefined))
+      .filter((m): m is MediaItem => !!m)
+    : [];
+  const openMention = useEventCallback((field: HTMLElement) => {
+    mentionPickedRef.current = false;
+    addMenuFromRef.current = 'mention';
+    setMentionAnchor((field.closest('.prompt-container-box') ?? field).getBoundingClientRect());
+    setMentionOpen(true);
+  });
+  const openAddMenu = useEventCallback((trigger: HTMLElement) => {
+    addMenuFromRef.current = 'plus';
+    setMentionAnchor((trigger.closest('.prompt-container-box') ?? trigger).getBoundingClientRect());
+    setMentionOpen(true);
+  });
+  const closeMention = useEventCallback(() => {
+    setMentionOpen(false);
+    if (addMenuFromRef.current === 'plus') promptEditorRef.current?.focus();
+    else if (!mentionPickedRef.current) promptEditorRef.current?.cancelMention();
+  });
+  /** What a pick leaves in the text: the chip that names it when "@" asked, else nothing. */
+  const landPick = (mention: PromptMention) => {
+    if (addMenuFromRef.current === 'mention') promptEditorRef.current?.insertMention(mention);
+    else promptEditorRef.current?.focus();
+  };
+  const mentionMedia = useEventCallback((item: MediaItem) => {
+    mentionPickedRef.current = true;
+    setMentionOpen(false);
+    const title = item.shortenedPrompt || item.prompt || 'Untitled';
+    if (item.url) {
+      setAttachments((prev) => {
+        if (prev.some((att) => att && att.url === item.url)) return prev;
+        const next = [...prev, { id: item.id, url: item.url!, name: title, kind: item.kind }];
+        return isFramesMode ? next.slice(0, 2) : next;
+      });
+    }
+    landPick({ id: item.id, title, type: 'media' });
+  });
+  /** A character as an ingredient: its portrait shown, its portrait and body sent. */
+  const attachCharacter = (character: Character) => {
+    const portrait = character.portraitId ? mediaItemsRef.current.find((m) => m.id === character.portraitId) : undefined;
+    setAttachments((prev) => (prev.some((att) => att?.characterId === character.id) ? prev : [
+      ...prev,
+      { id: character.id, url: portrait?.status === 'completed' ? portrait.url ?? '' : '', name: characterName(character), kind: 'image', characterId: character.id },
+    ]));
+  };
+  const mentionCharacter = useEventCallback((character: Character) => {
+    mentionPickedRef.current = true;
+    setMentionOpen(false);
+    if (!isFramesMode) attachCharacter(character);
+    landPick({ id: character.id, title: characterName(character), type: 'entity' });
+  });
+
+  // ── Character tiles ──────────────────────────────────────────────────────
+  // What a character's tile does, in the Characters tab and among All media's tiles alike.
+  const favoriteCharacter = useEventCallback((c: Character) => updateCharacter(c.id, { favorite: !c.favorite }));
+  const renameCharacter = useEventCallback((c: Character, name: string) => updateCharacter(c.id, { name: name.trim() === 'Untitled character' ? '' : name.trim() }));
+  const removeCharacter = useEventCallback((c: Character) => {
+    setMediaItems((prev) => prev.filter((m) => m.characterId !== c.id));
+    deleteCharacter(c.id);
+  });
+  const copyCharacter = useEventCallback((c: Character) => {
+    const copy = createCharacter({ name: c.name ? `${c.name} (copy)` : '', prompt: c.prompt, personality: c.personality, voice: c.voice });
+    const cloneItem = (id: string | undefined) => {
+      const src = id ? mediaItemsRef.current.find((m) => m.id === id) : undefined;
+      if (!src?.url) return undefined;
+      const dup: MediaItem = { ...src, id: `${Date.now()}-character-${Math.random().toString(36).slice(2, 8)}`, characterId: copy.id, historyGroupId: undefined, historyParentId: undefined, timestamp: Date.now(), isSavedToFS: false, fsName: undefined };
+      setMediaItems((prev) => [dup, ...prev]);
+      return dup.id;
+    };
+    updateCharacter(copy.id, { portraitId: cloneItem(c.portraitId), bodyId: cloneItem(c.bodyId) });
+  });
+  /** Add to prompt, as Flow's: the character as an ingredient. Frames take its portrait instead. */
+  const addCharacterToPrompt = useEventCallback((c: Character) => {
+    const portrait = c.portraitId ? mediaItemsRef.current.find((m) => m.id === c.portraitId) : undefined;
+    if (isFramesMode) {
+      if (portrait) onTileAddToPrompt(portrait);
+      return;
+    }
+    attachCharacter(c);
+    setTimeout(() => promptEditorRef.current?.focus(), 50);
+  });
+
+  /** What a generation is sent (character-references.ts). The prompt the item keeps is the user's own. */
+  const characterImages = (characterId: string): MediaItem[] => {
+    const character = getCharacter(characterId);
+    return [character?.portraitId, character?.bodyId]
+      .map((id) => (id ? mediaItemsRef.current.find((m) => m.id === id) : undefined))
+      .filter((m): m is MediaItem => !!m?.url && m.status === 'completed');
+  };
+  const toGenerationInput = (prompt: string, refs: ImageAttachment[]) => expandCharacterReferences(prompt, refs, characterImages);
+
+  /**
+   * One of Frames mode's two slots, as Flow draws them: empty, a 56px chip labelled Start or End
+   * that opens the add menu; filled, the frame as a 56px ingredient chip that a click removes.
+   */
+  const renderFrameSlot = (slot: 0 | 1) => {
+    const att = attachments[slot];
+    if (!att) {
+      return (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setAssetMenuSource('main');
+            setIsAssetMenuOpen(true);
+          }}
+          className="composer-frame-empty"
+        >
+          {slot === 0 ? 'Start' : 'End'}
+        </button>
+      );
+    }
+    // Omni Flash can't end on a frame: the end frame goes grey with a warning, as before.
+    const unsupported = slot === 1 && (videoModel === 'omni-flash' || videoModel === 'omni-flash-1.1');
+    return (
+      <div
+        onMouseEnter={(e) => {
+          if (isModelMenuOpen || isAssetMenuOpen) return;
+          handleAttachmentMouseEnter(e, att.url, slot === 1);
+        }}
+        onMouseLeave={handleAttachmentMouseLeave}
+        className={`composer-ingredient relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
+      >
+        <div className={`relative w-[56px] h-[56px] rounded-[12px] overflow-hidden bg-[#1c1c1e] ${unsupported ? 'grayscale' : ''}`}>
+          {att.kind === 'video' ? (
+            <video src={att.url} className="w-full h-full object-cover" muted loop playsInline />
+          ) : (
+            <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
+          )}
+          {unsupported && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-red-500">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" strokeLinecap="round" />
+              </svg>
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => removeAttachment(att.id)}
+          aria-label="Remove frame"
+          style={{ backgroundColor: 'rgba(22, 23, 24, 0.5)' }}
+          className={`absolute inset-0 w-[56px] h-[56px] flex items-center justify-center rounded-[12px] text-white transition-opacity duration-200 z-[60] ${
+            hoveredAttachmentUrl === att.url ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 hover:opacity-100'
+          }`}
+        >
+          <FlowIcon name="cancel" size={16} />
+        </button>
+      </div>
+    );
+  };
+
+  const resolveSceneMediaUrl = useEventCallback((mediaId: string) => mediaItemsRef.current.find((m) => m.id === mediaId)?.url);
+
+  const importSceneFiles = async (files: File[]): Promise<MediaItem[]> => {
+    const added: MediaItem[] = [];
+    for (const file of files) {
+      const kind: MediaKind | null = file.type.startsWith('video/') ? 'video' : file.type.startsWith('image/') ? 'image' : null;
+      if (!kind) continue;
+      const url = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const ratio = await new Promise<string>((resolve) => {
+        const objectUrl = URL.createObjectURL(file);
+        const done = (w: number, h: number) => { URL.revokeObjectURL(objectUrl); resolve(w && h ? `${w}:${h}` : '16:9'); };
+        if (kind === 'image') {
+          const img = new Image();
+          img.onload = () => done(img.naturalWidth, img.naturalHeight);
+          img.onerror = () => done(0, 0);
+          img.src = objectUrl;
+        } else {
+          const vid = document.createElement('video');
+          vid.onloadedmetadata = () => done(vid.videoWidth, vid.videoHeight);
+          vid.onerror = () => done(0, 0);
+          vid.src = objectUrl;
+        }
+      });
+      let fsName: string | undefined;
+      if (isLocalFolderConnected && isLocalFolderAuthorized) {
+        fsName = (await saveLocalFSMedia(projectName || 'Default', kind, file.name, file).catch(() => null)) || undefined;
+      }
+      added.push({
+        id: `pasted-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        kind,
+        status: 'completed',
+        url,
+        prompt: kind === 'video' ? 'Uploaded Video' : 'Uploaded Image',
+        modelId: 'upload',
+        modelName: 'Upload',
+        ratio,
+        timestamp: Date.now(),
+        isSavedToFS: !!fsName,
+        fsName,
+      });
+    }
+    if (added.length) setMediaItems((prev) => [...added, ...prev]);
+    return added;
+  };
+
+  const activeSceneId = searchParams.get('scene');
+  const sceneHost: SceneHost = {
+    projectName: projectName || 'Untitled project',
+    projectId: persistProjectId || undefined,
+    listProjects: () => (readProjectRegistry() as any[])
+      .filter((p) => p?.kind === 'media' && p.id && p.name)
+      .map((p) => ({ id: String(p.id), name: String(p.name) })),
+    loadProjectMedia: async (id) => (await loadProjectMedia(id, chatScopeId)) as MediaItem[],
+    mediaItems,
+    close: closeSceneEditor,
+    openMedia: (item) => {
+      closeSceneEditor();
+      setSelectedItem(latestVersions.get(item.historyGroupId || item.id) ?? item);
+    },
+    addMediaItem: (item) => setMediaItems((prev) => [item, ...prev]),
+    updateMediaItem: (id, patch) => setMediaItems((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m))),
+    removeMediaItem: (id) => setMediaItems((prev) => prev.filter((m) => m.id !== id)),
+    importFiles: importSceneFiles,
+    geminiKey: () => apiKeys?.gemini?.[0],
+    // Flow's Scenebuilder edits on Omni 1.1 Flash whatever the gallery's picker is set to, so this
+    // does not depend on which video models the user has enabled for generation.
+    omniApiModelId: DEFAULT_VIDEO_MODELS.find((m) => m.id === 'omni-flash-1.1')?.apiId ?? 'gemini-omni-1.1-flash',
+    omniModelName: 'Gemini Omni Flash 1.1',
+    saveGenerated: (item, url) => {
+      if (isLocalFolderConnected) void saveGeneratedMedia(item, url);
+    },
+  };
+
+  // The Tools pages: this project's gallery for Flow.media and Flow.save, the agent's generation
+  // start for Flow.generate, and this rail drawn under their own header.
+  const toolsHost: ToolsHost | null = toolsRoute ? {
+    scopeId: chatScopeId || 'guest',
+    projectId: persistProjectId || undefined,
+    projectName: projectName || 'Untitled project',
+    search: tabSearch,
+    navigate: (to, options) => navigate(to, options),
+    get mediaItems() {
+      return mediaItemsRef.current;
+    },
+    listProjects: sceneHost.listProjects,
+    loadProjectMedia: sceneHost.loadProjectMedia,
+    adoptMedia: (item) => {
+      const copy: MediaItem = {
+        ...item,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: Date.now(),
+        historyGroupId: undefined,
+        historyParentId: undefined,
+        isSavedToFS: false,
+        fsName: undefined,
+      };
+      setMediaItems((prev) => [copy, ...prev]);
+      if (copy.url && isLocalFolderConnected) void saveGeneratedMedia(copy, copy.url);
+      return copy;
+    },
+    importFiles: importSceneFiles,
+    imageModels: imageModels.map((m) => ({ id: m.id, name: m.name })),
+    videoModels: videoModels.map((m) => ({ id: m.id, name: m.name })),
+    defaultImageModel: imageModel,
+    defaultVideoModel: videoModel,
+    startImages: (spec) => startAgentImages(spec),
+    startVideos: (spec) => startAgentVideos(spec),
+    geminiKeys: apiKeys?.gemini ?? [],
+    modelConfig: savedModelConfig,
+    apiKeys,
+    openSettings: () => onOpenSettings?.('models'),
+    renderSidebar: () => (
+      <MediaSidebar
+        collapsed={isSidebarCollapsed}
+        onToggleCollapsed={handleToggleLeftSidebar}
+        activeTab=""
+        toolsActive={toolsRoute.page === 'manager'}
+        onNavigate={navigateSidebarTab}
+        toolsHref={toolsHref}
+        toolHref={dockToolHref}
+        topInset={0}
+        dock={toolDock}
+        dockOpen={toolDockOpen}
+        onToggleDock={() => setDockOpen(!toolDockOpen)}
+        activeToolId={toolsRoute.page === 'view' ? toolsRoute.toolId : null}
+        onOpenTool={openDockTool}
+        onTogglePin={(id) => { togglePin(id); }}
+        presentation={railPresentation}
+        drawerOpen={isNavDrawerOpen}
+        onDrawerOpenChange={setIsNavDrawerOpen}
+        onHome={() => navigate('/?mode=media')}
+      />
+    ),
+    openNav: () => setIsNavDrawerOpen(true),
+  } : null;
+
+  // Guards the await below: a second Enter must not start a second turn before the first exists.
+  const agentSendingRef = React.useRef(false);
+  const sendToAgent = async (text: string, options: { fromComposer?: boolean } = {}) => {
+    const fromComposer = options.fromComposer !== false;
+    if (agentSendingRef.current || mediaAgent.$turn.get().running) return;
+    const activeAttachments = fromComposer ? attachments.filter(Boolean) : [];
+    if (!text.trim() && activeAttachments.length === 0) return;
+    agentSendingRef.current = true;
     try {
-      const returnedHistory = await streamChat(
-        apiMessages.slice(0, -1),
-        {
-          provider: 'gemini',
-          model: 'gemini-3.5-flash',
-          apiKey: apiKey,
-          thinkingLevel: 1,
-          enableSearch: true,
-          enableCodeExecution: true,
-          // The media agent is the one caller with a real tool executor, so it is
-          // the one caller that may request the generation harness.
-          enableMediaTools: true
-        },
-        (token) => {
-          setIsAgentThinking(false);
-          acc += token;
-          setAgentStreaming(acc);
-          setChatMessages(prev => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.role === 'assistant') {
-              last.content = acc;
-            }
+      setIsAgentSidebarOpen(true);
+      if (fromComposer) {
+        promptStore.set('');
+        const attachmentIds = activeAttachments.map((att) => att.id);
+        if (attachmentIds.length > 0) {
+          setRemovingIds((prev) => {
+            const next = new Set(prev);
+            attachmentIds.forEach((id) => next.add(id));
             return next;
           });
-        },
-        () => {},
-        systemPrompt,
-        (phase) => {
-          if (phase !== 'responding') {
-            setAgentThinkingPhase(phase);
-          }
-        },
-        async (name: string, args: any) => {
-          const result = mockExecuteTool(name, args);
-          
-          if (name === 'generate_image' && result?.media_id) {
-            const modelToUse = args.model || imageModel || 'gemini-3.1-flash-image-preview';
-            const ratioToUse = args.aspect_ratio || imageRatio || '16:9';
-            const isEditing = args.references && Array.isArray(args.references) && args.references.length > 0;
-            const batchStr = args.batch_size || (isEditing ? '1x' : imageBatch) || '1x';
-            const batchCount = Math.max(1, parseInt(batchStr.replace('x', ''), 10) || 1);
-            
-            // Resolve any style, composition, or character referenced canvas image IDs requested by the agent
-            const refAttachments: ImageAttachment[] = [];
-            if (args.references && Array.isArray(args.references)) {
-              args.references.forEach((refId: string) => {
-                const cleanId = refId.replace(/^media-id:/, '');
-                const refItem = mediaItemsRef.current.find(m => m.id === cleanId);
-                if (refItem?.url) {
-                  refAttachments.push({
-                    id: refItem.id,
-                    url: refItem.url,
-                    name: refItem.prompt || 'Reference Image',
-                    kind: refItem.kind
-                  });
-                }
-              });
-            }
-
-            // Create a batch of placeholder items in generating state synchronously
-            const batchTimestamps = allocateMediaBatchTimestamps(batchCount);
-            const newItems: MediaItem[] = Array.from({ length: batchCount }, (_, i) => {
-              // Ensure the first item matches result.media_id so the chat sidebar image works,
-              // while other items in the batch get unique IDs so they display on the canvas.
-              const itemId = i === 0 ? result.media_id : `${result.media_id}_batch_${i}`;
-              return {
-                id: itemId,
-                kind: 'image',
-                status: 'generating',
-                prompt: args.prompt || 'Agent Generated Image',
-                modelId: modelToUse,
-                modelName: modelToUse === 'gemini-3-pro-image-preview' ? 'Nano Banana Pro' : 'Nano Banana 2',
-                ratio: ratioToUse,
-                timestamp: batchTimestamps[i],
-                effort: imageEffort,
-                quality: imageQuality,
-                resolution: imageResolution,
-                ...(refAttachments.length > 0 ? { attachments: refAttachments } : {})
-              };
+          setTimeout(() => {
+            setAttachments([]);
+            setRemovingIds((prev) => {
+              const next = new Set(prev);
+              attachmentIds.forEach((id) => next.delete(id));
+              return next;
             });
-            setMediaItems(prev => [...newItems, ...prev]);
-            
-            // Populate media_ids so the agent sidebar can render all images in the batch
-            result.media_ids = newItems.map(item => item.id);
-            
-            // Await all parallel Gemini/Imagen image generations so that Gemini is blocked and pauses its stream
-            // until the images are 100% completed, guaranteeing that paragraphs render in the correct sequential order!
-            await Promise.all(
-              newItems.map(async (item) => {
-                try {
-                  const allAttachments = [...refAttachments, ...validAttachments];
-                  const inlineParts = await Promise.all(allAttachments.map(getGeminiInlinePart));
-                  
-                  const response = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent?key=${apiKey}`,
-                    {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        contents: [{
-                          parts: [
-                            { text: args.prompt || 'Agent Generated Image' },
-                            ...inlineParts
-                          ]
-                        }],
-                        generationConfig: {
-                          responseModalities: ['IMAGE'],
-                          imageConfig: { aspectRatio: ratioToUse, imageSize: '1K' },
-                        },
-                      }),
-                    },
-                  );
-                  
-                  if (!response.ok) {
-                    const errData = await response.json().catch(() => ({}));
-                    throw new Error(errData?.error?.message || `API error (${response.status})`);
-                  }
-                  
-                  const data = await response.json();
-                  if (data?.promptFeedback?.blockReason === 'SAFETY' || data?.candidates?.[0]?.finishReason === 'SAFETY') {
-                    throw new Error('This prompt might violate our safety policies. Please try a different prompt.');
-                  }
-                  
-                  const parts = data?.candidates?.[0]?.content?.parts || [];
-                  const imagePart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith('image/'));
-                  if (!imagePart?.inlineData?.data) {
-                    throw new Error('The model was unable to generate an image from this prompt.');
-                  }
-                  
-                  const realUrl = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
-                  
-                  setMediaItems(prev =>
-                    prev.map(m => (m.id === item.id ? { ...m, status: 'completed', url: realUrl } : m))
-                  );
-                  
-                  if (item.id === result.media_id) {
-                    result.url = realUrl;
-                    result.status = 'success';
-                  }
-                } catch (err: any) {
-                  setMediaItems(prev =>
-                    prev.map(m => (m.id === item.id ? { ...m, status: 'failed', error: err?.message || 'Generation failed' } : m))
-                  );
-                  if (item.id === result.media_id) {
-                    result.status = 'failed';
-                    result.error = err?.message || 'Generation failed';
-                  }
-                }
-              })
-            );
-            
-          } else if (name === 'generate_video_from_text' && result?.media_id) {
-            const modelToUse = args.model || videoModel || 'omni-flash';
-            const ratioToUse = args.aspect_ratio || videoRatio || '16:9';
-            const durationToUse = args.duration || videoDuration || '10s';
-            const batchStr = args.batch_size || videoBatch || '1x';
-            const batchCount = Math.max(1, parseInt(batchStr.replace('x', ''), 10) || 1);
-            
-            const batchTimestamps = allocateMediaBatchTimestamps(batchCount);
-            const newItems: MediaItem[] = Array.from({ length: batchCount }, (_, i) => {
-              const itemId = i === 0 ? result.media_id : `${result.media_id}_batch_${i}`;
-              return {
-                id: itemId,
-                kind: 'video',
-                status: 'generating',
-                prompt: args.prompt || 'Agent Generated Video',
-                modelId: modelToUse,
-                modelName: modelToUse === 'omni-flash' ? 'Omni Flash 1' : modelToUse === 'omni-flash-1.1' ? 'Omni Flash 1.1' : 'Veo 3.1 Fast',
-                ratio: ratioToUse,
-                timestamp: batchTimestamps[i]
-              };
-            });
-            setMediaItems(prev => [...newItems, ...prev]);
-            
-            // Populate media_ids so the agent sidebar can render all videos in the batch
-            result.media_ids = newItems.map(item => item.id);
-            
-            // Await parallel video generations
-            await Promise.all(
-              newItems.map(async (item) => {
-                try {
-                  const durationSec = parseInt(durationToUse.replace('s', ''), 10) || 8;
-                  const inlineParts = await Promise.all(validAttachments.map(getGeminiInlinePart));
-                  
-                  if (modelToUse === 'omni-flash' || modelToUse === 'omni-flash-1.1') {
-                    const interactionsInput = [
-                      { 
-                        type: 'text', 
-                        text: `${args.prompt || 'Agent Generated Video'}\n\n[System: Please generate this video with an aspect ratio of ${ratioToUse} and a duration of ${durationSec} seconds.]` 
-                      },
-                      ...inlineParts.map(part => {
-                        if (part.inlineData) {
-                          return {
-                            type: 'image',
-                            mime_type: part.inlineData.mimeType || 'image/png',
-                            data: part.inlineData.data
-                          };
-                        }
-                        return null;
-                      }).filter(Boolean)
-                    ];
-                    
-                    const response = await fetch(
-                      `https://generativelanguage.googleapis.com/v1beta/interactions`,
-                      {
-                        method: 'POST',
-                        headers: { 
-                          'Content-Type': 'application/json',
-                          'x-goog-api-key': apiKey
-                        },
-                        body: JSON.stringify({
-                          model: `models/veo-2.0-generate-001`,
-                          input: interactionsInput,
-                          response_format: {
-                            type: 'video',
-                            aspect_ratio: ratioToUse
-                          }
-                        }),
-                      }
-                    );
-                    
-                    if (!response.ok) {
-                      const errData = await response.json().catch(() => ({}));
-                      throw new Error(errData?.error?.message || `API error (${response.status})`);
-                    }
-                    
-                    const data = await response.json();
-                    if (data?.promptFeedback?.blockReason === 'SAFETY' || data?.state === 'BLOCKED') {
-                      throw new Error('This prompt might violate our safety policies. Please try a different prompt.');
-                    }
-                    
-                    let videoUrl = '';
-                    if (data?.steps) {
-                      const outputStep = data.steps.find((s: any) => s.type === 'model_output' || s.stepType === 'model_output' || s.step_type === 'model_output');
-                      if (outputStep) {
-                        const parts = Array.isArray(outputStep.content) ? outputStep.content : (outputStep.content?.parts || []);
-                        const videoPart = parts.find((p: any) => p.mime_type?.startsWith('video/') || p.mimeType?.startsWith('video/') || p.inlineData?.mimeType?.startsWith('video/'));
-                        if (videoPart) {
-                          if (videoPart.inlineData?.data) {
-                            videoUrl = `data:${videoPart.inlineData.mimeType};base64,${videoPart.inlineData.data}`;
-                          } else if (videoPart.data) {
-                            const mime = videoPart.mime_type || videoPart.mimeType || 'video/mp4';
-                            videoUrl = `data:${mime};base64,videoPart.data`;
-                          }
-                        }
-                      }
-                    }
-                    
-                    if (!videoUrl) {
-                      throw new Error('The model was unable to generate a video from this prompt.');
-                    }
-                    
-                    setMediaItems(prev =>
-                      prev.map(m => (m.id === item.id ? { ...m, status: 'completed', url: videoUrl } : m))
-                    );
-                    
-                    if (item.id === result.media_id) {
-                      result.url = videoUrl;
-                      result.status = 'success';
-                    }
-                  } else {
-                    // For other Veo models, leverage existing predictLongRunning predictive background task helper
-                    await generateSingleVideo(item, args.prompt || 'Agent Generated Video', modelToUse as VideoModelId, ratioToUse, durationToUse, apiKey, validAttachments);
-                  }
-                } catch (err: any) {
-                  setMediaItems(prev =>
-                    prev.map(m => (m.id === item.id ? { ...m, status: 'failed', error: err?.message || 'Generation failed' } : m))
-                  );
-                  if (item.id === result.media_id) {
-                    result.status = 'failed';
-                    result.error = err?.message || 'Generation failed';
-                  }
-                }
-              })
-            );
-          } else if (name === 'generate_video_with_first_frame' && result?.media_id) {
-            const newItem: MediaItem = {
-              id: result.media_id,
-              kind: 'video',
-              status: 'completed',
-              prompt: args.prompt || 'First Frame Animation',
-              modelId: args.model || 'omni-flash',
-              modelName: 'Omni Flash',
-              ratio: '16:9',
-              url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4',
-              timestamp: Date.now()
-            };
-            setMediaItems(prev => [newItem, ...prev]);
-          } else if (name === 'generate_video_with_interpolation' && result?.media_id) {
-            const newItem: MediaItem = {
-              id: result.media_id,
-              kind: 'video',
-              status: 'completed',
-              prompt: args.prompt || 'Interpolated Video',
-              modelId: 'veo-3.1',
-              modelName: 'Veo 3.1',
-              ratio: '16:9',
-              url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4',
-              timestamp: Date.now()
-            };
-            setMediaItems(prev => [newItem, ...prev]);
-          } else if (name === 'generate_video_with_references' && result?.media_id) {
-            const newItem: MediaItem = {
-              id: result.media_id,
-              kind: 'video',
-              status: 'completed',
-              prompt: args.prompt || 'Reference Guided Video',
-              modelId: 'omni-flash',
-              modelName: 'Omni Flash',
-              ratio: '16:9',
-              url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4',
-              timestamp: Date.now()
-            };
-            setMediaItems(prev => [newItem, ...prev]);
-          } else if (name === 'generate_video_edit_video' && result?.media_id) {
-            const newItem: MediaItem = {
-              id: result.media_id,
-              kind: 'video',
-              status: 'completed',
-              prompt: args.prompt || 'Video Transformation',
-              modelId: 'omni-flash',
-              modelName: 'Omni Flash',
-              ratio: '16:9',
-              url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4',
-              timestamp: Date.now()
-            };
-            setMediaItems(prev => [newItem, ...prev]);
-          } else if (name === 'get_geo_grounding_image' && result?.streetview_id) {
-            const newItem: MediaItem = {
-              id: result.streetview_id,
-              kind: 'image',
-              status: 'completed',
-              prompt: `Grounding location: ${args.location || 'US'}`,
-              modelId: 'streetview',
-              modelName: 'Google Street View',
-              ratio: '16:9',
-              url: result.image_url,
-              timestamp: Date.now()
-            };
-            setMediaItems(prev => [newItem, ...prev]);
-          } else if (name === 'analyze_artifact') {
-             const targetItem = mediaItemsRef.current.find(m => m.id === args.media_id);
-             if (targetItem && targetItem.url) {
-                try {
-                   const res = await fetch(targetItem.url);
-                   const blob = await res.blob();
-                   const base64 = await new Promise<string>((resolve, reject) => {
-                       const reader = new FileReader();
-                       reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-                       reader.onerror = reject;
-                       reader.readAsDataURL(blob);
-                   });
-                   const visionModel = getGeminiClient(apiKey).getGenerativeModel({ model: 'gemini-3.5-flash' });
-                   const visionRes = await visionModel.generateContent([
-                       args.query,
-                       { inlineData: { mimeType: blob.type, data: base64 } }
-                   ]);
-                   return {
-                       media_id: args.media_id,
-                       analysis: visionRes.response.text()
-                   };
-                } catch (e: any) {
-                   return { media_id: args.media_id, error: 'Failed to visually analyze image: ' + e.message };
-                }
-             }
-             return { media_id: args.media_id, error: 'Media not found or has no visual URL.' };
-          }
-          return result;
+          }, 200);
         }
-      );
-      
-      setChatMessages(prev => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.role === 'assistant') {
-          last.history = returnedHistory;
-        }
-        return next;
-      });
-    } catch (e: any) {
-      setChatMessages(prev => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.role === 'assistant') {
-          last.content = `Something went wrong: ${e?.message || 'Unknown error.'}`;
-        }
-        return next;
-      });
+      }
+      // A mentioned character goes by ID: the agent hands it to the generators as character_ids,
+      // which bring its images along.
+      mediaAgent.send({ text, attachments: await toAgentAttachments(activeAttachments) });
     } finally {
-      setIsAgentGenerating(false);
-      setIsAgentThinking(false);
-      setAgentStreaming('');
+      agentSendingRef.current = false;
     }
   };
 
   const handleGenerate = async () => {
-    const activePrompt = prompt.trim();
+    const activePrompt = promptStore.get().trim();
     if (!activePrompt) return;
 
     if (isLocalFolderConnected && !isLocalFolderAuthorized) {
@@ -4040,35 +4354,23 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     }
 
     if (isAgentActive) {
-      void handleAgentSend(activePrompt);
+      void sendToAgent(activePrompt);
       return;
     }
 
     setGenerationError(null);
 
-    const activeAttachments = attachments.filter(Boolean);
-    const attachmentIds = activeAttachments.map(att => att.id);
-    if (attachmentIds.length > 0) {
-      setRemovingIds(prev => {
-        const next = new Set(prev);
-        attachmentIds.forEach(id => next.add(id));
-        return next;
+    // Both checks run before the prompt is cleared, so it is still there to send once fixed.
+    const activeModelId = modelMode === 'image' ? imageModel : videoModel;
+    if (!activeModelId) {
+      setGenerationError({
+        message: modelMode === 'image'
+          ? "You haven't added an image model yet. Add one to generate images."
+          : "You haven't added a video model yet. Add one to generate videos.",
+        settings: true,
+        missingModel: modelMode,
       });
-    }
-
-    setPrompt('');
-
-    if (attachmentIds.length > 0) {
-      setTimeout(() => {
-        setAttachments([]);
-        setRemovingIds(prev => {
-          const next = new Set(prev);
-          attachmentIds.forEach(id => next.delete(id));
-          return next;
-        });
-      }, 200);
-    } else {
-      setAttachments([]);
+      return;
     }
 
     const getApiKeyForModel = (modelIdStr: string) => {
@@ -4078,14 +4380,38 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       return apiKeys?.[provider]?.[0] || '';
     };
 
-    const activeModelId = modelMode === 'image' ? imageModel : videoModel;
     const apiKey = getApiKeyForModel(activeModelId);
     if (!apiKey) {
       const isGPT = activeModelId === 'gpt-image-2';
       const isGrok = activeModelId === 'grok-imagine';
       const providerName = isGrok ? 'Grok' : isGPT ? 'OpenAI' : 'Google Gemini';
-      setGenerationError(`${providerName} API Key is missing. Please add it under Settings > Models & API.`);
+      setGenerationError({ message: `${providerName} API key is missing. Add it in Settings → Models & API.`, settings: true });
       return;
+    }
+
+    const activeAttachments = attachments.filter(Boolean);
+    const attachmentIds = activeAttachments.map(att => att.id);
+    if (attachmentIds.length > 0) {
+      setRemovingIds(prev => {
+        const next = new Set(prev);
+        attachmentIds.forEach(id => next.add(id));
+        return next;
+      });
+    }
+
+    promptStore.set('');
+
+    if (attachmentIds.length > 0) {
+      setTimeout(() => {
+        setAttachments([]);
+        setRemovingIds(prev => {
+          const next = new Set(prev);
+          attachmentIds.forEach(id => next.delete(id));
+          return next;
+        });
+      }, 200);
+    } else {
+      setAttachments([]);
     }
 
     const batchStr = modelMode === 'image' ? imageBatch : videoBatch;
@@ -4095,6 +4421,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       modelMode === 'image' ? getImageModelName(imageModel) : getVideoModelName(videoModel);
 
     const batchTimestamps = allocateMediaBatchTimestamps(batchCount);
+    const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const newItems: MediaItem[] = Array.from({ length: batchCount }, (_, i) => ({
       id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
       kind: modelMode,
@@ -4104,6 +4431,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       modelName: activeModelName,
       ratio: activeRatio,
       timestamp: batchTimestamps[i],
+      batchId,
+      collectionId: openCollectionRef.current,
       attachments: activeAttachments,
       ...(modelMode === 'image' ? {
         effort: imageEffort,
@@ -4121,11 +4450,12 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     const itemIds = newItems.map(item => item.id);
     void rephrasePromptForItems(itemIds, activePrompt, apiKey);
 
+    const input = toGenerationInput(activePrompt, activeAttachments);
     newItems.forEach(item => {
       if (item.kind === 'image') {
-        void generateSingleImage(item, activePrompt, item.modelId, item.ratio, apiKey, activeAttachments);
+        void generateSingleImage(item, input.prompt, item.modelId, item.ratio, apiKey, input.attachments);
       } else {
-        void generateSingleVideo(item, activePrompt, item.modelId as VideoModelId, item.ratio, videoDuration, apiKey, activeAttachments);
+        void generateSingleVideo(item, input.prompt, item.modelId as VideoModelId, item.ratio, videoDuration, apiKey, input.attachments);
       }
     });
   };
@@ -4150,6 +4480,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       modelName: targetItem.modelName,
       ratio: targetItem.ratio,
       timestamp: Date.now(),
+      batchId: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      collectionId: targetItem.collectionId,
       attachments: targetItem.attachments,
       effort: targetItem.effort,
       quality: targetItem.quality,
@@ -4164,10 +4496,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     
     void rephrasePromptForItems([newItem.id], newItem.prompt, apiKey);
 
+    const input = toGenerationInput(newItem.prompt, newItem.attachments || []);
     if (targetItem.kind === 'image') {
-      void generateSingleImage(newItem, newItem.prompt, newItem.modelId, newItem.ratio, apiKey, newItem.attachments || []);
+      void generateSingleImage(newItem, input.prompt, newItem.modelId, newItem.ratio, apiKey, input.attachments);
     } else {
-      void generateSingleVideo(newItem, newItem.prompt, newItem.modelId as VideoModelId, newItem.ratio, videoDuration, apiKey, newItem.attachments || []);
+      void generateSingleVideo(newItem, input.prompt, newItem.modelId as VideoModelId, newItem.ratio, videoDuration, apiKey, input.attachments);
     }
   };
 
@@ -4199,11 +4532,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     }
 
     // 3. Restore the text prompt and attachments
-    setPrompt(targetItem.prompt);
+    promptStore.set(targetItem.prompt);
     setAttachments(targetItem.attachments || []);
 
     // 4. Focus the prompt input area
-    textareaRef.current?.focus();
+    promptEditorRef.current?.focus();
   };
 
   const completedItems = React.useMemo(() => {
@@ -4321,13 +4654,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
   }, [isAnimating]);
 
   React.useEffect(() => {
-    if (selectedItem) {
-      setViewerModelId(selectedItem.modelId);
-      setViewerModelName(selectedItem.modelName);
-    } else {
-      setViewerModelId('');
-      setViewerModelName('');
-    }
+    setViewerModelId(selectedItem ? selectedItem.modelId : '');
     setIsViewerModelDropdownOpen(false);
     setViewerAttachments([]);
     setViewerRemovingIds(new Set());
@@ -4469,18 +4796,38 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     return null;
   };
 
+  // The viewer edits with the item's own model while it is still added, else the prompt box's
+  // pick for that kind, else nothing, in which case it asks for a model like the prompt box.
+  const viewerKind: 'image' | 'video' = selectedItem?.kind === 'video' ? 'video' : 'image';
+  const viewerModels = viewerKind === 'video' ? videoModels : imageModels;
+  const viewerModel = viewerModels.some((m) => m.id === liveModelId(viewerModelId))
+    ? liveModelId(viewerModelId)
+    : viewerKind === 'video' ? videoModel : imageModel;
+  const viewerModelLabel = viewerModels.find((m) => m.id === viewerModel)?.name
+    ?? (viewerKind === 'video' ? 'No video model' : 'No image model');
+
   const handleViewerGenerate = async () => {
     if (!editPrompt.trim() || !selectedItem || isAnimating) return;
 
-    const newModelId = viewerModelId || selectedItem.modelId;
-    const newModelName = viewerModelName || selectedItem.modelName;
+    const newModelId = viewerModel;
+    const newModelName = viewerModelLabel;
+    if (!newModelId) {
+      setGenerationError({
+        message: viewerKind === 'image'
+          ? "You haven't added an image model yet. Add one to edit images."
+          : "You haven't added a video model yet. Add one to edit videos.",
+        settings: true,
+        missingModel: viewerKind,
+      });
+      return;
+    }
     const isGPT = newModelId === 'gpt-image-2';
     const isGrok = newModelId === 'grok-imagine';
     const provider = isGrok ? 'spacexai' : isGPT ? 'openai' : 'gemini';
     const apiKey = apiKeys?.[provider]?.[0];
     if (!apiKey) {
       const providerName = isGrok ? 'Grok' : isGPT ? 'OpenAI' : 'Google Gemini';
-      setGenerationError(`${providerName} API Key is missing. Please add it under Settings > Models & API.`);
+      setGenerationError({ message: `${providerName} API key is missing. Add it in Settings → Models & API.`, settings: true });
       return;
     }
 
@@ -4524,6 +4871,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       attachments: attachments.length > 0 ? attachments : undefined,
       historyGroupId,
       historyParentId: selectedItem.id,
+      collectionId: selectedItem.collectionId,
       effort: imageEffort,
       quality: imageQuality,
       resolution: imageResolution,
@@ -4572,7 +4920,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
       if (item.kind === 'audio') {
         setActiveMusicItem(item);
       } else {
-        setSelectedItem(item);
+        const live = mediaItemsRef.current.find((m) => m.id === item.id) ?? item;
+        setSelectedItem(latestVersions.get(live.historyGroupId || live.id) ?? live);
       }
     }
   });
@@ -4597,7 +4946,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
   const onTileRefresh = useEventCallback(handleRefreshItem);
   const onTileRePrompt = useEventCallback(handleRePromptItem);
   const onTileSetAsCover = useEventCallback(handleSetAsCover);
-  const onTileDelete = useEventCallback((id: string) => {
+  const onTileDelete = useEventCallback((id: string, fileGoesWithFolder = false) => {
     const item = mediaItemsRef.current.find(m => m.id === id);
     // If this item was shown via a disk blob: URL, revoke it.
     if (item?.url && item.url.startsWith('blob:')) {
@@ -4612,9 +4961,11 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     });
     setAttachments(prev => prev.filter(a => a.id !== id));
     // Remove the actual file from disk (disk = source of truth)
-    // so it doesn't reappear on the next reconcile.
-    if (item?.fsName && item.kind) {
-      void deleteLocalFSMediaFile(projectName, item.kind, item.fsName);
+    // so it doesn't reappear on the next reconcile. A file whose collection's whole folder is
+    // being deleted goes with it: deleting it separately races the recursive removal, which
+    // then fails and leaves the folder to be adopted back as a collection.
+    if (!fileGoesWithFolder && item?.fsName && item.kind) {
+      void deleteLocalFSMediaFile(projectName, item.kind, item.fsName, collectionFolder(item.collectionId));
     }
   });
   const onTileRename = useEventCallback((id: string, newName: string) => {
@@ -4650,7 +5001,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     const targetFsName = target.fsName;
     if (baseName && target.isSavedToFS && targetFsName && targetKind && isLocalFolderConnected) {
       void (async () => {
-        const finalFsName = await renameLocalFSMediaFile(projectNameRef.current, targetKind, targetFsName, uniqueName);
+        const finalFsName = await renameLocalFSMediaFile(projectNameRef.current, targetKind, targetFsName, uniqueName, collectionFolder(target.collectionId));
         if (!finalFsName || finalFsName === targetFsName) return; // no folder/file → metadata-only rename
         setMediaItems(prev => {
           const next = prev.map(m => m.id === id ? { ...m, shortenedPrompt: uniqueName, fsName: finalFsName } : m);
@@ -4684,10 +5035,549 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         }];
       });
       setTimeout(() => {
-        textareaRef.current?.focus();
+        promptEditorRef.current?.focus();
       }, 50);
     }
   });
+  /** A tile's Share and Flag output open the editors' dialogs. */
+  const [shareItem, setShareItem] = React.useState<MediaItem | null>(null);
+  const [flagOpen, setFlagOpen] = React.useState(false);
+  const onTileShare = useEventCallback((item: MediaItem) => setShareItem(item));
+  const onTileFlag = useEventCallback(() => setFlagOpen(true));
+  // Flow's editors, which a gallery item opens into (its /edit/<id>): an image in the image editor,
+  // a video in the Scenebuilder on a scene of its own. Both ride on the scene host and close back
+  // to the gallery.
+  // The rails open an item the way its tile does: on its newest finished version. The editor in
+  // front stays until that item can be drawn at once (`readyToDraw`), so a switch never shows an
+  // empty page or a black canvas. The last pick wins; one it overtook gives up its prepared scene.
+  const editorSwitchRef = React.useRef<string | null>(null);
+  const openFromEditor = useEventCallback((picked: MediaItem) => {
+    const next = latestVersions.get(picked.historyGroupId || picked.id) ?? picked;
+    editorSwitchRef.current = next.id;
+    void readyToDraw(next).then(() => {
+      if (editorSwitchRef.current !== next.id) {
+        if (next.kind === 'video' && selectedItemRef.current?.id !== next.id) dropVideoScene(next.id);
+        return;
+      }
+      editorSwitchRef.current = null;
+      setSelectedItem(next);
+    });
+  });
+  const editorHost: SceneHost = {
+    ...sceneHost,
+    close: () => { editorSwitchRef.current = null; setSelectedItem(null); },
+    openMedia: openFromEditor,
+  };
+  /** An editor's Move to trash takes the asset with every version of it. */
+  const trashFromEditor = (item: MediaItem) => {
+    setSelectedItem(null);
+    const root = item.historyGroupId || item.id;
+    for (const m of mediaItemsRef.current) if (m.id === root || m.historyGroupId === root) onTileDelete(m.id);
+  };
+
+  // ── Collection actions ───────────────────────────────────────────────────
+  // Every collection is a folder under the project folder on disk, kept in step here: creating
+  // one makes its folder, renaming renames it, moving an item moves its file (with every version
+  // of it, so the history stays together) and trashing takes the folder with its contents.
+  const diskReady = isLocalFolderConnected && isLocalFolderAuthorized && !!projectName && !!projectId && !projectId.startsWith('temp_');
+  React.useEffect(() => {
+    void bindCollectionProject(persistProjectId, chatScopeId);
+  }, [persistProjectId, chatScopeId]);
+  // A collection made before the folder was connected (or in a project not yet on disk) gets its
+  // folder as soon as there is somewhere to put it.
+  React.useEffect(() => {
+    if (!diskReady) return;
+    for (const c of collections) if (!c.onDisk) void ensureLocalFSCollectionFolder(projectName, collectionFolder(c.id) as string);
+  }, [collections, diskReady, projectName, ensureLocalFSCollectionFolder]);
+
+  const collectionOpenedHereRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!openCollectionId) collectionOpenedHereRef.current = false;
+  }, [openCollectionId]);
+  const openCollectionView = useEventCallback((collection: Collection) => {
+    const next = new URLSearchParams(tabSearch);
+    next.set('collection', collection.id);
+    collectionOpenedHereRef.current = true;
+    navigate({ pathname: '/media', search: `?${next.toString()}` });
+  });
+  /** The header's back arrow: back to where the collection was opened from. */
+  const closeCollectionView = useEventCallback(() => {
+    if (collectionOpenedHereRef.current) {
+      collectionOpenedHereRef.current = false;
+      navigate(-1);
+      return;
+    }
+    navigate({ pathname: '/media', search: tabSearch }, { replace: true });
+  });
+  // A collection link whose collection is gone (trashed, or deleted on disk) falls back to the grid.
+  const collectionsLoaded = useStore($collectionsLoaded);
+  React.useEffect(() => {
+    if (openCollectionId && collectionsLoaded && !getCollection(openCollectionId)) {
+      navigate({ pathname: '/media', search: tabSearch }, { replace: true });
+    }
+  }, [openCollectionId, collectionsLoaded, collections, tabSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Flow's New collection: an untitled tile at the start of the grid, no animation — inside the
+   * open collection when there is one, as Flow makes it there.
+   */
+  const newCollection = useEventCallback((): Collection | null => {
+    if (!persistProjectId) return null;
+    const collection = createCollection(undefined, openCollectionRef.current);
+    if (diskReady) void ensureLocalFSCollectionFolder(projectName, collectionFolder(collection.id) as string);
+    if (activeSidebarTab !== 'all') navigate({ pathname: '/media', search: tabSearch });
+    return collection;
+  });
+  const renameCollectionTo = useEventCallback((collection: Collection, name: string) => {
+    const before = collection.folder;
+    const moved = renameCollection(collection.id, name);
+    if (!moved || !diskReady) return;
+    void renameLocalFSCollectionFolder(projectName, moved.from, moved.to).then((ok) => {
+      if (ok) void rereadMovedFiles(filesUnder(collection));
+      else updateCollection(collection.id, { folder: before });
+    });
+  });
+  /** Puts a collection inside another (null: back at the top), folder and all. */
+  const moveCollectionTo = useEventCallback(async (collection: Collection, target: Collection | null) => {
+    const before = parentOf(collection) ?? null;
+    const moved = moveCollection(collection.id, target?.id ?? null);
+    if (!moved || !diskReady) return;
+    if (await renameLocalFSCollectionFolder(projectName, moved.from, moved.to)) await rereadMovedFiles(filesUnder(collection));
+    else moveCollection(collection.id, before);
+  });
+  const toggleCollectionFavorite = useEventCallback((collection: Collection) => {
+    updateCollection(collection.id, { favorite: !collection.favorite });
+  });
+  const downloadCollectionItems = useEventCallback((collection: Collection) => {
+    void downloadCollection(collection.name, collectionContents.get(collection.id) ?? []).catch(() => {
+      showSnack({ icon: 'error', tone: 'error', text: 'The download failed.', actions: [{ label: 'Dismiss' }] });
+    });
+  });
+  /** The header title's edit while a collection is open; null when not editing. */
+  const [collectionNameDraft, setCollectionNameDraft] = React.useState<string | null>(null);
+  const movedToTrash = (n: number) => showSnack({ icon: 'info', text: `${n} item${n === 1 ? '' : 's'} moved to trash`, actions: [{ label: 'View in trash' }, { label: 'Dismiss' }] });
+  /** Tiles to the trash, each with its whole edit history. */
+  const trashTiles = useEventCallback((items: MediaItem[]) => {
+    for (const m of items) {
+      const root = m.historyGroupId || m.id;
+      for (const x of mediaItemsRef.current) if (x.id === root || x.historyGroupId === root) onTileDelete(x.id);
+    }
+  });
+  /**
+   * Flow's "Move all contents to trash": the collection's contents and those of every collection
+   * inside it go to the trash flattened, the collections themselves go, and so does the folder.
+   * Returns how many tiles went.
+   */
+  const trashCollectionContents = useEventCallback((collection: Collection): number => {
+    const ids = new Set([collection.id, ...descendantsOf(collection.id).map((c) => c.id)]);
+    const diskFolder = diskReady ? collectionFolder(collection.id) : undefined;
+    let tiles = 0;
+    for (const m of mediaItemsRef.current) {
+      if (!m.collectionId || !ids.has(m.collectionId)) continue;
+      onTileDelete(m.id, !!diskFolder);
+      if (!m.historyParentId) tiles += 1;
+    }
+    deleteCollection(collection.id);
+    if (diskFolder) void deleteLocalFSCollectionFolder(projectName, diskFolder);
+    if (openCollectionId && ids.has(openCollectionId)) closeCollectionView();
+    return tiles;
+  });
+  /** Asked first (ConfirmDialog), as Flow does whenever a collection is among what goes. */
+  const [trashRequest, setTrashRequest] = React.useState<{ items: MediaItem[]; collections: Collection[] } | null>(null);
+  const requestCollectionTrash = useEventCallback((collection: Collection) => setTrashRequest({ items: [], collections: [collection] }));
+  const confirmTrashRequest = useEventCallback(() => {
+    if (!trashRequest) return;
+    let tiles = 0;
+    for (const c of trashRequest.collections) if (getCollection(c.id)) tiles += trashCollectionContents(c);
+    trashTiles(trashRequest.items);
+    tiles += trashRequest.items.length;
+    setSelectedTileIds(new Set());
+    // Flow counts what went into the trash; an empty collection still counts as one.
+    movedToTrash(Math.max(1, tiles));
+  });
+
+  /** Moves tiles (each with its whole history) into a collection, or out of one with null. */
+  const moveToCollection = useEventCallback(async (ids: string[], collection: Collection | null) => {
+    const groups = new Set(ids.map((id) => {
+      const m = mediaItemsRef.current.find((x) => x.id === id);
+      return m?.historyGroupId || id;
+    }));
+    const moving = mediaItemsRef.current.filter((m) => groups.has(m.historyGroupId || m.id) && !m.characterId && (m.collectionId || null) !== (collection?.id ?? null));
+    if (!moving.length) return;
+    const movingIds = new Set(moving.map((m) => m.id));
+    setMediaItems((prev) => {
+      const next = prev.map((m) => (movingIds.has(m.id) ? { ...m, collectionId: collection?.id } : m));
+      if (persistProjectId) void saveProjectMedia(persistProjectId, next, chatScopeId);
+      return next;
+    });
+    if (!isLocalFolderConnected || !isLocalFolderAuthorized || !projectName) return;
+    const folder = collection ? collectionFolder(collection.id) : undefined;
+    const reread: FileMove[] = [];
+    for (const m of moving) {
+      if (!m.isSavedToFS || !m.fsName) continue;
+      const moved = await moveLocalFSMediaFile(projectName, m.kind, m.fsName, collectionFolder(m.collectionId), folder);
+      if (!moved) continue;
+      reread.push({ id: m.id, fsName: moved, folder });
+      if (moved !== m.fsName) {
+        setMediaItems((prev) => {
+          const next = prev.map((x) => (x.id === m.id ? { ...x, fsName: moved } : x));
+          if (persistProjectId) void saveProjectMedia(persistProjectId, next, chatScopeId);
+          return next;
+        });
+      }
+    }
+    await rereadMovedFiles(reread);
+  });
+  /** Every file in a collection and the collections inside it, where it is now. */
+  const filesUnder = (collection: Collection): FileMove[] => {
+    const ids = new Set([collection.id, ...descendantsOf(collection.id).map((c) => c.id)]);
+    return mediaItemsRef.current
+      .filter((m) => m.collectionId && ids.has(m.collectionId) && m.isSavedToFS && m.fsName)
+      .map((m) => ({ id: m.id, fsName: m.fsName as string, folder: collectionFolder(m.collectionId) }));
+  };
+  /**
+   * New blob: URLs for files that have moved (see blobFolderRef). Each tile swaps to its new URL
+   * only if it still shows the old one; the old one is released unless an attachment holds it.
+   */
+  const rereadMovedFiles = useEventCallback(async (moves: FileMove[]) => {
+    if (!isLocalFolderConnected || !isLocalFolderAuthorized || !projectName) return;
+    for (const move of moves) {
+      const m = mediaItemsRef.current.find((x) => x.id === move.id);
+      if (!m) continue;
+      const field = m.kind === 'audio' && /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(move.fsName) ? 'audioUrl' : 'url';
+      const old = m[field];
+      if (!old?.startsWith('blob:')) continue;
+      const fresh = await loadLocalFSMediaUrl(projectName, m.kind, move.fsName, move.folder);
+      if (!fresh) continue;
+      blobFolderRef.current.set(fresh, move.folder ?? '');
+      mediaBlobUrlsRef.current = [...mediaBlobUrlsRef.current, fresh];
+      setMediaItems((prev) => prev.map((x) => (x.id === move.id && x[field] === old ? { ...x, [field]: fresh } : x)));
+      if (!attachmentsRef.current.some((a) => a?.url === old)) {
+        try { URL.revokeObjectURL(old); } catch {}
+        mediaBlobUrlsRef.current = mediaBlobUrlsRef.current.filter((u) => u !== old);
+        blobFolderRef.current.delete(old);
+      }
+    }
+  });
+  /** A collection tile in the gallery's drag: a press may become a drag; the click after one opens nothing. */
+  const onCollectionPress = useEventCallback((collection: Collection, e: React.MouseEvent) => {
+    const tile = displayMediaItems.find((m) => m.id === `${COLLECTION_ITEM_PREFIX}${collection.id}`);
+    if (tile) onTileMouseDown(tile, e);
+  });
+  const onCollectionOpen = useEventCallback((collection: Collection) => {
+    if (!wasDraggingRef.current) openCollectionView(collection);
+  });
+  /** Out of the open collection, into the one it sits in (or the top of the project). */
+  const onTileMoveOutOfCollection = useEventCallback((id: string) => {
+    const open = getCollection(openCollectionRef.current);
+    void moveToCollection([id], open ? getCollection(parentOf(open)) ?? null : null);
+  });
+  const onTileSetCollectionCover = useEventCallback((item: MediaItem) => {
+    const id = openCollectionRef.current;
+    if (id) updateCollection(id, { coverId: item.historyGroupId || item.id });
+  });
+
+  /**
+   * A drop from the gallery's drag. Each tile hands over the version it shows. Collections in the
+   * drag go into a collection as a whole (nested, as in Flow) or to the trash; the other targets
+   * take no collection.
+   */
+  const dropDraggedItems = useEventCallback((target: DropTarget | null, items: MediaItem[], collections: Collection[] = []) => {
+    if (!target || (!items.length && !collections.length)) return;
+    const shown = items.map((m) => latestVersions.get(m.historyGroupId || m.id) ?? m);
+    const attachment = (m: MediaItem, unique = false): ImageAttachment => ({
+      id: unique ? `${m.id}-${Math.random().toString(36).substring(7)}` : m.id,
+      url: m.url as string,
+      name: m.shortenedPrompt || m.prompt || 'Attached Media',
+      kind: m.kind,
+    });
+    switch (target.kind) {
+      case 'collection': {
+        const collection = getCollection(target.id);
+        if (!collection) return;
+        if (items.length) void moveToCollection(items.map((m) => m.id), collection);
+        for (const c of collections) void moveCollectionTo(c, collection);
+        if (collections.length) setSelectedTileIds(new Set());
+        return;
+      }
+      case 'scene':
+        void (async () => {
+          for (const m of shown) if (m.kind === 'video') await addVideoToScene(target.id, m);
+        })();
+        return;
+      case 'trash': {
+        if (collections.length) {
+          setTrashRequest({ items, collections });
+          return;
+        }
+        trashTiles(items);
+        setSelectedTileIds(new Set());
+        movedToTrash(items.length);
+        return;
+      }
+      case 'start':
+      case 'end': {
+        const first = shown.find((m) => m.url);
+        if (!first) return;
+        setAttachments((prev) => {
+          const next = [...prev];
+          next[target.kind === 'start' ? 0 : 1] = attachment(first, true);
+          return next;
+        });
+        return;
+      }
+      case 'prompt':
+        setAttachments((prev) => {
+          const next = [...prev];
+          for (const m of shown) {
+            if (m.url && !next.some((att) => att && att.url === m.url)) next.push(attachment(m));
+          }
+          return next;
+        });
+    }
+  });
+
+  /** Flow's menu for a selection of two or more tiles, at the pointer, in place of a tile's own. */
+  const [selectionMenuAt, setSelectionMenuAt] = React.useState<{ x: number; y: number } | null>(null);
+  const onSelectionMenu = useEventCallback((x: number, y: number) => {
+    setHoveredTileId(null);
+    setActiveMenuId(null);
+    setSelectionMenuAt({ x, y });
+  });
+  /** The selection in grid order, split into tiles and collections. */
+  const selectedParts = () => {
+    const items: MediaItem[] = [];
+    const picked: Collection[] = [];
+    for (const id of selectedTileIds) {
+      if (id.startsWith(COLLECTION_ITEM_PREFIX)) {
+        const c = getCollection(id.slice(COLLECTION_ITEM_PREFIX.length));
+        if (c) picked.push(c);
+        continue;
+      }
+      const m = mediaItemsRef.current.find((x) => x.id === id);
+      if (m) items.push(m);
+    }
+    return { items, collections: picked };
+  };
+  /** The selection's files: each tile's shown version, then everything in its collections. */
+  const selectedFiles = () => {
+    const { items, collections: picked } = selectedParts();
+    return [
+      ...items.map((m) => latestVersions.get(m.historyGroupId || m.id) ?? m),
+      ...picked.flatMap((c) => collectionContents.get(c.id) ?? []),
+    ];
+  };
+  /** Flow's New collection on a selection asks first, listing what would go in. */
+  const [collectRequest, setCollectRequest] = React.useState<{ items: MediaItem[]; collections: Collection[] } | null>(null);
+  const collectMessage = (request: { items: MediaItem[]; collections: Collection[] }) => {
+    const count = (n: number, noun: string) => (n ? [`${n} ${noun}${n === 1 ? '' : 's'}`] : []);
+    const kind = (k: MediaItem['kind']) => request.items.filter((m) => m.kind === k).length;
+    return [
+      'Do you want to create a collection with:',
+      ...count(request.collections.length, 'collection'),
+      ...count(kind('image'), 'image'),
+      ...count(kind('video'), 'video'),
+      ...count(kind('audio'), 'song'),
+    ].join('\n');
+  };
+  /** The new collection takes the selection in, collections and all, where the selection was. */
+  const confirmCollectRequest = useEventCallback(() => {
+    if (!collectRequest) return;
+    const created = newCollection();
+    if (!created) return;
+    if (collectRequest.items.length) void moveToCollection(collectRequest.items.map((m) => m.id), created);
+    for (const c of collectRequest.collections) void moveCollectionTo(c, created);
+    setSelectedTileIds(new Set());
+  });
+  const selectionToScene = useEventCallback(async () => {
+    const videos = selectedFiles().filter((m) => m.kind === 'video' && m.status === 'completed' && m.url);
+    if (!videos.length) {
+      createEmptyScene();
+      return;
+    }
+    const sceneId = await createSceneWithVideo(videos[0]);
+    for (const m of videos.slice(1)) {
+      if (!$scenes.get().some((s) => s.id === sceneId)) return;
+      await addVideoToScene(sceneId, m);
+    }
+  });
+  const downloadSelection = useEventCallback(() => {
+    void downloadCollection(projectName || 'Media', selectedFiles()).catch(() => {
+      showSnack({ icon: 'error', tone: 'error', text: 'The download failed.', actions: [{ label: 'Dismiss' }] });
+    });
+  });
+  const copySelection = useEventCallback(() => {
+    const image = selectedFiles().find((m) => m.kind === 'image' && m.url);
+    if (image?.url) void copyImage(image.url).catch(() => undefined);
+  });
+  const trashSelection = useEventCallback(() => {
+    const { items, collections: picked } = selectedParts();
+    if (picked.length) {
+      setTrashRequest({ items, collections: picked });
+      return;
+    }
+    trashTiles(items);
+    setSelectedTileIds(new Set());
+    movedToTrash(items.length);
+  });
+  const videoViewHost: VideoViewHost = {
+    rename: (item, name) => onTileRename(item.id, name),
+    toggleFavorite: (item) => onTileToggleFavorite(item.id),
+    trash: trashFromEditor,
+  };
+  /** An image edit: the source image first, then any ingredients, into the source's history. */
+  const startImageEdit = (source: MediaItem, text: string, ingredients: MediaItem[], modelId: string, ratio: string, retrying?: MediaItem): MediaItem | null => {
+    const model = imageModels.find((m) => m.id === liveModelId(modelId)) ?? imageModels.find((m) => m.id === imageModel);
+    if (!model) {
+      setGenerationError({ message: "You haven't added an image model yet. Add one to edit images.", settings: true, missingModel: 'image' });
+      return null;
+    }
+    const isGPT = model.id === 'gpt-image-2';
+    const isGrok = model.id === 'grok-imagine';
+    const apiKey = apiKeys?.[isGrok ? 'spacexai' : isGPT ? 'openai' : 'gemini']?.[0];
+    if (!apiKey) {
+      setGenerationError({ message: `${isGrok ? 'Grok' : isGPT ? 'OpenAI' : 'Google Gemini'} API key is missing. Add it in Settings → Models & API.`, settings: true });
+      return null;
+    }
+    setGenerationError(null);
+    const attachments: ImageAttachment[] = retrying?.attachments ?? [source, ...ingredients]
+      .filter((m) => m.url)
+      .map((m) => ({ id: m.id, url: m.url as string, name: m.shortenedPrompt || m.prompt || 'image', kind: m.kind }));
+    const historyGroupId = source.historyGroupId || source.id;
+    if (!source.historyGroupId) setMediaItems((prev) => prev.map((m) => (m.id === source.id ? { ...m, historyGroupId } : m)));
+    const item: MediaItem = retrying
+      ? { ...retrying, status: 'generating', error: undefined, url: undefined }
+      : {
+        id: `${Date.now()}-viewer-${Math.random().toString(36).slice(2, 8)}`,
+        kind: 'image',
+        status: 'generating',
+        prompt: text,
+        modelId: model.id,
+        modelName: model.name,
+        ratio,
+        timestamp: Date.now(),
+        attachments,
+        historyGroupId,
+        historyParentId: source.id,
+        collectionId: source.collectionId,
+        effort: imageEffort,
+        quality: imageQuality,
+        resolution: imageResolution,
+      };
+    if (retrying) setMediaItems((prev) => prev.map((m) => (m.id === retrying.id ? item : m)));
+    else {
+      setMediaItems((prev) => [item, ...prev]);
+      void rephrasePromptForItems([item.id], text, apiKey);
+    }
+    void generateSingleImage(item, item.prompt, model.id, item.ratio, apiKey, attachments);
+    return item;
+  };
+  const imageEditHost: ImageEditHost = {
+    models: imageModels,
+    defaultModelId: imageModels.some((m) => m.id === liveModelId(selectedItem?.modelId ?? '')) ? liveModelId(selectedItem?.modelId ?? '') : imageModel,
+    notice: visibleGenerationError ? (
+      <PromptNotice notice={visibleGenerationError} onDismiss={() => setGenerationError(null)} onOpenSettings={openModelSettings} />
+    ) : undefined,
+    generate: (source, text, ingredients, modelId, ratio) => startImageEdit(source, text, ingredients, modelId, ratio),
+    retry: (item) => {
+      const parent = mediaItemsRef.current.find((m) => m.id === item.historyParentId);
+      if (!parent) return;
+      const started = startImageEdit(parent, item.prompt, [], item.modelId, item.ratio, item);
+      if (started) setSelectedItem(started);
+    },
+    removeVersion: (item) => {
+      if (selectedItem?.id === item.id) {
+        const parent = mediaItemsRef.current.find((m) => m.id === item.historyParentId);
+        if (parent) setSelectedItem(parent);
+      }
+      onTileDelete(item.id);
+    },
+    rename: (item, name) => onTileRename(item.id, name),
+    toggleFavorite: (item) => onTileToggleFavorite(item.id),
+    trash: trashFromEditor,
+    open: (item) => setSelectedItem(item),
+  };
+
+  /**
+   * A character's portrait or body, or a version of one. Kept out of the grid by its `characterId`.
+   * Returns the pending item and its generation, or the notice to show when it can't start.
+   */
+  const launchCharacterImage = (
+    { prompt: text, modelId, references, characterId, parent }: Parameters<CharacterHost['generate']>[0],
+  ): { item: MediaItem; done: Promise<GenerationResult> } | { notice: PromptNoticeState } => {
+    const model = imageModels.find((m) => m.id === liveModelId(modelId)) ?? imageModels.find((m) => m.id === imageModel);
+    if (!model) {
+      return { notice: { message: "You haven't added an image model yet. Add one to make characters.", settings: true, missingModel: 'image' } };
+    }
+    const isGPT = model.id === 'gpt-image-2';
+    const isGrok = model.id === 'grok-imagine';
+    const apiKey = apiKeys?.[isGrok ? 'spacexai' : isGPT ? 'openai' : 'gemini']?.[0];
+    if (!apiKey) {
+      return { notice: { message: `${isGrok ? 'Grok' : isGPT ? 'OpenAI' : 'Google Gemini'} API key is missing. Add it in Settings → Models & API.`, settings: true } };
+    }
+    const attachments: ImageAttachment[] = references
+      .filter((m) => m.url)
+      .map((m) => ({ id: m.id, url: m.url as string, name: m.shortenedPrompt || m.prompt || 'image', kind: m.kind }));
+    const historyGroupId = parent ? (parent.historyGroupId || parent.id) : undefined;
+    if (parent && !parent.historyGroupId) setMediaItems((prev) => prev.map((m) => (m.id === parent.id ? { ...m, historyGroupId } : m)));
+    const item: MediaItem = {
+      id: `${Date.now()}-character-${Math.random().toString(36).slice(2, 8)}`,
+      kind: 'image',
+      status: 'generating',
+      prompt: text,
+      modelId: model.id,
+      modelName: model.name,
+      ratio: '16:9',
+      timestamp: Date.now(),
+      attachments: attachments.length ? attachments : undefined,
+      characterId,
+      historyGroupId,
+      historyParentId: parent?.id,
+    };
+    setMediaItems((prev) => [item, ...prev]);
+    return { item, done: generateSingleImage(item, text, model.id, '16:9', apiKey, attachments) };
+  };
+  const startCharacterImage: CharacterHost['generate'] = (req) => {
+    const started = launchCharacterImage(req);
+    if ('notice' in started) {
+      setGenerationError(started.notice);
+      return null;
+    }
+    setGenerationError(null);
+    return started.item;
+  };
+  const formatCharacterPrompt = async (text: string): Promise<string> => {
+    const apiKey = apiKeys?.gemini?.[0];
+    if (!apiKey) throw new Error('Format needs a Google Gemini API key. Add one in Settings → Models & API.');
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${namingModel}:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `Rewrite this into one detailed visual description of a single character for an image generator: face, hair, build, clothing and accessories, in vivid, concrete language. One paragraph of at most 90 words. Return only the description, with no title, quotes or explanation.\n\nDescription: ${text}`,
+          }],
+        }],
+      }),
+    });
+    if (!res.ok) throw new Error('The description could not be formatted.');
+    const data = await res.json();
+    const out = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    return out ? out.replace(/^["'`\s]+|["'`\s]+$/g, '') : text;
+  };
+  const characterHost: CharacterHost = {
+    ...editorHost,
+    close: () => openCharacterPage(null),
+    imageModels,
+    defaultImageModelId: imageModel,
+    notice: visibleGenerationError ? (
+      <PromptNotice notice={visibleGenerationError} onDismiss={() => setGenerationError(null)} onOpenSettings={openModelSettings} />
+    ) : undefined,
+    generate: startCharacterImage,
+    formatPrompt: formatCharacterPrompt,
+    addToPrompt: (item) => onTileAddToPrompt(item),
+  };
+
   const onTileAnimate = useEventCallback((targetItem: MediaItem) => {
     setModelMode('video');
     setVideoMode('frames');
@@ -4703,146 +5593,78 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         return next.slice(0, 2);
       });
       setTimeout(() => {
-        textareaRef.current?.focus();
+        promptEditorRef.current?.focus();
       }, 50);
     }
   });
 
-  const galleryLayoutItems = React.useMemo((): Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean, isLastRow: boolean}> => {
-  if (displayMediaItems.length > 0) {
-    const targetH = isSidebarCollapsed ? 230 : 270;
-    const gap = 12;
-    // Sidebar left edge is 356px from screen edge. We want a 12px gap to images.
-    // So total distance from screen edge to images should be 368px.
-    // Since scrollbar takes up `scrollbarWidth` space, padding needs to be 368 - scrollbarWidth.
-    const activePaddingRight = Math.max(12, 368 - scrollbarWidth);
-    // Subtract 2px of safety margin to absorb browser floating-point rounding errors and prevent accidental wrapping of tiles
-    // Subtract 3px for the left padding added to prevent left-side outline clipping
-    const visibleWidth = Math.max(1, ((isAgentSidebarOpen || !!activeMusicItem) ? Math.max(1, canvasInnerWidth + 12 - activePaddingRight) : Math.max(1, canvasInnerWidth)) - 5);
-    
-    // We bias the target height up by 20% for layout calculations.
-    // This perfectly tunes the algorithm's distance check to match your exact preferred rhythm:
-    // It naturally wraps to exactly 2 items when the left sidebar is open, 3 items when full width,
-    // and correctly scales them down to fit 2 items when both sidebars are open!
-    const layoutTargetH = targetH * 1.2;
-    
-    const rows: Array<{ items: Array<{item: MediaItem, ar: number}>, sumAR: number, isLast: boolean, height: number }> = [];
-    let currentRow: Array<{item: MediaItem, ar: number}> = [];
-    let currentRowSumAR = 0;
+  // The grid's frame, shared by All media and the Characters tab (gallery-layout.ts lays both out).
+  // Below 961px the rows are shorter (two or three tiles across a phone, three or four across a
+  // tablet), the gaps narrower, and the agent's and player's panels overlay the grid instead of
+  // narrowing it; `media-main` carries the matching left padding.
+  const gallerySidePad = viewport === 'phone' ? 8 : 12;
+  const galleryGap = viewport === 'phone' ? 6 : viewport === 'tablet' ? 8 : GALLERY_GAP;
+  const galleryTargetH = viewport === 'phone' || isShortNarrow ? 128 : viewport === 'tablet' ? 176 : isSidebarCollapsed ? 230 : 270;
+  // Sidebar left edge is 356px from screen edge. We want a 12px gap to images.
+  // So total distance from screen edge to images should be 368px.
+  // Since scrollbar takes up `scrollbarWidth` space, padding needs to be 368 - scrollbarWidth.
+  const galleryPaddingRight = isNarrow ? gallerySidePad : (isAgentSidebarOpen || !!activeMusicItem) ? Math.max(12, 368 - scrollbarWidth) : 12;
+  // Subtract 2px of safety margin to absorb browser floating-point rounding errors and prevent accidental wrapping of tiles
+  // Subtract 3px for the left padding added to prevent left-side outline clipping
+  const galleryWidth = isNarrow
+    ? Math.max(1, canvasInnerWidth + 12 - gallerySidePad - galleryPaddingRight - 2)
+    : Math.max(1, ((isAgentSidebarOpen || !!activeMusicItem) ? Math.max(1, canvasInnerWidth + 12 - galleryPaddingRight) : Math.max(1, canvasInnerWidth)) - 5);
 
-    const getRowHeight = (sumAR: number, count: number) => {
-      if (count === 0) return 0;
-      return (visibleWidth - (count - 1) * gap) / sumAR;
-    };
-    
-    // We penalize the difference between the resulting height and our tuned ideal height
-    const getDiff = (h: number) => Math.abs(h - layoutTargetH);
+  const galleryLayoutItems = React.useMemo((): GalleryCell<MediaItem>[] => {
+    if (!displayMediaItems.length) return [];
+    const sortedMediaItems = [...displayMediaItems].sort(sortFilter.sort === 'oldest'
+      ? (a, b) => compareMediaItemsNewestFirst(b, a)
+      : compareMediaItemsNewestFirst);
+    return layoutGallery(sortedMediaItems.map((item) => ({ item, ar: ratioValue(item.ratio) })), galleryWidth, galleryTargetH, { gap: galleryGap });
+  }, [displayMediaItems, galleryWidth, galleryTargetH, galleryGap, sortFilter.sort]);
 
-      const sortedMediaItems = [...displayMediaItems].sort(compareMediaItemsNewestFirst);
-      sortedMediaItems.forEach((item) => {
-        const ratio = item.ratio;
-        let ar = 16 / 9;
-        if (ratio === '4:3') ar = 4 / 3;
-        else if (ratio === '1:1') ar = 1;
-        else if (ratio === '3:4') ar = 3 / 4;
-        else if (ratio === '9:16') ar = 9 / 16;
-        else if (ratio.includes(':')) {
-          const [w, h] = ratio.split(':').map(Number);
-          if (w && h) ar = w / h;
-        }
-        
-        const arWithItem = currentRowSumAR + ar;
-      const countWithItem = currentRow.length + 1;
-      const heightWithItem = getRowHeight(arWithItem, countWithItem);
-      
-      if (currentRow.length === 0) {
-        currentRow.push({ item, ar });
-        currentRowSumAR = ar;
+  // Flow's View mode > Batch (batch/), wherever the gallery grid shows. Music is Willow's own
+  // surface and Characters has a page of its own, so both keep the grid.
+  const batchMode = viewSettings.viewMode === 'batch' && activeSidebarTab !== 'music' && activeSidebarTab !== 'characters';
+  const batchTiles = React.useMemo(() => (batchMode
+    ? [...displayMediaItems].sort(sortFilter.sort === 'oldest' ? (a, b) => compareMediaItemsNewestFirst(b, a) : compareMediaItemsNewestFirst)
+    : EMPTY_ITEMS), [batchMode, displayMediaItems, sortFilter.sort]);
+  const legacyBatches = React.useMemo(() => legacyBatchKeys(batchTiles.filter((m) => !isStandIn(m))), [batchTiles]);
+  const batchKeyOf = React.useCallback(
+    (m: MediaItem) => (isStandIn(m) ? `unbatched-${m.id}` : m.batchId ?? legacyBatches.get(m.id) ?? `unbatched-${m.id}`),
+    [legacyBatches],
+  );
+  // Flow's G (or Shift+G) switches view mode, and +, - and 0 step and reset the grid size —
+  // from the gallery only, not from a field, an editor, a menu or a dialog.
+  React.useEffect(() => {
+    const SIZES: ViewSettings['gridSize'][] = ['S', 'M', 'L'];
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      // Kept alive off screen while it works, the editor is not what the keys are for; nor is the
+      // gallery under the Tools pages.
+      if (!window.location.pathname.startsWith('/media') || isToolsPath(window.location.pathname)) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      const search = new URLSearchParams(window.location.search);
+      if (selectedItemRef.current || search.has('scene') || search.has('character')) return;
+      if (document.querySelector('[role="menu"], [role="dialog"]')) return;
+      if (e.key === 'g' || e.key === 'G') {
+        setViewSettings((v) => ({ ...v, viewMode: v.viewMode === 'batch' ? 'grid' : 'batch' }));
+      } else if (!e.shiftKey && e.key === '0') {
+        setViewSettings((v) => ({ ...v, gridSize: 'M' }));
+      } else if (!e.shiftKey && (e.key === '=' || e.key === '+' || e.key === '-')) {
+        const step = e.key === '-' ? -1 : 1;
+        setViewSettings((v) => ({ ...v, gridSize: SIZES[Math.min(SIZES.length - 1, Math.max(0, SIZES.indexOf(v.gridSize) + step))] }));
       } else {
-        const heightWithoutItem = getRowHeight(currentRowSumAR, currentRow.length);
-        if (getDiff(heightWithItem) <= getDiff(heightWithoutItem)) {
-          currentRow.push({ item, ar });
-          currentRowSumAR = arWithItem;
-        } else {
-          rows.push({ items: currentRow, height: heightWithoutItem, sumAR: currentRowSumAR, isLast: false });
-          currentRow = [{ item, ar }];
-          currentRowSumAR = ar;
-        }
+        return;
       }
-    });
-    
-    if (currentRow.length > 0) {
-      rows.push({ items: currentRow, height: getRowHeight(currentRowSumAR, currentRow.length), sumAR: currentRowSumAR, isLast: true });
-    }
-
-    let sumHeights = 0;
-    let fullRowsCount = 0;
-    for (let i = 0; i < rows.length; i++) {
-      if (!rows[i].isLast) {
-        sumHeights += rows[i].height;
-        fullRowsCount++;
-      }
-    }
-    const averageFullRowHeight = fullRowsCount > 0 ? sumHeights / fullRowsCount : layoutTargetH;
-
-    const layoutItems: Array<{item: MediaItem, ar: number, finalHeight: number, finalWidth: number, isCapped: boolean, isLastRow: boolean}> = [];
-    rows.forEach((row) => {
-      let finalRowHeight = row.height;
-      let isCapped = false;
-      if (row.isLast) {
-        const capHeight = fullRowsCount > 0 ? averageFullRowHeight : layoutTargetH;
-        if (finalRowHeight > capHeight * 1.5) {
-          finalRowHeight = capHeight;
-          isCapped = true;
-        }
-      }
-      row.items.forEach(cell => {
-        layoutItems.push({
-          item: cell.item,
-          ar: cell.ar,
-          finalHeight: finalRowHeight,
-          finalWidth: finalRowHeight * cell.ar,
-          isCapped,
-          isLastRow: row.isLast
-        });
-      });
-    });
-    return layoutItems;
-  }
-  return [];
-  }, [displayMediaItems, isSidebarCollapsed, scrollbarWidth, isAgentSidebarOpen, activeMusicItem, canvasInnerWidth]);
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const isContextMenuActive = activeMenuId !== null && activeMenuId.endsWith('-context');
-
-  if (activeSidebarTab === 'characters') {
-    return (
-      <div className="h-screen w-screen bg-[#000000] overflow-hidden relative">
-        <CharactersView 
-          onBack={() => navigate(-1)} 
-          mediaItems={mediaItems} 
-          onFileSelect={() => fileInputRef.current?.click()} 
-          modelMode={modelMode}
-          activeModelId={modelMode === 'image' ? imageModel : videoModel}
-          onModelChange={(id) => {
-            if (modelMode === 'image') {
-              setImageModel(id as any);
-            } else {
-              setVideoModel(id as any);
-            }
-          }}
-        />
-        {isInitialLoading && (
-          <FlowLoadingPage
-            isFadingOut={isInitialLoadingFadingOut}
-            onFadedOut={() => {
-              setIsInitialLoading(false);
-              setIsInitialLoadingFadingOut(false);
-            }}
-          />
-        )}
-      </div>
-    );
-  }
 
   if (activeSidebarTab === 'music' && isCreatingMusic) {
     return (
@@ -4856,7 +5678,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           onModelChange={(id) => {
             setMusicModel(id as string);
           }}
-          availableModels={availableMusicModels}
+          availableModels={musicModels}
+          onAddModel={openModelSettings}
+          coverImageModel={coverImageModel}
           onSongGenerated={(item: MediaItem) => {
             setMediaItems(prev => {
               const updated = [item, ...prev];
@@ -4891,7 +5715,9 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           onModelChange={(id) => {
             setMusicModel(id as string);
           }}
-          availableModels={availableMusicModels}
+          availableModels={musicModels}
+          onAddModel={openModelSettings}
+          coverImageModel={coverImageModel}
           initialItem={fullscreenMusicItem}
         />
         {isInitialLoading && (
@@ -4907,9 +5733,329 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
     );
   }
 
+  /** One gallery tile at its layout size, with every gallery behaviour: the grid's and batch view's. */
+  const renderGalleryTile = ({ item, ar, finalHeight, finalWidth, isLastRow }: { item: MediaItem; ar: number; finalHeight: number; finalWidth: number; isLastRow: boolean }) => {
+    if (item.id === 'new-music-button') {
+      return (
+        <motion.div
+          layout
+          transition={{ 
+            duration: isRightSidebarToggling ? 0.78 : 0, 
+            ease: [0.16, 1, 0.3, 1] 
+          }}
+          key={item.id}
+          onClick={() => setIsCreatingMusic(true)}
+          style={{
+            flexGrow: isLastRow ? 0 : ar,
+            flexBasis: `${finalWidth}px`,
+            height: `${finalHeight}px`,
+          }}
+          className={`gallery-tile relative rounded-[16px] bg-[#141517] hover:bg-[#1f2023] transition-colors shadow-2xl flex flex-col items-center justify-center cursor-pointer border-none group overflow-hidden`}
+        >
+           <Plus size={32} strokeWidth={1.5} className="text-[#a0a0a0] group-hover:text-white transition-colors mb-4" />
+           <span className="text-[13px] font-medium text-[#a0a0a0] group-hover:text-white transition-colors tracking-wide">New music</span>
+        </motion.div>
+      );
+    }
+    if (item.id.startsWith(CHARACTER_ITEM_PREFIX)) {
+      const character = characters.find((c) => `${CHARACTER_ITEM_PREFIX}${c.id}` === item.id);
+      if (!character) return null;
+      return (
+        <CharacterTile
+          key={item.id}
+          character={character}
+          portrait={character.portraitId ? mediaItems.find((m) => m.id === character.portraitId) : undefined}
+          box={{ flexGrow: isLastRow ? 0 : ar, flexBasis: `${finalWidth}px`, height: `${finalHeight}px` }}
+          layoutDuration={isRightSidebarToggling ? 0.78 : 0}
+          onOpen={() => openCharacterPage(character.id)}
+          onFavorite={() => favoriteCharacter(character)}
+          onAddToPrompt={() => addCharacterToPrompt(character)}
+          onCopy={() => copyCharacter(character)}
+          onRename={(name) => renameCharacter(character, name)}
+          onDelete={() => removeCharacter(character)}
+        />
+      );
+    }
+    if (item.id.startsWith(SCENE_ITEM_PREFIX)) {
+      const scene = scenesById.get(item.id.slice(SCENE_ITEM_PREFIX.length));
+      if (!scene) return null;
+      const isTarget = dropTarget?.kind === 'scene' && dropTarget.id === scene.id;
+      return (
+        <SceneTile
+          key={item.id}
+          scene={scene}
+          ar={ar}
+          finalWidth={finalWidth}
+          finalHeight={finalHeight}
+          isLastRow={isLastRow}
+          layoutDuration={isRightSidebarToggling ? 0.78 : 0}
+          resolveUrl={resolveSceneMediaUrl}
+          dragDimmed={!!draggingItemId && !isTarget}
+          dropTarget={isTarget}
+        />
+      );
+    }
+    if (item.id.startsWith(COLLECTION_ITEM_PREFIX)) {
+      const collection = collections.find((c) => `${COLLECTION_ITEM_PREFIX}${c.id}` === item.id);
+      if (!collection) return null;
+      const selected = selectedTileIds.has(item.id);
+      return (
+        <CollectionTile
+          key={item.id}
+          tileId={item.id}
+          collection={collection}
+          items={collectionContents.get(collection.id) ?? EMPTY_ITEMS}
+          ar={ar}
+          finalWidth={finalWidth}
+          finalHeight={finalHeight}
+          isLastRow={isLastRow}
+          layoutDuration={isRightSidebarToggling ? 0.78 : 0}
+          isSelected={selected}
+          selectionDimmed={!draggingItemId && selectedTileIds.size > 0 && !selected}
+          dragDimmed={!!draggingItemId && !dragIdsRef.current.includes(item.id)}
+          dropTarget={dropTarget?.kind === 'collection' && dropTarget.id === collection.id}
+          onPress={onCollectionPress}
+          onSelectionMenu={selected && selectedTileIds.size > 1 ? onSelectionMenu : undefined}
+          onOpen={onCollectionOpen}
+          onToggleFavorite={toggleCollectionFavorite}
+          onRename={renameCollectionTo}
+          onDownload={downloadCollectionItems}
+          onTrash={requestCollectionTrash}
+        />
+      );
+    }
+    return (
+        <GalleryTile
+          key={item.id}
+          item={item}
+          projectName={projectName}
+          ar={ar}
+          finalWidth={finalWidth}
+          finalHeight={finalHeight}
+          isLastRow={isLastRow}
+          layoutDuration={isRightSidebarToggling ? 0.78 : 0}
+          isMenuOpen={activeMenuId === item.id || activeMenuId === `${item.id}-context`}
+          isHovered={hoveredTileId === item.id && selectionBox === null && draggingItemId === null}
+          isRenaming={renamingItemId === item.id}
+          isDragging={draggingItemId === item.id}
+          isSelected={selectedTileIds.has(item.id)}
+          dimmed={Boolean(!draggingItemId && (
+            (renamingItemId && renamingItemId !== item.id) ||
+            (selectedTileIds.size > 0 && !selectedTileIds.has(item.id))
+          ))}
+          dragDimmed={!!draggingItemId && !dragIdsRef.current.includes(item.id)}
+          hasHistory={historyGroupsWithVersions.has(item.historyGroupId || item.id)}
+          interactionsMuted={Boolean(draggingItemId || selectionBox !== null || isContextMenuActive)}
+          onTileMouseDown={onTileMouseDown}
+          onTileClick={onTileClick}
+          onTileMouseEnter={onTileMouseEnter}
+          onTileMouseLeave={onTileMouseLeave}
+          onMenuOpenChange={onTileMenuOpenChange}
+          onCancel={onTileCancel}
+          onRefresh={onTileRefresh}
+          onRePrompt={onTileRePrompt}
+          onDelete={onTileDelete}
+          onRename={onTileRename}
+          onSetIsRenaming={onTileSetRenaming}
+          onSetAsCover={onTileSetAsCover}
+          onAddToPrompt={onTileAddToPrompt}
+          onAnimate={onTileAnimate}
+          onToggleFavorite={onTileToggleFavorite}
+          onShare={onTileShare}
+          onFlag={onTileFlag}
+          onSetCollectionCover={openCollection ? onTileSetCollectionCover : undefined}
+          onMoveOutOfCollection={openCollection ? onTileMoveOutOfCollection : undefined}
+          onSelectionMenu={selectedTileIds.has(item.id) && selectedTileIds.size > 1 ? onSelectionMenu : undefined}
+        />
+      );
+  };
+
+  const renderBatchTile = (item: MediaItem, width: number, height: number) =>
+    renderGalleryTile({ item, ar: tileAspect(item), finalWidth: width, finalHeight: height, isLastRow: true });
+
+  /** Flow reads a batch's info off its first tile; a reference shows its item as it is now. */
+  const batchInfoModel = (batch: LaidOutBatch<MediaItem>): BatchInfoModel => {
+    const first = batch.tiles[0];
+    const pending = batch.tiles.some((m) => m.status === 'generating');
+    if (first.id.startsWith(COLLECTION_ITEM_PREFIX)) {
+      const collection = getCollection(first.id.slice(COLLECTION_ITEM_PREFIX.length));
+      const contents = (collection && collectionContents.get(collection.id)) || EMPTY_ITEMS;
+      const count = (kind: MediaItem['kind']) => contents.filter((m) => m.kind === kind).length;
+      return { label: collection?.name, ingredients: [], counts: { images: count('image'), videos: count('video'), songs: count('audio') }, canReuse: false, canTrash: !!collection };
+    }
+    if (first.id.startsWith(SCENE_ITEM_PREFIX)) {
+      const scene = scenesById.get(first.id.slice(SCENE_ITEM_PREFIX.length));
+      return { label: scene?.name, ingredients: [], created: scene?.createdAt, clips: scene?.clips.length ?? 0, canReuse: false, canTrash: !!scene && !pending };
+    }
+    if (first.id.startsWith(CHARACTER_ITEM_PREFIX)) {
+      const character = getCharacter(first.id.slice(CHARACTER_ITEM_PREFIX.length));
+      return { label: character ? characterName(character) : undefined, ingredients: [], created: character?.createdAt, canReuse: false, canTrash: !!character };
+    }
+    const generated = isGenerated(first);
+    return {
+      prompt: generated ? first.prompt : undefined,
+      ingredients: generated ? (first.attachments ?? []).map((att, i) => {
+        const live = mediaItems.find((m) => m.id === att.id);
+        const shown = live ? latestVersions.get(live.historyGroupId || live.id) ?? live : undefined;
+        return { key: `${att.id}-${i}`, url: shown?.url || att.url || undefined, kind: shown?.kind ?? att.kind ?? 'image', aspect: ratioValue(live?.ratio) };
+      }) : [],
+      created: first.timestamp,
+      model: generated ? first.modelName : undefined,
+      uploaded: generated ? undefined : first.kind === 'video' ? 'video' : first.kind === 'image' ? 'image' : undefined,
+      videoUrl: first.kind === 'video' && first.status === 'completed' && first.url ? first.url : undefined,
+      ratio: first.kind === 'audio' ? undefined : first.ratio,
+      canReuse: generated,
+      canTrash: !pending,
+    };
+  };
+
+  /** Flow's Download batch: one zip, a collection's whole contents included; nothing for a scene. */
+  const downloadBatch = (batch: LaidOutBatch<MediaItem>) => {
+    const files = batch.tiles.flatMap((m) => {
+      if (m.id.startsWith(COLLECTION_ITEM_PREFIX)) return collectionContents.get(m.id.slice(COLLECTION_ITEM_PREFIX.length)) ?? EMPTY_ITEMS;
+      if (m.id.startsWith(SCENE_ITEM_PREFIX)) return EMPTY_ITEMS;
+      if (m.id.startsWith(CHARACTER_ITEM_PREFIX)) return characterImages(m.id.slice(CHARACTER_ITEM_PREFIX.length));
+      return [m];
+    }).filter((m) => m.status === 'completed' && m.url);
+    if (!files.length) return;
+    void downloadCollection('download', files).catch(() => {
+      showSnack({ icon: 'error', tone: 'error', text: 'Failed to download media', actions: [{ label: 'Dismiss' }] });
+    });
+  };
+
+  /** A collection asks first, a scene goes with its Undo; the rest go to the trash at once. */
+  const trashBatch = (batch: LaidOutBatch<MediaItem>) => {
+    const first = batch.tiles[0];
+    if (first.id.startsWith(COLLECTION_ITEM_PREFIX)) {
+      const collection = getCollection(first.id.slice(COLLECTION_ITEM_PREFIX.length));
+      if (collection) requestCollectionTrash(collection);
+      return;
+    }
+    if (first.id.startsWith(SCENE_ITEM_PREFIX)) {
+      trashScene(first.id.slice(SCENE_ITEM_PREFIX.length));
+      return;
+    }
+    if (first.id.startsWith(CHARACTER_ITEM_PREFIX)) {
+      const character = getCharacter(first.id.slice(CHARACTER_ITEM_PREFIX.length));
+      if (character) removeCharacter(character);
+      return;
+    }
+    trashTiles(batch.tiles.map((m) => mediaItemsRef.current.find((x) => x.id === m.id) ?? m));
+    movedToTrash(batch.tiles.length);
+  };
+
+  /** A reference chip adds that reference to the prompt, as Add to prompt does. */
+  const addBatchIngredient = (batch: LaidOutBatch<MediaItem>, index: number) => {
+    const att = batch.tiles[0].attachments?.[index];
+    if (!att) return;
+    const live = mediaItems.find((m) => m.id === att.id);
+    if (live) {
+      onTileAddToPrompt(latestVersions.get(live.historyGroupId || live.id) ?? live);
+      return;
+    }
+    if (!att.url) return;
+    setAttachments((prev) => (prev.some((a) => a && a.url === att.url) ? prev : [...prev, att]));
+    setTimeout(() => promptEditorRef.current?.focus(), 50);
+  };
+
+  const renderBatchInfo = (batch: LaidOutBatch<MediaItem>) => (
+    <BatchInfo
+      model={batchInfoModel(batch)}
+      onDownload={() => downloadBatch(batch)}
+      onReuse={() => onTileRePrompt(batch.tiles[0])}
+      onTrash={() => trashBatch(batch)}
+      onIngredient={(index) => addBatchIngredient(batch, index)}
+    />
+  );
+
+  // The header's editable names, drawn by the desktop header or, below 961px, MediaCompactHeader.
+  const collectionNameInput = openCollection ? (
+    <input
+      key={openCollection.id}
+      type="text"
+      aria-label="Editable text"
+      size={(collectionNameDraft ?? openCollection.name).length + 1}
+      value={collectionNameDraft ?? openCollection.name}
+      readOnly={collectionNameDraft === null}
+      onClick={() => { if (collectionNameDraft === null) setCollectionNameDraft(openCollection.name); }}
+      onChange={(e) => { if (collectionNameDraft !== null) setCollectionNameDraft(e.target.value); }}
+      onKeyDown={(e) => {
+        if (collectionNameDraft === null) return;
+        if (e.key === 'Enter' && !(e.nativeEvent as any).isComposing) e.currentTarget.blur();
+        else if (e.key === 'Escape') setCollectionNameDraft(null);
+      }}
+      onBlur={() => {
+        if (collectionNameDraft === null) return;
+        renameCollectionTo(openCollection, collectionNameDraft);
+        setCollectionNameDraft(null);
+      }}
+      className={`bg-transparent border-none outline-none text-base leading-6 font-normal tracking-normal text-white max-w-[500px] p-[1px_2px] cursor-text truncate transition-colors ${
+        collectionNameDraft !== null ? 'caret-white' : 'caret-transparent hover:bg-white/10 rounded-lg'
+      }`}
+      title="Rename collection"
+      spellCheck={false}
+    />
+  ) : null;
+  const projectNameInput = (
+    <input
+      type="text"
+      size={Math.max(1, (isEditingProjectName ? editingProjectNameValue : projectName).length)}
+      value={isEditingProjectName ? editingProjectNameValue : projectName}
+      readOnly={!isEditingProjectName}
+      onClick={() => {
+        if (!isEditingProjectName) {
+          projectRenameResolvedRef.current = false;
+          setEditingProjectNameValue(projectName);
+          setIsEditingProjectName(true);
+        }
+      }}
+      onChange={(e) => {
+        if (isEditingProjectName) setEditingProjectNameValue(e.target.value);
+      }}
+      onKeyDown={(e) => {
+        if (!isEditingProjectName) return;
+        // isComposing: an IME (CJK input) Enter confirms the composition,
+        // not the rename — committing there would rename to half-typed text.
+        if (e.key === 'Enter' && !(e.nativeEvent as any).isComposing) {
+          projectRenameResolvedRef.current = true;
+          void commitProjectRename(editingProjectNameValue);
+        } else if (e.key === 'Escape') {
+          projectRenameResolvedRef.current = true;
+          setIsEditingProjectName(false);
+        }
+      }}
+      onBlur={() => {
+        if (!isEditingProjectName) return;
+        // Enter/Escape already resolved this edit — the blur fired by
+        // the input unmounting must not commit again (or at all,
+        // after a cancel).
+        if (projectRenameResolvedRef.current) {
+          projectRenameResolvedRef.current = false;
+          return;
+        }
+        void commitProjectRename(editingProjectNameValue);
+      }}
+      onFocus={(e) => {
+        if (isEditingProjectName) {
+          e.currentTarget.select();
+        }
+      }}
+      className={`bg-transparent border-none outline-none text-base leading-6 font-normal tracking-normal text-white max-w-[210px] p-[1px_2px] cursor-text truncate transition-colors ${
+        isEditingProjectName ? 'caret-white' : 'caret-transparent hover:bg-white/10 rounded-lg'
+      }`}
+      title="Rename project"
+      spellCheck={false}
+    />
+  );
+  const startProjectRename = () => {
+    projectRenameResolvedRef.current = false;
+    setEditingProjectNameValue(projectName);
+    setIsEditingProjectName(true);
+  };
+
   return (
     <div
-      className={`relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden ${
+      className={`media-root relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden ${
         selectionBox !== null ? 'selecting-mode' : ''
       }`}
       style={{ fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif" }}
@@ -4981,7 +6127,43 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
       {/* Top Header.
         * In Google Flow, the top area elements simply fade away in place (opacity/visibility)
-        * without translating up or down, while the left sidebar elements move up/down. */}
+        * without translating up or down, while the left sidebar elements move up/down.
+        * Below 961px it is Willow's own, MediaCompactHeader, opening the same menus. */}
+      {isNarrow ? (
+        <MediaCompactHeader
+          viewport={viewport === 'phone' ? 'phone' : 'tablet'}
+          railAsDrawer={railAsDrawer}
+          visible={isHeaderVisible}
+          transition={headerFadeTransition}
+          inCollection={!!openCollection}
+          onBack={closeCollectionView}
+          onHome={() => navigate('/?mode=media')}
+          onOpenDrawer={() => setIsNavDrawerOpen(true)}
+          title={(
+            <div className="mch-name flex items-center min-w-0" style={{ fontFamily: PROJECT_NAME_FONT }}>
+              {openCollection ? collectionNameInput : projectNameInput}
+            </div>
+          )}
+          searchOpen={isSearchOpen}
+          searchQuery={searchQuery}
+          onSearchQuery={setSearchQuery}
+          onOpenSearch={openSearch}
+          onCloseSearch={closeSearch}
+          searchInputRef={searchInputRef}
+          searchFormRef={compactSearchFormRef}
+          projectRef={projectMenuButtonRef}
+          addRef={addMenuButtonRef}
+          filterRef={sortFilterButtonRef}
+          settingsRef={viewSettingsButtonRef}
+          moreRef={moreMenuButtonRef}
+          accountRef={accountButtonRef}
+          openMenu={openHeaderMenu}
+          onMenu={(menu) => setOpenHeaderMenu((current) => (current === menu ? null : menu))}
+          onAccount={() => setIsAccountMenuOpen((open) => !open)}
+          accountName={userProfile?.displayName || user?.email}
+          accountPhoto={userProfile?.photoURL || user?.photoURL}
+        />
+      ) : (
       <header 
         ref={headerRef}
         className="absolute top-0 left-0 right-0 h-[76px] flex items-center justify-between pl-5 pr-5 shrink-0 z-[80] bg-transparent pointer-events-none"
@@ -5013,6 +6195,18 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           <div className="flex items-center gap-2">
             {/* Flow's header controls are 40x40 with a 12px radius, centered at y=38,
               * with Google Symbols at 24px with `"FILL" 0, "wght" 300`. */}
+            {/* Inside a collection Flow's Home becomes the back arrow, and the title is the
+              * collection's name, editable the same way. */}
+            {openCollection ? (
+              <button
+                onClick={closeCollectionView}
+                className="w-10 h-10 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-xl transition-colors text-white"
+                title="Back button to go to previous page"
+                aria-label="Back button to go to previous page"
+              >
+                <FlowIcon name="arrow_back" size={24} weight={300} />
+              </button>
+            ) : (
             <button 
               onClick={() => navigate('/?mode=media')}
               className="w-10 h-10 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-xl transition-colors text-white"
@@ -5020,58 +6214,16 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             >
               <MaterialSymbol name="home" family="google-symbols" size={24} weight={400} variationSettings='"FILL" 0, "wght" 300' />
             </button>
+            )}
+            {openCollection && (
+              <div className="flex items-center min-w-0" style={{ fontFamily: PROJECT_NAME_FONT }}>
+                {collectionNameInput}
+              </div>
+            )}
             {/* 16px/24px regular Google Sans Text with 8px flex gap from Home button (matching Google Flow).
               * Flow uses an editable-text-input with size={length} giving natural input width (e.g. 104px for 5 chars). */}
-            <div className="flex items-center min-w-0" style={{ fontFamily: PROJECT_NAME_FONT }}>
-              <input
-                type="text"
-                size={Math.max(1, (isEditingProjectName ? editingProjectNameValue : projectName).length)}
-                value={isEditingProjectName ? editingProjectNameValue : projectName}
-                readOnly={!isEditingProjectName}
-                onClick={() => {
-                  if (!isEditingProjectName) {
-                    projectRenameResolvedRef.current = false;
-                    setEditingProjectNameValue(projectName);
-                    setIsEditingProjectName(true);
-                  }
-                }}
-                onChange={(e) => {
-                  if (isEditingProjectName) setEditingProjectNameValue(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  if (!isEditingProjectName) return;
-                  // isComposing: an IME (CJK input) Enter confirms the composition,
-                  // not the rename — committing there would rename to half-typed text.
-                  if (e.key === 'Enter' && !(e.nativeEvent as any).isComposing) {
-                    projectRenameResolvedRef.current = true;
-                    void commitProjectRename(editingProjectNameValue);
-                  } else if (e.key === 'Escape') {
-                    projectRenameResolvedRef.current = true;
-                    setIsEditingProjectName(false);
-                  }
-                }}
-                onBlur={() => {
-                  if (!isEditingProjectName) return;
-                  // Enter/Escape already resolved this edit — the blur fired by
-                  // the input unmounting must not commit again (or at all,
-                  // after a cancel).
-                  if (projectRenameResolvedRef.current) {
-                    projectRenameResolvedRef.current = false;
-                    return;
-                  }
-                  void commitProjectRename(editingProjectNameValue);
-                }}
-                onFocus={(e) => {
-                  if (isEditingProjectName) {
-                    e.currentTarget.select();
-                  }
-                }}
-                className={`bg-transparent border-none outline-none text-base leading-6 font-normal tracking-normal text-white max-w-[210px] p-[1px_2px] cursor-text truncate transition-colors ${
-                  isEditingProjectName ? 'caret-white' : 'caret-transparent hover:bg-white/10 rounded-lg'
-                }`}
-                title="Rename project"
-                spellCheck={false}
-              />
+            <div className={`flex items-center min-w-0${openCollection ? ' hidden' : ''}`} style={{ fontFamily: PROJECT_NAME_FONT }}>
+              {projectNameInput}
             </div>
           </div>
           {/* Flow dims this one to 50% white, unlike the header-right group. Placed directly after flow-navigation-header without gap. */}
@@ -5080,7 +6232,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             onClick={() => setOpenHeaderMenu((m) => (m === 'project' ? null : 'project'))}
             className="w-10 h-10 shrink-0 flex items-center justify-center hover:bg-white/10 rounded-xl transition-colors hover:text-white"
             style={{ color: 'rgba(255, 255, 255, 0.5)' }}
-            title="More options for the project"
+            title="More options"
+            aria-label="More options for the project"
           >
             <MaterialSymbol name="more_vert" family="google-symbols" size={24} weight={400} variationSettings='"FILL" 0, "wght" 300' />
           </button>
@@ -5173,7 +6326,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 ref={sortFilterButtonRef}
                 onClick={() => setOpenHeaderMenu((m) => (m === 'filter' ? null : 'filter'))}
                 className="flex h-10 w-[42px] shrink-0 items-center justify-center rounded-2xl bg-[rgba(218,220,224,0.1)] text-white backdrop-blur-[80px] transition-colors duration-100 hover:bg-[rgba(218,220,224,0.15)]"
-                title="Sort & Filter"
+                title="Filtering and sorting options"
               >
                 <MaterialSymbol name="filter_list" family="google-symbols" size={20} weight={400} variationSettings={HEADER_ICON_AXES} />
               </button>
@@ -5186,20 +6339,28 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           * the right edge instead, with the same result — while the account chip stays put and is
           * what the field stops short of. */}
         <div className={`flex items-center gap-3 shrink-0 justify-end ${isHeaderVisible ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-          {/* 32x32 at a 16px radius with 12px between them, and 24px glyphs at
+          {/* 40x40 at a 12px radius with 6px between them (a 46px pitch), and 24px glyphs at
             * `"FILL" 0, "wght" 300` — Flow's header group, measured off the live app. */}
-          <div className={`flex items-center gap-3 transition-opacity duration-200 ${isSearchOpen ? 'opacity-0 pointer-events-none' : ''}`}>
-            <button className={HEADER_ICON_BUTTON} title="Add Media">
+          <div className={`flex items-center gap-[6px] transition-opacity duration-200 ${isSearchOpen ? 'opacity-0 pointer-events-none' : ''}`}>
+            <button
+              ref={addMenuButtonRef}
+              onClick={() => setOpenHeaderMenu((m) => (m === 'add' ? null : 'add'))}
+              className={HEADER_ICON_BUTTON}
+              title="Add media"
+              aria-label="Add media menu"
+              aria-expanded={openHeaderMenu === 'add'}
+            >
               <MaterialSymbol name="add" family="google-symbols" size={24} weight={400} variationSettings={HEADER_ICON_AXES} />
             </button>
-            <button className={HEADER_ICON_BUTTON} title="Product Help">
+            <button className={HEADER_ICON_BUTTON} title="Product help" aria-label="Product help">
               <MaterialSymbol name="help" family="google-symbols" size={24} weight={400} variationSettings={HEADER_ICON_AXES} />
             </button>
             <button
               ref={viewSettingsButtonRef}
               onClick={() => setOpenHeaderMenu((m) => (m === 'settings' ? null : 'settings'))}
               className={HEADER_ICON_BUTTON}
-              title="View Settings"
+              title="View settings"
+              aria-label="Tile grid settings"
             >
               <MaterialSymbol name="settings_2" family="google-symbols" size={24} weight={400} variationSettings={HEADER_ICON_AXES} />
             </button>
@@ -5207,7 +6368,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               ref={moreMenuButtonRef}
               onClick={() => setOpenHeaderMenu((m) => (m === 'more' ? null : 'more'))}
               className={HEADER_ICON_BUTTON}
-              title="More"
+              title="More options"
+              aria-label="More options"
             >
               <MaterialSymbol name="more_vert" family="google-symbols" size={24} weight={400} variationSettings={HEADER_ICON_AXES} />
             </button>
@@ -5230,6 +6392,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           </button>
         </div>
       </header>
+      )}
 
       <AccountMenu
         open={isAccountMenuOpen}
@@ -5248,7 +6411,6 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         anchorRef={viewSettingsButtonRef}
         settings={viewSettings}
         onChange={setViewSettings}
-        onMoreSettings={() => onOpenSettings?.()}
       />
       <ProjectMenu
         open={openHeaderMenu === 'project'}
@@ -5267,13 +6429,38 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           // Deletion remains owned by the Projects surface, which handles every storage adapter.
         }}
       />
-      <MoreMenu open={openHeaderMenu === 'more'} onClose={closeHeaderMenu} anchorRef={moreMenuButtonRef} />
+      <MoreMenu
+        open={openHeaderMenu === 'more'}
+        onClose={closeHeaderMenu}
+        anchorRef={moreMenuButtonRef}
+        onSettings={() => onOpenSettings?.()}
+        leading={viewport === 'phone' ? (
+          <>
+            {/* keepOpen: the next menu replacing this one is what closes it. */}
+            <FlowMatMenuItem icon="settings_2" label="View settings" keepOpen onSelect={() => setOpenHeaderMenu('settings')} />
+            <FlowMatMenuItem icon="filter_list" label="Filter and sort" keepOpen onSelect={() => setOpenHeaderMenu('filter')} />
+          </>
+        ) : undefined}
+      />
+      {/* Flow's add menu, flush under its button: Upload, New collection, Create character, New scene. */}
+      <FlowMatMenu
+        open={openHeaderMenu === 'add'}
+        onClose={closeHeaderMenu}
+        anchor={openHeaderMenu === 'add' && addMenuButtonRef.current ? { kind: 'below', rect: addMenuButtonRef.current.getBoundingClientRect() } : null}
+        ignoreRefs={[addMenuButtonRef]}
+      >
+        <FlowMatMenuItem icon="upload" label="Upload" onSelect={() => fileInputRef.current?.click()} />
+        <FlowMatMenuItem icon="folder" label="New collection" onSelect={newCollection} />
+        <FlowMatMenuItem icon="account_circle" label="Create character" onSelect={() => openCharacterPage('new')} />
+        <FlowMatMenuItem icon="play_movies" label="New scene" onSelect={() => { createEmptyScene(); }} />
+      </FlowMatMenu>
       <SortFilterMenu
         open={openHeaderMenu === 'filter'}
         onClose={closeHeaderMenu}
         anchorRef={sortFilterButtonRef}
         value={sortFilter}
         onChange={setSortFilter}
+        resultCount={displayMediaItems.length}
       />
 
       {/* Main Body */}
@@ -5297,111 +6484,40 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           * copy and reported an icon-only rail, which is where the earlier 40px rows and 11px
           * text came from. The visible label has to be found by geometry, not by descent.
           */}
-        <aside className={`${isSidebarCollapsed ? 'w-[80px]' : 'w-[244px]'} flex flex-col justify-between pt-[76px] pb-2 px-4 shrink-0 relative z-[75]`}>
-          <nav 
-            className="flex flex-col gap-[4.8px]"
-            style={{
-              transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-62px)',
-              transition: `transform ${currentSidebarTransitionTiming}`
-            }}
-          >
-            <button 
-              onClick={() => navigate('/media' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'all' ? /* `!` because the row's base colour is an arbitrary value; without it the two
-                 * classes tie on specificity and Tailwind's output order decides, which put the
-                 * dimmed colour on the selected row. */
-                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
-            >
-              <AllMediaIcon />
-              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">All Media</span>}
-            </button>
-            <button 
-              onClick={() => navigate('/media/images' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'images' ? /* `!` because the row's base colour is an arbitrary value; without it the two
-                 * classes tie on specificity and Tailwind's output order decides, which put the
-                 * dimmed colour on the selected row. */
-                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
-            >
-              <ImagesIcon />
-              {!isSidebarCollapsed && <span className={`text-[14px] leading-5 font-medium`}>Images</span>}
-            </button>
-            <button 
-              onClick={() => navigate('/media/video' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'video' ? /* `!` because the row's base colour is an arbitrary value; without it the two
-                 * classes tie on specificity and Tailwind's output order decides, which put the
-                 * dimmed colour on the selected row. */
-                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
-            >
-              <VideoIcon />
-              {!isSidebarCollapsed && <span className={`text-[14px] leading-5 font-medium`}>Video</span>}
-            </button>
-            <button 
-              onClick={() => navigate('/media/characters' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'characters' ? /* `!` because the row's base colour is an arbitrary value; without it the two
-                 * classes tie on specificity and Tailwind's output order decides, which put the
-                 * dimmed colour on the selected row. */
-                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
-            >
-              <CharactersIcon />
-              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Characters</span>}
-            </button>
-            <button 
-              onClick={() => navigate('/media/music' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'music' ? /* `!` because the row's base colour is an arbitrary value; without it the two
-                 * classes tie on specificity and Tailwind's output order decides, which put the
-                 * dimmed colour on the selected row. */
-                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
-            >
-              <MusicIcon />
-              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Music</span>}
-            </button>
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 hover:bg-[#171717] rounded-2xl text-[#e8eaed] transition-colors group`}>
-              <ScenesIcon />
-              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Scenes</span>}
-            </button>
-            <button 
-              onClick={() => navigate('/media/uploads' + location.search)}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 ${activeSidebarTab === 'uploads' ? /* `!` because the row's base colour is an arbitrary value; without it the two
-                 * classes tie on specificity and Tailwind's output order decides, which put the
-                 * dimmed colour on the selected row. */
-                'bg-[rgba(218,220,224,0.25)] !text-white' : 'hover:bg-[#171717]'} rounded-2xl text-[#e8eaed] transition-colors group`}
-            >
-              <UploadsIcon />
-              {!isSidebarCollapsed && <span className={`text-[14px] leading-5 font-medium`}>Uploads</span>}
-            </button>
-
-            {/* Flow runs this rule the full width of a row when expanded, and pulls it in to a
-              * 32px stub — 8px either side of the 48px column — when collapsed. */}
-            <div className={`h-[1px] bg-white/20 ${isSidebarCollapsed ? 'mx-2' : 'mx-0'} my-2`} />
-
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 hover:bg-[#171717] rounded-2xl text-[#e8eaed] transition-colors group`}>
-              <ToolsIcon />
-              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Tools</span>}
-            </button>
-          </nav>
-
-          <nav className="flex flex-col gap-[4.8px] mb-2">
-            <button className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 hover:bg-[#171717] rounded-2xl text-[#e8eaed] transition-colors group`}>
-              <TrashIcon />
-              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Trash</span>}
-            </button>
-            <button
-              onClick={handleToggleLeftSidebar}
-              className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-4 pl-3 pr-4'} h-12 hover:bg-[#171717] rounded-2xl text-[#e8eaed] transition-colors group`}
-            >
-              <CollapseIcon />
-              {!isSidebarCollapsed && <span className="text-[14px] leading-5 font-medium">Collapse</span>}
-            </button>
-          </nav>
-        </aside>
+        <MediaSidebar
+          collapsed={isSidebarCollapsed}
+          onToggleCollapsed={handleToggleLeftSidebar}
+          activeTab={activeSidebarTab}
+          onNavigate={navigateSidebarTab}
+          toolsHref={toolsHref}
+          toolHref={dockToolHref}
+          navStyle={{
+            transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-62px)',
+            transition: `transform ${currentSidebarTransitionTiming}`,
+          }}
+          trashDropActive={dropTarget?.kind === 'trash'}
+          dock={toolDock}
+          dockOpen={toolDockOpen}
+          onToggleDock={() => setDockOpen(!toolDockOpen)}
+          onOpenTool={openDockTool}
+          onTogglePin={(id) => { togglePin(id); }}
+          presentation={railPresentation}
+          topInset={viewport === 'tablet' ? 72 : undefined}
+          drawerOpen={isNavDrawerOpen}
+          onDrawerOpenChange={setIsNavDrawerOpen}
+          onHome={() => navigate('/?mode=media')}
+        />
 
         {/* Center Canvas */}
         <main
           ref={attachMainRef}
           onScroll={handleScroll}
-          className={`flex-1 bg-transparent relative z-[60] -ml-[3px] pl-[3px] no-scrollbar ${
+          className={`media-main flex-1 bg-transparent relative z-[60] -ml-[3px] pl-[3px] no-scrollbar ${
             renamingItemId ? 'overflow-hidden' : 'overflow-y-scroll'
           }`}
+          /* Under a full-window editor the grid is not painted at all, as in Flow, where the
+           * editors are pages of their own and the grid is gone. It keeps its layout and scroll. */
+          style={activeSceneId || (selectedItem && selectedItem.kind !== 'audio') ? { visibility: 'hidden' } : undefined}
         >
           {/* Custom Overlay Scrollbar */}
           <div className="fixed top-0 bottom-0 right-0 w-[4px] z-[100] overflow-visible pointer-events-none">
@@ -5419,84 +6535,50 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               onClick={() => setRenamingItemId(null)}
             />
           )}
-          {displayMediaItems.length > 0 && (
-            <div
-              className="flex flex-wrap gap-3 pt-[72px] pb-44 w-full"
-              style={{ 
-                paddingRight: (isAgentSidebarOpen || !!activeMusicItem) ? `${Math.max(12, 368 - scrollbarWidth)}px` : '12px'
-              }}
-            >
-              {galleryLayoutItems.map(({ item, ar, finalHeight, finalWidth, isCapped, isLastRow }) => {
-                if (item.id === 'new-music-button') {
-                  return (
-                    <motion.div
-                      layout
-                      transition={{ 
-                        duration: isRightSidebarToggling ? 0.78 : 0, 
-                        ease: [0.16, 1, 0.3, 1] 
-                      }}
-                      key={item.id}
-                      onClick={() => setIsCreatingMusic(true)}
-                      style={{
-                        flexGrow: isLastRow ? 0 : ar,
-                        flexBasis: `${finalWidth}px`,
-                        height: `${finalHeight}px`,
-                      }}
-                      className={`gallery-tile relative rounded-[18px] bg-[#141517] hover:bg-[#1f2023] transition-colors shadow-2xl flex flex-col items-center justify-center cursor-pointer border-none group overflow-hidden`}
-                    >
-                       <Plus size={32} strokeWidth={1.5} className="text-[#a0a0a0] group-hover:text-white transition-colors mb-4" />
-                       <span className="text-[13px] font-medium text-[#a0a0a0] group-hover:text-white transition-colors tracking-wide">New music</span>
-                    </motion.div>
-                  );
-                }
-                return (
-                    <GalleryTile
-                      key={item.id}
-                      item={item}
-                      projectName={projectName}
-                      ar={ar}
-                      finalWidth={finalWidth}
-                      finalHeight={finalHeight}
-                      isLastRow={isLastRow}
-                      layoutDuration={isRightSidebarToggling ? 0.78 : 0}
-                      isMenuOpen={activeMenuId === item.id || activeMenuId === `${item.id}-context`}
-                      isHovered={hoveredTileId === item.id && selectionBox === null && draggingItemId === null}
-                      isRenaming={renamingItemId === item.id}
-                      isDragging={draggingItemId === item.id}
-                      isSelected={selectedTileIds.has(item.id)}
-                      dimmed={Boolean(
-                        (renamingItemId && renamingItemId !== item.id) ||
-                        (draggingItemId && draggingItemId !== item.id) ||
-                        (selectedTileIds.size > 0 && !selectedTileIds.has(item.id))
-                      )}
-                      interactionsMuted={Boolean(draggingItemId || selectionBox !== null || isContextMenuActive)}
-                      onTileMouseDown={onTileMouseDown}
-                      onTileClick={onTileClick}
-                      onTileMouseEnter={onTileMouseEnter}
-                      onTileMouseLeave={onTileMouseLeave}
-                      onMenuOpenChange={onTileMenuOpenChange}
-                      onCancel={onTileCancel}
-                      onRefresh={onTileRefresh}
-                      onRePrompt={onTileRePrompt}
-                      onDelete={onTileDelete}
-                      onRename={onTileRename}
-                      onSetIsRenaming={onTileSetRenaming}
-                      onSetAsCover={onTileSetAsCover}
-                      onAddToPrompt={onTileAddToPrompt}
-                      onAnimate={onTileAnimate}
-                      onToggleFavorite={onTileToggleFavorite}
-                    />
-                  );
-                })}
-            </div>
+          {activeSidebarTab === 'characters' && characters.length > 0 && (
+            <CharactersGrid
+              characters={characters}
+              width={galleryWidth}
+              targetHeight={galleryTargetH}
+              paddingRight={galleryPaddingRight}
+              layoutDuration={isRightSidebarToggling ? 0.78 : 0}
+              itemById={(id) => mediaItems.find((m) => m.id === id)}
+              onNew={() => openCharacterPage('new')}
+              onOpen={(id) => openCharacterPage(id)}
+              onFavorite={favoriteCharacter}
+              onAddToPrompt={addCharacterToPrompt}
+              onCopy={copyCharacter}
+              onRename={renameCharacter}
+              onDelete={removeCharacter}
+            />
           )}
+          {activeSidebarTab !== 'characters' && displayMediaItems.length > 0 && (batchMode ? (
+            <div className="media-gallery-frame pt-[72px] pb-44 w-full" style={{ paddingRight: `${galleryPaddingRight}px` }}>
+              <BatchView
+                tiles={batchTiles}
+                gridSize={viewSettings.gridSize}
+                keyOf={batchKeyOf}
+                idOf={tileIdOf}
+                aspectOf={tileAspect}
+                renderTile={renderBatchTile}
+                renderInfo={renderBatchInfo}
+              />
+            </div>
+          ) : (
+            <div
+              className="media-gallery-frame flex flex-wrap gap-3 pt-[72px] pb-44 w-full"
+              style={isNarrow ? { paddingRight: `${galleryPaddingRight}px`, gap: `${galleryGap}px` } : { paddingRight: `${galleryPaddingRight}px` }}
+            >
+              {galleryLayoutItems.map(renderGalleryTile)}
+            </div>
+          ))}
         </main>
       </div>
 
       {/* Centered Flower Empty State */}
-      {(!isInitialLoading || isInitialLoadingFadingOut) && displayMediaItems.length === 0 && (
+      {(!isInitialLoading || isInitialLoadingFadingOut) && displayMediaItems.length === 0 && activeSidebarTab !== 'characters' && (
         <div 
-          className="absolute top-[48%] flex flex-col items-center justify-center pointer-events-none z-10 transition-all"
+          className="media-empty-state absolute top-[48%] flex flex-col items-center justify-center pointer-events-none z-10 transition-all"
           style={{
             left: (isAgentSidebarOpen || !!activeMusicItem) ? 'calc(50% - 178px)' : '50%',
             transform: 'translate(-50%, -50%)',
@@ -5526,7 +6608,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
       {/* Bottom Prompt Bar */}
       <div 
-        className="absolute bottom-8 left-1/2 w-full max-w-[600px] z-[80] transition-all duration-300 ease-in-out prompt-container-box"
+        className="media-composer absolute bottom-8 left-1/2 w-full max-w-[600px] z-[80] transition-all duration-300 ease-in-out prompt-container-box"
         style={{
           opacity: (isAgentSidebarOpen || !!activeMusicItem) ? 0 : 1,
           transform: 'translate(-50%, 0px)',
@@ -5555,51 +6637,59 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 return (modelMode === 'video' && videoMode === 'frames') ? next.slice(0, 2) : next;
               });
             } else if (assetTitle) {
-              setPrompt(prev => {
-                const separator = prev.trim() ? ' ' : '';
-                return `${prev.trim()}${separator}[${assetTitle}]`;
-              });
+              const prev = promptStore.get();
+              const separator = prev.trim() ? ' ' : '';
+              promptStore.set(`${prev.trim()}${separator}[${assetTitle}]`);
             }
           }}
         />
+        <SceneMediaPicker
+          open={mentionOpen}
+          mode="composer"
+          anchor={mentionAnchor}
+          items={mentionItems}
+          characters={characters}
+          itemById={mentionItemById}
+          projectName={projectName || 'Untitled project'}
+          projectId={persistProjectId || undefined}
+          projects={mentionOpen ? sceneHost.listProjects() : []}
+          loadProjectMedia={sceneHost.loadProjectMedia}
+          adopt={(m) => m}
+          onClose={closeMention}
+          onImport={importSceneFiles}
+          onConfirm={mentionMedia}
+          onPickCharacter={mentionCharacter}
+        />
         {/*
           * Geometry, colour and type here are measured off Google Flow's composer, not
-          * chosen — see tools/ui-research/captures/flow/composer/. Flow's edge is an inset
-          * shadow rather than a real border, which is why the drag-over emphasis is also an
-          * inset shadow: a real border would change the box size and shift the contents.
+          * chosen — see tools/ui-research/captures/flow/composer-grid/ (41-composer-grid.cjs).
+          * Flow's edge is a real 1px border (0.8px at 1.25x), which is part of its 97.6px
+          * resting height: border, 12px, the 36px text row, an 8px gap, the 32px control row,
+          * 8px, border.
           */}
+        {/* While a tile is dragged, Flow swaps the whole composer for its drop zone (PromptDropZone):
+          * the shell goes, and the zone's own slots carry the fill, edge and hover. */}
         <div 
           className={`relative rounded-[24px] flex flex-col prompt-container-box ${
-            (draggingItemId && isFramesMode)
-              ? 'bg-transparent border-none shadow-none p-0'
-              : 'backdrop-blur-[80px]'
-          } ${
-            (draggingItemId && !isFramesMode) ? 'transition-all duration-300' : ''
+            draggingItemId ? 'bg-transparent border-none shadow-none p-0' : 'backdrop-blur-[40px]'
           }`}
           onFocus={() => setIsComposerFocused(true)}
           onBlur={() => setIsComposerFocused(false)}
           style={{
-            transform: (isDragOverPrompt && !isFramesMode) ? 'scale(1.015)' : 'scale(1)',
-            transition: (draggingItemId && !isFramesMode) ? 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
-            ...((draggingItemId && isFramesMode) ? {} : {
+            ...(draggingItemId ? {} : {
               backgroundColor: 'rgba(22, 23, 24, 0.9)',
               padding: '12px 8px 8px 10px',
-              gap: '4px',
+              gap: '8px',
               minHeight: '90px',
               maxHeight: '460px',
               overflow: 'hidden',
-              /* Focus brightens the inset edge from 0.1 to 0.15 and drops a soft shadow under the
-               * shell. Flow applies both with no transition, so they snap in on the click. */
-              boxShadow: (isDragOverPrompt && !isFramesMode)
-                ? 'inset 0 0 0 1.5px rgba(255, 255, 255, 0.9)'
-                : isComposerFocused
-                  ? 'inset 0 0 0 1px rgba(218, 220, 224, 0.15), 0 16px 32px -8px rgba(0, 0, 0, 0.4)'
-                  : 'inset 0 0 0 1px rgba(218, 220, 224, 0.1)',
+              /* Focus brightens the edge from 0.05 to 0.15, with no transition and no shadow. */
+              border: `1px solid ${isComposerFocused ? 'rgba(218, 220, 224, 0.15)' : 'rgba(218, 220, 224, 0.05)'}`,
             }),
             fontFamily: "'Google Sans Text', 'Inter', system-ui, -apple-system, sans-serif",
           }}
         >
-          {(!draggingItemId || !isFramesMode) && isAgentActive && agentAnimationKey > 0 && (
+          {!draggingItemId && isAgentActive && agentAnimationKey > 0 && (
             <div 
               key={`toggle-${agentAnimationKey}`}
               className="absolute inset-0 z-30 pointer-events-none rounded-[22px] overflow-hidden"
@@ -5621,7 +6711,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           )}
 
           <AnimatePresence>
-            {(!draggingItemId || !isFramesMode) && isAgentActive && isAgentGenerating && (
+            {!draggingItemId && isAgentActive && isAgentGenerating && (
               <motion.div 
                 key="thinking"
                 initial={{ opacity: 0 }}
@@ -5648,59 +6738,48 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           </AnimatePresence>
 
           {draggingItemId !== null ? (
-            isFramesMode ? (
-              <div className="flex gap-3 w-full h-[96px]">
-                {/* Start Frame Dropzone */}
-                <div
-                  data-drop-zone="start"
-                  style={{
-                    transform: draggedOverZone === 'start' ? 'scale(1.015)' : 'scale(1)',
-                    borderWidth: draggedOverZone === 'start' ? '1.5px' : '1px',
-                    borderColor: draggedOverZone === 'start' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.05)',
-                    transition: draggingItemId ? 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
-                  }}
-                  className="flex-1 flex items-center justify-center bg-[#18191b] rounded-[22px] select-none cursor-pointer border border-solid"
-                >
-                  <span className="text-[15px] font-semibold text-white tracking-wide pointer-events-none flex items-center gap-1.5">
-                    <span className="text-[17px] font-light leading-none pointer-events-none">+</span> Add start frame
-                  </span>
-                </div>
-
-                {/* End Frame Dropzone */}
-                <div
-                  data-drop-zone="end"
-                  style={{
-                    transform: draggedOverZone === 'end' ? 'scale(1.015)' : 'scale(1)',
-                    borderWidth: draggedOverZone === 'end' ? '1.5px' : '1px',
-                    borderColor: draggedOverZone === 'end' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.05)',
-                    transition: draggingItemId ? 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
-                  }}
-                  className="flex-1 flex items-center justify-center bg-[#18191b] rounded-[22px] select-none cursor-pointer border border-solid"
-                >
-                  <span className="text-[15px] font-semibold text-white tracking-wide pointer-events-none flex items-center gap-1.5">
-                    <span className="text-[17px] font-light leading-none pointer-events-none">+</span> Add end frame
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div 
-                className="flex items-center justify-center w-full select-none pointer-events-none"
-                style={{ height: '76px' }}
-              >
-                <span className="text-[15px] font-semibold text-white tracking-wide pointer-events-none">
-                  + Add Ingredient
-                </span>
-              </div>
-            )
+            <PromptDropZone frames={isFramesMode} target={dropTarget} count={dragIdsRef.current.length} />
           ) : (
             <>
-          {hoveredAttachmentUrl && hoveredAttachmentRect && (
+          {/* The ingredient previews are drawn in the body, outside the shell that clips its
+            * overflow. A character ingredient's card sits 6px above its chip; its padding bridges
+            * the gap. */}
+          {!isBackground && hoveredAttachmentRect && hoveredAttachmentCharacterId && createPortal(
+            <div
+              style={{
+                position: 'fixed',
+                left: hoveredAttachmentRect.left + hoveredAttachmentRect.width / 2,
+                top: hoveredAttachmentRect.top,
+                transform: 'translate(-50%, -100%)',
+                zIndex: 1000,
+              }}
+              className="pointer-events-auto pb-[6px]"
+              onMouseEnter={() => {
+                if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+              }}
+              onMouseLeave={() => {
+                setHoveredAttachmentUrl(null);
+                setHoveredAttachmentRect(null);
+              }}
+            >
+              <CharacterIngredientCard
+                thumbnail={hoveredCharacterImages.find((m) => m.id === hoveredCharacter?.portraitId)?.url ?? (hoveredAttachmentUrl || undefined)}
+                imageCount={hoveredCharacterImages.length}
+                hasVoice={!!hoveredCharacter?.voice}
+              />
+            </div>,
+            document.body,
+          )}
+          {!isBackground && hoveredAttachmentUrl && hoveredAttachmentRect && !hoveredAttachmentCharacterId && createPortal(
             <div 
               style={{
-                left: `${hoveredAttachmentRect.left + hoveredAttachmentRect.width / 2}px`,
-                transform: 'translate(-50%, 0)'
+                position: 'fixed',
+                left: hoveredAttachmentRect.left + hoveredAttachmentRect.width / 2,
+                top: hoveredAttachmentRect.shellTop,
+                transform: 'translate(-50%, -100%)',
+                zIndex: 1000,
               }}
-              className="absolute bottom-full z-50 pointer-events-auto pb-0"
+              className="pointer-events-auto"
               onMouseEnter={() => {
                 if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
               }}
@@ -5735,7 +6814,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               </div>
               {/* Invisible bridge to cover prompt box padding gap */}
               <div className="absolute top-full left-1/2 -translate-x-1/2 w-16 h-[24px] bg-transparent" />
-            </div>
+            </div>,
+            document.body,
           )}
         
 
@@ -5749,118 +6829,32 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
           />
 
           {/* Attachments Area */}
-          {/* `hidden` when empty, not merely zero-height: the shell is a flex column with a
-            * 4px gap, and a collapsed-but-present child still earns its gap — which made the
-            * resting box 98px instead of Flow's 94px. */}
+          {/* `hidden` when empty, not merely zero-height: the shell is a flex column with an
+            * 8px gap, and a collapsed-but-present child still earns its gap — which would make
+            * the resting box 8px taller than Flow's 97.6px. */}
           <div className={`grid transition-[grid-template-rows,margin-bottom] duration-[350ms] ease-in-out ${(hasActiveAttachments || (modelMode === 'video' && videoMode === 'frames')) ? 'grid-rows-[1fr] mb-0' : 'grid-rows-[0fr] mb-0 hidden'}`}>
             <div className="overflow-hidden">
               {showFramesPlaceholders ? (
-                <div className="flex items-center gap-2 px-2 pt-2 pb-2.5">
-                  {/* Start Frame */}
-                  {attachments[0] ? (
-                    <div 
-                      onMouseEnter={(e) => {
-                        if (isModelMenuOpen || isAssetMenuOpen) return;
-                        handleAttachmentMouseEnter(e, attachments[0].url);
-                      }}
-                      onMouseLeave={handleAttachmentMouseLeave}
-                      className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(attachments[0].id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
-                    >
-                      <div className="relative">
-                        <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e]">
-                          {attachments[0].kind === 'video' ? (
-                            <video src={attachments[0].url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
-                          ) : (
-                            <img src={attachments[0].url} alt={attachments[0].name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                          )}
-                        </div>
-                        <button 
-                          onClick={() => removeAttachment(attachments[0].id)}
-                          className={`absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 transition-all duration-200 shadow-xl z-[60] ${
-                            hoveredAttachmentUrl === attachments[0].url ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 hover:opacity-100'
-                          }`}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setAssetMenuSource('main');
-                        setIsAssetMenuOpen(true);
-                      }}
-                      className="w-16 h-16 flex items-center justify-center rounded-2xl border border-dashed border-white/20 bg-transparent hover:bg-white/[0.02] hover:border-white/35 transition-all duration-200 cursor-pointer outline-none group"
-                    >
-                      <span className="text-[12px] font-semibold text-[#909398] group-hover:text-white transition-colors select-none">Start</span>
-                    </button>
-                  )}
-
-                   {/* Arrow Icon ⇆ */}
-                  <div className="flex items-center justify-center select-none text-[#505050] shrink-0">
-                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                      {/* Top arrow pointing right (distinctly shifted right) */}
-                      <path d="M 7,5.5 H 16 V 2.5 L 23,7 L 16,11.5 V 8.5 H 7 Z" />
-                      {/* Bottom arrow pointing left (distinctly shifted left) */}
-                      <path d="M 17,15.5 H 8 V 12.5 L 1,17 L 8,21.5 V 18.5 H 17 Z" />
-                    </svg>
-                  </div>
-
-                  {/* End Frame */}
-                  {attachments[1] ? (
-                    <div 
-                      onMouseEnter={(e) => {
-                        if (isModelMenuOpen || isAssetMenuOpen) return;
-                        handleAttachmentMouseEnter(e, attachments[1].url, true);
-                      }}
-                      onMouseLeave={handleAttachmentMouseLeave}
-                      className={`relative group flex-shrink-0 p-1.5 -m-1.5 transition-all duration-200 ${removingIds.has(attachments[1].id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
-                    >
-                      <div className="relative">
-                        <div className={`w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1e] relative ${videoModel === 'omni-flash' || videoModel === 'omni-flash-1.1' ? 'grayscale' : ''}`}>
-                          {attachments[1].kind === 'video' ? (
-                            <video src={attachments[1].url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" muted loop playsInline />
-                          ) : (
-                            <img src={attachments[1].url} alt={attachments[1].name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                          )}
-                          {(videoModel === 'omni-flash' || videoModel === 'omni-flash-1.1') && (
-                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-red-500">
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5">
-                                <circle cx="12" cy="12" r="10" />
-                                <line x1="12" y1="8" x2="12" y2="12" />
-                                <line x1="12" y1="16" x2="12.01" y2="16" strokeLinecap="round" />
-                              </svg>
-                            </div>
-                          )}
-                        </div>
-                        <button 
-                          onClick={() => removeAttachment(attachments[1].id)}
-                          className={`absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 transition-all duration-200 shadow-xl z-[60] ${
-                            hoveredAttachmentUrl === attachments[1].url ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 hover:opacity-100'
-                          }`}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setAssetMenuSource('main');
-                        setIsAssetMenuOpen(true);
-                      }}
-                      className="w-16 h-16 flex items-center justify-center rounded-2xl border border-dashed border-white/20 bg-transparent hover:bg-white/[0.02] hover:border-white/35 transition-all duration-200 cursor-pointer outline-none group"
-                    >
-                      <span className="text-[12px] font-semibold text-[#909398] group-hover:text-white transition-colors select-none">End</span>
-                    </button>
-                  )}
+                /* Flow's frame row: 56px Start and End chips 8px in, the swap button between
+                 * them, 4px apart, and 4px under them before the box's gap. */
+                <div ref={assetMenuPlusRef as React.RefObject<HTMLDivElement>} className="flex items-center gap-[4px]" style={{ padding: '0 8px 4px 8px' }}>
+                  {renderFrameSlot(0)}
+                  <button
+                    type="button"
+                    aria-label="Swap frames"
+                    title="Swap frames"
+                    onClick={() => setAttachments((prev) => (prev[0] || prev[1] ? [prev[1], prev[0]] as ImageAttachment[] : prev))}
+                    className="w-[34px] h-[34px] shrink-0 flex items-center justify-center rounded-[12px] text-white bg-transparent hover:bg-white/5 transition-colors outline-none"
+                  >
+                    <MaterialSymbol name="swap_horiz" family="google-symbols" size={18} weight={400} variationSettings='"FILL" 0, "wght" 400' />
+                  </button>
+                  {renderFrameSlot(1)}
                 </div>
               ) : (
                 <div
                   /* 50px thumbs at radius 12 with 4px gaps, wrapping rather than scrolling
-                   * sideways — measured off Flow's composer. */
+                   * sideways — measured off Flow's composer. 4px under the thumbs, then the
+                   * box's 8px gap, as Flow's. */
                   className="flex flex-wrap gap-[4px] overflow-y-auto no-scrollbar"
                   style={{ padding: '0 16px 4px 8px' }}
                 >
@@ -5869,27 +6863,34 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       key={att.id} 
                       onMouseEnter={(e) => {
                         if (isModelMenuOpen || isAssetMenuOpen) return;
-                        handleAttachmentMouseEnter(e, att.url);
+                        handleAttachmentMouseEnter(e, att.url, false, att.characterId);
                       }}
                       onMouseLeave={handleAttachmentMouseLeave}
-                      className={`relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
+                      className={`composer-ingredient relative group flex-shrink-0 transition-all duration-200 ${removingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}
                     >
                       <div className="relative w-[50px] h-[50px]">
                         <div className="w-[50px] h-[50px] rounded-[12px] overflow-hidden bg-[#1c1c1e]">
-                          {att.kind === 'video' ? (
+                          {att.characterId && !att.url ? (
+                            <div className="composer-ingredient-placeholder"><FlowIcon name="face" size={18} /></div>
+                          ) : att.kind === 'video' ? (
                             <video src={att.url} className="w-full h-full object-cover" muted loop playsInline />
                           ) : (
                             <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
                           )}
                         </div>
+                        {att.characterId && (
+                          <span className="composer-type-badge" aria-hidden><FlowIcon name="accessibility_new" size={16} /></span>
+                        )}
                         <button 
                           onClick={() => removeAttachment(att.id)}
-                          style={{ backgroundColor: 'rgba(27, 27, 27, 0.5)' }}
+                          aria-label="Remove ingredient"
+                          /* Flow's hover-icon-overlay: background-state-50 and the cancel glyph. */
+                          style={{ backgroundColor: 'rgba(22, 23, 24, 0.5)' }}
                           className={`absolute inset-0 w-[50px] h-[50px] flex items-center justify-center rounded-[12px] text-white transition-opacity duration-200 z-[60] ${
                             hoveredAttachmentUrl === att.url ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 hover:opacity-100'
                           }`}
                         >
-                          <X size={16} strokeWidth={2} />
+                          <FlowIcon name="cancel" size={16} />
                         </button>
                       </div>
                     </div>
@@ -6108,106 +7109,56 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             }
           `}</style>
 
-          {generationError && (
-            <div className="p-3 mx-1 bg-red-950/20 border border-red-500/20 rounded-xl text-xs text-red-300 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-1 duration-200">
-              <span className="font-semibold leading-relaxed">{generationError}</span>
-              <button onClick={() => setGenerationError(null)} className="p-1 hover:bg-white/5 rounded-full text-red-400 hover:text-white transition-colors shrink-0 cursor-pointer">
-                <X size={14} strokeWidth={2.5} />
-              </button>
-            </div>
+          {visibleGenerationError && !selectedItem && (
+            <PromptNotice
+              notice={visibleGenerationError}
+              onDismiss={() => setGenerationError(null)}
+              onOpenSettings={openModelSettings}
+            />
           )}
 
           {/* Flow's text row: 4px above, 12px below, 16px to the right of the caret, and a
             * 27px floor. Those paddings are what make the resting box 94px rather than 90. */}
           <div
-            className="relative flex items-start w-full flex-1"
+            className="flex items-start w-full flex-1"
             style={{ padding: '4px 16px 12px 0', minHeight: '27px' }}
           >
             {isAgentGenerating ? (
               <div className="w-full flex items-start min-h-[24px]">
-                <TextShimmer className="text-[14px] font-medium pl-1 py-0.5" duration={1.5}>
-                  {agentThinkingPhase === 'searching' ? 'Searching...' :
-                   agentThinkingPhase === 'executing' ? 'Running code...' : 'Thinking...'}
-                </TextShimmer>
+                <AgentStatusText agent={mediaAgent} className="text-[14px] font-medium pl-1 py-0.5" />
               </div>
             ) : (
-              <textarea 
-                ref={textareaRef}
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onScroll={(e) => updateFades(e.currentTarget)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleGenerate();
-                  }
-                }}
-                onPaste={async (e) => {
-                  const items = e.clipboardData?.items;
-                  if (!items) return;
-                  const files: File[] = [];
-                  for (let i = 0; i < items.length; i++) {
-                    const type = items[i].type;
-                    if (type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/')) {
-                      const file = items[i].getAsFile();
-                      if (file) files.push(file);
-                    }
-                  }
-                  if (files.length > 0) {
-                    e.preventDefault();
-                    await processUploads(files);
-                  }
-                }}
-                rows={1}
-                placeholder="What do you want to create?" 
-                /* 14px/20px at weight 400 in white — Flow's values.
-                 *
-                 * The placeholder is white at 0.333 alpha. Flow's editable is a Slate
-                 * contenteditable, so its hint is a positioned span rather than a
-                 * ::placeholder, and it carries `opacity: 0.333` over the same white the
-                 * typed text uses. Reading ::placeholder off that div returns the div's own
-                 * inherited style — solid white — which is where the earlier white/75 came
-                 * from, and it rendered far brighter than Flow's. */
-                /* No vertical padding: the row above supplies Flow's 4px/12px, and py-0.5
-                 * here stacked on top of it and made the resting box 4px too tall. */
-                /* pl-2, not pl-1: Flow pads its editable 8px, which with the shell's 10px puts the
-                 * first glyph 18px in. At 4px Willow's text started 4px to the left of Flow's. */
-                className={`bg-transparent border-none outline-none text-white placeholder-white/[0.333] w-full pl-2 resize-none max-h-[384px] overflow-y-auto no-scrollbar transition-all duration-200 ${
-                  isTopFaded && isBottomFaded ? 'both-fade' : 
-                  isTopFaded ? 'top-fade' : 
-                  isBottomFaded ? 'bottom-fade' : ''
-                }`}
-                /* Size and weight are set inline, not via the utility class: something in the
-                 * cascade was winning over `text-[14px]` and the field measured 16px. */
-                style={{ 
-                  scrollbarWidth: 'none', 
-                  msOverflowStyle: 'none', 
-                  fontSize: '14px',
-                  lineHeight: '20px',
-                  fontWeight: 400,
-                  paddingRight: isAgentActive ? (prompt ? '44px' : '24px') : (prompt ? '20px' : '14px') 
-                }}
+              <PromptEditor
+                ref={promptEditorRef}
+                store={promptStore}
+                isAgentActive={isAgentActive}
+                onSubmit={handleGenerate}
+                onPasteFiles={processUploads}
+                validMentionIds={validMentionIds}
+                onMentionStart={openMention}
               />
             )}
             {isAgentActive ? (
               <div
-                /* Flow places these 8px from the shell's top and right edges. This row sits
-                 * inside the text row, which begins 12px down and ends at the shell's 8px
-                 * right padding — hence top -4 and right 0, with a 4px gap between them.
-                 * The clear button is deliberately dimmer than the expand button. */
-                className="absolute right-0 top-[-4px] flex items-center gap-1"
+                /* Flow places these 8px from the shell's top and right edges, above the
+                 * ingredient row when there is one: positioned on the shell, not this row.
+                 * 4px between them. The clear button is deliberately dimmer than the expand
+                 * button. */
+                className="absolute right-2 top-2 flex items-center gap-1"
               >
-                {/* Clear Button (shown if text is entered and not generating) */}
-                {prompt && !isAgentGenerating && (
-                  <button 
-                    onClick={() => setPrompt('')}
-                    style={{ color: 'rgba(218, 220, 224, 0.5)' }}
-                    className="w-8 h-8 shrink-0 flex items-center justify-center p-1.5 rounded-full transition-colors hover:text-white hover:bg-white/5 cursor-pointer outline-none focus:outline-none focus:ring-0"
-                    title="Clear prompt"
-                  >
-                    <MaterialSymbol name="close" family="google-symbols" size={16} weight={400} variationSettings='"FILL" 1' />
-                  </button>
-                )}
+                {/* Clear: the text and the ingredients, shown while either is there. */}
+                <PromptValue store={promptStore}>
+                  {(prompt) => (prompt || hasActiveAttachments) && !isAgentGenerating && (
+                    <button
+                      onClick={() => { promptStore.set(''); setAttachments([]); }}
+                      style={{ color: 'rgba(218, 220, 224, 0.5)' }}
+                      className="w-8 h-8 shrink-0 flex items-center justify-center p-1.5 rounded-full transition-colors hover:text-white hover:bg-white/5 cursor-pointer outline-none focus:outline-none focus:ring-0"
+                      title="Clear prompt"
+                    >
+                      <MaterialSymbol name="close" family="google-symbols" size={16} weight={400} variationSettings='"FILL" 0, "wght" 400' />
+                    </button>
+                  )}
+                </PromptValue>
                 
                 {/* Expand. Flow's glyph is `expand_content` — two opposed arrows in corner
                   * brackets, not the pair of bare corner brackets this used to draw. */}
@@ -6221,52 +7172,63 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                 </button>
               </div>
             ) : (
-              prompt && (
-                <button
-                  onClick={() => setPrompt('')}
-                  style={{ color: 'rgba(218, 220, 224, 0.5)' }}
-                  /* With the agent off there is no expand button, and Flow does not shift the clear
-                    * button left to compensate — it puts it in that same top-right corner slot, 32x32
-                    * with both edges 8px inside the shell. `right-0 top-[-4px]` IS that corner: this
-                    * row's padding box starts at the shell's 8px right inset and 12px below its top.
-                    *
-                    * This was an 18px lucide X at right-[-4px], which is the whole bug — a smaller box
-                    * pinned to a different edge, so the glyph's centre sat 13px from the right and 17px
-                    * down where Flow's is 24 and 24. Same button as the agent-on branch above now, which
-                    * is why that one already looked right.
-                    *
-                    * The textarea's 20px paddingRight is deliberately left alone: it wraps text at 44px
-                    * from the shell's right and this button's left edge is at 40px, so there is a 4px
-                    * gap. Flow wraps at 32px against the same 40px edge, so Flow's own first line can
-                    * slide under its X by up to 8px; copying that would be copying a defect. */
-                  className="absolute right-0 top-[-4px] w-8 h-8 shrink-0 flex items-center justify-center p-1.5 rounded-full transition-colors hover:text-white hover:bg-white/5 cursor-pointer outline-none focus:outline-none focus:ring-0"
-                  title="Clear prompt"
-                >
-                  <MaterialSymbol name="close" family="google-symbols" size={16} weight={400} variationSettings='"FILL" 1' />
-                </button>
-              )
+              <PromptValue store={promptStore}>
+                {(prompt) => (prompt || hasActiveAttachments) && (
+                  <button
+                    onClick={() => { promptStore.set(''); setAttachments([]); }}
+                    style={{ color: 'rgba(218, 220, 224, 0.5)' }}
+                    /* With the agent off there is no expand button, and Flow does not shift the clear
+                      * button left to compensate — it puts it in that same top-right corner slot, 32x32
+                      * with both edges 8px inside the shell, above the ingredient row when there is one.
+                      * Like Flow's, it clears the ingredients with the text.
+                      *
+                      * This was an 18px lucide X at right-[-4px], which is the whole bug — a smaller box
+                      * pinned to a different edge, so the glyph's centre sat 13px from the right and 17px
+                      * down where Flow's is 24 and 24. Same button as the agent-on branch above now, which
+                      * is why that one already looked right.
+                      *
+                      * The textarea's 20px paddingRight is deliberately left alone: it wraps text at 44px
+                      * from the shell's right and this button's left edge is at 40px, so there is a 4px
+                      * gap. Flow wraps at 32px against the same 40px edge, so Flow's own first line can
+                      * slide under its X by up to 8px; copying that would be copying a defect. */
+                    className="absolute right-2 top-2 w-8 h-8 shrink-0 flex items-center justify-center p-1.5 rounded-full transition-colors hover:text-white hover:bg-white/5 cursor-pointer outline-none focus:outline-none focus:ring-0"
+                    title="Clear prompt"
+                  >
+                    <MaterialSymbol name="close" family="google-symbols" size={16} weight={400} variationSettings='"FILL" 0, "wght" 400' />
+                  </button>
+                )}
+              </PromptValue>
             )}
           </div>
           
-          {/* Control row: 34px tall, 5px gaps. The shell's own 4px gap separates it from
-            * the textarea above, so this carries no top margin of its own. */}
-          <div className="flex items-center justify-between h-[34px]">
+          {/* Control row: 32px tall, Flow's bottom-controls, 8px between the controls on the left
+            * and 4px between the settings and the send button. The shell's 8px gap separates it
+            * from the text row above, so this carries no top margin of its own. */}
+          <div className="flex items-center justify-between h-8">
             
             {/* Left Controls */}
-            <div className="flex items-center gap-[5px] relative">
-              <button
-                ref={assetMenuPlusRef}
-                disabled={isAgentGenerating}
-                onClick={() => {
-                  setAssetMenuSource('main');
-                  setIsAssetMenuOpen(!isAssetMenuOpen);
-                }}
-                style={{ color: 'rgba(218, 220, 224, 0.75)' }}
-                className={`w-8 h-8 shrink-0 flex items-center justify-center rounded-full p-1.5 transition-colors outline-none ${isAgentGenerating ? 'opacity-40 cursor-not-allowed' : 'hover:text-white hover:bg-white/5 cursor-pointer'}`}
-              >
-                {/* 21.6px is Flow's own size for this one — 1.35rem, not a round pixel value. */}
-                <MaterialSymbol name="add_2" family="google-symbols" size={21.6} weight={400} variationSettings='"FILL" 1' />
-              </button>
+            <div className="flex items-center gap-[8px] relative">
+              {/* Flow has no add button in Frames mode: the frame chips open the menu. */}
+              {!isFramesMode && (
+                <button
+                  ref={assetMenuPlusRef as React.RefObject<HTMLButtonElement>}
+                  disabled={isAgentGenerating}
+                  aria-label="Add ingredients to the prompt box"
+                  onClick={(e) => (mentionOpen ? closeMention() : openAddMenu(e.currentTarget))}
+                  style={{ color: 'rgba(218, 220, 224, 0.75)' }}
+                  /* Flow's add button rests on the 5% foreground fill. */
+                  className={`w-8 h-8 shrink-0 flex items-center justify-center rounded-full transition-colors outline-none bg-[rgba(218,220,224,0.05)] ${isAgentGenerating ? 'opacity-40 cursor-not-allowed' : 'hover:text-white hover:bg-[rgba(218,220,224,0.1)] cursor-pointer'}`}
+                >
+                  {/* Flow's thin 20px add, which turns into close while the add menu is open. */}
+                  <MaterialSymbol
+                    name={mentionOpen || (isAssetMenuOpen && assetMenuSource === 'main') ? 'close' : 'add'}
+                    family="google-symbols"
+                    size={20}
+                    weight={200}
+                    variationSettings='"FILL" 0, "wght" 200'
+                  />
+                </button>
+              )}
               <button 
                 onClick={() => {
                   if (isAgentGenerating) return;
@@ -6304,18 +7266,17 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
             </div>
 
             {/* Right Controls */}
-            <div className="flex items-center gap-[5px] relative">
+            <div className="flex items-center gap-[4px] relative">
               {isAgentActive ? (
-                /* 5px between these two and on to the send button, so the three read as one
-                 * run of controls. Both buttons are 32 wide and 34 tall — they fill the
-                 * control row's height rather than sitting square in it. */
+                /* 5px between these two, so they read as one run of controls with the send
+                 * button. Both are 32px squares, the control row's height. */
                 <div className="flex items-center gap-[5px]" key="agent-buttons-wrapper">
                   {/* Agent Instructions. `article_spark` is the only glyph here that Flow
                     * draws unfilled, so it takes FILL 0 while the rest take FILL 1. */}
                   <button
                     key="agent-docs-btn"
                     style={{ color: 'rgba(218, 220, 224, 0.75)' }}
-                    className="flex items-center justify-center w-8 h-[34px] shrink-0 p-1.5 rounded-full transition-colors outline-none focus:outline-none focus:ring-0 active:scale-[0.93] hover:bg-white/5 hover:text-white cursor-pointer"
+                    className="flex items-center justify-center w-8 h-8 shrink-0 p-1.5 rounded-full transition-colors outline-none focus:outline-none focus:ring-0 active:scale-[0.93] hover:bg-white/5 hover:text-white cursor-pointer"
                     title="Agent Instructions"
                   >
                     {/* No variation settings at all, which is what Flow sets here — FILL is 0 by
@@ -6327,7 +7288,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   <button
                     key="agent-settings-btn"
                     style={{ color: 'rgba(218, 220, 224, 0.75)' }}
-                    className="flex items-center justify-center w-8 h-[34px] shrink-0 p-1.5 rounded-full transition-colors outline-none focus:outline-none focus:ring-0 active:scale-[0.93] hover:bg-white/5 hover:text-white cursor-pointer"
+                    className="flex items-center justify-center w-8 h-8 shrink-0 p-1.5 rounded-full transition-colors outline-none focus:outline-none focus:ring-0 active:scale-[0.93] hover:bg-white/5 hover:text-white cursor-pointer"
                     title="Settings"
                   >
                     <MaterialSymbol name="tune" family="google-symbols" size={18} weight={400} variationSettings='"FILL" 1' />
@@ -6338,52 +7299,62 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                   <button
                     key="model-selector-btn"
                     onClick={() => (isModelMenuOpen ? setIsModelMenuOpen(false) : openModelMenu())}
-                    className="flex items-center h-[34px] transition-colors rounded-[15px] px-3 gap-1 outline-none"
+                    /* Flow's settings trigger: 32px, label-small at 0.096px tracking, 4px gaps. */
+                    className="flex items-center h-8 transition-colors rounded-[15px] px-3 gap-1 outline-none"
                     style={{
                       background: isModelMenuOpen ? 'rgba(218, 220, 224, 0.15)' : 'rgba(218, 220, 224, 0.05)',
                       color: 'rgba(218, 220, 224, 0.75)',
                       fontFamily: '"Google Sans Text", sans-serif',
-                      fontSize: '11px',
+                      fontSize: '0.688rem',
                       fontWeight: 500,
                       lineHeight: '16px',
+                      letterSpacing: '0.096px',
                       transition: 'background-color 100ms ease-in-out, filter 100ms ease-in-out, box-shadow 100ms ease-in-out',
                     }}
                   >
-                    {(() => {
-                      const activeName = modelMode === 'image' ? getImageModelName(imageModel) : getVideoModelName(videoModel);
-                      return modelMode === 'image' && activeName.toLowerCase().includes('banana') ? (
-                        <span className="text-[11px] leading-4">🍌</span>
-                      ) : null;
-                    })()}
-                    <span className="text-[11px] font-medium leading-4 text-[rgba(218,220,224,0.75)]">
-                      {modelMode === 'image' ? getImageModelName(imageModel) : `${getVideoModelDisplayName(videoModel)} · 720p · ${videoDuration}`}
+                    {/* One run of text, as Flow's: the banana and the name are a space apart. */}
+                    <span className="media-settings-label font-medium leading-4 text-[rgba(218,220,224,0.75)]">
+                      {modelMode === 'image'
+                        ? `${getImageModelName(imageModel).toLowerCase().includes('banana') ? '🍌 ' : ''}${getImageModelName(imageModel)}`
+                        : videoModel ? `${getVideoModelDisplayName(videoModel)} · 720p · ${videoDuration}` : 'No video model'}
                     </span>
                     <MaterialSymbol
                       name={flowRatioGlyph(modelMode === 'image' ? (imageRatio || '16:9') : (videoRatio || '16:9'))}
                       family="google-symbols"
-                      size={16}
+                      size={18}
                       weight={400}
-                      variationSettings=""
+                      variationSettings='"FILL" 0, "wght" 400'
                     />
-                    <span className="text-[11px] font-medium leading-4 text-[rgba(255,255,255,0.5)]">
-                      {modelMode === 'image' ? imageBatch : videoBatch}
+                    <span className="font-medium leading-4 text-[rgba(218,220,224,0.75)]">
+                      {(() => { const b = modelMode === 'image' ? imageBatch : videoBatch; return b === '1x' ? 'x1' : b; })()}
                     </span>
                   </button>
 
                   {createPortal(
                   isModelMenuOpen && menuRect ? (
+                    <>
+                    {/* Below 961px the panel is a sheet, over a scrim that a tap closes it from. */}
+                    {isNarrow && <div className="media-sheet-backdrop" onClick={() => setIsModelMenuOpen(false)} aria-hidden="true" />}
+                    {/* Never clips: a model list opens past the panel's top or bottom edge, and clipped it showed
+                      * only the models that happened to land inside. The lists are opaque, as their blur
+                      * cannot see past this panel's own backdrop filter. */}
                     <div
                       ref={popupRef}
                       style={{
                         position: 'fixed',
                         bottom: menuRect.bottom,
                         right: menuRect.right,
+                        fontFamily: "'Google Sans Text', 'Google Sans', sans-serif",
                       }}
-                      className="w-[280px] bg-[rgba(22,23,24,0.9)] backdrop-blur-[40px] rounded-[18px] p-2 flex flex-col gap-1 shadow-2xl z-[110] overflow-hidden"
+                      className={`${isNarrow ? 'media-settings-sheet ' : ''}w-[296px] bg-[rgba(22,23,24,0.9)] backdrop-blur-[40px] rounded-[18px] p-2 flex flex-col gap-1 shadow-[0_16px_32px_-8px_rgba(0,0,0,0.4)] z-[110]`}
                     >
+                      {/* flow-prompt-box-settings, in Flow's order: mode, the video's frames/ingredients,
+                        * aspect ratio, a rule, the model, its own options, then the output count.
+                        * Toggles are 12px/500 Google Sans Text; a picked one is fg-15, except the two
+                        * emphasized rows (mode, video type), which go white. */}
 
                       {/* Top Tabs */}
-                      <div className="flex bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
+                      <div className="flex bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
                         <button
                           onClick={() => {
                             setModelMode('image');
@@ -6392,8 +7363,8 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                           }}
                           className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors font-medium text-xs ${modelMode === 'image' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
                         >
-                          <MaterialSymbol name="image" family="google-symbols" size={16} weight={400} variationSettings="" />
-                          <span className="text-[13px]">Image</span>
+                          <MaterialSymbol name="image" family="google-symbols" size={18} weight={400} variationSettings="" />
+                          <span className="text-[12px] font-medium">Image</span>
                         </button>
                         <button
                           onClick={() => {
@@ -6403,46 +7374,48 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                           }}
                           className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors font-medium text-xs ${modelMode === 'video' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
                         >
-                          <MaterialSymbol name="videocam" family="google-symbols" size={16} weight={400} variationSettings="" />
-                          <span className="text-[13px]">Video</span>
+                          <MaterialSymbol name="videocam" family="google-symbols" size={18} weight={400} variationSettings="" />
+                          <span className="text-[12px] font-medium">Video</span>
                         </button>
                       </div>
 
                       <div className="relative w-full flex flex-col">
                       {modelMode === 'image' ? (
                         <div
-                          className="w-full flex flex-col gap-1.5"
+                          className="w-full flex flex-col gap-1"
                         >
-                          {/* Image Aspect Ratios */}
-                          <div className="flex bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0 justify-between">
+                          {/* Image Aspect Ratios: 42px, an 18px glyph over a 16px label. */}
+                          <div className="order-1 flex h-[42px] bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
                             {['16:9', '4:3', '1:1', '3:4', '9:16'].map(ratio => (
                                <button
                                  key={ratio}
                                  onClick={() => setImageRatio(ratio)}
-                                 className={`flex-1 flex h-[53.2px] flex-col items-center justify-center gap-1 px-3 rounded-[12px] transition-colors text-xs ${imageRatio === ratio ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
+                                 className={`flex-1 flex h-[42px] flex-col items-center justify-center rounded-[12px] transition-colors text-white ${imageRatio === ratio ? 'bg-[rgba(218,220,224,0.15)]' : 'hover:bg-white/5'}`}
                                >
-                                 <RatioIcon ratio={ratio} className="w-4 h-4" />
-                                 <span className={`text-[11px] font-normal text-white`}>{ratio}</span>
+                                 <MaterialSymbol name={flowRatioGlyph(ratio)} family="google-symbols" size={18} weight={400} variationSettings="" />
+                                 <span className="text-[12px] font-medium leading-4">{ratio}</span>
                                </button>
                             ))}
                           </div>
 
+                          <div className="order-2 h-0 border-t-[0.8px] border-solid border-[rgb(68,71,70)]" role="separator" />
+
                           {/* Image Multipliers */}
-                          <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
+                          <div className="order-5 flex h-[34px] bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
                             {['1x', 'x2', 'x3', 'x4'].map(batch => (
                               <button
                                 key={batch}
                                 onClick={() => setImageBatch(batch)}
-                                className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${imageBatch === batch ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
+                                className={`flex-1 h-[34px] px-3 rounded-[12px] text-[12px] font-medium transition-colors ${imageBatch === batch ? 'bg-[rgba(218,220,224,0.15)] text-white' : 'text-white hover:bg-white/5'}`}
                               >
-                                {batch}
+                                {batch === '1x' ? 'x1' : batch}
                               </button>
                             ))}
                           </div>
 
                            {/* Dynamic Effort Level Selector (For Supported Models) */}
-                           { (imageModel === 'gemini-3.1-flash-image-preview' || imageModel === 'gemini-3.1-flash-lite-image' || imageModel === 'gpt-image-2') && (
-                             <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
+                           { (imageModel === 'gemini-nano-banana-2.1' || imageModel === 'gemini-3.1-flash-lite-image' || imageModel === 'gpt-image-2') && (
+                             <div className="order-4 flex h-[34px] bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
                                { imageModel === 'gpt-image-2' ? (
                                  // OpenAI Effort Levels: Standard, Balanced, Reasoning
                                  [
@@ -6454,7 +7427,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                      key={eff.id}
                                      type="button"
                                      onClick={() => setImageEffort(eff.id as any)}
-                                   className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${imageEffort === eff.id ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
+                                   className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${imageEffort === eff.id ? 'bg-[rgba(218,220,224,0.15)] text-white' : 'text-white hover:bg-white/5'}`}
                                    >
                                      {eff.name}
                                    </button>
@@ -6469,7 +7442,7 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                      key={eff.id}
                                      type="button"
                                      onClick={() => setImageEffort(eff.id as any)}
-                                     className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${imageEffort === eff.id ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
+                                     className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${imageEffort === eff.id ? 'bg-[rgba(218,220,224,0.15)] text-white' : 'text-white hover:bg-white/5'}`}
                                    >
                                      {eff.name}
                                    </button>
@@ -6480,13 +7453,13 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
 
                            {/* Dynamic Quality Selector (For Supported Models) */}
                            { imageModel === 'gpt-image-2' && (
-                             <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
+                             <div className="order-4 flex h-[34px] bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
                                {['low', 'medium', 'high'].map(qual => (
                                  <button
                                    key={qual}
                                    type="button"
                                    onClick={() => setImageQuality(qual)}
-                                   className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium capitalize transition-colors ${imageQuality === qual ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
+                                   className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium capitalize transition-colors ${imageQuality === qual ? 'bg-[rgba(218,220,224,0.15)] text-white' : 'text-white hover:bg-white/5'}`}
                                  >
                                    {qual}
                                  </button>
@@ -6495,14 +7468,14 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                            )}
 
                            {/* Dynamic Resolution Selector (For All Image Models: Google & GPT) */}
-                           { (imageModel === 'gemini-3-pro-image-preview' || imageModel === 'gemini-3.1-flash-image-preview' || imageModel === 'gemini-3.1-flash-lite-image' || imageModel === 'gpt-image-2') && (
-                             <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
+                           { (imageModel === 'gemini-3-pro-image' || imageModel === 'gemini-nano-banana-2.1' || imageModel === 'gemini-3.1-flash-lite-image' || imageModel === 'gpt-image-2') && (
+                             <div className="order-4 flex h-[34px] bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
                                {['1k', '2k', '4k'].map(res => (
                                  <button
                                    key={res}
                                    type="button"
                                    onClick={() => setImageResolution(res)}
-                                   className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium uppercase transition-colors ${imageResolution === res ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
+                                   className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium uppercase transition-colors ${imageResolution === res ? 'bg-[rgba(218,220,224,0.15)] text-white' : 'text-white hover:bg-white/5'}`}
                                  >
                                    {res}
                                  </button>
@@ -6510,27 +7483,30 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                              </div>
                            )}
 
-                          {/* Model Selector */}
-                          <div className="relative" ref={imageModelDropdownRef}>
+                          {/* Model Selector: Flow's model-select trigger, fg-10 at 34px. */}
+                          <div className="order-3 relative" ref={imageModelDropdownRef}>
                             <button
                               type="button"
                               ref={imageModelButtonRef}
                               onClick={toggleImageModelDropdown}
-                              className="w-full h-[34px] flex items-center justify-between bg-[rgba(218,220,224,0.05)] hover:bg-[rgba(218,220,224,0.1)] transition-colors rounded-[12px] px-4 pr-[18px]"
+                              className="w-full h-[34px] flex items-center justify-between bg-[rgba(218,220,224,0.1)] hover:bg-[rgba(218,220,224,0.15)] backdrop-blur-[40px] transition-colors rounded-[12px] px-3 text-[12px] font-medium leading-5 tracking-[0.096px] text-white"
                             >
-                              <span className="text-xs font-medium text-white">{getImageModelName(imageModel)}</span>
+                              <span className="flex items-center gap-1">
+                                {getImageModelName(imageModel).toLowerCase().includes('banana') && <span>🍌</span>}
+                                {getImageModelName(imageModel)}
+                              </span>
                               <MaterialSymbol
                                 name="arrow_drop_down"
                                 family="google-symbols"
-                                size={24}
+                                size={18}
                                 weight={400}
-                                variationSettings='"FILL" 1'
+                                variationSettings=""
                               />
                             </button>
 
                             {isImageModelDropdownOpen && (
-                              <div className={`absolute ${imageModelDropDirection === 'down' ? 'top-[calc(100%+4px)]' : 'bottom-[calc(100%+4px)]'} left-0 right-0 bg-[rgba(22,23,24,0.9)] backdrop-blur-[40px] rounded-[12px] p-2 flex flex-col gap-1 shadow-2xl z-[120]`}>
-                                {availableImageModels.map(modelOpt => (
+                              <div ref={revealModelList} className={`media-model-list absolute ${imageModelDropDirection === 'down' ? 'top-[calc(100%+4px)]' : 'bottom-[calc(100%+4px)]'} left-0 right-0 bg-[rgb(22,23,24)] rounded-[12px] p-2 flex flex-col gap-1 shadow-2xl z-[120]`}>
+                                {imageModels.map(modelOpt => (
                                   <button
                                     key={modelOpt.id}
                                     type="button"
@@ -6543,90 +7519,98 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                     {modelOpt.name}
                                   </button>
                                 ))}
+                                {imageModels.length === 0 && (
+                                  <>
+                                    <span className="h-[28px] px-4 flex items-center text-xs text-[#9aa0a6]">No image models added</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setIsImageModelDropdownOpen(false);
+                                        setIsModelMenuOpen(false);
+                                        openModelSettings();
+                                      }}
+                                      className="w-full h-[34px] flex items-center gap-2 text-left px-4 rounded-[12px] text-xs font-medium transition-colors text-white hover:bg-white/5"
+                                    >
+                                      <Plus size={14} strokeWidth={2} />
+                                      Add a model
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             )}
                           </div>
                         </div>
                       ) : (
                         <div
-                          className="w-full flex flex-col gap-1.5"
+                          className="w-full flex flex-col gap-1"
                         >
                           {/* Video Tabs */}
-                          <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
+                          <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
                             <button
                               onClick={() => setVideoMode('frames')}
-                              className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors font-medium text-xs ${videoMode === 'frames' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
+                              className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors ${videoMode === 'frames' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
                             >
-                              <Scan size={14} strokeWidth={2} />
-                              <span className="text-[12px]">Frames</span>
+                              <MaterialSymbol name="crop_free" family="google-symbols" size={18} weight={400} variationSettings="" />
+                              <span className="text-[12px] font-medium">Frames</span>
                             </button>
                             <button
                               onClick={() => setVideoMode('ingredients')}
-                              className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors font-medium text-xs ${videoMode === 'ingredients' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
+                              className={`flex-1 flex h-[34px] items-center justify-center gap-1 px-3 rounded-[12px] transition-colors ${videoMode === 'ingredients' ? 'bg-[#f1f3f4] text-[#202124]' : 'text-white hover:bg-white/5'}`}
                             >
-                              <svg 
-                                xmlns="http://www.w3.org/2000/svg" 
-                                viewBox="0 0 100 100" 
-                                className="w-3.5 h-3.5"
-                              >
-                                <path d="M 26 20 L 42 20 A 8 8 0 0 0 58 20 L 74 20 A 6 6 0 0 1 80 26 L 80 42 A 8 8 0 0 1 80 58 L 80 74 A 6 6 0 0 1 74 80 L 26 80 A 6 6 0 0 1 20 74 L 20 58 A 8 8 0 0 0 20 42 L 20 26 A 6 6 0 0 1 26 20 Z" 
-                                      fill="none" 
-                                      stroke="currentColor" 
-                                      strokeWidth="7.5" 
-                                      strokeLinecap="round" 
-                                      strokeLinejoin="round" />
-                              </svg>
-                              <span className="text-[12px]">Ingredients</span>
+                              <MaterialSymbol name="chrome_extension" family="google-symbols" size={18} weight={400} variationSettings="" />
+                              <span className="text-[12px] font-medium">Ingredients</span>
                             </button>
                           </div>
 
-                          {/* Video Aspect Ratios */}
-                          <div className="flex bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
-                             {['9:16', '16:9'].map(ratio => (
+                          {/* Video Aspect Ratios: 16:9 first, as in Flow. */}
+                          <div className="order-1 flex h-[42px] bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
+                             {['16:9', '9:16'].map(ratio => (
                                <button
                                  key={ratio}
                                  onClick={() => setVideoRatio(ratio)}
-                                 className={`flex-1 flex h-[53.2px] flex-col items-center justify-center gap-1 px-3 rounded-[12px] transition-colors text-xs ${videoRatio === ratio ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
+                                 className={`flex-1 flex h-[42px] flex-col items-center justify-center rounded-[12px] transition-colors text-white ${videoRatio === ratio ? 'bg-[rgba(218,220,224,0.15)]' : 'hover:bg-white/5'}`}
                                >
-                                 <RatioIcon ratio={ratio} className={videoRatio === ratio ? "text-white w-3.5 h-3.5" : "text-[#a0a0a0] w-3.5 h-3.5"} />
-                                 <span className={`text-[11px] font-normal ${videoRatio === ratio ? 'text-white' : 'text-[#a0a0a0]'}`}>{ratio}</span>
+                                 <MaterialSymbol name={flowRatioGlyph(ratio)} family="google-symbols" size={18} weight={400} variationSettings="" />
+                                 <span className="text-[12px] font-medium leading-4">{ratio}</span>
                                </button>
                              ))}
                           </div>
 
+                          <div className="order-2 h-0 border-t-[0.8px] border-solid border-[rgb(68,71,70)]" role="separator" />
+
                           {/* Video Multipliers */}
-                          <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
+                          <div className="order-5 flex h-[34px] bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
                             {['1x', 'x2', 'x3', 'x4'].map(batch => (
                               <button
                                 key={batch}
                                 onClick={() => setVideoBatch(batch)}
-                                className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${videoBatch === batch ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
+                                className={`flex-1 h-[34px] px-3 rounded-[12px] text-[12px] font-medium transition-colors ${videoBatch === batch ? 'bg-[rgba(218,220,224,0.15)] text-white' : 'text-white hover:bg-white/5'}`}
                               >
-                                {batch}
+                                {batch === '1x' ? 'x1' : batch}
                               </button>
                             ))}
                           </div>
 
                           {/* Video Model Selector */}
-                          <div className="relative" ref={videoModelDropdownRef}>
+                          <div className="order-3 relative" ref={videoModelDropdownRef}>
                             <button
                               type="button"
                               ref={videoModelButtonRef}
                               onClick={toggleVideoModelDropdown}
-                              className="w-full h-[34px] flex items-center justify-between bg-[rgba(218,220,224,0.05)] hover:bg-[rgba(218,220,224,0.1)] transition-colors rounded-[12px] px-4 pr-[18px]"
+                              className="w-full h-[34px] flex items-center justify-between bg-[rgba(218,220,224,0.1)] hover:bg-[rgba(218,220,224,0.15)] backdrop-blur-[40px] transition-colors rounded-[12px] px-3 text-[12px] font-medium leading-5 tracking-[0.096px] text-white"
                             >
-                              <span className="text-xs font-medium text-white">{getVideoModelName(videoModel)}</span>
+                              <span>{getVideoModelName(videoModel)}</span>
                               <MaterialSymbol
                                 name="arrow_drop_down"
                                 family="google-symbols"
-                                size={24}
+                                size={18}
                                 weight={400}
-                                variationSettings='"FILL" 1'
+                                variationSettings=""
                               />
                             </button>
 
                             {isVideoModelDropdownOpen && (
-                              <div className={`absolute ${videoModelDropDirection === 'down' ? 'top-[calc(100%+4px)]' : 'bottom-[calc(100%+4px)]'} left-0 right-0 bg-[rgba(22,23,24,0.9)] backdrop-blur-[40px] rounded-[12px] p-2 flex flex-col gap-1 shadow-2xl z-[120]`}>
+                              <div ref={revealModelList} className={`media-model-list absolute ${videoModelDropDirection === 'down' ? 'top-[calc(100%+4px)]' : 'bottom-[calc(100%+4px)]'} left-0 right-0 bg-[rgb(22,23,24)] rounded-[12px] p-2 flex flex-col gap-1 shadow-2xl z-[120]`}>
                                 {VIDEO_MODELS.map(modelOpt => (
                                   <button
                                     key={modelOpt.id}
@@ -6640,17 +7624,34 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                                     {modelOpt.name}
                                   </button>
                                 ))}
+                                {VIDEO_MODELS.length === 0 && (
+                                  <>
+                                    <span className="h-[28px] px-4 flex items-center text-xs text-[#9aa0a6]">No video models added</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setIsVideoModelDropdownOpen(false);
+                                        setIsModelMenuOpen(false);
+                                        openModelSettings();
+                                      }}
+                                      className="w-full h-[34px] flex items-center gap-2 text-left px-4 rounded-[12px] text-xs font-medium transition-colors text-white hover:bg-white/5"
+                                    >
+                                      <Plus size={14} strokeWidth={2} />
+                                      Add a model
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             )}
                           </div>
 
                           {/* Video Duration */}
-                          <div className="flex h-[34px] bg-[rgba(218,220,224,0.05)] rounded-[12px] p-0">
-                            {['4s', '6s', '8s', '10s'].map(dur => (
+                          <div className="order-4 flex h-[34px] bg-[rgba(218,220,224,0.05)] backdrop-blur-[40px] rounded-[12px] p-0">
+                            {videoDurationOptions(videoModel).map(dur => (
                               <button
                                 key={dur}
                                 onClick={() => setVideoDuration(dur)}
-                                className={`flex-1 h-[34px] px-3 rounded-[12px] text-xs font-medium transition-colors ${videoDuration === dur ? 'bg-[rgba(218,220,224,0.25)] text-white' : 'text-white hover:bg-white/5'}`}
+                                className={`flex-1 h-[34px] px-3 rounded-[12px] text-[12px] font-medium transition-colors ${videoDuration === dur ? 'bg-[rgba(218,220,224,0.15)] text-white' : 'text-white hover:bg-white/5'}`}
                               >
                                 {dur}
                               </button>
@@ -6660,41 +7661,46 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
                       )}
                       </div>
                     </div>
+                    </>
                   ) : null,
                 document.body
                 )}
               </div>
               )}
               
-              {/* 32px round. Disabled it is the same 5% fill as the other pills; enabled it
-                * flips to solid white with a rgb(48,48,48) arrow — Flow's two states. */}
-              <button
-                onClick={isAgentGenerating ? undefined : handleGenerate}
-                disabled={!isAgentGenerating && !prompt.trim()}
-                className={`flex items-center justify-center w-8 h-8 shrink-0 rounded-full p-1.5 transition-all border-0 ${
-                  (!isAgentGenerating && !prompt.trim())
-                    ? 'cursor-not-allowed'
-                    : 'bg-white hover:bg-zinc-200 cursor-pointer active:scale-95'
-                }`}
-                style={(!isAgentGenerating && !prompt.trim())
-                  ? { backgroundColor: 'rgba(218, 220, 224, 0.05)' }
-                  : undefined}
-              >
-                {isAgentGenerating ? (
-                  <div className="w-[9px] h-[9px] bg-black rounded-[1px]" />
-                ) : (
-                  <MaterialSymbol
-                    name="arrow_forward"
-                    family="google-symbols"
-                    size={20}
-                    weight={400}
-                    variationSettings='"FILL" 1'
-                    /* Disabled is 0.25, not 0.75 — the arrow is nearly gone against the 5%
-                     * fill until there is something to send. */
-                    style={{ color: !prompt.trim() ? 'rgba(218, 220, 224, 0.25)' : 'rgb(48, 48, 48)' }}
-                  />
+              {/* 32px round. Disabled it is the same 5% fill as the other pills with the arrow at
+                * 50%; enabled it flips to solid white with an rgb(32,33,36) arrow — Flow's two
+                * states. */}
+              <PromptValue store={promptStore}>
+                {(prompt) => (
+                  <button
+                    onClick={isAgentGenerating ? () => mediaAgent.stop() : handleGenerate}
+                    title={isAgentGenerating ? 'Stop' : undefined}
+                    disabled={!isAgentGenerating && !prompt.trim()}
+                    className={`flex items-center justify-center w-8 h-8 shrink-0 rounded-full p-1.5 transition-all border-0 ${
+                      (!isAgentGenerating && !prompt.trim())
+                        ? 'cursor-not-allowed'
+                        : 'bg-white hover:bg-zinc-200 cursor-pointer active:scale-95'
+                    }`}
+                    style={(!isAgentGenerating && !prompt.trim())
+                      ? { backgroundColor: 'rgba(218, 220, 224, 0.05)' }
+                      : undefined}
+                  >
+                    {isAgentGenerating ? (
+                      <div className="w-[9px] h-[9px] bg-black rounded-[1px]" />
+                    ) : (
+                      <MaterialSymbol
+                        name="arrow_forward"
+                        family="google-symbols"
+                        size={18}
+                        weight={400}
+                        variationSettings='"FILL" 0, "wght" 400'
+                        style={{ color: !prompt.trim() ? 'rgba(218, 220, 224, 0.5)' : 'rgb(32, 33, 36)' }}
+                      />
+                    )}
+                  </button>
                 )}
-              </button>
+              </PromptValue>
             </div>
 
           </div>
@@ -6703,903 +7709,110 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         </div>
       </div>
 
-      {/* Full-screen Image Viewer / Inpainting Overlay */}
-      <AnimatePresence>
-        {selectedItem && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[100] flex flex-col overflow-hidden text-white select-none"
-            style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}
-          >
-            {/* Top Bar */}
-            <motion.div 
-              initial={{ y: -15, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: -15, opacity: 0 }}
-              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              className={`${selectedItem.kind === 'video' ? 'h-[76px]' : 'h-16'} flex items-center justify-between px-6 shrink-0 z-10 bg-transparent`}
-            >
-              {/* Left controls */}
-              <div className="flex items-center gap-4 w-[380px]">
-                <button 
-                  onClick={() => setSelectedItem(null)}
-                  className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-300 hover:text-white"
-                  title="Close viewer"
-                >
-                  <ArrowLeft size={20} strokeWidth={2.5} />
-                </button>
-                <span className="text-[14px] font-semibold text-white tracking-wide truncate max-w-[200px]">
-                  {selectedItem.shortenedPrompt || selectedItem.prompt}
-                </span>
-                <button className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-400 hover:text-white">
-                  <Info size={18} strokeWidth={2.5} />
-                </button>
-              </div>
-
-              {/* Center thumbnail carousel aligned with image */}
-              <div 
-                className="flex items-center gap-1.5 select-none group"
-                style={{
-                  marginRight: showHistory ? 208 : 0,
-                  transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                }}
-              >
-                {/* Prev Arrow */}
-                <button
-                  onClick={handlePrevThumb}
-                  className={`w-9 h-9 flex items-center justify-center text-white/90 hover:text-white transition-all rounded-[12px] hover:bg-white/10 ${
-                    completedItems.length > 1 ? 'opacity-0 group-hover:opacity-100 cursor-pointer' : 'opacity-0 pointer-events-none'
-                  }`}
-                  style={{ transition: 'opacity 0.2s ease, background-color 0.2s ease' }}
-                  title="Previous image"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width={18} height={18} fill="currentColor">
-                    <path d="M15 6v12l-7-6z" />
-                  </svg>
-                </button>
-
-                {/* Thumbnails Container */}
-                <div 
-                  className="flex items-center gap-2 overflow-hidden relative"
-                  style={{
-                    width: `${K_THUMBS * 36 + (K_THUMBS - 1) * 8}px`,
-                    maskImage: completedItems.length > 1
-                      ? 'linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%)'
-                      : 'none',
-                    WebkitMaskImage: completedItems.length > 1
-                      ? 'linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%)'
-                      : 'none',
+      {/* The Scenebuilder. Portalled out of this container, whose mousedown starts the gallery's
+        * marquee selection; React still bubbles synthetic events through a portal, so the editor
+        * stops them at its root. */}
+      {activeSceneId && createPortal(
+        <div
+          inert={isBackground}
+          style={isBackground ? BACKGROUND_OVERLAY_STYLE : undefined}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            e.stopPropagation();
+            const t = e.target as HTMLElement;
+            if (!t.closest('input, textarea')) e.preventDefault();
+          }}
+        >
+          <EditorBoundary key={activeSceneId} onError={(error) => onEditorFailed(error, closeSceneEditor)}>
+            <React.Suspense fallback={null}>
+              <SceneBuilder sceneId={activeSceneId} host={sceneHost} />
+            </React.Suspense>
+          </EditorBoundary>
+        </div>,
+        document.body,
+      )}
+      {/* Flow's character pages: New character and a character's own page. Portalled and stopped at
+        * the root like the Scenebuilder; the fallback is the pages' own black, so a chunk still
+        * loading never shows the grid underneath. */}
+      {characterPage && createPortal(
+        <div
+          inert={isBackground}
+          style={isBackground ? BACKGROUND_OVERLAY_STYLE : undefined}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.stopPropagation()}
+        >
+          <EditorBoundary key={characterPage} onError={(error) => onEditorFailed(error, () => openCharacterPage(null))}>
+            <React.Suspense fallback={<div className="cp-page" aria-hidden />}>
+              {characterPage === 'new' ? (
+                <NewCharacterPage
+                  host={characterHost}
+                  onClose={() => {
+                    // With no characters to list, Flow's Back leaves the Characters tab altogether.
+                    if (activeSidebarTab === 'characters' && $characters.get().length === 0) navigate({ pathname: '/media', search: location.search.replace(/[?&]character=[^&]*/, '').replace(/^&/, '?') });
+                    else openCharacterPage(null);
                   }}
-                >
-                  {/* Static highlight frame centered in the viewport */}
-                  {completedItems.length > 0 && (
-                    <div 
-                      className="absolute w-9 h-9 border-2 border-white rounded-[12px] shadow-[0_0_6px_rgba(255,255,255,0.45)] pointer-events-none z-10 left-[132px] top-1/2 -translate-y-1/2"
-                    />
-                  )}
-
-                  {/* Sliding Inner Row */}
-                  <div
-                    className="flex items-center gap-2"
-                    style={{
-                      transform: isAnimating 
-                        ? `translateX(${xTranslate}px)` 
-                        : 'translateX(-176px)',
-                      transition: isAnimating ? 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
-                    }}
-                    onTransitionEnd={handleTransitionEnd}
-                  >
-                    {carouselWindow.items.map((thumbItem, idx) => {
-                      return (
-                        <button
-                          key={`${thumbItem.id}-${idx}`}
-                          onClick={() => handleThumbClick(thumbItem, idx)}
-                          className="w-9 h-9 rounded-[12px] overflow-hidden border border-white/5 shrink-0 transition-opacity active:scale-[0.95] opacity-80 hover:opacity-100"
-                        >
-                          {thumbItem.kind === 'video' ? (
-                            <MediaVideo src={thumbItem.url} className="w-full h-full object-cover pointer-events-none" muted />
-                          ) : (
-                            <img src={thumbItem.url} className="w-full h-full object-cover pointer-events-none" alt="" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Next Arrow */}
-                <button
-                  onClick={handleNextThumb}
-                  className={`w-9 h-9 flex items-center justify-center text-white/90 hover:text-white transition-all rounded-[12px] hover:bg-white/10 ${
-                    completedItems.length > 1 ? 'opacity-0 group-hover:opacity-100 cursor-pointer' : 'opacity-0 pointer-events-none'
-                  }`}
-                  style={{ transition: 'opacity 0.2s ease, background-color 0.2s ease' }}
-                  title="Next image"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width={18} height={18} fill="currentColor">
-                    <path d="M9 6v12l7-6z" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Right controls */}
-              <div className="flex items-center gap-3 w-[380px] justify-end">
-                <button className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-300 hover:text-white">
-                  <Heart size={20} strokeWidth={2} />
-                </button>
-                <button 
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (selectedItem.url) {
-                      const name = selectedItem.shortenedPrompt || selectedItem.prompt;
-                      const ext = selectedItem.kind === 'video' ? 'mp4' : 'png';
-                      const cleanName = name.replace(/[\/:*?"<>|]/g, '').trim() || 'media';
-                      const filename = `${cleanName}.${ext}`;
-                      try {
-                        const response = await fetch(selectedItem.url);
-                        const blob = await response.blob();
-                        // No direct FS save here — the auto-sync backfill effect
-                        // already persists unsaved items (with fsName recorded);
-                        // saving again minted "name (1).png" duplicates on disk
-                        // that reconciled back in as phantom tiles.
-                        const blobUrl = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = blobUrl;
-                        a.download = filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(blobUrl);
-                      } catch (err) {
-                        const a = document.createElement('a');
-                        a.href = selectedItem.url;
-                        a.download = filename;
-                        a.target = '_blank';
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                      }
-                    }
-                  }}
-                  className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-300 hover:text-white"
-                  title="Download output"
-                >
-                  <Download size={20} strokeWidth={2} />
-                </button>
-                <button className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-300 hover:text-white">
-                  <Share2 size={20} strokeWidth={2} />
-                </button>
-                <button 
-                  onClick={() => setShowHistory(!showHistory)}
-                  className="flex items-center h-9 bg-[#1c1c1e] hover:bg-[#2c2c2e] text-white rounded-2xl pl-3.5 pr-4 gap-1.5 transition-colors shrink-0"
-                >
-                  {showHistory ? <EyeOff size={16} strokeWidth={2.5} /> : <Eye size={16} strokeWidth={2.5} />}
-                  <span className="text-[12px] font-semibold">
-                    {showHistory ? 'Hide history' : 'Show history'}
-                  </span>
-                </button>
-                <button 
-                  onClick={() => setSelectedItem(null)}
-                  className="flex items-center justify-center h-9 bg-white hover:bg-zinc-200 text-black font-semibold rounded-2xl px-5 transition-colors shrink-0"
-                >
-                  <span className="text-[12px]">Done</span>
-                </button>
-              </div>
-            </motion.div>
-
-            {/* Main Area */}
-            {selectedItem.kind === 'video' ? (
-              <FlowVideoEditor
-                item={selectedItem}
-                promptValue={editPrompt}
-                onPromptChange={setEditPrompt}
-                onGenerate={() => void handleViewerGenerate()}
-                modelName={viewerModelName || selectedItem.modelName || 'Omni Flash'}
-              />
-            ) : (
-            <div className="flex-1 min-h-0 flex items-center justify-between pl-8 pr-0 pt-6 pb-0 overflow-visible relative z-20">
-              {/* Left Toolbar */}
-              <motion.div 
-                ref={toolbarRef} 
-                initial={{ x: -20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -20, opacity: 0 }}
-                transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                className="-ml-3 flex flex-col gap-3 shrink-0 select-none z-30 relative"
-              >
-                <button 
-                  onClick={() => handleToolSwitch('crop')}
-                  className={`w-11 h-11 flex items-center justify-center rounded-full text-white transition-all ${
-                    activeTool === 'crop' || showCropMenu ? 'bg-[#303030]' : 'bg-transparent hover:bg-white/10'
-                  }`}
-                >
-                  {activeCropRatio === '16:9' ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                      <rect width="18" height="12" x="3" y="6" rx="1.5" />
-                    </svg>
-                  ) : activeCropRatio === '9:16' ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                      <rect width="12" height="18" x="6" y="3" rx="1.5" />
-                    </svg>
-                  ) : activeCropRatio === '1:1' ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                      <rect width="16" height="16" x="4" y="4" rx="1.5" />
-                    </svg>
-                  ) : (
-                    <Crop size={22} strokeWidth={2.25} />
-                  )}
-                </button>
-                <button 
-                  onClick={() => handleToolSwitch('pen')}
-                  className={`w-11 h-11 flex items-center justify-center rounded-full text-white transition-all ${
-                    activeTool === 'pen' ? 'bg-[#303030]' : 'bg-transparent hover:bg-white/10'
-                  }`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width={22} height={22}>
-                    <defs>
-                      <mask id="pen-mask">
-                        <rect width="100%" height="100%" fill="white" />
-                        <path d="M 4 20 L 4 16.5 L 15.5 5 A 2.475 2.475 0 0 1 19 8.5 L 7.5 20 Z" 
-                              fill="black" stroke="black" stroke-width="2.75" stroke-linejoin="round" />
-                      </mask>
-                    </defs>
-                    <path d="M 4 7 C 4 3, 9 3, 11 6 C 13 9, 13 14, 15 17 C 17 20, 20 19, 21 17" 
-                          fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" mask="url(#pen-mask)" />
-                    <path d="M 4 20 L 4 16.5 L 15.5 5 A 2.475 2.475 0 0 1 19 8.5 L 7.5 20 Z M 7 16 L 14 9 L 15 10 L 8 17 Z" 
-                          fill="currentColor" fill-rule="evenodd" />
-                  </svg>
-                </button>
-                <button 
-                  onClick={() => handleToolSwitch('select')}
-                  className={`w-11 h-11 flex items-center justify-center rounded-full text-white transition-all ${
-                    activeTool === 'select' ? 'bg-[#303030]' : 'bg-transparent hover:bg-white/10'
-                  }`}
-                >
-                  {activeSelectSubTool === 'box' ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                      <rect width="18" height="18" x="3" y="3" rx="2" stroke-dasharray="3 3" />
-                    </svg>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="11" cy="11" r="7" strokeDasharray="3 3" />
-                      <path d="M17 17l4 4M17 17h4M17 17v4" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </button>
-
-                <AnimatePresence>
-                  {showPenMenu && (
-                    <motion.div 
-                      initial={{ opacity: 0, x: -10, y: "-50%", scale: 0.95 }}
-                      animate={{ opacity: 1, x: 0, y: "-50%", scale: 1 }}
-                      exit={{ opacity: 0, x: -10, y: "-50%", scale: 0.95 }}
-                      transition={{ duration: 0.18, ease: [0.32, 0.94, 0.6, 1] }}
-                      className="absolute left-[58px] top-1/2 -translate-y-1/2 z-50 bg-[#141517]/90 backdrop-blur-xl border border-white/10 rounded-[28px] p-3 w-[150px] flex flex-col gap-3.5 shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
-                    >
-                      <PenMenu
-                        activePenSubTool={activePenSubTool}
-                        setActivePenSubTool={setActivePenSubTool}
-                        activeColor={activeColor}
-                        setActiveColor={setActiveColor}
-                        showColorPicker={showColorPicker}
-                        setShowColorPicker={setShowColorPicker}
-                        penSize={penSize}
-                        setPenSize={setPenSize}
-                        annotationCount={annotations.length}
-                        redoCount={redoStack.length}
-                        onUndo={handleUndo}
-                        onRedo={handleRedo}
-                        onReset={handleReset}
-                      />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                <AnimatePresence>
-                  {showSelectMenu && (
-                    <motion.div 
-                      initial={{ opacity: 0, x: -10, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, x: -10, y: 10, scale: 0.95 }}
-                      transition={{ duration: 0.18, ease: [0.32, 0.94, 0.6, 1] }}
-                      className="absolute left-[58px] bottom-0 z-50 bg-[#141517]/90 backdrop-blur-xl border border-white/10 rounded-[24px] p-1.5 w-[145px] flex flex-col gap-1 shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
-                    >
-                      <SelectMenu
-                        activeSelectSubTool={activeSelectSubTool}
-                        setActiveSelectSubTool={setActiveSelectSubTool}
-                        setShowSelectMenu={setShowSelectMenu}
-                      />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                <AnimatePresence>
-                  {showCropMenu && (
-                    <motion.div 
-                      initial={{ opacity: 0, x: -10, y: -20, scale: 0.95 }}
-                      animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, x: -10, y: -20, scale: 0.95 }}
-                      transition={{ duration: 0.18, ease: [0.32, 0.94, 0.6, 1] }}
-                      className="absolute left-[58px] top-0 z-50 bg-[#141517]/90 backdrop-blur-xl border border-white/10 rounded-[24px] p-1.5 w-[190px] flex flex-col gap-1 shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
-                    >
-                      <CropMenu
-                        activeTool={activeTool}
-                        setActiveTool={setActiveTool}
-                        setPreviousTool={setPreviousTool}
-                        activeCropRatio={activeCropRatio}
-                        setActiveCropRatio={setActiveCropRatio}
-                        setShowCropMenu={setShowCropMenu}
-                      />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-
-              {/* Centered Image */}
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-                className={`flex-1 h-full min-h-0 flex items-center justify-center relative select-none pl-5 ${showHistory ? 'pr-4' : 'pr-13'}`}
-              >
-                {(() => {
-                  const ratio = selectedItem.ratio;
-                  let ar = 16 / 9;
-                  if (ratio === '4:3') ar = 4 / 3;
-                  else if (ratio === '1:1') ar = 1;
-                  else if (ratio === '3:4') ar = 3 / 4;
-                  else if (ratio === '9:16') ar = 9 / 16;
-                  
-                  return (
-                    <div 
-                      className={`relative max-w-full max-h-full overflow-hidden shadow-2xl border bg-[#141517]/40 flex items-center justify-center ${
-                        activeTool === 'crop' ? 'rounded-none' : 'rounded-[32px]'
-                      }`}
-                      style={{ aspectRatio: ar, borderWidth: '0.5px', borderColor: '#0e0e10', borderStyle: 'solid' }}
-                    >
-                      <>
-                        <img
-                          src={selectedItem.url}
-                          alt={selectedItem.shortenedPrompt || selectedItem.prompt}
-                          className="w-full h-full object-cover pointer-events-none"
-                        />
-                        {selectedItem.kind === 'audio' && selectedItem.audioUrl && (
-                          <audio
-                             src={selectedItem.audioUrl}
-                             controls
-                             autoPlay
-                             className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[80%] max-w-[400px] z-50 rounded-full shadow-2xl"
-                          />
-                        )}
-                      </>
-                      
-                      {/* Crop Box Overlay with Corner Vertices */}
-                      {activeTool === 'crop' && (
-                        <CropOverlay
-                          containerRef={cropContainerRef}
-                          cropBox={cropBox}
-                          onPointerDown={onCropPointerDown}
-                        />
-                      )}
-                      
-                      {/* SVG Canvas overlay */}
-                      {(activeTool === 'pen' || activeTool === 'select') && (
-                        <AnnotationOverlay
-                          svgRef={svgRef}
-                          annotations={annotations}
-                          currentAnnotation={currentAnnotation}
-                          onMouseDown={handleMouseDown}
-                        />
-                      )}
-                      
-                      {/* Active Text Input overlay */}
-                      {activeTool === 'pen' && textInput && (
-                        <input
-                          autoFocus
-                          type="text"
-                          value={textInput.value}
-                          onChange={(e) => setTextInput({ ...textInput, value: e.target.value })}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              if (textInput.value.trim()) {
-                                const newAnn: Annotation = {
-                                  id: Math.random().toString(),
-                                  type: 'text',
-                                  color: activeColor,
-                                  size: penSize,
-                                  x: textInput.x,
-                                  y: textInput.y,
-                                  text: textInput.value
-                                };
-                                setAnnotations([...annotations, newAnn]);
-                                setRedoStack([]);
-                              }
-                              setTextInput(null);
-                            } else if (e.key === 'Escape') {
-                              setTextInput(null);
-                            }
-                          }}
-                          onBlur={() => {
-                            if (textInput.value.trim()) {
-                              const newAnn: Annotation = {
-                                id: Math.random().toString(),
-                                type: 'text',
-                                color: activeColor,
-                                size: penSize,
-                                x: textInput.x,
-                                y: textInput.y,
-                                text: textInput.value
-                              };
-                              setAnnotations([...annotations, newAnn]);
-                              setRedoStack([]);
-                            }
-                            setTextInput(null);
-                          }}
-                          className="absolute bg-[#141517] text-white border border-white/20 px-2 py-1 rounded-[6px] text-[13px] font-sans shadow-lg focus:outline-none focus:border-white/50 z-20 transform -translate-y-1/2"
-                          style={{
-                            left: `${textInput.x}%`,
-                            top: `${textInput.y}%`,
-                            color: activeColor,
-                            fontSize: `${Math.max(12, penSize * 2.5 + 8)}px`,
-                            lineHeight: '1'
-                          }}
-                        />
-                      )}
-                    </div>
-                  );
-                })()}
-              </motion.div>
-
-              {/* Right Sidebar - History panel */}
-              <AnimatePresence>
-                {showHistory && (
-                  <div className="flow-image-history-viewport h-full flex flex-col justify-end shrink-0 select-none ml-6 relative z-[80]">
-                    <div ref={setHistoryRail} className="flow-image-history-scroll" tabIndex={0}>
-                      {viewerHistoryItems.map((historyItem) => {
-                        const ratio = historyItem.ratio;
-                        let ar = 16 / 9;
-                        if (ratio === '4:3') ar = 4 / 3;
-                        else if (ratio === '1:1') ar = 1;
-                        else if (ratio === '3:4') ar = 3 / 4;
-                        else if (ratio === '9:16') ar = 9 / 16;
-                        const promptText = historyItem.prompt;
-                        const isExpanded = expandedHistoryPrompts.has(historyItem.id);
-                        const isGenerating = historyItem.status === 'generating';
-                        const parentImageUrl = historyItem.historyParentId
-                          ? mediaItems.find((item) => item.id === historyItem.historyParentId)?.url
-                          : undefined;
-                        const historyImageUrl = historyItem.url || parentImageUrl || (historyItem.id === selectedItem.id ? selectedItem.url : undefined);
-                        return (
-                          <div
-                            key={historyItem.id}
-                            data-selected={historyItem.id === selectedItem.id ? 'true' : 'false'}
-                            className="flow-image-history-item"
-                            >
-                              <button
-                                type="button"
-                                className="flow-image-history-image"
-                                style={{ aspectRatio: ar }}
-                                onClick={() => { if (!isGenerating && historyImageUrl) setSelectedItem(historyItem); }}
-                                aria-label={`Open ${promptText}`}
-                              >
-                                {historyImageUrl ? (
-                                  <img
-                                    src={historyImageUrl}
-                                    className={`w-full h-full object-cover ${isGenerating ? 'opacity-[0.45]' : ''}`}
-                                    alt={promptText}
-                                  />
-                                ) : (
-                                  <div className="w-full h-full bg-white/[0.06]" aria-hidden="true" />
-                                )}
-                                {isGenerating && (
-                                  <span className="absolute inset-0 flex items-center justify-center bg-black/20" aria-label="Generating">
-                                    <span className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                                  </span>
-                                )}
-                              </button>
-                            <div className="flow-image-history-meta">
-                              <div className={`flow-image-history-prompt-row${isExpanded ? ' flow-image-history-prompt-row--expanded' : ''}`}>
-                                <div
-                                  data-flow-history-prompt-id={historyItem.id}
-                                  className="flow-image-history-prompt"
-                                  style={isExpanded ? {
-                                    WebkitLineClamp: 'unset',
-                                    WebkitBoxOrient: 'vertical',
-                                    overflowY: 'auto',
-                                    paddingBottom: '6px',
-                                    marginBottom: 0,
-                                  } : undefined}
-                                >
-                                  {promptText}
-                                </div>
-                                <div className="flow-image-history-actions">
-                                  <button
-                                    type="button"
-                                    title="Reuse text prompt"
-                                    aria-label="Reuse text prompt"
-                                    onClick={() => setEditPrompt(historyItem.prompt)}
-                                  >
-                                    <span className="flow-image-history-icon flow-image-history-icon--redo" aria-hidden="true">redo</span>
-                                  </button>
-                                  {expandableHistoryPrompts.has(historyItem.id) && (
-                                    <button
-                                      type="button"
-                                      title={isExpanded ? 'Collapse prompt' : 'Expand prompt'}
-                                      aria-label={isExpanded ? 'Collapse prompt' : 'Expand prompt'}
-                                      onClick={() => setExpandedHistoryPrompts((previous) => {
-                                        const next = new Set(previous);
-                                        if (next.has(historyItem.id)) next.delete(historyItem.id);
-                                        else next.add(historyItem.id);
-                                        return next;
-                                      })}
-                                    >
-                                      <span
-                                        className="flow-image-history-icon flow-image-history-icon--arrow"
-                                        aria-hidden="true"
-                                      >
-                                        {isExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
-                                      </span>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                              {historyItem.attachments && historyItem.attachments.length > 0 && (
-                                <div className="flow-image-history-attachments">
-                                  {historyItem.attachments.map((attachment) => (
-                                    <img
-                                      key={attachment.id}
-                                      src={attachment.url}
-                                      alt={attachment.name}
-                                      title={attachment.name}
-                                      className="flow-image-history-attachment"
-                                    />
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </AnimatePresence>
-            </div>
-            )}
-
-            {/* Bottom Area */}
-            {selectedItem.kind !== 'video' && <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 20, opacity: 0 }}
-              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              className="shrink-0 flex flex-col items-center justify-end relative z-10 select-none pt-3 pb-8"
-            >
-
-
-              {activeTool === 'crop' ? (
-                <div
-                  className="flex items-center gap-3 mt-4"
-                  style={{
-                    marginRight: showHistory ? 208 : 0,
-                    transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                  }}
-                >
-                  <button 
-                    onClick={() => {
-                      setActiveTool(previousTool);
-                      setShowCropMenu(false);
-                    }}
-                    className="flex items-center h-10 px-5 rounded-full bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/10 text-white font-medium text-[13px] gap-2 transition-all active:scale-[0.97]"
-                  >
-                    <X size={15} strokeWidth={2.5} className="text-white/85" />
-                    <span>Cancel</span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setActiveTool(previousTool);
-                      setShowCropMenu(false);
-                    }}
-                    className="flex items-center h-10 px-6 rounded-full bg-white hover:bg-zinc-200 text-black font-semibold text-[13px] gap-2 transition-all active:scale-[0.97]"
-                  >
-                    <ArrowRight size={15} strokeWidth={2.5} className="text-black" />
-                    <span>Crop</span>
-                  </button>
-                </div>
-              ) : (
-                <div 
-                  className="relative w-full max-w-[600px] flex flex-col z-50"
-                  style={{
-                    marginRight: showHistory ? 208 : 0,
-                    transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                  }}
-                >
-                <AssetMenuModal
-                  isOpen={isViewerAssetMenuOpen}
-                  onClose={() => setIsViewerAssetMenuOpen(false)}
-                  buttonRef={viewerAssetMenuPlusRef}
-                  projectName={projectName}
-                  mediaItems={mediaItems}
-                  onFileSelect={() => viewerFileInputRef.current?.click()}
-                  onAddPrompt={(assetId, assetUrl, assetTitle, assetKind) => {
-                    if (assetUrl) {
-                      setViewerAttachments(prev => {
-                        if (prev.some(att => att && att.url === assetUrl)) return prev;
-                        return [...prev, {
-                          id: assetId,
-                          url: assetUrl,
-                          name: assetTitle || 'Attached Image',
-                          kind: assetKind || 'image'
-                        }];
-                      });
-                    } else if (assetTitle) {
-                      setEditPrompt(prev => {
-                        const separator = prev.trim() ? ' ' : '';
-                        return `${prev.trim()}${separator}[${assetTitle}]`;
-                      });
-                    }
+                  onCreated={(id) => {
+                    setCharacterRequest({ page: id, from: location.key });
+                    const next = new URLSearchParams(location.search);
+                    next.set('character', id);
+                    navigate({ pathname: location.pathname.endsWith('/characters') ? location.pathname : '/media/characters', search: `?${next.toString()}` }, { replace: true });
                   }}
                 />
-                <div
-                  ref={measureViewerPromptCard}
-                  className="bg-[#141517]/90 backdrop-blur-[80px] rounded-[22px] pt-3 pb-2 px-3 flex flex-col shadow-2xl border border-white/5 w-full"
-                >
-                  <input 
-                    type="file" 
-                    multiple 
-                    accept="image/*"
-                    className="hidden" 
-                    ref={viewerFileInputRef} 
-                    onChange={handleViewerFileSelect} 
-                  />
-
-                  {/* Attachments Area */}
-                  {(() => {
-                    const hasViewerAttachments = viewerAttachments.length > 0 && !viewerAttachments.every(att => viewerRemovingIds.has(att.id));
-                    return (
-                      <div className={`grid transition-[grid-template-rows,margin-bottom] duration-[250ms] ease-in-out ${hasViewerAttachments ? 'grid-rows-[1fr] mb-0' : 'grid-rows-[0fr] mb-0'}`}>
-                        <div className="overflow-hidden">
-                          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2.5 px-2 pt-2">
-                            {viewerAttachments.map((att) => (
-                              <div key={att.id} className={`relative group flex-shrink-0 transition-all duration-200 ${viewerRemovingIds.has(att.id) ? 'opacity-0 scale-90' : 'opacity-100 scale-100 animate-in fade-in zoom-in-95'}`}>
-                                <div className="relative">
-                                  <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/5 bg-[#1c1c1c]">
-                                    <img src={att.url} alt={att.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                                  </div>
-                                  <button 
-                                    onClick={() => removeViewerAttachment(att.id)}
-                                    className="absolute -top-1.5 -right-1.5 bg-[#27272a] text-gray-400 hover:text-white border border-white/10 rounded-full p-1 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-all duration-200 shadow-xl z-[60]"
-                                  >
-                                    <X size={12} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="relative flex items-start w-full">
-                    <textarea 
-                      ref={viewerTextareaRef}
-                      value={editPrompt}
-                      onChange={(e) => setEditPrompt(e.target.value)}
-                      onScroll={(e) => updateViewerFades(e.currentTarget)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          void handleViewerGenerate();
-                        }
-                      }}
-                      onPaste={(e) => {
-                        const items = e.clipboardData?.items;
-                        if (!items) return;
-                        const imageFiles: File[] = [];
-                        for (let i = 0; i < items.length; i++) {
-                          if (items[i].type.startsWith('image/')) {
-                            const file = items[i].getAsFile();
-                            if (file) imageFiles.push(file);
-                          }
-                        }
-                        if (imageFiles.length > 0) {
-                          e.preventDefault();
-                          const newAttachments: ImageAttachment[] = imageFiles.map(file => ({
-                            id: Math.random().toString(36).substring(7),
-                            url: URL.createObjectURL(file),
-                            name: file.name || `pasted-image.${file.type.split('/')[1] || 'png'}`,
-                            file
-                          }));
-                          setViewerAttachments(prev => [...prev, ...newAttachments]);
-                        }
-                      }}
-                      rows={1}
-                      placeholder="What do you want to change?" 
-                      className={`bg-transparent border-none outline-none text-[14px] font-medium text-white placeholder-[#606060] w-full pl-1 py-0.5 resize-none max-h-[384px] overflow-y-auto no-scrollbar transition-all duration-200 ${
-                        isViewerTopFaded && isViewerBottomFaded ? 'both-fade' : 
-                        isViewerTopFaded ? 'top-fade' : 
-                        isViewerBottomFaded ? 'bottom-fade' : ''
-                      }`}
-                      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', paddingRight: '14px' }}
-                    />
-                    {editPrompt && (
-                      <button 
-                        onClick={() => setEditPrompt('')}
-                        className="absolute right-[-4px] top-[-4px] text-gray-500 hover:text-white transition-colors p-0.5 rounded-full hover:bg-white/5 cursor-pointer"
-                        title="Clear prompt"
-                      >
-                        <X size={14} strokeWidth={2.5} />
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between mt-2.5">
-                    <div className="flex items-center gap-2.5 relative">
-                      <button 
-                        ref={viewerAssetMenuPlusRef}
-                        onClick={() => setIsViewerAssetMenuOpen(!isViewerAssetMenuOpen)}
-                        className="text-[#a0a0a0] hover:text-white transition-colors ml-0 outline-none active:scale-[0.93] cursor-pointer"
-                      >
-                        <Plus size={22} strokeWidth={1.5} />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2.5 relative">
-                      <div className="relative" ref={viewerModelDropdownRef}>
-                        <button 
-                          onClick={() => setIsViewerModelDropdownOpen(!isViewerModelDropdownOpen)}
-                          className="flex items-center h-9 bg-[#27282b] hover:bg-[#33343a] transition-colors rounded-full px-3.5 gap-1.5 border border-transparent cursor-pointer select-none"
-                        >
-                          {viewerModelName.toLowerCase().includes('banana') ? (
-                            <span className="text-[11px]">🍌</span>
-                          ) : null}
-                          <span className="text-[11px] font-semibold text-[#d0d0d0]">
-                            {viewerModelName}
-                          </span>
-                          <ChevronDown size={12} className={`text-[#a0a0a0] transition-transform duration-200 ${isViewerModelDropdownOpen ? 'rotate-180' : ''}`} />
-                        </button>
-                        
-                        {isViewerModelDropdownOpen && (
-                          <div className="absolute bottom-[calc(100%+6px)] right-0 bg-[#141517]/95 backdrop-blur-xl rounded-[14px] p-1 flex flex-col shadow-2xl z-50 border border-white/5 min-w-[140px]">
-                            {selectedItem.kind === 'image' ? (
-                              [
-                                { id: 'gemini-3-pro-image-preview', name: 'Nano Banana Pro' },
-                                { id: 'gemini-3.1-flash-image-preview', name: 'Nano Banana 2' },
-                                { id: 'gemini-3.1-flash-lite-image', name: 'Nano Banana Lite' },
-                              ].map(modelOpt => (
-                                <button
-                                  key={modelOpt.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setViewerModelId(modelOpt.id);
-                                    setViewerModelName(modelOpt.name);
-                                    setIsViewerModelDropdownOpen(false);
-                                  }}
-                                  className={`w-full text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${viewerModelId === modelOpt.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
-                                >
-                                  {modelOpt.name}
-                                </button>
-                              ))
-                            ) : (
-                              [
-                                { id: 'veo-3.1-fast', name: 'Veo 3.1 Fast' },
-                                { id: 'veo-3.1', name: 'Veo 3.1' },
-                                { id: 'veo-3.1-lite', name: 'Veo 3.1 Lite' },
-                                { id: 'omni-flash', name: 'Omni Flash 1' },
-                                { id: 'omni-flash-1.1', name: 'Omni Flash 1.1' },
-                              ].map(modelOpt => (
-                                <button
-                                  key={modelOpt.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setViewerModelId(modelOpt.id);
-                                    setViewerModelName(modelOpt.name);
-                                    setIsViewerModelDropdownOpen(false);
-                                  }}
-                                  className={`w-full text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors ${viewerModelId === modelOpt.id ? 'bg-[#4a4a4a] text-white' : 'text-[#a0a0a0] hover:text-white hover:bg-white/5'}`}
-                                >
-                                  {modelOpt.name}
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <button 
-                        onClick={handleViewerGenerate}
-                        disabled={!editPrompt.trim()}
-                        className={`flex items-center justify-center w-9 h-9 rounded-full transition-all border border-transparent ${
-                          !editPrompt.trim()
-                            ? 'bg-[#27282b]/90 cursor-not-allowed'
-                            : 'bg-white hover:bg-zinc-200 cursor-pointer active:scale-95'
-                        }`}
-                      >
-                        <ArrowRight size={16} strokeWidth={2.5} className={!editPrompt.trim() ? "text-white/40" : "text-black"} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                </div>
+              ) : (
+                <CharacterEditPage characterId={characterPage} host={characterHost} onClose={() => openCharacterPage(null)} />
               )}
-            </motion.div>}
+            </React.Suspense>
+          </EditorBoundary>
+        </div>,
+        document.body,
+      )}
+      {/* Flow's Tools pages, over the gallery. Portalled and stopped at the root like the
+        * Scenebuilder; the fallback is their black, so a chunk still loading never shows the grid. */}
+      {toolsRoute && toolsHost && createPortal(
+        <div
+          inert={isBackground}
+          style={isBackground ? BACKGROUND_OVERLAY_STYLE : undefined}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.stopPropagation()}
+        >
+          <EditorBoundary key="tools" onError={(error) => onEditorFailed(error, () => navigate('/media' + tabSearch))}>
+            <React.Suspense fallback={<div style={TOOLS_FALLBACK_STYLE} aria-hidden />}>
+              <ToolsSurface route={toolsRoute} host={toolsHost} />
+            </React.Suspense>
+          </EditorBoundary>
+        </div>,
+        document.body,
+      )}
+      {!isBackground && <SceneSnackbarHost />}
 
-            {/* Warning popup overlay */}
-            {pendingTool !== null && (
-              <div 
-                className="absolute inset-0 z-[100] flex items-center justify-center"
-                style={{
-                  animation: 'slowBlurFade 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                }}
-              >
-                <style>{`
-                  @keyframes slowBlurFade {
-                    from {
-                      backdrop-filter: blur(0px);
-                      background-color: rgba(0, 0, 0, 0);
-                    }
-                    to {
-                      backdrop-filter: blur(8px);
-                      background-color: rgba(0, 0, 0, 0.45);
-                    }
-                  }
-                `}</style>
-                
-                {/* Menu Card itself - immediately visible */}
-                <div 
-                  className="bg-[#141517]/90 backdrop-blur-xl rounded-[22px] pt-3.5 pb-[9px] px-[9px] w-[370px] flex flex-col items-center shadow-[0_20px_45px_rgba(0,0,0,0.65)] animate-none transform -translate-y-12"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" className="text-white opacity-90">
-                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                    <line x1="12" y1="9" x2="12" y2="13" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                  </svg>
-                  
-                  <p className="text-white text-[11.5px] font-semibold text-center mt-3 tracking-wide select-none">
-                    Changing editing modes will discard ungenerated changes!
-                  </p>
-                  
-                  <div className="flex items-center gap-[9px] w-full mt-4">
-                    <button
-                      onClick={() => setPendingTool(null)}
-                      className="flex-1 py-[7px] rounded-[9px] bg-[#2c2c2e] hover:bg-[#3a3a3c] text-white text-[12px] font-semibold transition-colors"
-                    >
-                      Go Back
-                    </button>
-                    <button
-                      onClick={() => {
-                        // Discard changes
-                        setAnnotations([]);
-                        setRedoStack([]);
-                        setCurrentAnnotation(null);
-                        setTextInput(null);
-                        
-                        // Switch tool
-                        if (pendingTool === 'crop') {
-                          setPreviousTool(activeTool as 'pen' | 'select');
-                        }
-                        setActiveTool(pendingTool);
-                        setShowPenMenu(pendingTool === 'pen');
-                        setShowSelectMenu(pendingTool === 'select');
-                        setShowCropMenu(pendingTool === 'crop');
-                        
-                        // Close warning dialog
-                        setPendingTool(null);
-                      }}
-                      className="flex-1 py-[7px] rounded-[9px] bg-white hover:bg-zinc-200 text-black text-[12px] font-semibold transition-colors"
-                    >
-                      Discard
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Flow's editors: a gallery image opens in the image editor, a video in the Scenebuilder on a
+        * scene of its own. Portalled and stopped at the root like the Scenebuilder above, for the same
+        * reason: React bubbles synthetic events through a portal into the gallery's marquee. */}
+      {selectedItem && selectedItem.kind !== 'audio' && createPortal(
+        <div
+          inert={isBackground}
+          style={isBackground ? BACKGROUND_OVERLAY_STYLE : undefined}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            e.stopPropagation();
+            const t = e.target as HTMLElement;
+            if (!t.closest('input, textarea')) e.preventDefault();
+          }}
+        >
+          <EditorBoundary key={selectedItem.id} onError={(error) => onEditorFailed(error, () => setSelectedItem(null))}>
+            <React.Suspense fallback={null}>
+              {selectedItem.kind === 'video'
+                ? <SceneBuilder key={selectedItem.id} sceneId={videoSceneId(selectedItem.id)} host={editorHost} video={videoViewHost} />
+                : <ImageEditor itemId={selectedItem.id} host={editorHost} edit={imageEditHost} />}
+            </React.Suspense>
+          </EditorBoundary>
+        </div>,
+        document.body,
+      )}
 
       <AgentSidebar 
         isOpen={isAgentSidebarOpen} 
@@ -7607,23 +7820,15 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         isHeaderVisible={isHeaderVisible}
         mediaItems={mediaItems}
         sidebarTransition={currentSidebarTransitionTiming}
-        prompt={prompt}
-        setPrompt={setPrompt}
+        promptStore={promptStore}
         attachments={attachments.filter(Boolean)}
         setAttachments={setAttachments}
-        chatMessages={chatMessages}
-        setChatMessages={setChatMessages}
-        isGenerating={isAgentGenerating}
-        setIsGenerating={setIsAgentGenerating}
-        streaming={agentStreaming}
-        setStreaming={setAgentStreaming}
-        isThinking={isAgentThinking}
-        setIsThinking={setIsAgentThinking}
-        thinkingPhase={agentThinkingPhase}
-        setThinkingPhase={setAgentThinkingPhase}
-        sessionName={sessionName}
-        setSessionName={setSessionName}
-        handleSend={handleAgentSend}
+        agent={mediaAgent}
+        onSend={sendToAgent}
+        userName={agentUserName}
+        imageModels={agentImageModels}
+        videoModels={agentVideoModels}
+        onAddModel={openModelSettings}
         imageRatio={imageRatio}
         setImageRatio={setImageRatio}
         imageBatch={imageBatch}
@@ -7636,8 +7841,6 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         setVideoBatch={setVideoBatch}
         videoModel={videoModel}
         setVideoModel={setVideoModel}
-        instructions={instructions}
-        setInstructions={setInstructions}
         onPlusClick={(ref, source, instructionId) => {
           setAssetMenuSource(source);
           if (source === 'instruction-reference') {
@@ -7677,11 +7880,10 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
         onAddPrompt={(assetId, assetUrl, assetTitle, assetKind) => {
           if (assetMenuSource === 'instruction-reference') {
             if (activeInstructionId) {
-              setInstructions(prev => prev.map(inst => 
-                inst.id === activeInstructionId 
-                  ? { ...inst, referenceName: assetTitle || 'reference.pdf' } 
-                  : inst
-              ));
+              mediaAgent.updateInstruction(activeInstructionId, {
+                referenceName: assetTitle || 'Reference',
+                ...(assetId ? { referenceId: assetId } : {}),
+              });
             }
             setIsAssetMenuOpen(false);
             return;
@@ -7698,167 +7900,75 @@ ${activeGuidelines ? `Yashjit's custom instructions/guidelines you MUST follow:\
               }];
             });
           } else if (assetTitle) {
-            setPrompt(prev => {
-              const separator = prev.trim() ? ' ' : '';
-              return `${prev.trim()}${separator}[${assetTitle}]`;
-            });
+            const prev = promptStore.get();
+            const separator = prev.trim() ? ' ' : '';
+            promptStore.set(`${prev.trim()}${separator}[${assetTitle}]`);
           }
         }}
       />
       
-      {/* Custom floating ghost drag image with 100% full opacity, no border, and larger size */}
-      {draggingItemId && (() => {
-        const item = mediaItems.find(m => m.id === draggingItemId);
-        if (!item || !item.url) return null;
-        
-        const ratio = item.ratio;
-        let ar = 16 / 9;
-        if (ratio === '4:3') ar = 4 / 3;
-        else if (ratio === '1:1') ar = 1;
-        else if (ratio === '3:4') ar = 3 / 4;
-        else if (ratio === '9:16') ar = 9 / 16;
-        
-        let ghostWidth = 210; // Reduced base width
-        let ghostHeight = ghostWidth / ar;
-        
-        // Cap the maximum height so 9:16 and 1:1 don't become massive
-        const maxHeight = 145;
-        if (ghostHeight > maxHeight) {
-          ghostHeight = maxHeight;
-          ghostWidth = ghostHeight * ar;
-        }
-        
-        const isMultiSelectDrag = selectedTileIds.has(draggingItemId) && selectedTileIds.size > 1;
-        let previewItems = [item];
-        if (isMultiSelectDrag) {
-          const otherSelected = mediaItems.filter(m => selectedTileIds.has(m.id) && m.id !== draggingItemId);
-          previewItems = [item, ...otherSelected].slice(0, 3);
-        }
-        
-        return (
-          <div
-            style={{
-              position: 'fixed',
-              left: `${dragMousePos.x - ghostWidth / 2}px`,
-              top: `${dragMousePos.y - ghostHeight / 2}px`,
-              width: `${ghostWidth}px`,
-              height: `${ghostHeight}px`,
-              pointerEvents: 'none',
-              zIndex: 99999,
-              opacity: 1, // 100% full opacity
-            }}
-          >
-            {[...previewItems].reverse().map((previewItem, reverseIndex) => {
-              const originalIndex = previewItems.length - 1 - reverseIndex;
-              const offsetX = originalIndex * 36;
-              const offsetY = originalIndex * 36;
-
-              // Calculate aspect ratio specifically for this item
-              const pRatio = previewItem.ratio;
-              let pAr = 16 / 9;
-              if (pRatio === '4:3') pAr = 4 / 3;
-              else if (pRatio === '1:1') pAr = 1;
-              else if (pRatio === '3:4') pAr = 3 / 4;
-              else if (pRatio === '9:16') pAr = 9 / 16;
-              
-              let itemWidth = 210;
-              let itemHeight = itemWidth / pAr;
-              
-              if (itemHeight > 145) {
-                itemHeight = 145;
-                itemWidth = itemHeight * pAr;
-              }
-
-              // Calculate vertical alignment so the bottom edges step evenly by the offset
-              const heightDiff = ghostHeight - itemHeight;
-              const alignedTopOffset = offsetY + heightDiff;
-
-              return (
-                <div
-                  key={previewItem.id}
-                  style={{
-                    position: 'absolute',
-                    top: `${alignedTopOffset}px`,
-                    left: `${offsetX}px`,
-                    width: `${itemWidth}px`,
-                    height: `${itemHeight}px`,
-                    borderRadius: '18px',
-                    overflow: 'hidden',
-                    backgroundColor: '#0c0c0c',
-                    border: '1px solid #4A4A4A',
-                  }}
-                >
-                  {previewItem.kind === 'video' ? (
-                    <video
-                      src={previewItem.url}
-                      loop
-                      muted
-                      autoPlay
-                      playsInline
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '18px' }}
-                    />
-                  ) : (
-                    <img
-                      src={previewItem.url}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '18px' }}
-                      alt=""
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        );
-      })()}
-
-      {/* Characters and Music views have been moved to early returns to completely unmount the canvas when active */}
-
-      {createPortal(
-        canvasContextMenuCoords && (
-          <div
-            ref={canvasMenuRef}
-            style={{ ...canvasMenuStyle, WebkitBackfaceVisibility: 'hidden', backfaceVisibility: 'hidden' }}
-            className="fixed w-[180px] bg-[#141517]/90 backdrop-blur-[80px] rounded-[20px] py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden text-[#e5e5e5] pointer-events-auto border border-white/5"
-          >
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                setCanvasContextMenuCoords(null);
-              }}
-              className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[12px] font-medium text-zinc-100"
-            >
-              <Folder size={18} strokeWidth={2.5} className="text-zinc-100" />
-              <span>Create Collection</span>
-            </button>
-            
-            <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-            
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                setCanvasContextMenuCoords(null);
-              }}
-              className="w-full flex items-center gap-3 px-3.5 py-2 hover:bg-white/5 transition-colors text-[12px] font-medium text-zinc-100"
-            >
-              <Film size={18} strokeWidth={2.5} className="text-zinc-100" />
-              <span>Create Scene</span>
-            </button>
-            
-            <div className="mx-3.5 h-[1px] bg-white/10 my-1" />
-            
-            <button 
-              className="w-full flex items-center gap-3 px-3.5 py-2 text-[12px] font-medium text-zinc-500 cursor-not-allowed select-none"
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-            >
-              <Clipboard size={18} strokeWidth={2.5} className="text-zinc-500" />
-              <span>Paste</span>
-            </button>
-          </div>
-        ),
-        document.body
+      {/* Flow's drag preview (drag/DragPreview.tsx), moved by the pointer handler. A collection
+          shows as its first item's picture, or a blank square when it is empty. */}
+      {draggingItemId && (
+        <DragPreview
+          items={dragIdsRef.current
+            .map((id) => {
+              const tile = displayMediaItems.find((m) => m.id === id) ?? mediaItems.find((m) => m.id === id);
+              if (!tile || !id.startsWith(COLLECTION_ITEM_PREFIX)) return tile;
+              const first = collectionContents.get(id.slice(COLLECTION_ITEM_PREFIX.length))?.[0];
+              return first ? { ...first, id } : tile;
+            })
+            .filter((m): m is MediaItem => !!m)}
+          target={collectionSlot(dropTarget) ? null : dropTarget}
+          anchorRef={dragPreviewRef}
+          initial={dragStartPointRef.current}
+        />
       )}
+      {/* Flow's empty-space menu, at the pointer. */}
+      <FlowMatMenu
+        open={!!canvasContextMenuCoords}
+        onClose={() => setCanvasContextMenuCoords(null)}
+        anchor={canvasContextMenuCoords ? { kind: 'point', x: canvasContextMenuCoords.x, y: canvasContextMenuCoords.y } : null}
+      >
+        <FlowMatMenuItem icon="folder" label="New collection" onSelect={() => { newCollection(); }} />
+        <FlowMatMenuItem icon="play_movies" label="New scene" onSelect={() => { createEmptyScene(); }} />
+      </FlowMatMenu>
+      {/* Flow's menu for a selection, at the pointer. */}
+      <FlowMatMenu
+        open={!!selectionMenuAt}
+        onClose={() => setSelectionMenuAt(null)}
+        anchor={selectionMenuAt ? { kind: 'point', x: selectionMenuAt.x, y: selectionMenuAt.y } : null}
+      >
+        <FlowMatMenuItem icon="create_new_folder" label="New collection" onSelect={() => setCollectRequest(selectedParts())} />
+        <FlowMatMenuItem icon="play_movies" label="New scene" onSelect={() => { void selectionToScene(); }} />
+        <FlowMatMenuItem icon="download" label="Download" onSelect={downloadSelection} />
+        <FlowMatMenuItem icon="content_copy" label="Copy" onSelect={copySelection} />
+        <FlowMatDivider />
+        <FlowMatMenuItem icon="delete" label="Move to trash" danger onSelect={trashSelection} />
+      </FlowMatMenu>
+
+      <ConfirmDialog
+        open={!!collectRequest}
+        icon="warning"
+        message={collectRequest ? collectMessage(collectRequest) : ''}
+        confirmLabel="Create collection"
+        onConfirm={confirmCollectRequest}
+        onClose={() => setCollectRequest(null)}
+      />
+      <ConfirmDialog
+        open={!!trashRequest}
+        title="Move collection to trash?"
+        message="This will flatten the contents of the collection and delete all internal collections. This action cannot be undone."
+        confirmLabel="Move all contents to trash"
+        onConfirm={confirmTrashRequest}
+        onClose={() => setTrashRequest(null)}
+      />
+      <ShareDialog
+        item={shareItem}
+        parent={shareItem?.historyParentId ? mediaItems.find((m) => m.id === shareItem.historyParentId) : undefined}
+        onClose={() => setShareItem(null)}
+      />
+      <FlagDialog open={flagOpen} onClose={() => setFlagOpen(false)} />
 
       {selectionBox && (
         <div

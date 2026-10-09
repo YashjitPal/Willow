@@ -464,8 +464,8 @@
   justify-content: center;
   padding: 0 10px;
   border-radius: 9999px;
-  background: #192967;
-  color: #3186ff;
+  background: var(--sync-192967, #192967);
+  color: var(--sync-3186ff, #3186ff);
   font-size: 11px;
   font-weight: 400;
   line-height: 17px;
@@ -647,7 +647,7 @@
 }
 
 .spark-all-tasks__rename-dialog input:focus {
-  border-color: #a8c7fa;
+  border-color: var(--sync-a8c7fa, #a8c7fa);
 }
 
 .spark-all-tasks__dialog-actions {
@@ -752,10 +752,10 @@
   height: 36px;
   margin-top: 16px;
   padding: 0 16px;
-  border: 1px solid rgba(168, 199, 250, 0.5);
+  border: 1px solid rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.5);
   border-radius: 18px;
   background: transparent;
-  color: #a8c7fa;
+  color: var(--sync-a8c7fa, #a8c7fa);
   font: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -763,7 +763,7 @@
 }
 
 .spark-all-tasks__empty button:hover {
-  background: rgba(168, 199, 250, 0.08);
+  background: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
 }
 
 .spark-task-detail__filter-button:focus-visible,
@@ -773,7 +773,7 @@
 .spark-all-tasks__row-menu button:focus-visible,
 .spark-all-tasks__dialog-actions button:focus-visible,
 .spark-all-tasks__empty button:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
@@ -797,46 +797,7 @@
   }
 }
 
-@media (max-width: 720px) {
-  .spark-all-tasks {
-    padding-top: 72px;
-  }
-
-}
-
 @media (max-width: 520px) {
-  .spark-all-tasks__toolbar {
-    align-items: stretch;
-    flex-wrap: wrap;
-  }
-
-  .spark-all-tasks__task-row {
-    padding-right: 4px;
-  }
-
-  .spark-all-tasks__task-open {
-    gap: 8px;
-    padding-right: 4px;
-    padding-left: 12px;
-  }
-
-  .spark-all-tasks__task-time {
-    display: none;
-  }
-
-  .spark-all-tasks__task-meta {
-    gap: 4px;
-  }
-
-  .spark-all-tasks__needs-input-badge {
-    padding: 0 8px;
-  }
-
-  .spark-all-tasks__row-menu {
-    right: 4px;
-    width: min(200px, calc(100vw - 48px));
-  }
-
   .spark-all-tasks__dialog-backdrop {
     padding: 16px;
   }
@@ -848,50 +809,287 @@
   }
 }
 
-@container (max-width: 540px) {
+/*
+ * At 960px and below Gemini's `/spark/tasks` is the new-task page with the list under it,
+ * measured at 390x844 (`remy-viewer.is-mobile`): `div.container` keeps `padding-top: 56px;
+ * gap: 32px` but drops its side inset, so the 382.4px rows run from the screen edge to the
+ * list's 8px scrollbar gutter; the display-m title comes first; the composer takes
+ * `margin: 0 16px 12px`; and the list scrolls inside a column that ends at the viewport
+ * bottom. Theme tokens are the narrow ones: surface #000, surface-bright #1c1c1c,
+ * on-surface #e0e0e0.
+ */
+@media (max-width: 960px) {
+  .spark-all-tasks {
+    padding-bottom: 0;
+  }
+
   .spark-all-tasks__content {
-    width: calc(100% - 24px);
+    width: min(660px, 100%);
+  }
+
+  /* `div.heading.gds-display-m`: 36px/44px at `"ROND" 100, "wdth" 100, "wght" 320`. */
+  .spark-all-tasks__header {
+    margin-bottom: 32px;
+    overflow: hidden;
+  }
+
+  .spark-all-tasks__heading {
+    margin: 0;
+    padding-bottom: 8px;
+    color: #e3e3e3;
+    font-size: 36px;
+    font-weight: 320;
+    line-height: 44px;
+    font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 320;
+    text-align: center;
+  }
+
+  /* The desktop's 65.6px floor would outgrow the tablet composer's 61.6px share. */
+  .spark-all-tasks__composer-anchor.spark-task-detail__new-composer {
+    min-height: 0;
+    margin-top: 0;
+  }
+
+  /* The same `input-area-v2` box as the home page's, see SparkHome.css. */
+  .spark-all-tasks .spark-connected-composer .willow-gemini-composer {
+    border: 1px solid transparent;
+    background-color: #1e1f20;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .spark-all-tasks .spark-connected-composer .willow-gemini-composer {
+    background-color: #ffffff;
+  }
+
+  .spark-all-tasks__library {
+    margin-top: 32px;
   }
 
   .spark-all-tasks__toolbar {
-    align-items: stretch;
-    flex-wrap: wrap;
+    min-height: 32px;
   }
 
-  .spark-all-tasks__task-open {
-    padding-left: 12px;
+  /* `.goal-list` keeps a visible thumb at this size: auto width, on-surface-variant at 40%. */
+  .spark-all-tasks .spark-task-detail__recent-list,
+  .spark-all-tasks .spark-task-detail__recent-list:hover {
+    scrollbar-width: auto;
+    scrollbar-color: rgba(196, 199, 197, 0.4) transparent;
   }
 
-  .spark-all-tasks__task-time {
-    display: none;
+  :is(.light-theme, [data-theme="light"]) .spark-all-tasks .spark-task-detail__recent-list,
+  :is(.light-theme, [data-theme="light"]) .spark-all-tasks .spark-task-detail__recent-list:hover {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
   }
 
-  .spark-all-tasks__needs-input-badge {
+  /* `.filter-trigger`: the label, an 8px gap, then the 24px chevron — 113.1px in all. */
+  .spark-all-tasks .spark-task-detail__filter-button {
+    gap: 8px;
+    margin-top: 0;
+    color: #e0e0e0;
+  }
+
+  .spark-all-tasks .spark-task-detail__filter-button .luminous-symbols {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 24px !important;
+    font-weight: 300 !important;
+    line-height: 24px !important;
+    font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300 !important;
+  }
+
+  /* `.goal-card`, as on the home page: `padding-inline: 16px`, a 12px gap to the actions,
+   * then the time (8px after it), any status pill or dot, and the 24px menu. */
+  .spark-all-tasks .spark-task-detail__task-row {
+    padding: 0 16px 0 0;
+    background-color: color-mix(in srgb, var(--studio-surface, #0f0f0f) 50%, transparent);
+  }
+
+  .spark-all-tasks .spark-task-detail__task-row:hover {
+    background: #1c1c1c;
+  }
+
+  .spark-all-tasks .spark-task-detail__task-open {
+    padding: 0 12px 0 16px;
+  }
+
+  /* Both lines are one-line clamps, as on the home card, so they break at a word and the
+   * ellipsis follows it — not a `nowrap` cut mid-word. */
+  .spark-all-tasks .spark-task-detail__task-title {
+    display: -webkit-box;
+    color: #e0e0e0;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  .spark-all-tasks .spark-task-detail__task-description {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-all-tasks .spark-task-detail__task-description > span:last-child {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  .spark-all-tasks .spark-task-detail__task-description .luminous-symbols {
+    font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 16, "wght" 330 !important;
+    font-weight: 330 !important;
+  }
+
+  .spark-all-tasks .spark-task-detail__filter-button > span:first-child {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+  }
+
+  .spark-all-tasks .spark-status-pill {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-all-tasks .spark-task-detail__task-meta {
+    gap: 0;
+  }
+
+  .spark-all-tasks .spark-task-detail__task-time {
+    margin-inline-end: 8px;
+    color: #e3e3e3;
+    font-size: 13px;
+    line-height: 17px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-all-tasks .spark-task-detail__row-menu-button {
+    width: 24px;
+    height: 24px;
+    flex-basis: 24px;
+    border-radius: 9999px;
+    color: #e0e0e0;
+  }
+
+  .spark-all-tasks .spark-status-pill--pulse {
     width: auto;
-    min-width: 76px;
-    padding: 0 8px;
+    height: auto;
   }
 
-  .spark-all-tasks__row-menu {
-    right: 4px;
-    max-width: calc(100cqw - 32px);
+  /* The row's action menu is the home card's `mat-menu`: straight under the 24px trigger
+   * and 5.6px in from its end, #1c1c1c, rows with the 20px glyph centred in a 24px box,
+   * 16px, then a 13px/17px label. */
+  .spark-all-tasks .spark-task-detail__list-task-menu {
+    top: 44px;
+    right: 21.6px;
+    background: #1c1c1c;
+  }
+
+  .spark-all-tasks .spark-task-detail__list-task-menu button {
+    gap: 16px;
+    color: #e0e0e0;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 17px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-all-tasks .spark-task-detail__list-task-menu button .luminous-symbols {
+    width: 24px !important;
+    height: 24px !important;
+  }
+
+  .spark-all-tasks .spark-task-detail__list-task-menu button:hover,
+  .spark-all-tasks .spark-task-detail__list-task-menu button:focus-visible {
+    background: rgba(224, 224, 224, 0.08);
   }
 }
 
-@container (max-width: 400px) {
-  .spark-all-tasks__task-description {
-    max-width: 190px;
-  }
-
-  .spark-all-tasks__pinned-icon {
-    display: none;
+@media (max-width: 768px) {
+  .spark-all-tasks__composer-slot {
+    width: calc(100% - 32px);
+    margin: 0 16px 12px;
   }
 }
 
+/* Between the two the composer keeps its 40px inset and `margin-block: -6px`, as on the
+ * home page — measured 61.6px of column around the 73.6px box at 800. */
+@media (min-width: 769px) and (max-width: 960px) {
+  .spark-all-tasks__composer-slot {
+    margin-block: -6px;
+  }
+}
+
+/*
+ * The narrow filter sheet's list (`mat-action-list.remy-filter-bottom-sheet`): 8px block
+ * padding, 36px rows at a 12px radius with `padding: 0 8px`, the 20px check, 8px, then
+ * the label at 16px/24px #e3e3e3. Hover is the on-surface state layer. It renders in a
+ * portal on <body>, so nothing here can lean on `.spark-all-tasks`.
+ */
+.spark-all-tasks__filter-sheet {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+}
+
+.spark-all-tasks__filter-sheet-item {
+  position: relative;
+  display: flex;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  letter-spacing: 0;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.spark-all-tasks__filter-sheet-item::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(224, 224, 224, 0.08);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spark-all-tasks__filter-sheet-item:hover::before,
+.spark-all-tasks__filter-sheet-item:focus-visible::before {
+  opacity: 1;
+}
+
+.spark-all-tasks__filter-sheet-item:focus-visible {
+  outline: none;
+}
+
+.spark-all-tasks__filter-sheet-check {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__filter-sheet-item {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-all-tasks__filter-sheet-item::before {
+  background: rgba(31, 31, 31, 0.08);
+}
+
+/* A touch screen has no hover to reveal the time and the menu, so Gemini shows both. */
 @media (hover: none) {
-  .spark-all-tasks__row-menu-button {
+  .spark-all-tasks .spark-task-detail__task-row:not(.is-selected) .spark-task-detail__task-time,
+  .spark-all-tasks .spark-task-detail__row-menu-button {
+    visibility: visible;
     opacity: 1;
-    pointer-events: auto;
   }
 }
 
@@ -982,8 +1180,8 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks__needs-input-badge {
-  background: #c2e7ff;
-  color: #001d35;
+  background: var(--sync-c2e7ff, #c2e7ff);
+  color: var(--sync-001d35, #001d35);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks__failed-badge {
@@ -992,8 +1190,8 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks .spark-status-pill {
-  background: #d3e3fd;
-  color: #041e49;
+  background: var(--sync-d3e3fd, #d3e3fd);
+  color: var(--sync-041e49, #041e49);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks .spark-status-pill--failed {
@@ -1047,7 +1245,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks__rename-dialog input:focus {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks__dialog-actions button {
@@ -1076,12 +1274,12 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks__empty button {
-  border-color: #0b57d0;
-  color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks__empty button:hover {
-  background: rgba(11, 87, 208, 0.08);
+  background: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-task-detail__filter-button:focus-visible,
@@ -1091,5 +1289,5 @@
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks__row-menu button:focus-visible,
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks__dialog-actions button:focus-visible,
 :is(.light-theme, [data-theme="light"]) .spark-all-tasks__empty button:focus-visible {
-  outline-color: #0b57d0;
+  outline-color: var(--sync-0b57d0, #0b57d0);
 }

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Willow overlay</title>
+    <style>
+      /* Transparent from the first frame: the surface's own styles arrive later. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent !important;
+        background-color: transparent !important;
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body>
+    <script src="overlay.js"></script>
+  </body>
+</html>

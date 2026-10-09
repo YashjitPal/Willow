@@ -238,7 +238,12 @@ it('means the same thing on all three adapters', () => {
     /if \(toolsAllowed\) \{\s*for \(const block of options\.personalTools/,
     'Gemini must withhold its function declarations too',
   );
-  assert.match(geminiBranch, /const mediaToolsEnabled = toolsAllowed &&/);
+  // Caller-supplied declarations (the Media agent's included) sit inside the same gate.
+  assert.match(
+    geminiBranch,
+    /if \(toolsAllowed\) \{[^}]*\}\s*for \(const block of options\.toolDeclarations/,
+    'Gemini must withhold caller-declared tools under `disabled` as well',
+  );
   assert.match(chat, /const openaiDeclarations = toolsAllowed/);
   assert.match(chat, /\.\.\.\(toolsAllowed \? anthropicFunctionTools\(\[/);
 });
@@ -264,16 +269,18 @@ it('drops Anthropic server-side search rather than failing the turn', () => {
  * built-ins: two tools of one name in a request is the collision this avoids.
  */
 it('supplies a client web_search exactly when no native one is sent', () => {
-  const chatView = read(...SOURCE.chatView);
-  assert.match(chatView, /webSearchTools: clientSearchEnabled \? webSearchToolDeclaration\(\) : undefined/);
-  assert.match(chatView, /runWebSearch: clientSearchEnabled/);
+  // Built once for the composer's send and for a turn another tab resumes.
+  const setup = read('features', 'chat', 'src', 'chat-turn-setup.ts');
+  assert.match(read(...SOURCE.chatView), /\.\.\.buildChatTurnSetup\(\{/);
+  assert.match(setup, /webSearchTools: clientSearchEnabled \? webSearchToolDeclaration\(\) : undefined/);
+  assert.match(setup, /runWebSearch: clientSearchEnabled/);
   assert.match(
-    chatView,
+    setup,
     /const endpointRunsOwnSearch = toolPolicy !== 'function-calling'\s*&& !!nativeToolFormatForProvider\(/,
     'the condition must be the negation of "a native search tool is going out"',
   );
   assert.match(
-    chatView,
+    setup,
     /const clientSearchEnabled = toolPolicy !== 'disabled'\s*&& !endpointRunsOwnSearch\s*&& !!searchBackendKey/,
     'and it must be gated on an executor existing to answer the call',
   );

@@ -33,6 +33,12 @@ export interface ChatSyncRecord {
    * user and the registry follows it.
    */
   locationDirty: boolean;
+  /**
+   * A tombstone's: when its file left disk — moved to the Recycle Bin, or found gone. A file under
+   * the tombstone no newer than this was moved back from the bin by the user (files keep their time
+   * through the move), not written by a copy of Willow.
+   */
+  removedAt?: number;
 }
 
 export interface ChatMetadataKeys {
@@ -94,6 +100,7 @@ export const validateSyncRecords = (value: unknown): Record<string, ChatSyncReco
         ? raw.notebookId
         : '',
       locationDirty: raw.locationDirty === true,
+      ...(Number.isFinite(raw.removedAt) && raw.removedAt > 0 ? { removedAt: raw.removedAt } : {}),
     };
   }
   return next;

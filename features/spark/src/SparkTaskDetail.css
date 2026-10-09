@@ -9,7 +9,7 @@
   --spark-panel-surface: #1f1f1f;
   /* Blue's formula-derived glow. The component overrides this with the active
    * workspace colour's `getWorkspaceTheme(...).glowAccent`. */
-  --spark-task-detail-accent: #14204f;
+  --spark-task-detail-accent: var(--sync-14204f, #14204f);
   position: relative;
   isolation: isolate;
   display: flex;
@@ -282,12 +282,12 @@
 }
 
 .spark-task-detail__send-button {
-  background: #a8c7fa;
-  color: #062e6f;
+  background: var(--sync-a8c7fa, #a8c7fa);
+  color: var(--sync-062e6f, #062e6f);
 }
 
 .spark-task-detail__send-button:hover:not(:disabled) {
-  background: #b8d2fa;
+  background: var(--sync-b8d2fa, #b8d2fa);
 }
 
 .spark-task-detail__send-button:disabled {
@@ -432,6 +432,28 @@
   flex: 0 0 24px;
   align-items: center;
   justify-content: center;
+}
+
+/*
+ * Each scroller's two fade flags are read by its own mask and nothing else, so they
+ * must not inherit: as plain custom properties every flip restyled the scroller's
+ * whole subtree (the entire conversation) mid-scroll and mid-transition. `*` keeps
+ * them untyped, so they still swap discretely. Nothing inside a scroller can read them.
+ */
+@property --fade-progress {
+  syntax: '*';
+  inherits: false;
+}
+
+@property --fade-bottom {
+  syntax: '*';
+  inherits: false;
+}
+
+/* Written on the conversation scroller, its only reader, for the same reason. */
+@property --spark-followup-inset {
+  syntax: '*';
+  inherits: false;
 }
 
 .spark-task-detail__recent-list {
@@ -583,8 +605,8 @@
   align-items: center;
   padding: 0 10px;
   border-radius: 12px;
-  background: #0b57d0;
-  color: #a8c7fa;
+  background: var(--sync-0b57d0, #0b57d0);
+  color: var(--sync-a8c7fa, #a8c7fa);
   font-size: 12px;
   font-weight: 500;
   line-height: 16px;
@@ -869,6 +891,18 @@
 }
 
 /*
+ * Closing the remote browser hands its card to Progress, which shrinks from the
+ * browser's width (`flex: 2 1 0%`) to 300px, opaque throughout, as Gemini's one side
+ * panel does. See `sidePanelHandoff`.
+ */
+@starting-style {
+  .spark-task-detail__progress-panel.is-open.is-taking-over {
+    flex: 2 1 0%;
+    opacity: 1;
+  }
+}
+
+/*
  * Fixed width, not `100%` — this is what stops the panel's contents being
  * crushed as it closes.
  *
@@ -892,8 +926,14 @@
   gap: 4px;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-color: rgba(196, 199, 197, 0.4) transparent;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+/* Progress scrolls without a scrollbar wherever it shows: docked, floating, or full-screen at 960px and below. */
+.spark-task-detail__progress-panel-scroll::-webkit-scrollbar,
+.spark-task-detail__progress-popover::-webkit-scrollbar,
+.spark-task-detail__progress-overlay-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .spark-task-detail__progress-panel-section {
@@ -1091,37 +1131,82 @@
   flex: 0 0 24px;
 }
 
-/* Same surface and corners as the chat pane, at twice its width. */
+/*
+ * Same surface and corners as the chat pane, at twice its width. It opens as
+ * Gemini's `remy-side-panel` does, recorded frame by frame: in the first frame it
+ * already has its two thirds (the chat its one), transparent, and it fades in over
+ * 450ms on the emphasised curve while the task list collapses on the same clock —
+ * so both columns widen together as the list goes, rather than the card growing
+ * out of the edge and squeezing the chat.
+ */
 .spark-task-detail__side-panel {
   position: relative;
   display: flex;
   min-width: 0;
   height: 100%;
   min-height: 0;
-  flex: 2 1 0;
+  flex: 2 1 0%;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid #171717;
   border-radius: 28px;
   background: var(--spark-panel-surface);
+  transition:
+    flex 450ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 450ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* The embedded browser fills the pane rather than sitting in a thread block. */
+@starting-style {
+  .spark-task-detail__side-panel {
+    opacity: 0;
+  }
+}
+
+/*
+ * A file's card is the one exception: Gemini starts `showing-embedded-doc` at
+ * `flex: 0 0 0%`, so it grows from the edge on the same 450ms clock as it fades,
+ * and the chat narrows into its third as the list goes.
+ */
+@starting-style {
+  .spark-task-detail__side-panel.is-file {
+    flex: 0 0 0%;
+    opacity: 0;
+  }
+}
+
+/*
+ * Opened over Progress, the card grows from Progress's 300px and is already opaque:
+ * in Gemini the two are one panel. See `sidePanelHandoff`.
+ */
+@starting-style {
+  .spark-task-detail__side-panel.is-taking-over {
+    flex: 0 0 300px;
+    opacity: 1;
+  }
+}
+
+/* The browser and a file take each other's place at the width they share. */
+@starting-style {
+  .spark-task-detail__side-panel.is-replacing {
+    flex: 2 1 0%;
+    opacity: 1;
+  }
+}
+
+/*
+ * Gemini's remote browser and its Progress panel are one `remy-side-panel` showing
+ * different sections, so there is one gutter beside the chat. The closed Progress
+ * panel here is a zero-width flex item of its own and would add a second 8px gap.
+ */
+.spark-task-detail.has-remote-browser .spark-task-detail__progress-panel,
+.spark-task-detail.has-open-file .spark-task-detail__progress-panel {
+  display: none;
+}
+
+/* The remote browser fills the pane rather than sitting in a thread block. */
 .spark-task-detail__side-panel > * {
   min-height: 0;
   flex: 1 1 auto;
-}
-
-@media (max-width: 980px) {
-  /* Too narrow for two panes: stack them and let the workspace scroll. */
-  .spark-task-detail.has-computer-use:not(.is-progress-open) .spark-task-detail__workspace {
-    flex-direction: column;
-  }
-
-  .spark-task-detail__side-panel {
-    flex: 1 1 320px;
-    min-height: 320px;
-  }
 }
 
 .spark-task-detail__header {
@@ -1324,8 +1409,7 @@
   animation: spark-task-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
   transform-origin: 100% 0;
   overscroll-behavior: contain;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
-  scrollbar-width: thin;
+  scrollbar-width: none;
 }
 
 .spark-task-detail__popover-heading {
@@ -1471,6 +1555,60 @@
   color: inherit;
 }
 
+/*
+ * The header monitor button's menu (`.remy-computer-use-menu`): 200px, the shared
+ * #1f1f1f menu surface at 16px corners, one 36px "View remote browser" item — a
+ * 20px weight-320 `monitor` in a 24px box, 16px before a 13px/17px label.
+ */
+.spark-task-detail__browser-menu-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+/*
+ * Gemini's `.computer-use-header-button.hidden`: out of the row at once (its width
+ * drops to 0), and back over 300ms of opacity and scale when the pane closes.
+ */
+.spark-task-detail__browser-menu-anchor > .spark-task-detail__header-icon {
+  transition: background-color 140ms ease, color 140ms ease, opacity 300ms ease, scale 300ms ease;
+}
+
+.spark-task-detail__browser-menu-anchor > .spark-task-detail__header-icon.is-hidden {
+  width: 0;
+  min-width: 0;
+  flex-basis: 0;
+  overflow: hidden;
+  opacity: 0;
+  scale: 0.9;
+  pointer-events: none;
+}
+
+.spark-task-detail__browser-menu.is-closing {
+  pointer-events: none;
+  animation: spark-task-response-menu-exit 100ms linear 25ms forwards;
+}
+
+.spark-task-detail__task-menu.spark-task-detail__browser-menu {
+  top: calc(100% + 4px);
+  right: 0;
+  width: 200px;
+  min-width: 200px;
+}
+
+.spark-task-detail__browser-menu button {
+  gap: 16px;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.spark-task-detail__browser-menu button > span:first-child {
+  width: 24px !important;
+  color: #e6e6e6;
+}
+
 .spark-task-detail__conversation-scroll {
   --fade-progress: 0;
   --fade-bottom: 0;
@@ -1508,24 +1646,6 @@
   margin: 0 auto;
   direction: ltr;
   transform: translateX(14px);
-}
-
-.spark-task-detail.has-computer-use .spark-task-detail__conversation {
-  max-width: none;
-  transform: none;
-}
-
-.spark-task-detail.has-computer-use .spark-task-detail__assistant-response,
-.spark-task-detail.has-computer-use .spark-task-detail__working-row,
-.spark-task-detail.has-computer-use .spark-task-detail__approval-result,
-.spark-task-detail.has-computer-use .spark-task-detail__response-actions {
-  width: min(724px, 100%);
-  margin-right: auto;
-  margin-left: auto;
-}
-
-.spark-task-detail__computer-use-slot {
-  width: 100%;
 }
 
 /*
@@ -1697,7 +1817,7 @@
 }
 
 .spark-task-detail__subagent-header:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
@@ -1921,7 +2041,7 @@
   bottom: 0;
   left: 0;
   height: 60px;
-  background: linear-gradient(180deg, rgba(31, 31, 31, 0), #1f1f1f);
+  background: linear-gradient(180deg, transparent, var(--spark-panel-surface, #1f1f1f));
   content: '';
   pointer-events: none;
 }
@@ -1964,6 +2084,37 @@
 }
 
 /*
+ * Commands the desktop app ran (`SparkCommandGroup`): the sub-agent group's row and
+ * dotted sub-timeline, with the terminal glyph following the header's colour as the
+ * parallel-task glyph does, and each command on one line in the code face.
+ */
+.spark-task-detail__command-group .spark-task-detail__subagent-header .spark-task-detail__processing-tool-icon {
+  color: inherit;
+}
+
+.spark-task-detail__command-line {
+  max-width: 100%;
+}
+
+/* Gemini's code face, as code blocks set it; the timeline's Google Sans axes (`wdth` 92) are not its, so they are reset. */
+.spark-task-detail__command-text {
+  min-width: 0;
+  overflow: hidden;
+  font-family: "Google Sans Code", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  font-variation-settings: normal;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-task-detail__command-note {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+/*
  * Scoped under `.spark-task-detail` on purpose. The file opens with
  * `.spark-task-detail button { font: inherit }`, which at specificity 0,0,1,1 beats a
  * bare class and — being a shorthand — resets font-size back to the inherited 16px.
@@ -2001,7 +2152,7 @@
 }
 
 .spark-task-detail__processing-trigger:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
@@ -2078,11 +2229,12 @@
   z-index: 1;
 }
 
+/* The nodes mask the rail with the thread's own surface, which narrows to #1c1c1c at 960px and below. */
 .spark-task-detail__processing-details-inner.is-collapsed-overflow
   .spark-task-detail__processing-node,
 .spark-task-detail__processing-details-inner.is-collapsed-overflow
   .spark-task-detail__subagent-header-content {
-  background: var(--spark-raised-surface, #1f1f1f);
+  background: var(--spark-panel-surface, #1f1f1f);
 }
 
 .spark-task-detail__processing-details-cap {
@@ -2106,7 +2258,7 @@
    * after the 24px node slot and 8px text gap. */
   left: 32px;
   height: 60px;
-  background: linear-gradient(180deg, rgba(31, 31, 31, 0), #1f1f1f);
+  background: linear-gradient(180deg, transparent, var(--spark-panel-surface, #1f1f1f));
   content: '';
   pointer-events: none;
   opacity: 0;
@@ -2162,12 +2314,14 @@
   display: none;
 }
 
+/* Gemini's timeline glyphs inherit the row's colour: the narration clock and a skill's `build` both
+ * compute to rgba(255, 255, 255, 0.55). */
 .spark-task-detail__processing-clock,
 .spark-task-detail__processing-tool-icon {
   width: 20px;
   height: 20px;
   flex: 0 0 20px;
-  color: rgba(196, 199, 197, 0.78);
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .spark-task-detail__google-search-icon {
@@ -2320,7 +2474,7 @@
   bottom: 0;
   left: 0;
   height: 60px;
-  background: linear-gradient(180deg, rgba(31, 31, 31, 0), #1f1f1f);
+  background: linear-gradient(180deg, transparent, var(--spark-panel-surface, #1f1f1f));
   content: '';
   pointer-events: none;
   opacity: 0;
@@ -2579,12 +2733,12 @@
 }
 
 .spark-task-detail__user-editor-actions button.is-primary {
-  background: #a8c7fa;
-  color: #062e6f;
+  background: var(--sync-a8c7fa, #a8c7fa);
+  color: var(--sync-062e6f, #062e6f);
 }
 
 .spark-task-detail__user-editor-actions button.is-primary:hover:not(:disabled) {
-  background: #b8d2fa;
+  background: var(--sync-b8d2fa, #b8d2fa);
 }
 
 .spark-task-detail__user-editor-actions button:disabled {
@@ -2602,8 +2756,7 @@
 }
 
 .spark-task-detail__schedule-label,
-.spark-task-detail__working-row,
-.spark-task-detail__approval-result {
+.spark-task-detail__working-row {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -2646,6 +2799,11 @@
   margin: 16px 8px 0;
 }
 
+/* A saved schedule's or skill's card: Gemini's `action-card` container, 24px clear above and below. */
+.spark-task-detail__created-card {
+  margin: 24px 8px;
+}
+
 .spark-task-detail__generated-file-card {
   display: flex;
   box-sizing: border-box;
@@ -2654,9 +2812,12 @@
   align-items: center;
   gap: 16px;
   padding: 20px;
+  border: 0;
   border-radius: 24px;
   background: #171717;
   color: #e6e6e6;
+  font-family: inherit;
+  text-align: left;
   cursor: pointer;
   transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
 }
@@ -2666,6 +2827,7 @@
 }
 
 .spark-task-detail__generated-file-icon-container {
+  display: block;
   flex: 0 0 auto;
   padding: 4px;
 }
@@ -2700,133 +2862,67 @@
 }
 
 .spark-task-detail__generated-file-subtitle {
+  display: block;
   margin-top: 4px;
+  overflow: hidden;
   color: rgba(255, 255, 255, 0.55);
   font-size: 15px;
   font-weight: 400;
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.spark-task-detail .spark-task-detail__generated-file-close {
+.spark-task-detail__generated-file-title {
+  display: block;
+}
+
+/* `open-button-visual`: a 48px accent pill at least 72px wide; the card is what it presses. */
+.spark-task-detail .spark-task-detail__generated-file-open {
+  display: inline-flex;
   box-sizing: content-box;
   min-width: 72px;
   height: 48px;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 0 16px;
-  border: 0;
   border-radius: 9999px;
-  background: #1f3b9b;
+  background: var(--sync-1f3b9b, #1f3b9b);
   color: #e6e6e6;
   font-size: 15px;
   font-weight: 370;
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
   line-height: 20px;
+}
+
+/* The Files rows open their file too, as Gemini's `a.file-item` links do. */
+button.spark-task-detail__progress-panel-file,
+button.spark-task-detail__popover-file {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
-.spark-task-detail .spark-task-detail__generated-file-close:hover,
-.spark-task-detail .spark-task-detail__generated-file-close:focus-visible {
-  background: #1f3b9b;
+button.spark-task-detail__popover-file {
+  border-radius: 8px;
+  transition: background-color 150ms ease;
+}
+
+button.spark-task-detail__popover-file:hover {
+  background: rgba(230, 230, 230, 0.04);
 }
 
 .spark-task-detail__thinking-step strong {
   font-weight: 540;
 }
 
-.spark-task-detail__approval-card {
-  display: flex;
-  flex-direction: column;
-  margin: 24px 8px 0;
-  padding: 24px;
-  border: 0;
-  border-radius: 28px;
-  background: #171717;
-}
-
-.spark-task-detail__approval-card h3,
-.spark-task-detail__approval-card p,
-.spark-task-detail__approval-card ul {
-  margin: 0;
-}
-
-.spark-task-detail__approval-card h3 {
-  color: #e6e6e6;
-  font-size: 17px;
-  font-weight: 400;
-  line-height: 24px;
-}
-
-/* Gemini's `.body-text.gds-body-s`: 13px/17px in `--lumi-sys-color--on-surface-variant`
- * (rgba(255,255,255,.55)), `margin: 8px 0 0`. */
-.spark-task-detail__approval-body {
-  min-height: 112px;
-  margin-top: 8px;
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 17px;
-}
-
-.spark-task-detail__approval-body > p:first-child {
-  margin-bottom: 8px;
-}
-
-.spark-task-detail__approval-body ul {
-  padding-left: 27px;
-}
-
-/*
- * These bullets wrap — Gemini's first list item measures 51px tall, i.e. three
- * 17px lines. `white-space: nowrap` was forcing them onto one line, which
- * overflowed the 338px card body.
- */
-.spark-task-detail__approval-body li {
-  min-height: 17px;
-  margin: 8px 0;
-  padding-left: 4px;
-}
-
-.spark-task-detail__approval-body a {
-  color: #e6e6e6;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-/* "Review the plan:" is ordinary body text in Gemini — 13px/17px weight 400 in the
- * same muted colour, with a 12.5px gap under it. It is not bold. */
-.spark-task-detail__approval-plan-heading {
-  margin-top: 16px !important;
-  margin-bottom: 12.5px !important;
-  font-weight: 400;
-}
-
-.spark-task-detail__approval-plan {
-  display: flex;
-  height: 48px;
-  align-items: center;
-  padding: 0 16px;
-  border-radius: 12px;
-  background: #1f1f1f;
-  color: rgba(255, 255, 255, 0.58);
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 17px;
-}
-
-.spark-task-detail__approval-actions {
-  display: flex;
-  min-height: 48px;
-  align-items: stretch;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-  flex-wrap: wrap;
-}
-
-.spark-task-detail__approval-actions button,
-/* The rename dialog's buttons match Gemini's: 28.8px neutral pills. The approval
- * card's stay at 48px, which is what Gemini's confirmation card measures. */
+/* The rename dialog's buttons match Gemini's: 28.8px neutral pills. */
 .spark-task-detail__rename-actions button {
   height: 28.8px;
   padding: 0 12px;
@@ -2840,7 +2936,6 @@
   cursor: pointer;
 }
 
-.spark-task-detail__approval-actions button:hover,
 .spark-task-detail__rename-actions button:hover:not(:disabled) {
   background: #232323;
 }
@@ -2848,26 +2943,6 @@
 .spark-task-detail__rename-actions button:disabled {
   background: rgba(230, 230, 230, 0.12);
   color: rgba(230, 230, 230, 0.38);
-}
-
-.spark-task-detail__approval-actions button.is-primary {
-  background: #a8c7fa;
-  color: #062e6f;
-}
-
-.spark-task-detail__approval-actions button.is-primary:hover:not(:disabled) {
-  background: #b8d2fa;
-}
-
-.spark-task-detail__approval-actions button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.spark-task-detail__approval-result {
-  min-height: 40px;
-  margin-top: 18px;
-  color: #c4c7c5;
 }
 
 .spark-task-detail__response-actions {
@@ -2954,7 +3029,7 @@
 }
 
 .spark-task-detail__response-menu button:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: -2px;
 }
 
@@ -3340,7 +3415,7 @@
 }
 
 .spark-task-detail__rename-dialog input:focus {
-  border-color: #a8c7fa;
+  border-color: var(--sync-a8c7fa, #a8c7fa);
 }
 
 .spark-task-detail__rename-actions,
@@ -3392,7 +3467,7 @@
  * showed nothing, which is exactly the inconsistency sharing the component is meant to avoid.
  */
 .spark-task-detail :is(button, textarea, input):not(.spark-composer-host *):focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
@@ -3452,7 +3527,8 @@
   }
 }
 
-@media (max-width: 880px) {
+/* Gemini's `remy-viewer.is-mobile` collapses the list pane at its 959.98px breakpoint. */
+@media (max-width: 960px) {
   .spark-task-detail__library {
     display: none;
   }
@@ -3531,25 +3607,639 @@
     max-width: 90%;
     padding: 16px 22px;
   }
+}
 
-  .spark-task-detail__approval-card {
+/*
+ * At 960px and below a task is Gemini's full-screen chat, measured at 390x844: the list
+ * pane is gone, the surface is #1c1c1c, and `.chat-thread-header` is 52px with
+ * `padding: 8px 16px 8px 0` — the 40px back button (a 32px `chevron_left` at weight 240,
+ * #c4c7c5) and the 13px title on the left; the Beta badge, the plan pill (#141414, text
+ * only) and the 24px menu on the right, 8px apart. The thread keeps a 24px inset, and the
+ * composer docks on an opaque bar: 12px above it, `margin: 0 16px 12px`, no disclaimer
+ * under it — Gemini prints that at the end of the thread instead.
+ */
+@media (max-width: 960px) {
+  .spark-task-detail {
+    --spark-panel-surface: #1c1c1c;
+  }
+
+  .spark-task-detail__library-divider {
+    display: none;
+  }
+
+  .spark-task-detail__header {
+    gap: 8px;
+    padding: 8px 16px 8px 0;
+  }
+
+  .spark-task-detail__mobile-back {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    color: #c4c7c5;
+  }
+
+  .spark-task-detail__mobile-back .luminous-symbols {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 32px !important;
+    font-weight: 240 !important;
+    font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 32, "wght" 240 !important;
+  }
+
+  /* Gemini's title ends where `.header-right` begins, so it eats the row gap before it. */
+  .spark-task-detail__header-title {
+    margin-inline-end: -8px;
+    color: #e0e0e0;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-task-detail__header-actions {
+    gap: 8px;
+  }
+
+  .spark-task-detail__beta-pill {
+    display: inline-flex;
+    border-width: 0.8px;
+    color: #e0e0e0;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-task-detail .spark-task-detail__status-pill {
+    height: 25px;
+    background: #141414;
+    color: #e0e0e0;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-task-detail .spark-task-detail__status-pill .luminous-symbols {
+    display: none;
+  }
+
+  .spark-task-detail__header-actions .spark-task-detail__header-icon {
+    width: 24px;
+    height: 24px;
+    flex-basis: 24px;
+    color: #e0e0e0;
+  }
+
+  .spark-task-detail__conversation-scroll {
+    padding: 16px 0 var(--spark-followup-inset, 125.6px);
+    scroll-padding-bottom: var(--spark-followup-inset, 125.6px);
+  }
+
+  /* The text column is 708px at most, 24px in from the edge below that — 342.4px at 390,
+   * centred at x=46 at 800. */
+  .spark-task-detail__conversation {
+    max-width: calc(708px + 48px);
+    padding: 0 24px;
+    transform: none;
+  }
+
+  /* The response's text starts on the 24px column edge, with no inset of its own. */
+  .spark-task-detail__assistant-response {
     margin-right: 0;
     margin-left: 0;
-    padding: 20px;
   }
 
-  .spark-task-detail__approval-body {
-    height: auto;
+  /* So does a created file's card: Gemini's is the column's full 342.4px at 390. */
+  .spark-task-detail__generated-file-wrapper {
+    margin-right: 0;
+    margin-left: 0;
   }
 
-  .spark-task-detail__approval-body li {
-    height: auto;
-    white-space: normal;
+  /* And a saved schedule's or skill's: 342.4px at 390 as well. */
+  .spark-task-detail__created-card {
+    margin-right: 0;
+    margin-left: 0;
   }
 
-  .spark-task-detail__approval-plan {
-    height: auto;
-    min-height: 48px;
+  /* `.processing-state-container-button` is not held to the column: it pulls 17px left,
+   * sizes to its label (capped at 600px) and runs past the edge, so the text starts at 31
+   * and never truncates on a phone. */
+  /* `processing-state-container-button` reaches 17px left of the column and its header pads
+   * 8px back in, so the label sits where it does on the desktop and the pill runs wider. */
+  .spark-task-detail .spark-task-detail__processing-trigger {
+    width: max-content;
+    max-width: none;
+    align-self: flex-start;
+    margin-left: -17px;
+    padding-left: 16px;
+  }
+
+  .spark-task-detail__processing-label {
+    max-width: 600px;
+  }
+
+  /* `user-query`: the bubble keeps 52px clear on the left and 8px on the right, at
+   * #141414 with `padding: 20px 28px` and 17px/24px gds-body-l text; its actions sit 4px
+   * under it as 36px buttons, 20px in from the column edge. */
+  .spark-task-detail__user-row {
+    padding-top: 8px;
+  }
+
+  .spark-task-detail__sent-message {
+    max-width: none;
+    padding: 0 8px 0 52px;
+  }
+
+  .spark-task-detail__user-bubble {
+    max-width: 452px;
+    padding: 20px 28px;
+    background: #141414;
+    color: #e3e3e3;
+    font-size: 17px;
+    line-height: 24px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-task-detail__user-actions {
+    height: 36px;
+    gap: 0;
+    margin-right: 12px;
+  }
+
+  .spark-task-detail__user-actions button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .spark-task-detail__user-actions .luminous-symbols {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 24px !important;
+  }
+
+  .spark-task-detail__followup-zone {
+    background: var(--spark-panel-surface);
+  }
+
+  .spark-task-detail__followup-composer {
+    transform: none;
+  }
+
+  .spark-task-detail__followup-composer .willow-gemini-composer {
+    border: 1px solid transparent;
+    background-color: #1e1f20;
+  }
+
+  /* `model-response-disclaimers p.gds-body-s`: start-aligned, `margin: 12px 0 40px`. */
+  .spark-task-detail__thread-disclaimer {
+    margin: 12px 0 40px;
+    color: #c4c7c5;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 17px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__thread-disclaimer {
+    color: #444746;
+  }
+}
+
+/* On a phone the composer fills the bar (`margin: 0 16px 12px`) with a faint light glow,
+ * and the disclaimer moves to the end of the thread. */
+@media (max-width: 768px) {
+  .spark-task-detail__followup-zone {
+    padding: 12px 16px 12px;
+  }
+
+  .spark-task-detail__followup-composer {
+    max-width: none;
+  }
+
+  .spark-task-detail__followup-composer .willow-gemini-composer {
+    box-shadow: 0 0 20px 0 rgba(227, 227, 227, 0.04);
+  }
+
+  .spark-task-detail__followup-zone .spark-task-detail__disclaimer {
+    display: none;
+  }
+}
+
+/* On a tablet `input-area-container` caps at 660px and the composer inside it is
+ * `calc(100% - 1.75rem)` with `margin: 0 12px` and 32px corners; the disclaimer stays under
+ * it, centred with `margin: 16px 0`. */
+@media (min-width: 769px) and (max-width: 960px) {
+  .spark-task-detail__followup-zone {
+    padding: 12px 0 0;
+  }
+
+  .spark-task-detail__followup-composer {
+    max-width: 660px;
+    margin: 0 auto;
+    padding: 0 16px 0 12px;
+  }
+
+  .spark-task-detail__followup-composer .willow-gemini-composer {
+    border-radius: 32px !important;
+    box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.28);
+  }
+
+  .spark-task-detail__followup-zone .spark-task-detail__disclaimer {
+    width: auto;
+    margin: 16px 5px 16px 8px;
+    color: #c4c7c5;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+    transform: none;
+  }
+
+  .spark-task-detail__thread-disclaimer {
+    display: none;
+  }
+
+  /* `remy-processing-state` is 724px here, 8px wider than the text column on each side. */
+  .spark-task-detail__processing-state {
+    margin-right: -8px;
+    margin-left: -8px;
+  }
+}
+
+/* On a phone `remy-processing-state` starts on the column edge but runs 16px past its right
+ * one, to 8px short of the screen (358.4px at 390px), still capped at 724px. */
+@media (max-width: 768px) {
+  .spark-task-detail__processing-state {
+    max-width: 724px;
+    margin-right: -16px;
+  }
+}
+
+/*
+ * A reply's actions at 960px and below, measured on Spark replies at 390x844 and 800x1280:
+ * `actions-container-v2.mobile`, a 48px row 4px under the reply holding 36px buttons
+ * (6px padding round a 24px glyph, #e0e0e0) 12px apart. Its `more_horiz` menu is
+ * `gem-menu`: content-sized from min(225px, 100%), #1c1c1c on 20px corners, 40px rows of a
+ * 24px glyph in #e3e3e3, a 17px/24px label and an empty 24px trailing slot.
+ */
+@media (max-width: 960px) {
+  .spark-task-detail__response-actions {
+    height: 48px;
+    gap: 12px;
+    margin-top: 4px;
+  }
+
+  .spark-task-detail__response-actions button {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    padding: 6px;
+    color: #e0e0e0;
+  }
+
+  .spark-task-detail__response-menu {
+    width: max-content;
+    min-width: min(225px, 100%);
+    max-width: 100%;
+    border-radius: 20px;
+    background: #1c1c1c;
+  }
+
+  .spark-task-detail__response-menu button {
+    height: 40px;
+    min-height: 40px;
+    padding: 8px;
+    color: #e0e0e0;
+    font-size: 17px;
+    font-weight: 400;
+    line-height: 24px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-task-detail__response-menu button > span:last-child {
+    flex: 1 1 auto;
+  }
+
+  .spark-task-detail__response-menu button::after {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    content: "";
+  }
+
+  .spark-task-detail__response-menu-icon {
+    color: #e3e3e3;
+  }
+}
+
+/* On a tablet the row sits 6px left of the reply (`margin: 0 6px 0 -6px`), so the first
+ * glyph lines up with the text; on a phone it starts at the text edge. */
+@media (min-width: 769px) and (max-width: 960px) {
+  .spark-task-detail__response-actions {
+    margin-right: 6px;
+    margin-left: -6px;
+  }
+}
+
+/* Until the 756px point where lists lose their own indent, a reply's top-level lists sit
+ * 1.675px left of its paragraphs (measured at 800 wide: margin 44.325px against 46px). */
+@media (min-width: 757px) and (max-width: 960px) {
+  .spark-task-detail .smd-root > .smd-list {
+    margin-left: -1.675px;
+  }
+}
+
+/* The header's task menu at 960px and below (`lm-menu-theme`): flush under the 24px trigger
+ * with the right edges aligned, 20px glyphs centred in 24px boxes, 13px labels 48px into
+ * the row, and a 0.8px outline divider with 8px/12px margins. */
+@media (max-width: 960px) {
+  .spark-task-detail__task-menu {
+    top: 38px;
+    right: 16px;
+    background: #1c1c1c;
+    color: #e0e0e0;
+  }
+
+  .spark-task-detail__task-menu button {
+    color: #e0e0e0;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 17px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  /* MaterialSymbol pins its own 20px box inline; the margins make the 24px footprint. */
+  .spark-task-detail__task-menu button > span:first-child {
+    margin: 0 2px;
+  }
+
+  .spark-task-detail__task-menu button > span:last-child {
+    margin-left: 8px;
+  }
+
+  .spark-task-detail__task-menu .spark-task-detail__menu-divider {
+    height: 0;
+    margin: 8px 12px;
+    border-top: 0.8px solid rgb(68, 71, 70);
+    background: none;
+  }
+
+  /*
+   * The monitor menu keeps Gemini's own narrow row rather than the task menu's: a
+   * panel as wide as its one item (200.4px), the label 14px/20px weight 500 sitting
+   * 16px after the 24px icon box, which puts it 56px in.
+   */
+  .spark-task-detail__task-menu.spark-task-detail__browser-menu {
+    width: auto;
+    min-width: max-content;
+  }
+
+  .spark-task-detail__browser-menu button {
+    color: #e3e3e3;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 500;
+  }
+
+  .spark-task-detail__browser-menu button > span:first-child {
+    margin: 0;
+  }
+
+  .spark-task-detail__browser-menu button > span:last-child {
+    margin-left: 0;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__task-menu .spark-task-detail__menu-divider {
+    border-top-color: rgba(0, 0, 0, 0.08);
+  }
+}
+
+/*
+ * Gemini's `mobile-side-panel-overlay`, measured at 390 and 800 wide: fixed over the whole
+ * viewport on #000. A 48px header padded 8px 8px 0 carries the 40px close button on the
+ * right (8px padding, a 24px weight-300 glyph in #c4c7c5, which Gemini's inline line box
+ * leaves 3.4px below the button's centre). Below it the side panel's sections sit 4px
+ * apart: a 15px/20px title at x 16 in a 44px header (40px when the section is empty), and
+ * content padded 8px 16px.
+ */
+@media (max-width: 960px) {
+  .spark-task-detail__progress-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    background: #000;
+    outline: none;
+  }
+
+  .spark-task-detail__progress-overlay-header {
+    display: flex;
+    height: 48px;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    padding: 8px 8px 0;
+    box-sizing: border-box;
+  }
+
+  .spark-task-detail__progress-overlay-close {
+    display: flex;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: #c4c7c5;
+    cursor: pointer;
+  }
+
+  /*
+   * `remy-side-panel.mobile-overlay-side-panel.showing-computer-use`: one card filling
+   * the overlay under its close bar, #1c1c1c at 28px corners with a 0.8px #141414
+   * edge. The pane inside keeps its desktop rhythm, which lands the viewer where
+   * Gemini's sits (24px in from each side, centred under the title).
+   */
+  .spark-task-detail__browser-overlay-panel {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    border: 0.8px solid #141414;
+    border-radius: 28px;
+    background: #1c1c1c;
+  }
+
+  .spark-task-detail__progress-overlay-close > span {
+    translate: 0 3.4px;
+  }
+
+  .spark-task-detail__progress-overlay-scroll {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+
+  .spark-task-detail__progress-overlay-section {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+  }
+
+  .spark-task-detail .spark-task-detail__progress-overlay-title {
+    margin: 0;
+    padding: 14px 16px 10px;
+    color: #e0e0e0;
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 20px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-task-detail .spark-task-detail__progress-overlay-title.is-empty {
+    padding-top: 12px;
+    padding-bottom: 8px;
+  }
+
+  .spark-task-detail__progress-overlay-content {
+    padding: 8px 16px;
+  }
+
+  .spark-task-detail__progress-overlay-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* `.progress-item`: a 12px #8e918f check 3px down, 8px from a 13px/17px label. */
+  .spark-task-detail__progress-overlay-summary {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: rgb(154, 155, 156);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 17px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-task-detail__progress-overlay-summary .spark-task-detail__progress-plan-step {
+    color: rgb(154, 155, 156);
+  }
+
+  .spark-task-detail__progress-overlay-summary .spark-task-detail__progress-plan-step > span.is-current {
+    color: #e0e0e0;
+  }
+
+  /* The 68px right inset is where Gemini parks the item's hover-only 52px enable toggle. */
+  .spark-task-detail__progress-overlay-schedule {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    padding: 4px 68px 4px 8px;
+    border-radius: 8px;
+  }
+
+  .spark-task-detail__progress-overlay-schedule-title,
+  .spark-task-detail__progress-overlay-schedule-trigger {
+    overflow: hidden;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-task-detail__progress-overlay-schedule-title {
+    color: #e0e0e0;
+    font-size: 15px;
+    line-height: 20px;
+  }
+
+  .spark-task-detail__progress-overlay-schedule-trigger {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 13px;
+    line-height: 17px;
+  }
+
+  /* `.app-item`: 4px inset around a 28px icon host, 8px to a 15px/20px name. */
+  .spark-task-detail__progress-overlay-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    padding: 4px;
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 15px;
+    font-weight: 370;
+    line-height: 20px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-task-detail__progress-overlay-row > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .spark-task-detail__progress-overlay-row > .spark-task-detail__generated-file-icon {
+    display: flex;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+
+  .spark-task-detail__progress-overlay-row > img.spark-task-detail__generated-file-icon {
+    padding: 4px;
+  }
+
+  /* A file's row opens it, in the overlay the browser uses. */
+  button.spark-task-detail__progress-overlay-row {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  /* `remy-output-artifact-card` on the narrow surfaces: #141414, its type #e0e0e0. */
+  .spark-task-detail__generated-file-card {
+    background: #141414;
+  }
+
+  .spark-task-detail__generated-file-title,
+  .spark-task-detail .spark-task-detail__generated-file-open {
+    color: #e0e0e0;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-overlay {
+    background: #ffffff;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-overlay-close {
+    color: #444746;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__browser-overlay-panel {
+    border-color: #f2f0f0;
+    background: #ffffff;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__progress-overlay-title,
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-overlay-schedule-title,
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-overlay-row,
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-overlay-summary .spark-task-detail__progress-plan-step > span.is-current {
+    color: #1f1f1f;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-overlay-summary,
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-overlay-summary .spark-task-detail__progress-plan-step,
+  :is(.light-theme, [data-theme="light"]) .spark-task-detail__progress-overlay-schedule-trigger {
+    color: rgba(0, 0, 0, 0.55);
   }
 }
 
@@ -3656,8 +4346,8 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-task-detail__needs-input-badge {
-  background: #c2e7ff;
-  color: #001d35;
+  background: var(--sync-c2e7ff, #c2e7ff);
+  color: var(--sync-001d35, #001d35);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-task-detail__failed-badge {
@@ -3666,8 +4356,8 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-status-pill {
-  background: #d3e3fd;
-  color: #041e49;
+  background: var(--sync-d3e3fd, #d3e3fd);
+  color: var(--sync-041e49, #041e49);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-status-pill--failed {
@@ -3697,7 +4387,6 @@
   background: #ffffff;
   color: #1f1f1f;
   box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__progress-panel-header {
@@ -3803,46 +4492,21 @@
   color: #444746;
 }
 
-:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__generated-file-close {
-  background: #0b57d0;
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__generated-file-open {
+  background: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
-:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__generated-file-close:hover,
-:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__generated-file-close:focus-visible {
-  background: #0842a0;
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__generated-file-card:hover .spark-task-detail__generated-file-open,
+:is(.light-theme, [data-theme="light"]) .spark-task-detail .spark-task-detail__generated-file-card:focus-visible .spark-task-detail__generated-file-open {
+  background: var(--sync-0842a0, #0842a0);
 }
 
-:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-card {
-  border: 1px solid #e0e2e0;
-  background: #f0f4f9;
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-card h3 {
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-body {
-  color: #444746;
-}
-
-:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-body a {
-  color: #0b57d0;
-}
-
-:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-plan {
-  background: #ffffff;
-  color: #444746;
-}
-
-:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-actions button,
 :is(.light-theme, [data-theme="light"]) .spark-task-detail__rename-actions button {
   background: #f2f0f0;
   color: #1f1f1f;
 }
 
-:is(.light-theme, [data-theme="light"]) .spark-task-detail__approval-actions button:hover,
 :is(.light-theme, [data-theme="light"]) .spark-task-detail__rename-actions button:hover {
   background: #e5e5e5;
 }

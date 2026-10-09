@@ -11,6 +11,7 @@ import {
   readGithubLogin,
   saveGithubToken,
   spotifyConfigured,
+  userClientIds,
   type ConnectOutcome,
   type ConnectorProvider,
 } from '@willow/personal';
@@ -126,8 +127,8 @@ const SETUP_HINTS: Partial<Record<ConnectorProvider, string>> = {
  * and a vague reason on a disabled switch is the thing being fixed here.
  */
 const NOT_READY_REASONS: Record<ConnectorProvider, string> = {
-  google: 'Connecting Google apps isn’t set up in this build.',
-  spotify: 'Connecting Spotify isn’t set up in this build.',
+  google: 'Add your Google client id at the top of this page to connect Google apps.',
+  spotify: 'Add your Spotify client id at the top of this page to connect Spotify.',
   github: 'GitHub needs a read-only access token you create. Paste one on this card first.',
 };
 
@@ -188,6 +189,8 @@ export const useConnections = () => {
    * Installing also kicks a silent check of which grants survived the reload,
    * which is what fills in `expired` below without anyone clicking anything.
    */
+  // A client id the user pasted (OAuthClientSetup) takes effect at once: the sources reinstall with it.
+  const clientIds = useStore(userClientIds);
   useEffect(() => {
     let alive = true;
     void initConnectorTokenSources({ loginHint: user?.email ?? undefined }).then((status) => {
@@ -196,7 +199,7 @@ export const useConnections = () => {
     return () => {
       alive = false;
     };
-  }, [user?.email]);
+  }, [user?.email, clientIds.google, clientIds.spotify]);
 
   /**
    * A card is "connected" only when every connector behind it is.

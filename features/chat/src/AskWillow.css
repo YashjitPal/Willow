@@ -1,0 +1,51 @@
+/*
+ * Ask Willow (AskWillow.tsx) is the canvas's floating prompt and window (canvas.css: `.cv-cocreate`,
+ * `.cv-float-card--window`, `.cv-float-window` and what they hold), placed beside a selection
+ * rather than at the canvas's fab. What it adds is drawn in the canvas's own colours.
+ */
+
+/* Over the whole window, so a press outside the card closes it, as `.cv-float-overlay` does. */
+.ask-willow {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+}
+
+.ask-willow__card {
+  position: fixed;
+}
+
+/* The selection the questions are about, at the window's top: the text in its dimmer colour,
+   kept to three lines, set off by a rule in the window's outline colour. */
+.ask-willow__quote {
+  display: -webkit-box;
+  margin: 0;
+  padding: 0 0 0 12px;
+  overflow: hidden;
+  border-left: 2px solid var(--cv-outline-variant);
+  color: var(--cv-on-surface-variant);
+  font-family: var(--cv-font);
+  font-size: 13px;
+  line-height: 18px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  overflow-wrap: break-word;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.ask-willow__error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--cv-on-surface);
+  font-family: var(--cv-font);
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.ask-willow__error-detail {
+  color: var(--cv-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+}

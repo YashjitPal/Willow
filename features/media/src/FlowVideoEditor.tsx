@@ -8,6 +8,8 @@ type FlowVideoEditorProps = {
   onPromptChange: (value: string) => void;
   onGenerate: () => void;
   modelName: string;
+  /** Floats above the prompt card, outside its measured layout. */
+  notice?: React.ReactNode;
 };
 
 const flowIcon = (name: string, size = 20) => (
@@ -103,6 +105,7 @@ export const FlowVideoEditor: React.FC<FlowVideoEditorProps> = ({
   onPromptChange,
   onGenerate,
   modelName,
+  notice,
 }) => {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = React.useState(true);
@@ -284,7 +287,10 @@ export const FlowVideoEditor: React.FC<FlowVideoEditorProps> = ({
         <div className="absolute right-2 top-[-28px] flex gap-1"><button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => setTimelineScale(value => Math.max(0.75, value - 0.1))} className="w-7 h-7 rounded-full p-[6px] text-white/60 hover:text-white transition-colors">{flowIcon('zoom_out', 16)}</button><button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => setTimelineScale(value => Math.min(2, value + 0.1))} className="w-7 h-7 rounded-full p-[6px] text-white/60 hover:text-white transition-colors" style={{ transform: `scale(${timelineScale})` }}>{flowIcon('zoom_in', 16)}</button></div>
       </div>
 
-      <div className="shrink-0 h-[108px] pt-4 flex justify-center" data-flow-prompt-band>
+      <div className="relative shrink-0 h-[108px] pt-4 flex justify-center" data-flow-prompt-band>
+        {notice && (
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 w-full max-w-[600px] mb-2 z-[2]">{notice}</div>
+        )}
         <div className="flow-video-prompt-card relative z-[1] w-full max-w-[600px] h-[92px] max-h-[min(28.75rem,65vh)] rounded-[24px] flex flex-col gap-1 bg-[rgba(22,23,24,0.9)] p-[12px_8px_8px_10px] overflow-hidden" data-flow-prompt-card>
           <div className="relative z-[3] flex-1 min-h-[27px] overflow-auto pt-1 pb-3 pr-4 text-[16px] leading-6 font-normal text-white">
             <div

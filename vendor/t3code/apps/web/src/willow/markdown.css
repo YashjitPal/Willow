@@ -1,0 +1,186 @@
+/*
+ * An agent's replies in Willow's StreamingMarkdown (platform/ui streaming-markdown-styles.ts):
+ * 17px/24px #e3e3e3 with 16px between blocks, its heading scale, dotted links, 36px list indents
+ * with 12px between items, a dotted quote rule, pill inline code and 40px-cornered code blocks
+ * on #171717 / #f0f4f9.
+ */
+
+:root {
+  --willow-md-text: #1f1f1f;
+  --willow-md-code-surface: rgb(240 244 249);
+  --willow-md-inline-code-text: #1f1f1f;
+  --willow-md-rule: rgb(0 0 0 / 12%);
+}
+
+:root.dark {
+  --willow-md-text: rgb(227 227 227);
+  --willow-md-code-surface: rgb(23 23 23);
+  --willow-md-inline-code-text: rgb(255 255 255 / 55%);
+  --willow-md-rule: rgb(255 255 255 / 12%);
+}
+
+[data-message-role="assistant"] .chat-markdown {
+  color: var(--willow-md-text);
+  font-size: 17px;
+  line-height: 24px;
+}
+
+.chat-markdown :is(p, ul, ol, blockquote, pre, .chat-markdown-table-container) {
+  margin: 16px 0;
+}
+
+.chat-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 24px 0 0;
+  color: var(--willow-md-text);
+  letter-spacing: normal;
+}
+
+.chat-markdown h1 {
+  font-size: 28px;
+  font-weight: 350;
+  line-height: 36px;
+}
+
+.chat-markdown h2 {
+  font-size: 24px;
+  font-weight: 380;
+  line-height: 28px;
+}
+
+.chat-markdown :is(h3, h4, h5, h6) {
+  margin-bottom: -8px;
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+}
+
+.chat-markdown h1 + h2,
+.chat-markdown :is(h2, h3, h4, h5) + :is(h3, h4, h5, h6) {
+  margin-top: 8px;
+}
+
+.chat-markdown a:not(.chat-markdown-file-link) {
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1.36px;
+  text-underline-offset: 3.91px;
+  background-image: none;
+}
+
+.chat-markdown a:not(.chat-markdown-file-link):hover {
+  color: var(--foreground);
+}
+
+.chat-markdown li + li {
+  margin-top: 12px;
+}
+
+.chat-markdown blockquote {
+  position: relative;
+  padding-left: 32px;
+  border-left: 0;
+  color: inherit;
+  font-style: italic;
+}
+
+.chat-markdown blockquote::before {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 3px;
+  width: 1.3px;
+  background-image: radial-gradient(circle closest-side, currentColor 100%, transparent 100%);
+  background-repeat: repeat-y;
+  background-size: 1.3px 4px;
+  content: "";
+}
+
+.chat-markdown hr {
+  height: 1px;
+  margin: 8px 0;
+  border: 0;
+  background: var(--willow-md-rule);
+}
+
+.chat-markdown :not(pre) > code {
+  border: 0;
+  border-radius: 9999px;
+  background: var(--willow-md-code-surface);
+  padding: 4px 6px;
+  color: var(--willow-md-inline-code-text);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+
+.chat-markdown pre,
+.chat-markdown .chat-markdown-codeblock {
+  border: 0;
+  border-radius: 28px;
+  background: var(--willow-md-code-surface);
+}
+
+.chat-markdown pre {
+  padding: 20px 24px;
+}
+
+.chat-markdown .chat-markdown-codeblock {
+  overflow: hidden;
+  padding: 8px 0 12px;
+}
+
+.chat-markdown .chat-markdown-codeblock pre {
+  padding: 8px 24px 12px;
+  background: transparent;
+}
+
+.chat-markdown .chat-markdown-codeblock-header {
+  padding: 0 12px 0 24px;
+  color: var(--willow-md-text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 540;
+  line-height: 20px;
+}
+
+.chat-markdown pre code {
+  font-family: var(--font-mono);
+  line-height: 21px;
+}
+
+.chat-markdown table th,
+.chat-markdown table td {
+  border-color: var(--willow-md-rule);
+  font-weight: 400;
+}
+
+/*
+ * A streaming reply arrives as Willow's does (platform/ui streaming-markdown-styles and
+ * streaming-text-reveal.ts): each new word fades in over 610ms ease-out from 150ms after it lands
+ * (willow/streamWords.ts). Text blocks no longer fade as a whole on top of their words; code,
+ * tables and media still arrive as blocks, on the same timing.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .chat-markdown .willow-stream-word {
+    animation: willow-stream-word-in 610ms ease-out 150ms both;
+  }
+
+  .chat-markdown[data-streaming] > :is(p, ul, ol, h1, h2, h3, h4, h5, h6, blockquote) {
+    transition: none;
+  }
+
+  .chat-markdown[data-streaming] > :not(p, ul, ol, h1, h2, h3, h4, h5, h6, blockquote),
+  .chat-markdown[data-streaming] .chat-markdown-shiki {
+    transition: opacity 610ms ease-out 150ms;
+  }
+}
+
+@keyframes willow-stream-word-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}

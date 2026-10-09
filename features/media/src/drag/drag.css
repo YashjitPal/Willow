@@ -1,0 +1,146 @@
+/*
+ * Flow's gallery drag, measured mid-drag off the live app (tools/ui-research/captures/flow/media/
+ * collections/): the preview that follows the pointer, the label naming what a drop will do, the
+ * prompt box's drop zone, and the dimming and ring on the tiles.
+ */
+
+/* `.drag-preview`: a 0×0 anchor at the pointer. The thumbnails hang off it by translate. */
+.dg-preview {
+  position: fixed;
+  z-index: 1000;
+  width: 0;
+  height: 0;
+  color: #fff;
+  font-family: var(--sb-font);
+  font-size: 16px;
+  line-height: 24px;
+  pointer-events: none;
+}
+
+.dg-thumbs {
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+/* flow-drag-preview-thumbnail: 128px (8rem) tall. One item keeps its aspect; a stack of several
+ * is square, each 24px further right and down and one layer lower. */
+.dg-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  height: 128px;
+  overflow: hidden;
+  border: 0.8px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  background-color: rgb(51, 51, 51);
+  box-shadow: rgba(0, 0, 0, 0.2) 0 4px 32px -8px;
+  backdrop-filter: blur(10px);
+}
+
+.dg-thumb__media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: clip;
+  object-fit: cover;
+}
+
+/* `.drop-action-label`, 80px below the pointer and centred on it. */
+.dg-label {
+  position: absolute;
+  top: 80px;
+  left: 0;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background-color: rgb(51, 51, 51);
+  box-shadow: rgba(0, 0, 0, 0.2) 0 4px 32px -8px;
+  backdrop-filter: blur(10px);
+  color: #fff;
+  font-size: 16px;
+  line-height: 24px;
+  text-align: center;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+/* flow-prompt-box-drop-zone: stands in for the composer while something is dragged. */
+.dz {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 600px;
+  height: 90px;
+  min-height: 90px;
+}
+
+.dz-slot {
+  position: relative;
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 0.8px solid var(--sb-fg-15);
+  border-radius: 24px;
+  background-color: rgba(22, 23, 24, 0.75);
+  backdrop-filter: blur(40px);
+  color: rgb(227, 227, 227);
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.dz-slot.is-active {
+  border-color: var(--sb-fg-90);
+  background-color: rgba(22, 23, 24, 0.9);
+  transform: scale(1.02);
+}
+
+.dz-slot__content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.dz-slot__label {
+  color: #fff;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* Every tile a drag can't drop on dims, and so does a target until the pointer is on it. The
+ * dragged tile itself stays lit. */
+.dg-tile {
+  transition: filter 0.2s ease-out;
+}
+
+.dg-tile.is-drag-dimmed {
+  filter: brightness(0.5) contrast(0.9);
+}
+
+/* The ring a drop target shows while the pointer is on it. */
+.dg-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 0 rgba(0, 0, 0, 0), inset 0 0 0 0 rgba(0, 0, 0, 0);
+  pointer-events: none;
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.dg-ring.is-active {
+  box-shadow: inset 0 0 0 1.5px rgb(241, 243, 244), inset 0 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* The sidebar's Trash row while a drag is over it. */
+.dg-trash-target {
+  outline: 1.6px solid rgb(168, 199, 250);
+  outline-offset: -1.6px;
+  background-color: var(--sb-fg-25) !important;
+  color: #fff !important;
+}

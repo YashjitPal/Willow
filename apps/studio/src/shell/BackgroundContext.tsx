@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
-import { useAuth } from '@willow/auth/AuthContext';
+import { DEVICE_BACKGROUND_KEY, useAuth } from '@willow/auth/AuthContext';
 
 export type BackgroundType = 'waves' | 'lines' | 'solid';
 
@@ -10,23 +10,22 @@ interface BackgroundContextType {
 
 const BackgroundContext = createContext<BackgroundContextType | undefined>(undefined);
 
-// Legacy key name, kept deliberately: it addresses backgrounds real users have
-// already saved. Renaming it would silently orphan their choice.
-const STORAGE_KEY = 'dashboard-background';
+const STORAGE_KEY = DEVICE_BACKGROUND_KEY;
 
 export const BackgroundProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, userProfile, updateUserProfile } = useAuth();
   
   const [background, setBackgroundState] = useState<BackgroundType>(() => {
-    // Load from localStorage on init (fallback for non-authenticated users)
     const saved = localStorage.getItem(STORAGE_KEY);
     return (saved as BackgroundType) || 'solid'; // Default to solid
   });
 
-  // Sync with userProfile when authenticated
+  // Signed in, the account's background wins and is kept on the device too, so
+  // signing out shows the same one.
   useEffect(() => {
     if (user && userProfile?.background) {
       setBackgroundState(userProfile.background);
+      try { localStorage.setItem(STORAGE_KEY, userProfile.background); } catch { /* ignore */ }
     }
   }, [user, userProfile?.background]);
 

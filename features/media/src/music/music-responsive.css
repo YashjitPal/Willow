@@ -1,0 +1,204 @@
+/*
+ * Willow Music (MusicView.tsx) on tablets (601-960px) and phones (600px and below).
+ *
+ * - New music: the heading steps down, the four sample prompts become a 2 x 2 grid on a tablet and
+ *   one list on a phone, the page between the header and the composer scrolls, and the composer
+ *   keeps 8-16px off the edges.
+ * - The player: the desktop's row of cover, controls and lyrics (placed by measuring, in
+ *   MusicView) becomes one scrolling column: the cover as wide as the screen allows, the title and
+ *   controls beneath, the lyrics in a shorter box and a smaller type under them.
+ * - Both headers keep their buttons on screen: the account chip is the avatar alone, History its
+ *   glyph alone, the song's name truncates.
+ *
+ * Every rule sits in a max-width block, so the desktop never sees them. MusicView's markup is
+ * Tailwind; these rules hold the music-* hook classes and override with `!important` where a
+ * utility or a measured inline style would otherwise win. Pinned by
+ * apps/studio/test/media-responsive.test.mjs.
+ */
+
+@media (max-width: 960px) {
+  /* ---- Headers ---------------------------------------------------------------------------- */
+
+  .music-landing-header,
+  .music-editor-header {
+    padding: env(safe-area-inset-top) 8px 0 !important;
+    gap: 8px;
+  }
+
+  .music-landing-header .music-header-side {
+    width: auto !important;
+    min-width: 0;
+  }
+
+  .music-editor-header .music-header-side {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .music-editor-header .music-header-side > button {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .music-header-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .music-header-actions {
+    flex-shrink: 0;
+    gap: 4px !important;
+  }
+
+  .music-header-actions > button {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  /* ---- New music ------------------------------------------------------------------------ */
+
+  .music-landing-main {
+    top: calc(64px + env(safe-area-inset-top)) !important;
+    bottom: calc(196px + env(safe-area-inset-bottom)) !important;
+    gap: 24px;
+    padding: 16px 16px 8px !important;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .music-landing-heading {
+    font-size: 1.75rem !important;
+  }
+
+  .music-sample-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    padding: 0 !important;
+  }
+
+  .music-sample-card {
+    min-height: 88px;
+  }
+
+  .music-landing-composer {
+    bottom: calc(12px + env(safe-area-inset-bottom) + var(--media-keyboard-inset, 0px)) !important;
+    width: calc(100% - 32px) !important;
+    gap: 12px !important;
+  }
+
+  /* ---- The player ------------------------------------------------------------------------- */
+
+  .music-editor-content {
+    top: calc(64px + env(safe-area-inset-top)) !important;
+    bottom: 0 !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 24px !important;
+    padding: 8px 16px calc(24px + env(safe-area-inset-bottom)) !important;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .music-editor-left {
+    width: 100% !important;
+    max-width: 480px;
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+
+  .music-cover {
+    width: min(100%, 400px) !important;
+    height: auto !important;
+    aspect-ratio: 1;
+    align-self: center;
+    margin-bottom: 20px !important;
+  }
+
+  .music-title {
+    font-size: 26px !important;
+  }
+
+  .music-lyrics-col {
+    flex: 0 0 auto !important;
+    width: 100%;
+    height: auto !important;
+    padding: 0 !important;
+  }
+
+  .music-lyrics {
+    max-width: 480px !important;
+    height: min(52dvh, 440px) !important;
+    padding: 64px 8px !important;
+  }
+
+  .music-lyric-line {
+    font-size: 24px !important;
+  }
+
+  .music-editor-prompt {
+    width: 100%;
+  }
+}
+
+/* ---- Phones ---------------------------------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  .music-landing-heading {
+    font-size: 1.375rem !important;
+  }
+
+  .music-sample-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .music-sample-card {
+    min-height: 76px;
+  }
+
+  .music-landing-composer {
+    width: calc(100% - 16px) !important;
+    bottom: calc(8px + env(safe-area-inset-bottom) + var(--media-keyboard-inset, 0px)) !important;
+  }
+
+  /* From the top: the list runs past the screen and scrolls. */
+  .music-landing-main {
+    bottom: calc(184px + env(safe-area-inset-bottom)) !important;
+    justify-content: flex-start !important;
+  }
+
+  /* The account chip as its avatar. */
+  .music-account-name {
+    display: none;
+  }
+
+  .music-account-chip {
+    padding: 0 6px !important;
+  }
+
+  /* History by its glyph alone, its label kept for screen readers. */
+  .music-history-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .music-header-actions > button {
+    padding-right: 10px !important;
+    padding-left: 10px !important;
+  }
+
+  .music-title {
+    font-size: 22px !important;
+  }
+
+  .music-lyric-line {
+    font-size: 20px !important;
+  }
+}

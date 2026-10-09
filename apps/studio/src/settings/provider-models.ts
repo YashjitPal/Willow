@@ -114,42 +114,15 @@ export const GEMINI_MODELS: ProviderModelOption[] = [
     capabilities: ['embedding'],
   },
   /*
-   * Not announced. The WSJ reported on 2026-09-02 that Google was readying it
-   * for release "as soon as Wednesday" under the internal name Skimaki, and
-   * Business Insider had it in employee preview from 2026-08-27. Google has
-   * published no model page, no slug and no pricing, so the id, the display
-   * name and the price below are all inferred from 3.7 Flash — the previous
-   * three Flash releases have used `gemini-<major>.<minor>-flash` without
-   * exception. Confirm all four against Google's docs once it is live.
+   * The only Flash on offer: 3.7, 3.6 and 3.5 Flash were taken out, and saved
+   * copies of them move onto this one (`RETIRED_MODEL_IDS`). Released
+   * 2026-09-02; id, name and price as Google's model and pricing pages give them.
    */
   {
     id: 'gemini-3.8-flash',
     name: 'Gemini 3.8 Flash',
     maxLevels: 3,
     hasNone: false,
-    levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' },
-  },
-  {
-    id: 'gemini-3.7-flash',
-    name: 'Gemini 3.7 Flash',
-    maxLevels: 3,
-    hasNone: false,
-    levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' },
-  },
-  {
-    id: 'gemini-3.6-flash',
-    name: 'Gemini 3.6 Flash',
-    maxLevels: 3,
-    hasNone: true,
-    noneLabel: 'None',
-    levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' },
-  },
-  {
-    id: 'gemini-3.5-flash',
-    name: 'Gemini 3.5 Flash',
-    maxLevels: 3,
-    hasNone: true,
-    noneLabel: 'None',
     levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' },
   },
   {
@@ -199,8 +172,8 @@ export const GEMINI_MODELS: ProviderModelOption[] = [
     noneLabel: 'None (Disabled)',
     levelLabels: { 1: '8k Tokens', 2: '16k Tokens', 3: '24k Tokens' },
   },
-  { id: 'gemini-3-pro-image-preview', name: 'Nano Banana Pro', maxLevels: 0, hasNone: true, noneLabel: 'None' },
-  { id: 'gemini-3.1-flash-image-preview', name: 'Nano Banana 2', maxLevels: 0, hasNone: true, noneLabel: 'None' },
+  { id: 'gemini-3-pro-image', name: 'Nano Banana Pro', maxLevels: 0, hasNone: true, noneLabel: 'None' },
+  { id: 'gemini-nano-banana-2.1', name: 'Nano Banana 2.1', maxLevels: 0, hasNone: true, noneLabel: 'None' },
   { id: 'gemini-3.1-flash-lite-image', name: 'Nano Banana Lite', maxLevels: 0, hasNone: true, noneLabel: 'None' },
   { id: 'omni-flash', name: 'Gemini Omni Flash 1', maxLevels: 0, hasNone: true, noneLabel: 'None' },
   { id: 'omni-flash-1.1', name: 'Gemini Omni Flash 1.1', maxLevels: 0, hasNone: true, noneLabel: 'None' },
@@ -313,14 +286,11 @@ const MODEL_PRICES: Record<string, string> = {
   // Output is not charged, so a pair would read "$0.20/$0.00".
   'gemini-embedding-2': '$0.20/free',
   /*
-   * 3.8, 3.7 and 3.6 Flash share one introductory rate that runs to
-   * 2026-12-31; all three go to $1.50/$7.50 on 2027-01-01. Worth revisiting in
-   * January rather than letting the pill under-report by half.
+   * 3.8 Flash's introductory rate runs to 2026-12-31; it goes to $1.50/$7.50
+   * on 2027-01-01. Worth revisiting in January rather than letting the pill
+   * under-report by half.
    */
   'gemini-3.8-flash': '$0.75/$3.75',
-  'gemini-3.7-flash': '$0.75/$3.75',
-  'gemini-3.6-flash': '$0.75/$3.75',
-  'gemini-3.5-flash': '$1.50/$9.00',
   'gemini-3.5-flash-lite': '$0.30/$2.50',
   'gemini-3.1-pro-preview': '$2.00/$12.00',
   // Apache 2.0 open weights. The Gemini API serves Gemma on the free tier
@@ -333,8 +303,9 @@ const MODEL_PRICES: Record<string, string> = {
    * 1290 tokens per 1024px image at $30.00/1M. Per image is the unit its own
    * docs headline and the one anybody budgets in.
    */
-  'gemini-3-pro-image-preview': '$0.04/image',
-  'gemini-3.1-flash-image-preview': '$0.04/image',
+  'gemini-3-pro-image': '$0.04/image',
+  // 1,120 tokens for a 1K image, at $30.00/1M: $0.0336.
+  'gemini-nano-banana-2.1': '$0.034/image',
   'gemini-3.1-flash-lite-image': '$0.03/image',
   // Video output, billed at 5,792 tokens per second of 720p — about $0.10/sec.
   'omni-flash': '$1.50/$17.50',

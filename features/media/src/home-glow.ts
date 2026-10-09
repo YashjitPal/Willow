@@ -166,6 +166,52 @@ export const homeGlowMobileAccent = (color: string | null | undefined): string =
     ? HOME_GLOW_MOBILE_ACCENT[color as WorkspaceColorName]
     : DEFAULT_GLOW_ACCENT_MOBILE);
 
+/**
+ * The step Gemini's own blue took when its desktop glow moved from the blurred
+ * `--lumi-sys-color--surface-accent` gradient to the masked `--bard-color-lm-glow-chat`
+ * one: `#14204f` -> `#1f3b9b` in OKLCh.
+ */
+export const GLOW_ACCENT_DESKTOP_STEP = {
+  lightnessRatio: 1.5005740205114695,
+  chromaRatio: 1.8219229242204875,
+  hueShiftDeg: -2.4666778399483746,
+} as const;
+
+/** Carry an old desktop accent (`rgb(r, g, b)`) across that step. Returns `rgb(r, g, b)`. */
+export const stepGlowAccentToDesktop = (rgb: string): string => {
+  const channels = (rgb.match(/\d+/g) ?? []).slice(0, 3).map((n) => Number(n) / 255) as [number, number, number];
+  const [L, C, h] = rgbToOklch(channels);
+  const { lightnessRatio, chromaRatio, hueShiftDeg } = GLOW_ACCENT_DESKTOP_STEP;
+  const out = oklchToRgb([
+    L * lightnessRatio,
+    C * chromaRatio,
+    (h + hueShiftDeg + 360) % 360,
+  ]);
+  return `rgb(${out.map((c) => Math.round(c * 255)).join(', ')})`;
+};
+
+/**
+ * Green on the desktop glow: the shipped green carried across Gemini's step. The derived
+ * swatches took that same step, their old and new accents differing by it to within one
+ * unit, but green's old accent was hand-picked rather than derived, so taking the derived
+ * mobile green instead would have dimmed it while every other colour brightened.
+ */
+export const DEFAULT_GLOW_ACCENT_DESKTOP = 'rgb(0, 140, 103)';
+
+/**
+ * The accent of the glow above 960px, dark theme. Gemini's desktop now uses the mobile
+ * token, so every swatch is its mobile accent except green, which is above.
+ */
+export const HOME_GLOW_DESKTOP_ACCENT = {
+  ...HOME_GLOW_MOBILE_ACCENT,
+  green: DEFAULT_GLOW_ACCENT_DESKTOP,
+} as const satisfies Record<WorkspaceColorName, string>;
+
+export const homeGlowDesktopAccent = (color: string | null | undefined): string =>
+  (color && color in HOME_GLOW_DESKTOP_ACCENT
+    ? HOME_GLOW_DESKTOP_ACCENT[color as WorkspaceColorName]
+    : DEFAULT_GLOW_ACCENT_DESKTOP);
+
 /** Gemini's `--lumi-sys-color--surface-accent`, light theme. */
 export const GEMINI_GLOW_ACCENT_LIGHT_HEX = '#9dd2ff';
 

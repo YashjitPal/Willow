@@ -140,6 +140,12 @@ export const designViewportMode = atom<'desktop' | 'mobile'>('desktop');
 // Currently selected node IDs on the canvas (shared with chat)
 export const selectedDesignNodeIds = atom<string[]>([]);
 
+/**
+ * True while the Design chat is generating a screen. App keeps the Design view
+ * mounted, hidden, until it settles, so leaving mid-reply keeps the transcript.
+ */
+export const designTurnRunning = atom(false);
+
 // Atom to signal which node should be focused/highlighted on the canvas
 export const focusedDesignNodeId = atom<string | null>(null);
 

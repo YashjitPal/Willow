@@ -4,12 +4,9 @@
 import { atom, map, type MapStore } from 'nanostores';
 import { 
   BASE_TEMPLATE, 
-  SANDPACK_DEPENDENCIES,
-  type SandpackFile, 
   type SandpackFiles,
-  type ParsedAction 
 } from './sandpack-types';
-import { StreamingMessageParser, parseAIResponse, parseResponseForDisplay, type ChatSegment } from './message-parser';
+import { parseResponseForDisplay, type ChatSegment } from './message-parser';
 
 // File content type for internal tracking
 interface FileEntry {
@@ -19,7 +16,12 @@ interface FileEntry {
 
 type FileMap = Record<string, FileEntry>;
 
-class SandpackStore {
+/**
+ * One Code screen's files and preview state. Each screen has its own (see
+ * `session/code-session.ts`): two screens on one store meant opening the Code
+ * home reset the files under a project's running turn.
+ */
+export class SandpackStore {
   // Files store - tracks all project files
   files: MapStore<FileMap> = map({});
   
@@ -43,9 +45,6 @@ class SandpackStore {
   
   // Tracks the ID of the currently active snapshot (used to disable Revert/Preview buttons for the active state)
   activeSnapshotId = atom<string | null>(null);
-
-  // Pending file edits during streaming
-  #pendingFileEdits: Map<string, { filePath: string; content: string }> = new Map();
 
   constructor() {
     // Initialize with base template
@@ -156,71 +155,11 @@ class SandpackStore {
   }
 
   /**
-   * Process a complete AI response
-   * Parses the response and applies file changes
-   */
-  async processAIResponse(response: string): Promise<void> {
-    console.log('[Store] Processing AI response, length:', response.length);
-    console.log('[Store] Response preview:', response.substring(0, 300));
-    const actions = parseAIResponse(response);
-    console.log('[Store] Parsed actions:', actions.length, actions.map(a => a.filePath));
-    
-    for (const action of actions) {
-      if (action.type === 'file' && action.filePath && action.content !== undefined) {
-        console.log('[Store] Setting file from AI:', action.filePath);
-        this.setFile(action.filePath, action.content);
-      }
-      // Ignore shell and start actions
-    }
-  }
-
-  /**
-   * Create a streaming message parser for real-time updates
-   */
-  createMessageParser(): StreamingMessageParser {
-    return new StreamingMessageParser({
-      onActionOpen: (action) => {
-        if (action.type === 'file' && action.filePath) {
-          this.setCurrentEditingFile(action.filePath);
-        }
-      },
-      onActionClose: (action) => {
-        if (action.type === 'file' && action.filePath && action.content !== undefined) {
-          // Queue the file edit (will be applied in batch at the end)
-          this.#pendingFileEdits.set(action.filePath, {
-            filePath: action.filePath,
-            content: action.content,
-          });
-        }
-        this.setCurrentEditingFile(null);
-      },
-      onTextChunk: () => {
-        // Text chunks handled by the UI directly
-      },
-    });
-  }
-
-  /**
-   * Flush all pending file edits
-   * Called when AI generation completes
-   */
-  flushPendingEdits(): void {
-    console.log('[Store] Flushing pending edits, count:', this.#pendingFileEdits.size);
-    for (const [path, edit] of this.#pendingFileEdits) {
-      console.log('[Store] Flushing file:', path);
-      this.setFile(edit.filePath, edit.content);
-    }
-    this.#pendingFileEdits.clear();
-    this.setCurrentEditingFile(null);
-  }
-
-  /**
    * Full reset - clears all state for a fresh session
    * Call this when starting a new project/session
    */
   reset(): void {
     console.log('[Store] Full reset - clearing all session state');
-    this.#pendingFileEdits.clear();
     this.files.set({});
     this.activeFile.set('/src/App.tsx');
     this.currentEditingFile.set(null);
@@ -246,8 +185,6 @@ class SandpackStore {
   }
 }
 
-// Singleton instance
-export const sandpackStore = new SandpackStore();
 
 // Re-export parser functions for convenience
-export { parseAIResponse, parseResponseForDisplay, type ChatSegment };
+export { parseResponseForDisplay, type ChatSegment };

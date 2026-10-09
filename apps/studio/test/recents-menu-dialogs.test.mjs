@@ -70,11 +70,30 @@ const dialogCssCode = codeOnly(dialogCss);
 
 // --- The menu pane ---------------------------------------------------------
 
+/**
+ * Where the Recents pane starts. Anchored on its render gate because the Spark
+ * sidebar's bot-row menu borrows the same surface earlier in the file, so the
+ * first `fixed z-[9999]` is no longer this pane.
+ */
+const recentsPaneStart = () => {
+  const gate = sidebarCode.indexOf('shouldRenderMenu && menuActiveChat && menuPosition');
+  assert.ok(gate >= 0, 'could not locate the Recents row menu');
+  const start = sidebarCode.indexOf('fixed z-[9999]', gate);
+  assert.ok(start > gate, 'could not locate the menu pane');
+  return start;
+};
+
+/** The Recents pane through its last row, stopping at the Rename dialog after it. */
+const recentsPane = () => {
+  const start = recentsPaneStart();
+  const end = sidebarCode.indexOf('headingAs=', start);
+  assert.ok(end > start, 'could not locate the Rename dialog after the menu pane');
+  return sidebarCode.slice(start, end);
+};
+
 test('the menu pane keeps the measured card chrome and its content-derived width', () => {
-  const pane = sidebarCode.slice(
-    sidebarCode.indexOf('fixed z-[9999]'),
-    sidebarCode.indexOf('Share conversation'),
-  );
+  const start = recentsPaneStart();
+  const pane = sidebarCode.slice(start, sidebarCode.indexOf('Share conversation', start));
   assert.ok(pane.length > 0, 'could not locate the menu pane');
   // Width is bounded, never pinned — the pane shrink-wraps its widest row.
   assert.match(pane, /min-w-\[150px\]/);
@@ -101,7 +120,7 @@ test('the pane butts against the trigger with no gap, in both directions', () =>
 });
 
 test('the five measured rows are present, in order, with their measured glyphs', () => {
-  const pane = sidebarCode.slice(sidebarCode.indexOf('fixed z-[9999]'));
+  const pane = recentsPane();
   const order = ['share_2', 'push_pin', 'edit', 'notebook', 'delete'];
   let cursor = 0;
   for (const glyph of order) {
@@ -118,7 +137,7 @@ test('the five measured rows are present, in order, with their measured glyphs',
 });
 
 test('every row icon carries the measured Luminous Symbols axes', () => {
-  const pane = sidebarCode.slice(sidebarCode.indexOf('fixed z-[9999]'));
+  const pane = recentsPane();
   const icons = pane.match(/<MaterialSymbol[\s\S]*?\/>/g) ?? [];
   assert.equal(icons.length, 5, 'expected exactly five row icons');
   for (const icon of icons) {

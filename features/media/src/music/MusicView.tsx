@@ -6,6 +6,9 @@ import { Avatar } from '@willow/ui/Avatar';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { getGeminiClient } from '@willow/ai/chat';
+import { PromptNotice, type PromptNoticeState } from '../PromptNotice';
+import { drawCoverArt } from './cover-art';
+import './music-responsive.css';
  
 interface MusicViewProps {
   onBack: () => void;
@@ -16,7 +19,12 @@ interface MusicViewProps {
   onModelChange: (id: any) => void;
   onSongGenerated?: (item: any) => void;
   initialItem?: any;
+  /** The music models added in Settings → Models. */
   availableModels?: Array<{ id: string; name: string }>;
+  /** Opens Settings → Models. */
+  onAddModel?: () => void;
+  /** A Gemini image model the user added, for the cover; without one the cover is drawn here. */
+  coverImageModel?: string;
 }
 
 const sampleMusic = [
@@ -52,10 +60,13 @@ export const MusicView: React.FC<MusicViewProps> = ({
   onModelChange,
   onSongGenerated,
   initialItem,
-  availableModels
+  availableModels,
+  onAddModel,
+  coverImageModel,
 }) => {
   const { userProfile, user } = useAuth();
   const { apiKeys } = useUserDataContext();
+  const [notice, setNotice] = useState<PromptNoticeState | null>(null);
   
   // Core View State: 'initial' = Grid view, 'editor' = Creating/Editing a track
   const [viewState, setViewState] = useState<'initial' | 'editor'>(initialItem ? 'editor' : 'initial');
@@ -283,16 +294,35 @@ export const MusicView: React.FC<MusicViewProps> = ({
     }
   };
 
-  const models = availableModels && availableModels.length > 0 && availableModels[0].id !== 'none'
-    ? availableModels
-    : [
-        { id: 'lyria-3-pro', name: 'Lyria 3 Pro' },
-        { id: 'grok-voice', name: 'Grok Voice' }
-      ];
+  const models = availableModels ?? [];
 
-  const getActiveModelName = () => {
-    return models.find(m => m.id === activeModelId)?.name || (models[0]?.name || 'Lyria 3 Pro');
-  };
+  const getActiveModelName = () => models.find(m => m.id === activeModelId)?.name ?? 'No music model';
+
+  // A "no model added" notice clears itself once a music model is added.
+  const visibleNotice = notice?.missingModel && models.length > 0 ? null : notice;
+  const noticeLine = visibleNotice && (
+    <div className="mb-2">
+      <PromptNotice notice={visibleNotice} onDismiss={() => setNotice(null)} onOpenSettings={onAddModel} />
+    </div>
+  );
+  const addModelRows = models.length === 0 && (
+    <>
+      <span className="px-3 pt-2 pb-1 text-[12px] text-[#808080] whitespace-nowrap">No music models added</span>
+      {onAddModel && (
+        <button
+          type="button"
+          onClick={() => {
+            setIsLocalDropdownOpen(false);
+            onAddModel();
+          }}
+          className="w-full flex items-center gap-1.5 text-left px-3 py-2 rounded-[10px] text-[12px] font-normal transition-colors cursor-pointer text-white hover:bg-white/5"
+        >
+          <Plus size={14} strokeWidth={2} />
+          Add a model
+        </button>
+      )}
+    </>
+  );
 
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -385,6 +415,15 @@ export const MusicView: React.FC<MusicViewProps> = ({
   const startGeneration = async () => {
     const finalPrompt = editPrompt.trim() || prompt.trim();
     if (!finalPrompt) return;
+    if (!activeModelId) {
+      setNotice({ message: "You haven't added a music model yet. Add one to make songs.", settings: true, missingModel: 'music' });
+      return;
+    }
+    if (!apiKeys?.gemini?.[0]) {
+      setNotice({ message: 'Google Gemini API key is missing. Add it in Settings → Models & API.', settings: true });
+      return;
+    }
+    setNotice(null);
     setViewState('editor');
     setCoverStatus('generating');
     setMusicStatus('generating');
@@ -478,7 +517,7 @@ export const MusicView: React.FC<MusicViewProps> = ({
 
     if (!generatedAudioUrl) {
       console.error("Lyria generation failed. No audio returned.");
-      alert("Lyria 3 Generation Failed: Please check your API key and quotas.");
+      setNotice({ message: "Lyria couldn't make this song. Check your API key and quota, then try again.", settings: true });
       setMusicStatus('idle'); // The main view condition uses `musicStatus === 'idle'` to show the prompt input
       setCoverStatus('idle');
       setViewState('initial'); // Reset viewState so it returns to the prompt screen instead of the editor screen
@@ -576,44 +615,39 @@ CRITICAL RULES:
     setSongArtist(activeArtist);
     setLyrics(activeLyrics);
 
-    // Generate real cover art via Google Imagen API using the dynamic title!
-    let generatedImage = null;
+    // Cover art from a Gemini image model the user added; without one, or if it fails, the cover
+    // is drawn on the device. The prompt is never sent to a third-party image service.
+    let generatedImage: string | null = null;
     try {
-      if (apiKeys?.gemini?.[0]) {
+      if (coverImageModel && apiKeys?.gemini?.[0]) {
         const imgResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${apiKeys.gemini[0]}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${coverImageModel}:generateContent`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKeys.gemini[0] },
             body: JSON.stringify({
-              instances: [
-                { prompt: `A professional music album cover art for an album track titled "${activeTitle}" by "${activeArtist}" based on the vibe: "${finalPrompt}". Highly detailed, cinematic, premium album cover design.` }
-              ],
-              parameters: {
-                sampleCount: 1
-              }
+              contents: [{
+                parts: [{ text: `A professional music album cover art for an album track titled "${activeTitle}" by "${activeArtist}" based on the vibe: "${finalPrompt}". Highly detailed, cinematic, premium album cover design.` }],
+              }],
+              generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '1:1' } },
             })
           }
         );
         
         if (imgResponse.ok) {
           const data = await imgResponse.json();
-          if (data?.predictions?.[0]?.bytesBase64Encoded) {
-             generatedImage = `data:image/jpeg;base64,${data.predictions[0].bytesBase64Encoded}`;
+          const parts = data?.candidates?.[0]?.content?.parts || [];
+          const imagePart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith('image/'));
+          if (imagePart?.inlineData?.data) {
+            generatedImage = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
           }
         }
       }
     } catch (e) {
-      console.error("Failed real image generation via API:", e);
+      console.error("Cover art generation failed:", e);
     }
 
-    let finalImageUrl = "";
-    if (generatedImage) {
-      finalImageUrl = generatedImage;
-    } else {
-      const encodedPrompt = encodeURIComponent(finalPrompt + ' music album cover art masterpiece');
-      finalImageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=800&height=800&nologo=true&seed=${Math.floor(Math.random() * 1000)}`;
-    }
+    const finalImageUrl = generatedImage || drawCoverArt(activeTitle);
 
     // Preload the image fully in background before transitioning state, ensuring perfectly synced loading
     await new Promise<void>((resolve) => {
@@ -668,7 +702,7 @@ CRITICAL RULES:
   if (viewState === 'editor') {
     return (
       <div 
-        className="relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden"
+        className="music-editor relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden"
         style={{ fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif" }}
       >
         {/* Dynamic Ambient Background */}
@@ -822,18 +856,18 @@ CRITICAL RULES:
         </div>
 
         {/* Editor Header */}
-        <header className="absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-[80] bg-transparent">
-          <div className="flex items-center gap-4">
+        <header className="music-editor-header absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-[80] bg-transparent">
+          <div className="music-header-side flex items-center gap-4">
             <button 
               onClick={handleExitEditor}
               className="p-3 hover:bg-white/10 rounded-full transition-colors flex items-center gap-3 group cursor-pointer"
             >
               <ArrowLeft size={22} className="text-white group-hover:-translate-x-1 transition-transform" />
-              <span className="text-sm font-medium text-white tracking-wide">{songTitle}</span>
+              <span className="music-header-title text-sm font-medium text-white tracking-wide">{songTitle}</span>
             </button>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="music-header-actions flex items-center gap-4">
             <button className="p-2 hover:bg-white/10 rounded-full transition-colors cursor-pointer text-gray-300 hover:text-white">
               <Heart size={18} strokeWidth={2} />
             </button>
@@ -842,7 +876,7 @@ CRITICAL RULES:
             </button>
             <button className="flex items-center gap-2 h-9 px-4 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/5 cursor-pointer">
               <History size={16} className="text-gray-300" />
-              <span className="text-sm font-medium text-white">Show history</span>
+              <span className="music-history-label text-sm font-medium text-white">Show history</span>
             </button>
             <button onClick={handleExitEditor} className="h-9 px-5 rounded-full bg-white hover:bg-gray-200 text-black font-semibold text-sm transition-colors cursor-pointer">
               Done
@@ -853,7 +887,7 @@ CRITICAL RULES:
         {/* Editor Main Content: Three Column Layout when completed or generating */}
         <div 
           ref={editorContentRef}
-          className={`absolute z-10 top-16 bottom-[40px] left-0 right-0 flex ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'flex-row items-center justify-start px-0 gap-0' : 'flex-col items-center justify-center px-8'} transition-opacity duration-300 ${((musicStatus === 'generating' || musicStatus === 'completed') && !isLayoutCalculated) ? 'opacity-0' : 'opacity-100'}`}
+          className={`music-editor-content absolute z-10 top-16 bottom-[40px] left-0 right-0 flex ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'flex-row items-center justify-start px-0 gap-0' : 'flex-col items-center justify-center px-8'} transition-opacity duration-300 ${((musicStatus === 'generating' || musicStatus === 'completed') && !isLayoutCalculated) ? 'opacity-0' : 'opacity-100'}`}
         >
           
           {/* Left Column / Center generating block */}
@@ -864,11 +898,11 @@ CRITICAL RULES:
               paddingRight: `${leftGap}px`,
               width: `${450 + leftGap * 2}px`
             } : {}}
-            className={`flex flex-col ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'items-start shrink-0 mb-0' : 'items-center mb-8'}`}
+            className={`music-editor-left flex flex-col ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'items-start shrink-0 mb-0' : 'items-center mb-8'}`}
           >
 
             {/* 1:1 Cover Art Container */}
-            <div className={`relative ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'w-[450px] h-[450px]' : 'w-[400px] h-[400px]'} shrink-0 rounded-lg bg-[#1a1b1f] overflow-hidden shadow-2xl border border-white/5 mb-8`}>
+            <div className={`music-cover relative ${(musicStatus === 'completed' || musicStatus === 'generating') ? 'w-[450px] h-[450px]' : 'w-[400px] h-[400px]'} shrink-0 rounded-lg bg-[#1a1b1f] overflow-hidden shadow-2xl border border-white/5 mb-8`}>
               <AnimatePresence>
                 {coverStatus === 'generating' && (
                   <motion.div 
@@ -965,7 +999,7 @@ CRITICAL RULES:
                      }
                    `}} />
                   <div className="flex flex-col">
-                     <h1 className="text-[32px] font-bold text-white flex items-center leading-tight tracking-tight w-full max-w-[450px]" style={{ fontFamily: '"Google Sans", sans-serif' }}>
+                     <h1 className="music-title text-[32px] font-bold text-white flex items-center leading-tight tracking-tight w-full max-w-[450px]" style={{ fontFamily: '"Google Sans", sans-serif' }}>
                         {musicStatus === 'generating' ? (
                            <div className="w-56 h-[38px] rounded-lg shimmer-container" style={{ animationDelay: '0s' }}></div>
                         ) : (
@@ -1091,8 +1125,8 @@ CRITICAL RULES:
                )}
 
                {/* Right Column Lyrics Container */}
-               <div className="flex-1 h-full flex items-center justify-center px-8">
-                  <div ref={lyricsContainerRef} className="w-full max-w-[600px] h-[600px] overflow-y-auto no-scrollbar flex flex-col items-start gap-4 py-32 px-8 mask-image-linear-gradient animate-in fade-in duration-700">
+               <div className="music-lyrics-col flex-1 h-full flex items-center justify-center px-8">
+                  <div ref={lyricsContainerRef} className="music-lyrics w-full max-w-[600px] h-[600px] overflow-y-auto no-scrollbar flex flex-col items-start gap-4 py-32 px-8 mask-image-linear-gradient animate-in fade-in duration-700">
                      <style dangerouslySetInnerHTML={{__html: `
                        .mask-image-linear-gradient {
                          mask-image: linear-gradient(to bottom, transparent, black 25%, black 75%, transparent);
@@ -1163,7 +1197,7 @@ CRITICAL RULES:
                                      if (!isPlaying) togglePlay();
                                    }
                                  }}
-                                 className={`text-left cursor-pointer transition-all duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] w-full py-2 origin-left text-[32px] font-bold tracking-tight ${
+                                 className={`music-lyric-line text-left cursor-pointer transition-all duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] w-full py-2 origin-left text-[32px] font-bold tracking-tight ${
                                    isCurrent ? 'text-white opacity-100 translate-y-0 scale-100' : 
                                    isPast ? 'text-white opacity-30 -translate-y-2 scale-[0.95]' : 
                                    'text-white opacity-50 translate-y-2 scale-[0.95]'
@@ -1186,8 +1220,9 @@ CRITICAL RULES:
 
           {/* Prompt Box */}
           {musicStatus === 'idle' && (
-          <div className="w-full max-w-[600px] flex justify-center">
+          <div className="music-editor-prompt w-full max-w-[600px] flex justify-center">
              <div className="bg-[#141517]/90 backdrop-blur-[80px] rounded-[22px] pt-3 pb-2 px-3 flex flex-col shadow-2xl border border-white/5 w-full">
+              {noticeLine}
               <div className="relative flex items-start w-full">
                 <textarea 
                   ref={textareaRef}
@@ -1246,6 +1281,7 @@ CRITICAL RULES:
                         {modelOpt.name}
                       </button>
                     ))}
+                    {addModelRows}
                   </div>
                 )}
               </div>
@@ -1276,12 +1312,12 @@ CRITICAL RULES:
   // Handle active audio triggers on initial view
   return (
     <div 
-      className="relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden"
+      className="music-landing relative flex flex-col h-screen w-screen bg-[#000000] text-gray-200 overflow-hidden"
       style={{ fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif" }}
     >
       {/* Header */}
-      <header className="absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-[80] bg-transparent">
-        <div className="flex items-center gap-4 w-[330px]">
+      <header className="music-landing-header absolute top-0 left-0 right-0 h-16 flex items-center justify-between px-4 shrink-0 z-[80] bg-transparent">
+        <div className="music-header-side flex items-center gap-4 w-[330px]">
           <button 
             onClick={onBack}
             className="p-3 hover:bg-white/10 rounded-full transition-colors flex items-center gap-3 group"
@@ -1291,9 +1327,9 @@ CRITICAL RULES:
           </button>
         </div>
 
-        <div className="flex items-center gap-5 w-[330px] justify-end">
-          <button className="flex items-center h-11 bg-[#171717] rounded-2xl pl-3 pr-1 gap-2 hover:bg-[#202020] transition-colors border border-transparent hover:border-white/10">
-            <span className="text-xs font-semibold text-gray-300 mr-1 truncate max-w-[100px]">
+        <div className="music-header-side flex items-center gap-5 w-[330px] justify-end">
+          <button className="music-account-chip flex items-center h-11 bg-[#171717] rounded-2xl pl-3 pr-1 gap-2 hover:bg-[#202020] transition-colors border border-transparent hover:border-white/10">
+            <span className="music-account-name text-xs font-semibold text-gray-300 mr-1 truncate max-w-[100px]">
               {userProfile?.displayName || user?.email?.split('@')[0] || 'Guest'}
             </span>
             <Avatar
@@ -1306,10 +1342,11 @@ CRITICAL RULES:
       </header>
 
       {/* Main Content */}
-      <main className="absolute top-16 bottom-[212px] left-1/2 -translate-x-1/2 px-6 max-w-[960px] w-full flex flex-col justify-evenly items-center">
+      <main className="music-landing-main absolute top-16 bottom-[212px] left-1/2 -translate-x-1/2 px-6 max-w-[960px] w-full flex flex-col justify-evenly items-center">
         {/* Headings */}
         <div className="text-center space-y-4">
           <h1 
+            className="music-landing-heading"
             style={{ 
               fontFamily: '"Google Sans", sans-serif',
               fontSize: '2.25rem',
@@ -1324,7 +1361,7 @@ CRITICAL RULES:
         </div>
 
         {/* Music Cards */}
-        <div className="grid grid-cols-4 gap-4 px-12 pb-12 w-full max-w-[1400px]">
+        <div className="music-sample-grid grid grid-cols-4 gap-4 px-12 pb-12 w-full max-w-[1400px]">
           {sampleMusic.map((music, i) => (
             <button 
               key={i}
@@ -1332,7 +1369,7 @@ CRITICAL RULES:
                 setPrompt(music.title);
                 startGeneration();
               }}
-              className="flex items-center gap-4 p-3.5 rounded-[20px] bg-[#141517] hover:bg-[#1f2023] transition-colors text-left border-none cursor-pointer"
+              className="music-sample-card flex items-center gap-4 p-3.5 rounded-[20px] bg-[#141517] hover:bg-[#1f2023] transition-colors text-left border-none cursor-pointer"
             >
               <div className="w-[60px] h-[60px] shrink-0 rounded-[12px] overflow-hidden bg-[#2a2b2f]">
                 <img 
@@ -1351,7 +1388,7 @@ CRITICAL RULES:
       </main>
 
       {/* Prompt Input & Buttons Container fixed absolutely at the bottom */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-full max-w-[600px] z-[80] flex flex-col gap-4">
+      <div className="music-landing-composer absolute bottom-4 left-1/2 -translate-x-1/2 w-full max-w-[600px] z-[80] flex flex-col gap-4">
         <AssetMenuModal
           isOpen={isAssetMenuOpen}
           onClose={() => setIsAssetMenuOpen(false)}
@@ -1401,6 +1438,7 @@ CRITICAL RULES:
             </div>
           </div>
 
+          {noticeLine}
           <div className="relative flex items-start w-full">
             <textarea 
               ref={textareaRef}
@@ -1478,6 +1516,7 @@ CRITICAL RULES:
                           {modelOpt.name}
                         </button>
                       ))}
+                      {addModelRows}
                     </div>
                   )}
                 </div>

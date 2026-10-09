@@ -8,6 +8,9 @@ target/
 .vite/
 coverage/
 *.tsbuildinfo
+# The desktop app's downloaded Node.js and Tauri's generated schemas.
+apps/desktop/src-tauri/binaries/
+apps/desktop/src-tauri/gen/
 
 # --- Secrets and machine-local config ---
 .env*
@@ -29,6 +32,9 @@ desktop.ini
 nul
 
 # --- Local agent / tool state ---
+# A personal shortcut that packs this folder into the installed desktop app
+# (it runs apps/desktop/scripts/pack.mjs).
+Pack in app.cmd
 .claude/worktrees/
 .agents/
 # The Agent tool's dev-only model-request log (apps/studio/vite.config.ts).

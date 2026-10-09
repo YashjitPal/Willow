@@ -97,7 +97,7 @@ export const TopDropdown: React.FC<{
                 <span className={`text-[13px] mt-0.5 ${isLight ? 'text-[#444746]' : 'text-[#a0a0a0]'}`}>Build, preview, and ship web applications</span>
               </div>
             </div>
-            {selected === 'develop' && <Check size={18} className={isLight ? 'text-[#0b57d0]' : 'text-white'} strokeWidth={2.5} />}
+            {selected === 'develop' && <Check size={18} className={isLight ? 'text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-white'} strokeWidth={2.5} />}
           </button>
 
           <button 
@@ -113,7 +113,7 @@ export const TopDropdown: React.FC<{
                 <span className={`text-[13px] mt-0.5 ${isLight ? 'text-[#444746]' : 'text-[#a0a0a0]'}`}>Conversational partner for everyday tasks</span>
               </div>
             </div>
-            {selected === 'chat' && <Check size={18} className={isLight ? 'text-[#0b57d0]' : 'text-white'} strokeWidth={2.5} />}
+            {selected === 'chat' && <Check size={18} className={isLight ? 'text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-white'} strokeWidth={2.5} />}
           </button>
 
           <button 
@@ -129,7 +129,7 @@ export const TopDropdown: React.FC<{
                 <span className={`text-[13px] mt-0.5 ${isLight ? 'text-[#444746]' : 'text-[#a0a0a0]'}`}>Create, generate, and edit rich multimedia</span>
               </div>
             </div>
-            {selected === 'media' && <Check size={18} className={isLight ? 'text-[#0b57d0]' : 'text-white'} strokeWidth={2.5} />}
+            {selected === 'media' && <Check size={18} className={isLight ? 'text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-white'} strokeWidth={2.5} />}
           </button>
         </div>
       )}

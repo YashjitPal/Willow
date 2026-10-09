@@ -30,6 +30,8 @@ export interface ChatAttachment {
   sourceFileCount?: number;
   /** Runtime-only object URL reconstructed from Willow's local blob store. */
   url?: string;
+  /** Runtime-only: the bytes are in neither the browser's store nor the chat's folder. */
+  unavailable?: boolean;
 }
 
 /** Attachment while it is still in the prompt composer. */
@@ -118,7 +120,7 @@ export function createComposerAttachment(file: File): ComposerAttachment {
 }
 
 export function toPersistedChatAttachment(attachment: ChatAttachment): ChatAttachment {
-  const { url: _url, file: _file, ...persisted } = attachment as ComposerAttachment;
+  const { url: _url, file: _file, unavailable: _unavailable, ...persisted } = attachment as ComposerAttachment;
   return persisted;
 }
 
@@ -156,6 +158,15 @@ export function formatAttachmentSize(bytes: number): string {
   if (mb < 1024) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
   const gb = mb / 1024;
   return `${gb.toFixed(gb < 10 ? 1 : 0)} GB`;
+}
+
+/** The bytes of a base64 string (with or without a `data:` prefix) as a Blob of `mimeType`. */
+export function base64ToBlob(data: string, mimeType = 'application/octet-stream'): Blob {
+  const comma = data.startsWith('data:') ? data.indexOf(',') : -1;
+  const binary = atob(comma >= 0 ? data.slice(comma + 1) : data);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mimeType });
 }
 
 export async function blobToBase64(blob: Blob): Promise<string> {

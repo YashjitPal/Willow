@@ -1,0 +1,239 @@
+/*
+ * Gemini's `input-companion` row and its `companion-menu`, measured at 1536x826 (Oct 2026).
+ * Row: inside the composer box, 12px from each edge and from the bottom; chips 36 tall, 8 apart.
+ */
+
+/* The box pads 14/15px where Gemini's pads 12, so the row reaches 2/3px past it. */
+.wc-companion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  margin: 0 -3px 12px -2px;
+}
+
+/* `.input-companion-chip-button`: outlined, max 36 tall, an equal share of the row. */
+.wc-companion__chip {
+  display: flex;
+  flex: 1 0 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(142, 145, 143, 0.16);
+  border-radius: 9999px;
+  background: transparent;
+  color: #e6e6e6;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+
+.wc-companion__chip:hover { background: #32373c; border-color: #32373c; }
+.wc-companion__chip:active { background: #383d45; border-color: #383d45; }
+/* Gemini's menu lays a transparent backdrop over the page, so the chip under it loses its hover. */
+.wc-companion__chip.is-open { background: transparent; border-color: rgba(142, 145, 143, 0.16); }
+.wc-companion__chip:focus-visible { box-shadow: 0 0 0 2px rgba(230, 230, 230, 0.6); }
+.wc-companion__chip:disabled { cursor: default; }
+.wc-companion__chip:disabled > * { opacity: 0.38; }
+.wc-companion__label { overflow: hidden; text-overflow: ellipsis; }
+
+/* Below 960px Gemini's Aspect ratio chip is its glyph and chevron until a ratio is picked. */
+@media (max-width: 960px) {
+  .wc-companion[data-tool="images"] .wc-companion__chip[data-unpicked] .wc-companion__label { display: none; }
+}
+.wc-companion__mark,
+.wc-companion-menu__mark { flex-shrink: 0; width: 20px; height: 20px; }
+
+[data-theme="light"] .wc-companion__chip { border-color: rgba(116, 119, 117, 0.16); color: #1f1f1f; }
+[data-theme="light"] .wc-companion__chip:hover { background: #edf2fc; border-color: #edf2fc; }
+[data-theme="light"] .wc-companion__chip:active { background: #e8eefb; border-color: #e8eefb; }
+[data-theme="light"] .wc-companion__chip.is-open { background: transparent; border-color: rgba(116, 119, 117, 0.16); }
+
+/* `gem-style-attachment`: a picked gallery template, its art filling a 112 tile, a white close dot 8px in. */
+.wc-template-tile {
+  position: relative;
+  flex-shrink: 0;
+  width: 112px;
+  height: 112px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.wc-template-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* Gemini's box puts a template tile 20px down where an attachment sits at 12 (a row gap over an
+   empty row), so the tile carries the extra 8px on desktop. */
+@media (min-width: 961px) { .wc-template-tile { margin-top: 8px; } }
+
+.wc-template-tile__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: #fff;
+  color: #000;
+  cursor: pointer;
+}
+
+/* <= 600px: the menu as a bottom sheet — `.mobile-bottom-sheet-header` centred, then the rows,
+   then `.done-button-container` (12px over 16px a side, flush right). */
+.wc-sheet {
+  padding-bottom: 16px;
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.wc-sheet__header {
+  display: flex;
+  justify-content: center;
+  padding: 8px 16px 12px;
+  color: #c4c7c5;
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.wc-sheet__list { display: flex; flex-direction: column; }
+
+.wc-sheet__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: #e3e3e3;
+  font: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wc-sheet__item:active { background: rgba(230, 230, 230, 0.12); }
+.wc-sheet__item.is-selected { background: #171717; }
+.wc-sheet__label { display: flex; flex: 1; flex-direction: column; }
+.wc-sheet__sub { color: #c4c7c5; font-size: 13px; line-height: 17px; }
+
+.wc-sheet__done { display: flex; justify-content: flex-end; padding: 12px 16px 0; }
+
+.wc-sheet__done-button {
+  height: 40px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(230, 230, 230, 0.08);
+  color: #e3e3e3;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* `.companion-menu.lm-menu-theme`: #1f1f1f, radius 16, 8px top and bottom, a soft 20px shadow. */
+.wc-companion-menu {
+  position: fixed;
+  z-index: 1300;
+  box-sizing: border-box;
+  min-width: 192px;
+  max-width: 500px;
+  padding: 8px 0;
+  overflow-y: auto;
+  border-radius: 16px;
+  background: #1f1f1f;
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  scrollbar-width: none;
+}
+
+.wc-companion-menu::-webkit-scrollbar { display: none; }
+
+.wc-companion-menu__title {
+  padding: 8px 16px 12px;
+  color: #c4c7c5;
+  font-size: 13px;
+  line-height: 17px;
+}
+
+/* `input-companion-item`: 28 tall, 12px in, 8px below each. */
+.wc-companion-menu__item {
+  display: block;
+  width: 100%;
+  height: 28px;
+  margin: 0 0 8px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: #e6e6e6;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.wc-companion-menu__row {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 2px;
+  border-radius: 12px;
+  overflow: visible;
+}
+
+.wc-companion-menu__item:hover .wc-companion-menu__row,
+.wc-companion-menu__item:focus-visible .wc-companion-menu__row { background: rgba(230, 230, 230, 0.08); }
+.wc-companion-menu__item:active .wc-companion-menu__row { background: rgba(230, 230, 230, 0.12); }
+.wc-companion-menu__item.is-selected .wc-companion-menu__row { background: #171717; }
+.wc-companion-menu__item.is-selected:hover:not(:active) .wc-companion-menu__row { background: rgba(230, 230, 230, 0.08); }
+
+.wc-companion-menu__icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: #e6e6e6;
+}
+
+.wc-companion-menu__labels {
+  display: flex;
+  flex-direction: column;
+  min-width: 132px;
+  margin-left: 8px;
+}
+
+.wc-companion-menu__label,
+.wc-companion-menu__sub {
+  color: #e6e6e6;
+  font-size: 13px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+/* `.selection-icon-container`: no width until something is picked; `.selected-icon` sits 16px out. */
+.wc-companion-menu__check {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  color: #e6e6e6;
+}
+
+.wc-companion-menu__check > * { margin-left: 16px; }

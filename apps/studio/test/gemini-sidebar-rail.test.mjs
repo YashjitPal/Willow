@@ -41,8 +41,11 @@ describe('nav row selection and hover', () => {
 
   it('uses the measured selected background and nothing else on the row', () => {
     // `.gem-nav-list-item.is-active { background-color: #171717 }` — one declaration.
-    assert.match(codeOnly(PRIMITIVES()), /\$\{active \? 'bg-\[#171717\]' : ''\}/);
-    assert.match(codeOnly(SIDEBAR()), /active \? 'bg-\[#171717\]' : ''/);
+    // The <=960px drawer's selected row measures #141414, and `is-active` is the hook
+    // Sidebar.css keys its own active-row rules on.
+    const activeRow = /active \? 'is-active bg-\[#171717\] max-\[960px\]:!bg-\[#141414\]' : ''/;
+    assert.match(codeOnly(PRIMITIVES()), activeRow);
+    assert.match(codeOnly(SIDEBAR()), activeRow);
   });
 
   it('clears every Spark row once a settings view is on screen', () => {
@@ -174,7 +177,8 @@ describe('the rail header', () => {
     const s = codeOnly(SIDEBAR());
     assert.match(s, /text-\[17px\] leading-6 text-\[#e6e6e6\]/, 'measured type and colour');
     assert.ok(!/text-\[17\.5px\]/.test(s), '17.5px was half a pixel over');
-    assert.ok(!/text-\[#e0e0e0\]/.test(s), 'on-surface is #e6e6e6, not #e0e0e0');
+    // Desktop only: Gemini's <=960px drawer measures its wordmark and rows at #e0e0e0.
+    assert.ok(!/(?<!max-\[960px\]:!?)text-\[#e0e0e0\]/.test(s), 'on-surface is #e6e6e6, not #e0e0e0');
   });
 });
 

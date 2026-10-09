@@ -1,0 +1,61 @@
+/*
+ * What Willow TV adds to Flow TV's stylesheet (willow-tv.css, generated: not edited by hand).
+ * Flow TV draws its wordmark as an image; Willow's is type. Flow TV's channels hold nine clips,
+ * which its 3x3 grid view fits exactly; a Willow project can hold more, so that grid scrolls.
+ */
+
+/* Flow TV's pages scroll the document; Willow's body never scrolls, so Willow TV's root is the page. */
+.wtv-root {
+  position: fixed;
+  /* The whole window, or in the desktop app's frame its page (shell/rail/AppRail.css). */
+  inset: var(--willow-frame-inset, 0);
+  border-radius: var(--willow-frame-page-radius, 0);
+  /* Its own sheet's `min-height: 100dvh` would run it past the page's bottom. */
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+@keyframes wtv-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.wtv-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 19.4px;
+  color: rgb(255, 255, 255);
+  font-family: "Google Sans", "Google Sans Text", sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+}
+
+/* Flow TV's "TV": outlined, not filled. */
+.wtv-wordmark__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 15px;
+  padding: 0 3px;
+  border: 1.5px solid rgb(255, 255, 255);
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+/* Flow TV's channel art is square, with its own shape; Willow's tiles are video frames, so they
+ * are cut to the tile's corners. */
+.wtv-list-item__videoInnerContainer {
+  overflow: hidden;
+}
+
+.wtv-channel-grid__container[data-is-scrollable="true"] {
+  overflow-y: auto;
+  scrollbar-width: none;
+}

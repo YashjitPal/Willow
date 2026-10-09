@@ -1905,7 +1905,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .info-interactive-text {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .details-description {
@@ -1967,7 +1967,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .editor-title-input:focus {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .editor-title-input::placeholder {
@@ -1981,7 +1981,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .description-text:focus {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .description-text::placeholder {
@@ -1995,7 +1995,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .content-editable:focus {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .content-editable::placeholder {
@@ -2016,4 +2016,125 @@
 
 :is(.light-theme, [data-theme="light"]) .customize-disconnect-section-text {
   color: #444746;
+}
+
+/* ── Below 961px ─────────────────────────────────────────────────────── */
+
+/*
+ * Gemini has no Customize surface to measure, so the narrow layout borrows from the
+ * pages it does have. Every screen hangs under the shell's 68px top bar (menu button,
+ * wordmark, New chat), and its first row (the Discover / Connectors / Skills pills, or
+ * the back button on the screens behind them) opens the page. The menu glyph's ink ends
+ * at y 36, so a 36px row there leaves 32px above it, and the 32px under it matches.
+ */
+@media (max-width: 960px) {
+  .customize-page-root {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+
+  /* `flex: none`: the category page's row sits straight in the scrolling flex column, which would squeeze it. */
+  .customize-page-root :is(.customize-nav-buttons, .customize-category-top-nav, .top-nav-bar, .manager-header) {
+    flex: none;
+    height: 36px;
+    margin: 0 0 32px;
+    padding-block: 0;
+  }
+
+  /* The row meets the scroller's top edge, which would clip a ring drawn outside it. */
+  .customize-page-root :is(.customize-nav-button, .customize-category-back-button):focus-visible {
+    outline-offset: -2px;
+  }
+
+  .customize-page-root .details-content-column {
+    padding-top: 0;
+  }
+
+  /* Nothing hovers on a touchscreen, so a card's add or more button stays out to tap. */
+  .customize-card .add-button,
+  .customize-card .more-button {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
+  }
+}
+
+/* One column: the cards fill it rather than keep their two-column 348px. */
+@media (max-width: 740px) {
+  .customize-card {
+    width: 100%;
+  }
+}
+
+/*
+ * A phone. Headings take the full width with their search under them (Skills' Create
+ * beside it), a connector's actions drop under its title, the starter prompts become a
+ * row that scrolls sideways (as the Gems manager's premade row does), related apps go
+ * to one column, and the skill editor's card hands its fields more of the width.
+ */
+@media (max-width: 600px) {
+  .customize-page-root :is(.customize-page-header, .customize-category-page-header) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    height: auto;
+  }
+
+  .customize-page-root .customize-header-actions .customize-search-container {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+
+  .customize-page-root .customize-category-page-header .customize-search-container {
+    width: 100%;
+  }
+
+  .customize-page-root .app-header-main {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .customize-page-root .app-title-group {
+    flex: none;
+    width: 100%;
+  }
+
+  .customize-page-root .prompts-row {
+    display: flex;
+    width: auto;
+    margin-inline: -16px;
+    padding-inline: 16px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-padding-inline: 16px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .customize-page-root .prompts-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .customize-page-root .prompt-card {
+    flex: none;
+    width: 200px;
+    scroll-snap-align: start;
+  }
+
+  .customize-page-root .related-apps-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .customize-page-root .editor-new-content {
+    padding: 16px;
+  }
+
+  .customize-page-root .content-editable {
+    min-height: 320px;
+  }
+
+  .customize-page-root .editor-title-input {
+    text-overflow: ellipsis;
+  }
 }

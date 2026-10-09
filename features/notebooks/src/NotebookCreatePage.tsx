@@ -155,8 +155,8 @@ const useTypewriterPlaceholder = (phrases: readonly string[], isPaused: boolean)
 };
 
 export const NotebookCreatePage: React.FC<NotebookCreatePageProps> = ({ onCreated, onCancel }) => {
-  const { userProfile } = useAuth();
-  const theme = getWorkspaceTheme(userProfile?.workspaceColor);
+  const { workspaceColor } = useAuth();
+  const theme = getWorkspaceTheme(workspaceColor);
 
   const notebooks = useStore(notebooksStore);
   const isHydrated = useStore(notebooksHydratedStore);
@@ -175,6 +175,8 @@ export const NotebookCreatePage: React.FC<NotebookCreatePageProps> = ({ onCreate
   const inputRef = useRef<HTMLInputElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
   const { createNotebookWithFolder } = useNotebookDisk();
+  // Every hook stays above the early returns below, which render first before hydration.
+  const { isLight } = useThemeMode();
 
   useEffect(() => {
     hydrateNotebooks();
@@ -241,7 +243,6 @@ export const NotebookCreatePage: React.FC<NotebookCreatePageProps> = ({ onCreate
    * the screen. The copy lives on the vertical so the two cannot fall out of sync.
    */
   const heading = activeVertical.prompt;
-  const { isLight } = useThemeMode();
 
   return (
     <div
@@ -249,9 +250,9 @@ export const NotebookCreatePage: React.FC<NotebookCreatePageProps> = ({ onCreate
       style={{
         '--nb-accent-btn-bg': theme.sendButton.bg,
         '--nb-accent-btn-hover': theme.sendButton.hover,
-        '--nb-link-color': isLight ? '#0b57d0' : theme.creamy.hex,
-        '--nb-caret-color': isLight ? '#0b57d0' : theme.creamy.hex,
-        '--nb-chip-selected-bg': isLight ? '#d3e3fd' : theme.chipBg,
+        '--nb-link-color': isLight ? 'var(--sync-0b57d0, #0b57d0)' : theme.creamy.hex,
+        '--nb-caret-color': isLight ? 'var(--sync-0b57d0, #0b57d0)' : theme.creamy.hex,
+        '--nb-chip-selected-bg': isLight ? 'var(--sync-d3e3fd, #d3e3fd)' : theme.chipBg,
       } as React.CSSProperties}
     >
       <div className="nb-create-content">

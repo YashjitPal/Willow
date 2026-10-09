@@ -198,8 +198,8 @@ export const McpConnector: React.FC<McpConnectorProps> = ({ onBack }) => {
               </li>
             </ul>
             <p className="text-zinc-400">
-              Support for the rest needs a small companion app running on your computer.
-              That is not built yet; it is written up in{' '}
+              Willow&apos;s desktop app runs the rest — add them from Spark&apos;s Connected apps
+              there — and reaches every server at a web address; how is written up in{' '}
               <code className="rounded bg-white/5 px-1.5 py-0.5 text-[12px] text-zinc-300">
                 HELPER-APP.md
               </code>{' '}
@@ -251,7 +251,7 @@ export const McpConnector: React.FC<McpConnectorProps> = ({ onBack }) => {
                     <div className="min-w-0">
                       <div className="text-[14px] font-bold text-white">{server.label}</div>
                       <div className="truncate text-[12px] text-zinc-500">
-                        {server.kind === 'http' ? server.url : 'Runs in this tab'}
+                        {server.kind === 'http' ? server.url : server.kind === 'program' ? [server.command, ...(server.args ?? [])].join(' ') : 'Runs in this tab'}
                       </div>
 
                       {/*

@@ -36,6 +36,13 @@ export interface SyncedItem {
 export interface SyncedFolderContext {
   /** Scope the read/write is happening under, e.g. `uid::rootId::workspace`. */
   scopeId: string;
+  /**
+   * What disk holds for an item right now, or `null` when it has no file; it throws when the file
+   * cannot be read. Given to `readLocal`, for a store that can lose its own copy of an item (browser
+   * storage cleared under it) and must not hand that loss to the engine as a change to write over
+   * disk's copy.
+   */
+  readDisk?: (id: string) => Promise<string | null>;
 }
 
 export interface SyncedFolderDescriptor {
@@ -66,6 +73,15 @@ export interface SyncedFolderDescriptor {
    * exactly like a failed scan (invariants 5, 8 and 13).
    */
   isPaused?: (ctx: SyncedFolderContext) => boolean;
+  /**
+   * Optional. Set when `readLocal` only ever returns what the user has — one list every tab
+   * shares, which a deletion leaves at once: a tombstone for an id it returns is lifted and the
+   * item written again. Without it the engine refuses such an item for good (a new item named
+   * like a deleted one, or every item a pass once took for deleted), and a feature that replaces
+   * its state from `applyRemote` then loses it. Leave it off for a store that can still return an
+   * item it has not yet heard was deleted.
+   */
+  reviveLocal?: boolean;
 }
 
 const descriptors = new Map<string, SyncedFolderDescriptor>();
@@ -100,6 +116,35 @@ export function unregisterSyncedFolder(id: string): void {
 
 export function getSyncedFolders(): Array<SyncedFolderDescriptor & { id: string }> {
   return [...descriptors].map(([id, descriptor]) => ({ id, ...descriptor }));
+}
+
+/**
+ * The folder registered at `path`, compared without case as Windows and macOS compare names.
+ *
+ * A registered path can sit inside a project area (`Media/Tools`), where the project scan and a
+ * project's rename or delete would otherwise take it for a project folder of that name.
+ */
+export function syncedFolderAt(path: string): (SyncedFolderDescriptor & { id: string }) | undefined {
+  const wanted = path.toLowerCase();
+  for (const [id, descriptor] of descriptors) {
+    if (descriptor.folder.toLowerCase() === wanted) return { id, ...descriptor };
+  }
+  return undefined;
+}
+
+/** What the workspace watcher answers with a pass over every registered folder. */
+export const SYNCED_FOLDERS_CHANGED_EVENT = 'willow_synced_folders_changed';
+
+/**
+ * Asks for a pass soon, after a local change disk should have; otherwise it waits for the
+ * watcher's next poll, which is 30s apart when the folder is observed.
+ */
+export function requestSyncedFolderPass(): void {
+  try {
+    globalThis.dispatchEvent?.(new Event(SYNCED_FOLDERS_CHANGED_EVENT));
+  } catch {
+    // No window (tests, workers): the next poll picks the change up.
+  }
 }
 
 /** Test seam. Not for app code. */

@@ -13,19 +13,73 @@ largest feature in the repo.
 
 `apps/studio` lazy-loads both.
 
+**Every Code screen has its own state** (`src/session/code-session.ts`): the
+Code home and each reopened project get their own file store, live transcript,
+preview requests, testing overlay and New chat signal, made by the screen's root
+(`CodeWorkspace`, `WorkbenchView`'s default export) and read through
+`useCodeSession()`. Code outside React (the harness, its preview session) is
+handed the session. So any number of Code screens can be mounted at once, and
+nothing one does reaches another. There are no shared stores to import: a new
+consumer takes the session it runs in.
+
+What stays one per tab follows the screen on show: visual editing (its frame,
+mode, undo history), the problems list and code navigation. A hidden screen's
+preview ignores them, every window message is checked against the screen's own
+frame (`isOwnPreviewMessage`; the bundler names the screen in the build errors
+it posts), and when a different screen comes on show the undo history and the
+problems list start over (`$codeScreenSwitches`).
+
+**Leaving Code mid-turn does not stop the turn.** `WorkbenchSidebar` reports
+`isCurrentlyGenerating` under its screen's name (`setCodeScreenRunning`,
+`src/workbench/code-turn-activity.ts`), and the shell keeps that screen mounted,
+hidden but still laid out, so the preview tools keep a frame with a size, until
+the turn settles (`apps/studio` AGENTS.md, "Screens that keep working after you
+leave them"). Hidden, its transcript updates a few times a second rather than
+every frame. `useAutoSave` publishes the folder each screen saves into
+(`$codeScreenProjects`), so the shell never opens one project in two screens.
+
+**A Code chat in Recents always reopens in Code** (`platform/storage` AGENTS.md
+has the guards). Inbox chats are saved with `{ openInChat: false }`, so Code's
+chat never becomes the chat Chat has open. The sidebar publishes the conversation
+it holds (`$codeScreenChats`) until it is promoted into a project, so reopening one
+a Code home already has open shows that Code home as it is, and opening another
+while one is working opens it beside it (`apps/studio` AGENTS.md, "Code homes are
+a list"). The shell's `/code/<chat>` address is the same entry for the Code home on
+show. `CodeHome` opens the chat
+the shell hands it (`openRequest`); it no longer reads the request itself.
+
+**Closing the tab hands the turn to another one** (`src/workbench/code-turn-jobs.ts`).
+`startHarnessGeneration` makes every turn in a saved conversation a `code-turn`
+job naming its *place* — an inbox chat id, or a project id, name and session —
+which `place` keeps current through naming and promotion. A tab that inherits the
+job mounts the hidden screen for that place; the sidebar waits for the
+conversation to be read back (`isSessionHydrated`), finds it ending on the user's
+message — the save effect writes a question the moment it is sent, and a reply
+only lands when a turn ends — and sends it again under the same job id and model.
+Two rules keep a turn from damaging another session:
+
+- **Unmounting finishes the job**: leaving a turn behind (another project, New
+  chat) is not for another tab to pick up. A closed tab never unmounts.
+- **A turn whose screen unmounted writes nothing** (`isLive` on
+  `runWorkbenchTurn`): no commit, no preview sync, no live transcript.
+
 ## Files
 
 | Path | Role |
 | --- | --- |
 | `src/CodeHome.tsx` | Landing grid (1490 lines). `preloadIdleImages()` warms card art before the tab shows. |
 | `src/CodeHomeSkeleton.tsx` | Placeholder shown while the Code chunk loads. |
-| `src/WorkbenchView.tsx` | Workbench shell. Owns project load/save and the LLM loop. |
-| `src/workbench/WorkbenchSidebar.tsx` | Chat + file tree (4322 lines — see below). |
+| `src/code-responsive.css` | Everything the tab does differently at 960px and below. See **Phones and tablets**. |
+| `src/use-viewport-width.ts` | The viewport width as React state, for the 600px phone cut-off. |
+| `src/WorkbenchView.tsx` | Workbench shell. Owns project load/save. |
+| `src/workbench/WorkbenchSidebar.tsx` | Chat + file tree (about 4380 lines — see below). Sends every Code message to the harness. |
+| `src/workbench/resume-code-chat.ts` | Reads a saved Code chat back in, including each reply's harness transcript. |
 | `src/workbench/visual-edit-menu.tsx` | The visual-edit inspector panel (1138 lines), split out of the sidebar. |
 | `src/workbench/sidebar-icons.tsx` | The sidebar's 13 inline SVG icons (149 lines). |
 | `src/workbench/collapsible-indicators.tsx` | The expand/collapse test and file indicators in the transcript (265 lines). |
 | `src/workbench/GlobalErrorToasts.tsx` | Error toast stack, portalled out of the sidebar's stacking context (135 lines). |
 | `src/workbench/attachment-files.ts` | Reads dropped files, slugifies and de-duplicates their upload paths. |
+| `src/workbench/chat-files.ts` | A chat's attachments and annotated screenshots as files beside its JSON (`Chat sessions/<chat>/Attachments/`, `Screenshots/`); the project copy names the file instead of holding base64. An inbox chat keeps its bytes inline, since reopening reads them from its JSON. See `platform/storage/ARCHITECTURE.md` §6a. |
 | `src/workbench/message-text.ts` | Strips code blocks and indicator markers out of a message. |
 | `src/workbench/design-generation.ts` | The design system prompt plus its response parser. |
 | `src/workbench/sidebar-prompts.ts` | Session-title and follow-up-suggestion prompts. |
@@ -34,8 +88,10 @@ largest feature in the repo.
 | `src/workbench/WorkbenchTopBar.tsx` | Run/preview/code toggles. |
 | `src/workbench/CodePanel.tsx` | The code editor pane. |
 | `src/workbench/UnsavedChanges*.tsx`, `TestingIndicator.tsx` | Save-state affordances. |
-| `src/runtime/sandpack/` | **The sandbox.** Sandpack store, AI-response parser, system prompt. |
-| `src/runtime/preview/` | esbuild-wasm bundler for the preview iframe. |
+| `src/session/code-session.ts` | One Code screen's state, made by its root; the screen visual editing acts on. |
+| `src/workbench/code-turn-activity.ts` | What the shell reads about the mounted screens: which are running, which folder each saves into, which chat each holds. App imports it, so it stays tiny. |
+| `src/runtime/sandpack/` | The file store class each screen makes one of (`sandpack-store.ts`), plus the display parser for replies saved before the harness. |
+| `src/runtime/preview/` | **The sandbox.** esbuild-wasm bundler for the preview iframe, and npm packages from esm.sh (`packages.ts`). |
 | `src/visual-editing/` | Click-to-edit overlay and its engine. |
 | `src/visual-editing/VisualEditingOverlay.tsx` | The overlay component (1787 lines): selection state, hit-testing, JSX. |
 | `src/visual-editing/element-geometry.ts` | Pure DOM helpers: source location, cover detection, `findTrueCover`. |
@@ -44,59 +100,37 @@ largest feature in the repo.
 | `src/visual-editing/view-code.ts` | Element → source jump, incl. the end-line estimate heuristic. |
 | `src/local-companion.ts` | Client for the optional `services/local-companion` daemon. |
 | `src/use-auto-save.ts` | Debounced project autosave. |
-| `src/agent/` | **The Agent tool.** The vendored Codex harness, its UI, and the seam to the workbench. See below. |
+| `src/harness/` | **The harness.** The agent every Code message runs on: turn loop, edits, tools, skills, MCP, verification, transcript UI. See below. |
 
-## The Agent tool
+## The harness
 
-An optional *second* generation path, selected as **Agent** in the composer's
-Tools menu. With it off — the default — the Code tab runs `startAiGeneration`
-exactly as it always has: the bolt system prompt, whole-file artifacts, the
-streaming `parseAIResponse` parser. With it on, `startCodexGeneration` runs the
-turn on a vendored [Codex](https://github.com/openai/codex) harness instead,
-which writes its own prompt, sends a file manifest rather than the whole
-codebase, and applies edits as V4A patches.
+Every Code message — the landing page's opening prompt, follow-ups, Plan mode,
+"Implement plan" — runs on one agent, `src/harness/`, through
+`runWorkbenchTurn`. It replaced both the original bolt-artifact loop and the
+vendored Codex harness that used to sit behind an **Agent** tool; that tool, its
+store and its UI are gone. **Read [the harness docs](src/harness/AGENTS.md)
+before changing it.**
 
-This began life as `features/code-beta`, a full clone of this feature behind a
-Labs flag. The clone is gone; only the harness survived, as `src/agent/`.
+In short: the model changes files by writing action tags (`<willow-write>`,
+`<willow-edit>` with SEARCH/REPLACE blocks, …) that apply as they stream; it can
+call read-only tools, skills and MCP connectors; when it finishes, the harness
+builds and runs the project in a hidden frame and hands any errors back for a fix
+round; and the result is committed to the workbench in one step. The transcript
+renders in the Code tab's own visual language — the "Edited App.tsx" rows —
+live and after a reload. Above it, while the turn runs, sits Chat's thinking row
+(the dots and the newest thought heading), which becomes "Thought for Ns" when
+the turn is done.
 
-| Path | Role |
-| --- | --- |
-| `src/agent/agent-store.ts` | Tool calls and sub-agents per turn, plus `agentEngaged` / `ultraEngaged`, the collaboration mode, the thread goal, and the `request_user_input` round-trip. |
-| `src/agent/harness-bridge.ts` | The seam: file-map ↔ sandpack store, plus the `run_command` and `computer_use` tools. |
-| `src/agent/harness/` | The turn loop, V4A patcher, text protocol, Plan mode, Goal mode, and the vendored upstream documents. |
-| `src/agent/ui/` | The transcript timeline: tool cards, diffs, terminal output, sub-agent chips. |
-| `src/agent/mcp/` | The adapter that turns MCP tools into Codex tools. The client itself is `@willow/ai/mcp`. See below. |
-| `src/agent/model-binding.ts` | Resolves the selected model to a provider binding, clamping effort. |
-| `src/agent/slash-commands.ts` | `/`-triggered composer templates, plus the three that change mode. |
-| `src/agent/agent.css` | Design tokens, all scoped under `.cb-root`. |
-
-### Four subsystems, all upstream's
-
-The Agent tool carries four things people reach for by name, and all four are
-real Codex subsystems rather than prompt shapes:
-
-- **Plan mode** (`/plan`) — a collaboration mode. Vendored 9KB developer
-  document, `update_plan` refused, mutation declined, `request_user_input`
-  available and blocking, the plan delivered as a `<proposed_plan>` block.
-- **Goal mode** (`/goal <objective>`) — the `ext/goal` extension. Three tools,
-  six statuses, a token budget, and automatic continuation turns until the
-  objective is verifiably true.
-- **Collaboration** — multi-agent V2. Six tools (`spawn_agent`, `send_message`,
-  `followup_task`, `wait_agent`, `interrupt_agent`, `list_agents`), agents
-  addressed as `/root/explore/deeper`, non-blocking spawn, unbounded nesting,
-  and `fork_turns` to choose how much context a child inherits.
-- **Ultra** — not more reasoning. It lowers to the model's ceiling on the wire
-  and switches delegation to proactive, which is the only thing it changes.
-
-Three of the four began life as something much thinner, and the thin versions
-are worth knowing about because each one looked fine: `/plan` was a composer
-template that told the model to "Use update_plan" — the exact tool Plan mode
-refuses; `/goal` was a template with no goal object and no continuation; and
-delegation was one blocking tool called `task` that exists nowhere in codex-rs.
-
-Read [the harness docs](src/agent/harness/AGENTS.md#the-four-subsystems) before
-changing any of them. Each has a short list of places the browser forced a
-divergence, and everything else is a transcription.
+Every entry in the composer's **Tools** menu is a capability of that same agent:
+something it can call on its own (`propose_plan`, `generate_image`,
+`create_design`, `annotate`, `inspect`, `computer`), and something the user can
+pick to tell it to use that tool for the message, as in ChatGPT's and Gemini's
+tool menus. **Test** is computer use by the same agent on the live preview —
+not a separate test agent any more — after it reads the built-in app-testing
+skill. **Plan** is Plan mode: the harness reads and plans but changes nothing,
+and the reply offers **Implement plan**. A tool picked on the landing page
+decides how the opening turn runs (`initialToolId`). Both menus are built from
+`src/harness/code-tools.ts`.
 
 ### MCP, and the part of it that cannot exist here
 
@@ -106,10 +140,10 @@ need down to `platform/*`. Servers are added from **Spark → Connected apps →
 servers** and from **Settings → Connectors → MCP servers**; both write one store,
 so they cannot disagree.
 
-What stays in this feature is `src/agent/mcp/mcp-harness-tools.ts`, which maps
-MCP tools onto `ToolHandler`. That cannot move: `ToolHandler` is a
-`features/code` type and `platform/*` must never import from `features/`. The
-split therefore lands exactly where the layering rule puts it.
+What stays in this feature is `src/harness/mcp.ts`, which maps MCP tools onto
+`HarnessTool`. That cannot move: `HarnessTool` is a `features/code` type and
+`platform/*` must never import from `features/`. The split therefore lands
+exactly where the layering rule puts it.
 
 Two transports, because two are what a browser can do:
 
@@ -141,42 +175,49 @@ Two things to keep intact if you touch this:
   data" is the whole protection today, and it is deliberately coarse — per-tool
   approval belongs with stdio support, not before it.
 
-**`agentEngaged` is the only switch.** Three things read it, and all three are
-inert when it is false: the send routing in `handleSendMessage`, the slash-command
-matcher, and the model menu's `extraEfforts` (the Ultra rung). It lives in a store
-rather than component state because `CodeHome` and `WorkbenchSidebar` keep
-separate `selectedToolId`, and a pick made on the landing screen has to decide how
-the *opening* turn runs.
-
-Two things to know before editing here:
-
-- **The `cb-` class prefix is historical** — it stood for Code Beta. Left alone
-  deliberately: renaming it is 373 occurrences across 13 files for no behavioural
-  gain. Every rule is scoped under `.cb-root`, which is why `agent.css` can be
-  imported unconditionally.
-- **`harness/upstream/` is byte-checked.** `npm run codex:check` hashes it against
-  `MANIFEST.json`; never hand-edit those files. Willow's changes live in
-  `harness/overlay/` and are applied at runtime.
-
-Unlike the rest of this directory, this subsystem *is* covered:
-`apps/studio/test/agent-*.test.mjs` is 176 tests over the patcher, effort ladder,
-turn loop, timeline, prompt composition, Plan mode, Goal mode and multi-agent
-collaboration.
-
-`agent-modes.test.mjs` is the one to read first if you are changing the modes.
-Every assertion in it that quotes a string quotes upstream's, and the file names
-the `codex-rs` path each one came from — so an upgrade that changes upstream's
-wording fails here with a pointer to what to re-check.
+Unlike the rest of this directory, the harness *is* covered:
+`apps/studio/test/code-harness-*.test.mjs` covers the stream parser at every
+chunk size, the edit formats, the turn loop against a scripted model, the tools,
+skills and connectors, the bundler's strict mode against a fake CDN, and the
+wiring into the sidebar. The [harness docs](src/harness/AGENTS.md#tests) list
+which file covers what.
 
 ## The runtime
 
-The sandbox is **Sandpack**, not WebContainer. (Older comments may say otherwise;
-they are wrong.) `runtime/sandpack/message-parser.ts` turns a streaming LLM
-response into file writes and shell actions as it arrives — that is what makes
-files appear one at a time while the model is still typing.
+The sandbox is not Sandpack and not WebContainer, whatever older names say
+(`sandpack-store.ts` kept its name). `runtime/preview/bundler.ts` bundles the
+project in the browser with **esbuild-wasm** (`public/esbuild.wasm`) into one
+script, and the preview iframe runs it against React 18.2 and Tailwind from
+CDNs. The harness reads this section's facts to the model, so keep its prompt
+in step when they change.
 
-`runtime/preview/bundler.ts` uses **esbuild-wasm** (`public/esbuild.wasm`) to
-bundle the project in-browser for the preview iframe.
+- **npm packages** come from esm.sh (`runtime/preview/packages.ts`) at the
+  version in the project's `package.json`, with React left external so the page's
+  copy is the only one. Icon libraries are requested with only the icons the
+  project imports. Responses are cached in memory and in Cache Storage
+  (`willow-preview-packages-v1`), so a package is fetched once per browser.
+- **`@/` and `~/`** resolve to the project root (or `/src` when the project uses
+  one). JSON, Markdown and text files import as data; SVG imports as a URL.
+- **Two modes.** The live preview is forgiving: a missing file renders a
+  placeholder so a half-written project still shows something. **Strict** mode
+  (`{ strict: true }`), which the harness checks with, makes a missing file, a
+  Node built-in or an unknown package a build error with a file and line.
+- **The preview frame's sandbox** is `allow-scripts allow-same-origin
+  allow-forms allow-modals allow-popups`. Without `allow-forms` the browser never
+  fires `submit`, so any `<form onSubmit>` app silently did nothing; without
+  `allow-modals`, `confirm()` answers "no" unasked. `allow-same-origin` with
+  scripts already lets the page reach out, so these add no exposure. The
+  harness's hidden error-check frame keeps the narrow sandbox: it never
+  interacts, and an `alert()` there must not block anything.
+- **Mid-turn rebuilds.** The preview rebuilds when generation finishes, and also
+  when the harness asks (`workbench/preview-control.ts`, one per screen): before
+  the agent tests or inspects the app, it loads the turn's edits and requests a
+  build with source locations, plus an optional phone or tablet width. Nothing
+  else rebuilds a hidden screen's preview: visual editing's requests are for the
+  screen on show.
+
+Replies saved before the harness held bolt artifacts; `runtime/sandpack/message-parser.ts`
+now only turns those into display segments so old chats render as they did.
 
 ## Visual editing
 
@@ -216,8 +257,8 @@ Two rules for anyone continuing this:
 - **`src/visual-editing/` is LF**, while `src/workbench/` is CRLF. Check before
   you write, or the diff will show every line as changed.
 
-Note the test suite covers only `src/agent/` (see **The Agent tool** above) — the
-sandbox, visual editing and the sidebar itself are untested. `tsc` plus a diff
+Note the test suite covers the harness and the bundler (see **The harness** above),
+not visual editing or the sidebar's rendering. `tsc` plus a diff
 against the pre-change file is the only real safety net there, so prefer
 extractions you can prove byte-identical over ones that reshape call sites.
 
@@ -231,12 +272,14 @@ above. Each one was a leaf — it closed over nothing in the component — so ev
 move was a relocation, not a rewrite.
 
 What is left is deliberately left. The sidebar still holds the chat thread, the
-file tree, the diff viewer, and both LLM request loops, and the big blocks inside
-it (`persistSessions` ~297 lines, `startAiGeneration` ~266, `startTestGeneration`
-~251, `startCodexGeneration` ~135, `renderFormattedContent`, `handleSendMessage`)
-are not leaves: they read and write hook state and refs declared above them.
-Extracting one means designing a props or hook contract for it, which is its own
-change with its own review — not a side effect of something else.
+file tree, the diff viewer, the design and test request loops, and the harness's
+entry point, and the big blocks inside it (`persistSessions` ~297 lines,
+`startTestGeneration` ~251, `startHarnessGeneration` ~100,
+`renderFormattedContent`, `handleSendMessage`) are not leaves: they read and
+write hook state and refs declared above them. Extracting one means designing a
+props or hook contract for it, which is its own change with its own review — not
+a side effect of something else. (The agent itself is not in here: it is
+`src/harness/`, which knows nothing about React state.)
 
 Two rules, learned the hard way, that `tsc` cannot check for you:
 
@@ -255,6 +298,59 @@ literal is part of the value, so re-indenting a moved block changes what ships.
 through a portal, outside any stylesheet the sidebar controls.
 
 Everything here is live. Verify before you move anything.
+
+## Phones and tablets
+
+At 960px and below the Code tab has its own layout; the desktop's is untouched.
+Gemini has no coding surface to measure, so it follows the narrow pages that do:
+the shell's 68px top bar, bottom sheets for menus, one pane at a time.
+
+The narrow CSS is all in `src/code-responsive.css`, and every rule there sits in a
+max-width query, so the desktop never sees it. The classes it targets
+(`code-hero`, `code-topbar`, `code-panel-explorer`, …) are hooks added for those
+rules and style nothing on their own. What CSS cannot do switches on
+`useCompactViewport()` (`@willow/chat/use-compact-viewport`), or on
+`useViewportWidth()` for the 600px phone cut-off.
+
+- **The landing is a column.** The heading starts under the top bar, and the cards
+  fill the height between it and the "Your apps" button, so a taller screen grows
+  them rather than opening a gap. The grid is two columns with two rows on a phone
+  (the wide card sits out), three on a portrait tablet (the wide card spans the
+  middle one), and one on a short screen. A phone on its side keeps only the
+  heading and the composer. The category pills wrap rather than scroll. The model
+  is picked from the top bar's `MobileModelPicker`, as on the chat home, and the
+  composer drops its own model button.
+- **`CodeHomeSkeleton` carries the same hooks** and imports the same stylesheet, so
+  the swap to the live landing does not jump on a phone. A hook added to one belongs
+  in the other.
+- **One workspace pane at a time.** The sidebar's collapse state is reused: open is
+  the chat at full width, collapsed is the preview. The resizer is hidden. A tool
+  opens on the pane that holds it, with Edit, Agents and Design on the chat pane and
+  the agent builder and the design canvas on the preview. `CodeHome` and
+  `WorkbenchView` both do this; keep them in step.
+- **The top bar** swaps the collapse toggle for a Chat pill, drops the tab labels on
+  a phone and the address bar on every narrow screen, and moves Refresh, Open in new
+  tab, Settings and (on a phone) Publish into a More sheet. When more tools are open
+  than fit, the tabs scroll sideways and the active one is scrolled into view. Add
+  tool sits outside that strip, because the strip's overflow would clip its menu.
+- **Menus are bottom sheets**: Tools on both composers, More, and the "Your apps"
+  card menu. The dropdowns' outside-click handlers return early on a compact
+  viewport, because a tap on a sheet row lands outside the dropdown's ref.
+- **The code panel on a phone** shows the file list or the open file, with a Files
+  button back to the list.
+- **"Your apps"** is Media's `BottomPanel` in `mode="develop"`. Its `showcase-*`
+  hooks are styled only under `.code-apps-section`, so the Media tab's copy is
+  unchanged, and its card menu becomes a sheet only in develop mode. On every
+  screen, desktop included, the list starts at the top; only the empty state is
+  centred.
+
+The agent builder and the design canvas that open in the preview pane are the
+Agents and Design apps' own canvases, and keep their desktop controls.
+
+`apps/studio/test/code-responsive.test.mjs` pins the above.
+`tools/scratch/code-desk-regress.ps1` replays five desktop states and compares a
+layout fingerprint of each against one saved earlier: run `save` before a change and
+`compare` after it to show the desktop did not move.
 
 ## Naming
 

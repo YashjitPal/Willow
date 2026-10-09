@@ -124,7 +124,8 @@ describe('Gemini-style streaming text reveal', () => {
     );
     assert.match(
       chat,
-      /reveal=\{generating \|\| \(!!msg\.isError && !!msg\.isNew\)\}/,
+      // `playsSeed`: a seeded chat's fixed reply (Spark's Skills "Create with Gemini") reveals the same way.
+      /reveal=\{generating \|\| (?:playsSeed \|\| )?\(!!msg\.isError && !!msg\.isNew\)\}/,
       'a hard-coded inline error should use the same animated reveal path as a model stream',
     );
     assert.match(

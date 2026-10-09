@@ -18,11 +18,19 @@ export interface SparkPlanStep {
 
 export type SparkActivityEntry =
   | { id: string; kind: 'narration'; text: string }
-  | { id: string; kind: 'tool'; tool: string }
+  /**
+   * `label` is the step's own words, for a connected app or MCP call: "Listing recently modified files in Drive".
+   * A command the desktop app ran also keeps its call and that call's status, so its group reads
+   * "Running command" until it finishes and "Ran command" after.
+   */
+  | { id: string; kind: 'tool'; tool: string; label?: string; callId?: string; status?: SparkCommandRowStatus }
   | { id: string; kind: 'subagents' };
 
 /** Persistable projection of a Codex sub-agent for Spark's delegated-work UI. */
 export type SparkSubAgentStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled';
+
+/** A command row's status: its call's own, from queued for approval to finished. */
+export type SparkCommandRowStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled';
 
 export interface SparkSubAgentCall {
   id: string;
@@ -54,11 +62,46 @@ export interface SparkSubAgent {
 
 export type SparkReaction = 'like' | 'dislike' | null;
 
+/**
+ * The pre-tool-call browser approval, kept only so tasks saved before the
+ * `computer` tool still load: `normalizeTask` turns one into a `SparkBrowserRequest`.
+ */
 export interface SparkTaskApproval {
   kind: 'browser';
   title: string;
   description: string;
   prompt: string;
+}
+
+/**
+ * A `computer` call that needed the user's permission.
+ *
+ * It sits on the turn whose answer is the permission card — the root task or a
+ * follow-up — and stays there once answered, because Gemini keeps the answered
+ * card in the thread with its buttons disabled.
+ */
+export interface SparkBrowserRequest {
+  id: string;
+  /** The timeline row's label. */
+  title: string;
+  /** The instruction the user reviews and the browser agent runs. */
+  task: string;
+  url?: string;
+  status: 'pending' | 'allowed' | 'denied';
+  createdAt: string;
+}
+
+/** The turn that answers a permission card: its prompt is "Allow" or "Don't allow". */
+export interface SparkBrowserDecision {
+  requestId: string;
+  allowed: boolean;
+}
+
+/** Where the task's remote browser was last, so it can be reopened after a reload. */
+export interface SparkRemoteBrowserPage {
+  url: string;
+  title: string;
+  favicon?: string;
 }
 
 export type SparkLocation =
@@ -74,7 +117,12 @@ export type SparkLocation =
       skillId?: string;
       template?: string;
     }
-  | { page: 'apps' };
+  | { page: 'apps' }
+  /** The desktop pet's library and settings; the desktop app only. */
+  | { page: 'pets' }
+  | { page: 'dots'; dotId?: string }
+  /** Pages' own router path (Codex's `/space` and `/space/<page id>`), with its query and hash. */
+  | { page: 'pages'; path: string };
 
 export interface SparkTaskTurn {
   id: string;
@@ -96,7 +144,11 @@ export interface SparkTaskTurn {
   activityPhase?: SparkActivityPhase;
   attachments?: SparkTaskAttachment[];
   generatedFiles?: SparkGeneratedFile[];
+  /** Schedules and skills this turn's run saved. */
+  createdItems?: SparkCreatedItem[];
   reaction?: SparkReaction;
+  browserRequest?: SparkBrowserRequest;
+  browserDecision?: SparkBrowserDecision;
   createdAt: string;
 }
 
@@ -117,6 +169,35 @@ export interface SparkGeneratedFile {
   mimeType: string;
   createdAt: string;
 }
+
+/**
+ * A schedule or a skill a turn's run saved, as its card shows it: Gemini's
+ * `remy-confirmation-card.draft-approval`. A snapshot, so the card still reads after
+ * the record is edited or deleted; while the record exists the card shows it as it is.
+ */
+export type SparkCreatedItem =
+  | {
+    kind: 'schedule';
+    id: string;
+    /** The schedule's own id in `SparkState.schedules`. */
+    recordId: string;
+    title: string;
+    frequency: 'Daily' | 'Weekly';
+    weekdays: string[];
+    time: string;
+    instructions: string;
+    createdAt: string;
+  }
+  | {
+    kind: 'skill';
+    id: string;
+    /** The skill's own id in `SparkState.skills`. */
+    recordId: string;
+    name: string;
+    description: string;
+    instructions: string;
+    createdAt: string;
+  };
 
 export interface SparkTask {
   id: string;
@@ -141,12 +222,19 @@ export interface SparkTask {
   turns: SparkTaskTurn[];
   attachments?: SparkTaskAttachment[];
   generatedFiles?: SparkGeneratedFile[];
+  /** Schedules and skills the root turn's run saved. */
+  createdItems?: SparkCreatedItem[];
   /** Codex-style persisted Goal mode state for this Spark thread. */
   goal?: SparkThreadGoal;
   tools?: string[];
   reaction?: SparkReaction;
   approval?: SparkTaskApproval;
   approvalDecision?: 'allowed' | 'denied';
+  /** The root turn's permission card, when its answer is one. */
+  browserRequest?: SparkBrowserRequest;
+  /** Gemini's permission is per thread: once allowed, later browser calls run without asking. */
+  browserPermission?: 'allowed';
+  remoteBrowser?: SparkRemoteBrowserPage;
   progressLabel?: string;
   scheduledLabel?: string;
   scheduledTime?: string;
@@ -274,25 +362,32 @@ export interface SuggestedTask {
  */
 const SPARK_RELATIVE_TIME = new Intl.RelativeTimeFormat('en-GB', { style: 'short', numeric: 'always' });
 
-export const formatSparkRelativeTime = (isoTime: string, now = Date.now()): string => {
+/**
+ * Gemini's <=960px layout switches to the narrow form — "1w ago", "3w ago", "1mo ago",
+ * "16h ago" — which is en-US `narrow` (en-GB narrow keeps the spaced "1 wk ago").
+ */
+const SPARK_RELATIVE_TIME_COMPACT = new Intl.RelativeTimeFormat('en-US', { style: 'narrow', numeric: 'always' });
+
+export const formatSparkRelativeTime = (isoTime: string, now = Date.now(), compact = false): string => {
   const timestamp = new Date(isoTime).getTime();
   if (!Number.isFinite(timestamp)) return '';
+  const format = compact ? SPARK_RELATIVE_TIME_COMPACT : SPARK_RELATIVE_TIME;
 
   const elapsedMinutes = Math.max(0, Math.floor((now - timestamp) / 60_000));
   if (elapsedMinutes < 1) return 'Just now';
-  if (elapsedMinutes < 60) return SPARK_RELATIVE_TIME.format(-elapsedMinutes, 'minute');
+  if (elapsedMinutes < 60) return format.format(-elapsedMinutes, 'minute');
 
   const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return SPARK_RELATIVE_TIME.format(-elapsedHours, 'hour');
+  if (elapsedHours < 24) return format.format(-elapsedHours, 'hour');
 
   const elapsedDays = Math.floor(elapsedHours / 24);
-  if (elapsedDays < 7) return SPARK_RELATIVE_TIME.format(-elapsedDays, 'day');
+  if (elapsedDays < 7) return format.format(-elapsedDays, 'day');
 
   const elapsedWeeks = Math.floor(elapsedDays / 7);
-  if (elapsedWeeks < 4) return SPARK_RELATIVE_TIME.format(-elapsedWeeks, 'week');
+  if (elapsedWeeks < 4) return format.format(-elapsedWeeks, 'week');
 
   const elapsedMonths = Math.floor(elapsedDays / 30);
-  if (elapsedMonths < 12) return SPARK_RELATIVE_TIME.format(-Math.max(1, elapsedMonths), 'month');
+  if (elapsedMonths < 12) return format.format(-Math.max(1, elapsedMonths), 'month');
 
-  return SPARK_RELATIVE_TIME.format(-Math.floor(elapsedDays / 365), 'year');
+  return format.format(-Math.floor(elapsedDays / 365), 'year');
 };

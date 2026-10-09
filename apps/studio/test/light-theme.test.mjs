@@ -61,7 +61,7 @@ test('ChatResponseChrome supports light theme actions and sidebars', () => {
 test('streaming-markdown-styles declares light theme rules', () => {
   const code = read('platform/ui/src/streaming-markdown-styles.ts');
   assert.match(code, /:is\(\.light-theme, \[data-theme="light"\]\) \.smd-root \{ color: rgb\(31, 31, 31\); \}/);
-  assert.match(code, /:is\(\.light-theme, \[data-theme="light"\]\) \.smd-link \{ color: #0b57d0;/);
+  assert.match(code, /:is\(\.light-theme, \[data-theme="light"\]\) \.smd-link \{ color: var\(--sync-0b57d0, #0b57d0\);/);
   assert.match(code, /:is\(\.light-theme, \[data-theme="light"\]\) \.smd-code-block \{ background: rgb\(240, 244, 249\); \}/);
 });
 
@@ -77,9 +77,11 @@ test('index.html declares light theme scrollbar and background glow rules', () =
   assert.match(html, /\.gemini-chat-scrollbar:where\(\.light-theme \*, \[data-theme="light"\] \*\):hover::-webkit-scrollbar-thumb \{\s*background: content-box #dde3ea;/);
   assert.match(html, /\.gemini-chat-scrollbar:where\(\.light-theme \*, \[data-theme="light"\] \*\)::-webkit-scrollbar-thumb:active,\s*\.gemini-chat-scrollbar:where\(\.light-theme \*, \[data-theme="light"\] \*\)::-webkit-scrollbar-thumb:hover \{\s*background: content-box #c4c7c5;/);
 
-  // Background glow light theme tokens:
-  assert.match(html, /:is\(\.light-theme, \[data-theme="light"\]\) \.willow-gemini-home-glow::before \{[\s\S]*?var\(--studio-surface, #faf9f9\) 0,[\s\S]*?filter: blur\(125px\);/);
-  assert.match(html, /:is\(\.light-theme, \[data-theme="light"\]\) \.willow-gemini-home-glow\.willow-gemini-home-glow-gray::before \{[\s\S]*?rgb\(196, 199, 197\) 50%/);
+  // Background glow light theme tokens: the light accent through the mask, Gemini's white
+  // bloom, and the light outline-variant gray for temporary chat.
+  assert.match(html, /:is\(\.light-theme, \[data-theme="light"\]\) \.willow-gemini-home-glow > \.willow-home-glow-layer::before \{\s*background: var\(--willow-home-glow-accent, rgb\(158, 174, 153\)\);/);
+  assert.match(html, /:is\(\.light-theme, \[data-theme="light"\]\) \.willow-gemini-home-glow > \.willow-home-glow-layer::after \{\s*background: #ffffff;/);
+  assert.match(html, /:is\(\.light-theme, \[data-theme="light"\]\) \.willow-gemini-home-glow\.willow-gemini-home-glow-gray > \.willow-home-glow-layer::before \{\s*background: rgb\(196, 199, 197\);/);
 });
 
 test('Tooltip.css declares light theme tooltip surface and wrapper rules', () => {
@@ -125,14 +127,16 @@ test('UsageLimitsView and UsageLimitsTab declare light theme rules', () => {
   assert.match(tabCss, /:is\(\.light-theme, \[data-theme="light"\]\) \.usage-limits/);
 });
 
-test('GemsView and CreateGemView declare light theme rules', () => {
+test('Gems manager, editor and dialogs declare light theme rules', () => {
+  const css = read('features/gems/src/gems.css');
+  const light = (selector) => new RegExp(`:is\\(\\.light-theme, \\[data-theme="light"\\]\\) ${selector.replace(/[.[\]()>]/g, '\\$&')}[\\s,{]`);
+  for (const selector of ['.gems-page', '.gems-row', '.gems-card-link', '.gems-menu', '.gems-tips', '.gem-editor-card', '.gem-editor-field', '.gem-editor-save', '.gem-nb-dialog', '.gem-zero-starter']) {
+    assert.match(css, light(selector), selector);
+  }
+  assert.match(css, /:is\(\.light-theme, \[data-theme="light"\]\) \.gem-editor-card \{\s*background-color: #f8fafd;/);
+
   const gemsView = read('features/gems/src/GemsView.tsx');
   assert.match(gemsView, /useThemeMode/);
-  assert.match(gemsView, /rgb\(240, 244, 249\)/);
-
-  const createGem = read('features/gems/src/CreateGemView.tsx');
-  assert.match(createGem, /useThemeMode/);
-  assert.match(createGem, /var\(--studio-surface, #faf9f9\)/);
 });
 
 test('PersonalIntelligenceTab, SavedInfoTab, ConnectedAppsTab, Memory, and Activity declare light theme rules', () => {
@@ -193,10 +197,10 @@ test('Gemini thinking dots and prompt edit form support light theme', () => {
 
   const chatView = read('features/chat/src/ChatView.tsx');
   assert.match(chatView, /isLight \? 'bg-\[#f2f0f0\]' : ''/);
-  assert.match(chatView, /isLight \? 'border-\[#0b57d0\]' : 'border-\[#1f3b9b\]'/);
-  assert.match(chatView, /isLight \? 'text-\[#1f1f1f\] caret-\[#0b57d0\]' : 'text-\[#e6e6e6\] caret-\[#e6e6e6\]'/);
+  assert.match(chatView, /isLight \? 'border-\[color:var\(--sync-0b57d0,#0b57d0\)\]' : 'border-\[color:var\(--sync-1f3b9b,#1f3b9b\)\]'/);
+  assert.match(chatView, /isLight \? 'text-\[#1f1f1f\] caret-\[color:var\(--sync-0b57d0,#0b57d0\)\]' : 'text-\[#e6e6e6\] caret-\[#e6e6e6\]'/);
   assert.match(chatView, /isLight\s*\?\s*'text-\[#1f1f1f\] hover:bg-black\/5/);
-  assert.match(chatView, /isLight\s*\?\s*'bg-\[#0b57d0\] text-white/);
+  assert.match(chatView, /isLight\s*\?\s*'bg-\[color:var\(--sync-0b57d0,#0b57d0\)\] text-white/);
 });
 
 test('Spark views, customise pages, and editors declare light theme rules', () => {
@@ -251,7 +255,7 @@ test('Spark views, customise pages, and editors declare light theme rules', () =
   assert.match(wsCss, /:is\(\.light-theme, \[data-theme="light"\]\) \.spark-connected-composer \.willow-gemini-composer \{[\s\S]*?box-shadow: 0 2px 8px -2px rgba\(0, 0, 0, 0\.16\);/);
   assert.match(homeCss, /:is\(\.light-theme, \[data-theme="light"\]\) \.spark-composer-anchor::before \{\s*display: none;\s*\}/);
   assert.match(taskDetailCss, /:is\(\.light-theme, \[data-theme="light"\]\) \.spark-task-detail::before \{\s*display: none;\s*\}/);
-  assert.match(taskDetailCss, /background: var\(--spark-raised-surface, #1f1f1f\);/);
+  assert.match(taskDetailCss, /background: var\(--spark-panel-surface, #1f1f1f\);/);
   assert.match(taskDetailCss, /:is\(\.light-theme, \[data-theme="light"\]\)[\s\S]*?\.spark-task-detail__processing-node[\s\S]*?background: #ffffff;/);
   assert.match(taskDetailCss, /:is\(\.light-theme, \[data-theme="light"\]\) \.spark-task-detail__disclaimer \{\s*color: #444746;\s*\}/);
   assert.match(taskDetailCss, /:is\(\.light-theme, \[data-theme="light"\]\) \.spark-task-detail__followup-composer \.willow-gemini-composer \{[\s\S]*?box-shadow: 0 2px 8px -2px rgba\(0, 0, 0, 0\.16\);/);

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { ProfilePhoto } from './ProfilePhoto';
 
 interface AvatarProps {
   /** Image URL (Google photoURL, Firebase Storage URL, or local blob for previews). */
@@ -15,15 +16,10 @@ interface AvatarProps {
 }
 
 /**
- * Resilient user avatar.
- *
- * Handles the three failure modes we hit in production:
- *  1. Google `lh3.googleusercontent.com` photoURLs intermittently 403 when a
- *     Referer header is sent → we set `referrerPolicy="no-referrer"`.
- *  2. Stale `blob:` URLs persisted to Firestore (dead after reload) → treated
- *     as "no src" so we render the initials fallback instead of a broken icon.
- *  3. Any other load failure (network, revoked URL, 404) → `onError` swaps to
- *     the initials fallback instead of the browser's broken-image glyph.
+ * Resilient user avatar: the photo through `ProfilePhoto` — no Referer (Google's
+ * `lh3.googleusercontent.com` photos intermittently 403 with one), one retry, and the
+ * silhouette while it loads and wherever it cannot load (a stale `blob:` URL persisted
+ * from another session included) — or the initial when there is no photo at all.
  */
 export const Avatar: React.FC<AvatarProps> = ({
   src,
@@ -34,20 +30,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   onMouseDown,
   title,
 }) => {
-  const [errored, setErrored] = useState(false);
-
-  // Reset error state whenever the src changes (e.g. user updates their photo).
-  useEffect(() => {
-    setErrored(false);
-  }, [src]);
-
-  // A persisted blob: URL from a previous session is guaranteed dead — don't
-  // even try to load it, just show the fallback. Fresh blob: URLs created in
-  // *this* session (upload previews) are still valid and will render fine.
-  // We can't distinguish the two here, so we optimistically try and rely on
-  // onError for the stale case.
   const effectiveSrc = src && src.trim() !== '' ? src : null;
-  const showImage = !!effectiveSrc && !errored;
 
   const initial = (name?.trim()?.charAt(0) || '?').toUpperCase();
 
@@ -67,16 +50,8 @@ export const Avatar: React.FC<AvatarProps> = ({
       onMouseDown={onMouseDown}
       title={title}
     >
-      {showImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={effectiveSrc}
-          alt={name || 'User'}
-          referrerPolicy="no-referrer"
-          draggable={false}
-          onError={() => setErrored(true)}
-          className="w-full h-full object-cover"
-        />
+      {effectiveSrc ? (
+        <ProfilePhoto src={effectiveSrc} alt={name || 'User'} className="h-full w-full" />
       ) : (
         <div
           className="w-full h-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] flex items-center justify-center text-white font-medium"

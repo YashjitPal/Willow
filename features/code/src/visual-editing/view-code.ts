@@ -21,9 +21,10 @@ export const viewCodeForSourceLocation = (
 
   // Try to estimate the end line by looking at the file content
   // This is a heuristic - we look for the matching closing tag
-  import('../runtime/sandpack/sandpack-store').then(({ sandpackStore }) => {
+  import('../session/code-session').then(({ activeWorkbench }) => {
+    const workbench = activeWorkbench();
     const targetFile = '/' + fileName;
-    const fileContent = sandpackStore.getFile(targetFile) || sandpackStore.getFile(fileName);
+    const fileContent = workbench.getFile(targetFile) || workbench.getFile(fileName);
 
     if (fileContent) {
       const lines = fileContent.split('\n');

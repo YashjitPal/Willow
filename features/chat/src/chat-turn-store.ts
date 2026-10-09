@@ -4,6 +4,10 @@ import type { MessageCitations } from '@willow/ai/grounding';
 import type { CodeExecution } from '@willow/ai/code-execution';
 import type { CanvasRef } from './canvas/canvas-store';
 import type { ChatMsg } from './chat-message';
+import type { GeneratedMedia } from './media/generated-media';
+import type { ResearchRecord } from './research/research-types';
+import type { ChatCreatedItem } from './library/library-tools';
+import type { ConnectorId } from '@willow/personal';
 
 /**
  * In-flight chat turns, owned outside React so a response survives the user
@@ -76,6 +80,15 @@ export interface ChatTurnRecord {
    *  executor mid-stream, which is why they accumulate here rather than being
    *  republished whole like `codeExecutions`. */
   canvasRefs?: CanvasRef[];
+  /** Media the tools made or are making, replaced whole on every change (identity is
+   *  the view's change test, as for `canvasRefs`). */
+  media?: GeneratedMedia[];
+  /** The Deep Research plan this turn proposed. */
+  research?: ResearchRecord;
+  /** Scheduled actions and skills this turn saved, replaced whole on every change, as `media` is. */
+  created?: ChatCreatedItem[];
+  /** The connected app whose tool is running now: the thinking row's "Connecting to <app>". */
+  connectingApp?: ConnectorId;
 
   // ── thinking row (was thinkTimer / thinkStart / thinkSecondsRef) ────────────
   phase: StreamPhase;
@@ -101,6 +114,8 @@ export interface ChatTurnRecord {
   lastCheckpointAt: number;
 
   listener: ChatTurnListener | null;
+  /** The cross-tab job that lets another tab resume this turn; told when the chat is renamed. */
+  job?: { update(patch: { chatId: string }): void } | null;
 }
 
 /**
@@ -166,6 +181,7 @@ export const rebindChatTurnChatId = (from: string, to: string): void => {
     if (record.chatId !== from) continue;
     if (!record.chatIdHistory.includes(from)) record.chatIdHistory.push(from);
     record.chatId = to;
+    record.job?.update({ chatId: to });
     changed = true;
   }
   if (changed) bump();

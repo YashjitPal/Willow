@@ -1,0 +1,56 @@
+.dot-permissions__option {
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.dot-permissions__option:hover {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.dot-permissions__option.is-selected {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 9%, var(--md-sys-color-surface-container));
+}
+
+.dot-permissions__option:has(.dot-permissions__input:focus-visible) {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.dot-permissions__option:has(.dot-permissions__input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* The native radio does the work — arrow keys, the group's one tab stop — while the symbol shows it. */
+.dot-permissions__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Each choice says what it means in full, so it may take two lines in a narrow profile. */
+.dot-permissions .dot-panel__row-title,
+.dot-permissions .dot-panel__row-sub {
+  white-space: normal;
+}
+
+.dot-permissions__option.is-selected .dot-panel__row-icon,
+.dot-permissions__option.is-selected .dot-permissions__mark {
+  color: var(--md-sys-color-primary);
+}
+
+.dot-permissions__mark {
+  flex: none;
+  color: var(--md-sys-color-outline);
+}
+
+.dot-permissions__note {
+  margin: 8px 6px 0;
+  color: var(--dot-panel-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}

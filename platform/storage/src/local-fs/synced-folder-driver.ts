@@ -22,6 +22,7 @@ import {
 } from './folder-sync-engine';
 import type { SyncedFolderDescriptor, SyncedItem } from '../synced-folders';
 import type { FolderSyncRecord } from './folder-sync-engine';
+import { moveToRecycleBin } from './recycle-bin';
 
 const readJSON = <T,>(key: string, fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
@@ -51,6 +52,7 @@ const validateRecords = (value: unknown): Record<string, FolderSyncRecord> => {
       diskMtime: Number.isFinite(raw.diskMtime) ? Math.max(0, raw.diskMtime) : 0,
       dirty: raw.dirty === true, tombstone: raw.tombstone === true,
       updatedAt: Number.isFinite(raw.updatedAt) ? Math.max(0, raw.updatedAt) : 0,
+      ...(Number.isFinite(raw.removedAt) && raw.removedAt > 0 ? { removedAt: raw.removedAt } : {}),
     };
   }
   return result;
@@ -170,11 +172,21 @@ export const syncRegisteredFolder = async (
   const timestamps = validateTimestamps(readJSON(keys.timestamps, {}));
   const hashes = readHashMap(readJSON(keys.hashes, {}));
 
+  const readDisk = async (id: string): Promise<string | null> => {
+    if (!isValidItemId(id)) return null;
+    try {
+      return await (await (await dir.getFileHandle(`${id}${descriptor.extension}`)).getFile()).text();
+    } catch (error: any) {
+      if (error?.name === 'NotFoundError') return null;
+      throw error;
+    }
+  };
+
   // Seed the cache from whatever the feature currently holds, so its own state
   // is what the engine diffs against disk.
   let localItems: SyncedItem[];
   try {
-    const readItems = await descriptor.readLocal(ctx);
+    const readItems = await descriptor.readLocal({ ...ctx, readDisk });
     // Invalid ids must never reach getFileHandle(): ids are file-name stems,
     // so accepting path separators here would let feature data escape its
     // registered folder. Abort the whole pass instead of filtering malformed
@@ -202,11 +214,26 @@ export const syncRegisteredFolder = async (
         dirty: false,
         tombstone: true,
         updatedAt: Date.now(),
+        removedAt: undefined,
       };
     }
   }
   for (const item of localItems) {
-    if (!ids.includes(item.id) && !records[item.id]?.tombstone) {
+    if (descriptor.reviveLocal && records[item.id]?.tombstone) {
+      // The feature holds only what the user has, so this is no deleted item: one named like a
+      // deleted one, or one a pass took for deleted. Written again; a file still standing under the
+      // tombstone (its removal failed) has no known mtime now, so it is kept as a conflict copy.
+      records[item.id] = {
+        ...records[item.id],
+        revision: records[item.id].revision + 1,
+        diskMtime: 0,
+        dirty: true,
+        tombstone: false,
+        updatedAt: Date.now(),
+        removedAt: undefined,
+      };
+      if (!ids.includes(item.id)) ids.push(item.id);
+    } else if (!ids.includes(item.id) && !records[item.id]?.tombstone) {
       ids.push(item.id);
       // A browser-only record has never been seen on disk. Mark it dirty so
       // the first connected-folder reconcile exports it instead of treating
@@ -268,7 +295,7 @@ export const syncRegisteredFolder = async (
       const file = await (await dir.getFileHandle(fileName(id))).getFile();
       return { mtime: file.lastModified };
     },
-    remove: async (id) => { await dir.removeEntry(fileName(id)); },
+    remove: async (id) => { await moveToRecycleBin({ root: workspaceDir, path: descriptor.folder.split('/') }, dir, fileName(id)); },
 
     readCache: async (id) => (cache.has(id) ? cache.get(id)! : null),
     writeCache: async (id, contents) => { cache.set(id, contents); },

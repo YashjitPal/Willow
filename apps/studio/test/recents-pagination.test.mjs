@@ -150,15 +150,20 @@ it('blanks the thread while a selected chat loads, without moving the composer',
     'the blank-thread state no longer covers boot — the composer centres over an empty pane');
   // Both render branches must be suppressed, or a loading chat falls through to
   // the "new chat" greeting.
-  assert.match(source, /\{!hasStarted && !showBlankThread && \(/,
+  // Two zero states, the greeting and a Gem's card; both stand down during a load.
+  assert.match(source, /\{!hasStarted && !showBlankThread && !activeGem && \(/,
     'the zero state is not suppressed during a load — a loading chat shows the greeting');
+  assert.match(source, /\{!hasStarted && !showBlankThread && activeGem && \(/,
+    'a Gem\'s zero state is not suppressed during a load');
   assert.match(source, /\{hasStarted && !showBlankThread && \(/,
     'the thread is not suppressed during a load');
 
   // hasStarted must NOT be forced false to achieve this: it also drives the
   // composer's docked-vs-centred layout, and the docked->zero direction is a
   // 0-duration snap, so flipping it teleports the composer to screen centre.
-  assert.match(source, /const isThreadDocked = hasStarted \|\| showBlankThread;/,
+  // A Gem's zero state docks the composer too, as Gemini's does — and so does a creation
+  // tool's gallery (Create image / video / music picked on the zero state).
+  assert.match(source, /const isThreadDocked = hasStarted \|\| showBlankThread \|\| !!activeGem \|\| !!galleryTool;/,
     'the composer no longer has a docked signal independent of hasStarted');
   // These two must stay paired or the composer squashes.
   assert.match(source, /layoutDependency=\{isThreadDocked\}/,

@@ -265,3 +265,36 @@ export function renameScannedCodeChat(scopeId: string, oldChatId: string, newCha
   ids.add(newChatId);
   try { localStorage.setItem(scannedKey(scopeId), JSON.stringify([...ids])); } catch {}
 }
+
+/* ------------------------------ opening a chat ---------------------------- */
+
+/** Whether saved messages are a Code chat's: Code writes `willowMode: 'code'` on every one. */
+export function isCodeChatBody(messages: readonly unknown[] | null | undefined): boolean {
+  return Array.isArray(messages) && messages.some((message) => (message as { willowMode?: unknown } | null)?.willowMode === 'code');
+}
+
+/**
+ * Whether a chat about to be opened is a Code chat. The marker answers for every
+ * chat Code saved in this scope and every chat the backfill has read. One it has
+ * never read — its marker is another scope's after a sign-in or sign-out, or the
+ * backfill has not reached it — is read once here and marked, so it opens in Code:
+ * Chat cannot show it, and its next save would strip the Code fields for good.
+ */
+export async function checkCodeChat(
+  scopeId: string,
+  chatId: string,
+  loadBody: (chatId: string) => Promise<unknown[] | null>,
+): Promise<boolean> {
+  if (isCodeChat(scopeId, chatId)) return true;
+  if (!scopeId || !chatId || hasScannedCodeChat(scopeId, chatId)) return false;
+  let messages: unknown[] | null = null;
+  try {
+    messages = await loadBody(chatId);
+  } catch {
+    return false;
+  }
+  const isCode = isCodeChatBody(messages);
+  if (isCode && !migrateVerifiedLegacyCodeChat(scopeId, chatId)) markCodeChat(scopeId, chatId);
+  markScannedCodeChat(scopeId, chatId);
+  return isCode;
+}

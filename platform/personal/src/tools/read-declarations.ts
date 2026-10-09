@@ -22,6 +22,7 @@
  * they have been watching, which is not a thing any OAuth scope grants.
  */
 
+import { canReadContents } from '../connectors/google/gmail';
 import { connectorById } from '../connectors/registry';
 import type { ConnectorId } from '../connectors/types';
 import { READ_TOOLS } from './executor';
@@ -33,6 +34,8 @@ interface ReadToolSchema {
   required: string[];
   /** Which connector must be connected before this is offered. */
   connector: ConnectorId;
+  /** A further condition, when connecting is not enough (email contents). */
+  available?: () => boolean;
 }
 
 const SCHEMAS: ReadToolSchema[] = [
@@ -89,13 +92,16 @@ const SCHEMAS: ReadToolSchema[] = [
   {
     name: READ_TOOLS.listRecentEmails,
     connector: 'gmail',
-    description:
-      "List recent email in the user's Gmail: sender name, sending domain, subject line and date. It cannot return message contents — Willow holds metadata-only access, so the body of an email is not available to any tool and must never be guessed at from the subject. Skips spam and trash.",
+    get description() {
+      return canReadContents()
+        ? "List recent email in the user's Gmail: sender, subject, date and each message's id, which read_email takes to read the whole message. Skips spam and trash."
+        : "List recent email in the user's Gmail: sender name, sending domain, subject line and date. It cannot return message contents — Willow holds metadata-only access, so the body of an email is not available to any tool and must never be guessed at from the subject. Skips spam and trash.";
+    },
     properties: {
       search: {
         type: 'string',
         description:
-          'Optional Gmail search terms, e.g. "from:university" or "is:unread". Applied on top of the recent-mail filter.',
+          'Optional Gmail search terms, e.g. "from:university" or "is:unread". Applied on top of the recent-mail filter. Without email contents only senders, recipients, subjects and unread are searched.',
       },
       limit: {
         type: 'integer',
@@ -103,6 +109,17 @@ const SCHEMAS: ReadToolSchema[] = [
       },
     },
     required: [],
+  },
+  {
+    name: READ_TOOLS.readEmail,
+    connector: 'gmail',
+    available: canReadContents,
+    description:
+      "Read one email in full — sender's address, recipients, subject, date, attachments by name, and what it says — by the id list_recent_emails gave. Use it when the answer depends on what a message says, not just who sent it.",
+    properties: {
+      id: { type: 'string', description: "The message's id, from list_recent_emails." },
+    },
+    required: ['id'],
   },
   {
     name: READ_TOOLS.listTopMusic,
@@ -182,7 +199,7 @@ const SCHEMAS: ReadToolSchema[] = [
 ];
 
 const forConnectors = (connected: ConnectorId[]): ReadToolSchema[] =>
-  SCHEMAS.filter((schema) => connected.includes(schema.connector));
+  SCHEMAS.filter((schema) => connected.includes(schema.connector) && (schema.available?.() ?? true));
 
 /** Gemini's shape. Returns `null` when nothing is connected, so the caller can
  *  skip pushing an empty `functionDeclarations` block. */

@@ -258,3 +258,71 @@ it('does not let a writer mutate a map a caller is already holding', () => {
   assert.equal(mod.readCodeChats(SCOPE)['added-later'], true,
     'the write must still be visible to the next read');
 });
+
+/**
+ * "Clicking a Code chat in Recents opens it in the normal chat UI."
+ *
+ * The click decides from the marker, so a Code chat whose marker is missing —
+ * markers are per scope, and a sign-in or sign-out switches scope — opened in
+ * Chat, which cannot show it. `checkCodeChat` reads such a chat once and marks it.
+ */
+const CODE_BODY = [{ role: 'user', content: 'Build a timer', willowMode: 'code' }];
+const CHAT_BODY = [{ role: 'user', content: 'Hello' }];
+
+it('opens a chat by its marker without reading it', async () => {
+  mod.markCodeChat(SCOPE, 'marked');
+  let reads = 0;
+  assert.equal(await mod.checkCodeChat(SCOPE, 'marked', async () => { reads += 1; return CHAT_BODY; }), true);
+  assert.equal(reads, 0);
+});
+
+it('reads an unmarked chat once, and marks it when its messages are Code', async () => {
+  let reads = 0;
+  const load = async () => { reads += 1; return CODE_BODY; };
+  assert.equal(await mod.checkCodeChat(SCOPE, 'signed-out-era', load), true);
+  assert.equal(mod.isCodeChat(SCOPE, 'signed-out-era'), true, 'the next click goes by the marker');
+  assert.equal(await mod.checkCodeChat(SCOPE, 'signed-out-era', load), true);
+  assert.equal(reads, 1);
+});
+
+it('reads a plain chat once too, and never again', async () => {
+  let reads = 0;
+  const load = async () => { reads += 1; return CHAT_BODY; };
+  assert.equal(await mod.checkCodeChat(SCOPE, 'plain', load), false);
+  assert.equal(await mod.checkCodeChat(SCOPE, 'plain', load), false);
+  assert.equal(reads, 1, 'a chat already read opens as fast as before');
+  assert.equal(mod.isCodeChat(SCOPE, 'plain'), false);
+});
+
+it('opens a chat it could not read in Chat, and tries again next time', async () => {
+  assert.equal(await mod.checkCodeChat(SCOPE, 'unreadable', async () => { throw new Error('disk'); }), false);
+  assert.equal(mod.hasScannedCodeChat(SCOPE, 'unreadable'), false);
+  assert.equal(await mod.checkCodeChat(SCOPE, 'unreadable', async () => CODE_BODY), true);
+});
+
+it('tells a Code chat by its messages', () => {
+  assert.equal(mod.isCodeChatBody(CODE_BODY), true);
+  assert.equal(mod.isCodeChatBody([...CHAT_BODY, ...CODE_BODY]), true);
+  assert.equal(mod.isCodeChatBody(CHAT_BODY), false);
+  assert.equal(mod.isCodeChatBody(null), false);
+});
+
+it('checks the chat itself wherever a chat is opened, and Chat never shows a Code chat', () => {
+  const read = (...segments) => fs.readFileSync(path.join(repoRoot, ...segments), 'utf8');
+  const sidebar = fs.readFileSync(SIDEBAR_SOURCE, 'utf8');
+  assert.match(sidebar, /if \(codeChats\[chatId\] === true \|\| hasScannedCodeChat\(chatScopeId, chatId\)\) \{\s*open\(codeChats\[chatId\] === true\);/,
+    'a chat already marked or read opens at once');
+  assert.match(sidebar, /void checkCodeChat\(chatScopeId, chatId, loadLocalFSChat\)\.then\(open\);/);
+  assert.match(read('apps', 'studio', 'src', 'shell', 'SearchChats.tsx'), /void checkCodeChat\(scopeId, chatId, loadChat\)\.then\(/);
+
+  const chat = read('features', 'chat', 'src', 'ChatView.tsx');
+  assert.match(chat, /if \(isCodeChat\(chatScopeIdRef\.current, activeChatId\)\) \{\s*handOverCodeChat\(activeChatId\);\s*return;\s*\}/,
+    'a marked Code chat that became the open chat goes to Code unread');
+  assert.match(chat, /if \(isCodeChatBody\(msgs\)\) \{\s*initialLoadRef\.current = wasInitialLoad;\s*markCodeChat\(chatScopeIdRef\.current, activeChatId\);\s*handOverCodeChat\(activeChatId\);\s*return;\s*\}/,
+    'an unmarked one goes too, before anything is committed or saved');
+
+  // Code's own saves never make its chat the open chat, which Chat would load.
+  assert.match(read('features', 'code', 'src', 'workbench', 'WorkbenchSidebar.tsx'), /, \{ openInChat: false \}\)\);/);
+  assert.match(read('platform', 'storage', 'src', 'local-fs', 'LocalFSContext.tsx'),
+    /if \(options\?\.openInChat !== false\) \{\s*setActiveChatId\(\(current\) => current === null \|\| current === previousId \? chatId : current\);/);
+});

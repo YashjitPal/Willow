@@ -67,7 +67,7 @@ const codeOnly = (source) => source
  */
 const leadingActions = (source) => {
   const m = source.match(
-    /<div className=\{`absolute shrink-0 flex items-center gap-2 z-\[60\][\s\S]{0,400}?`\}>/,
+    /<div (?:ref=\{\w+\} )?className=\{`absolute shrink-0 flex items-center gap-2 z-\[60\][\s\S]{0,400}?`\}>/,
   );
   assert.ok(m, 'could not locate the leading-actions wrapper');
   return m[0];
@@ -156,7 +156,9 @@ it('aligns the collapsed text with the dictation waveform', () => {
   // fix the text was at 40px and the two disagreed by exactly the 6px bug.
   const source = codeOnly(COMPOSER());
   const pad = collapsedTextPad(source);
-  const wave = source.match(/absolute left-\[(\d+)px\] right-\[86px\] top-1\/2/);
+  // Its right edge is the stop button's: Gemini's waveform runs 642 -> 1132 at 1536 wide. Its
+  // left moves past a desktop tool chip through the variable; with none it is the fallback.
+  const wave = source.match(/absolute left-\[var\(--willow-wave-left,(\d+)px\)\] right-\[95px\] bottom-\[20px\]/);
   assert.ok(wave, 'could not locate the dictation waveform overlay');
   assert.equal(pad, Number(wave[1]),
     'the collapsed text and the dictation waveform no longer start at the same x');

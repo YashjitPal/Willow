@@ -32,8 +32,8 @@ the longer form only when a bare title is ambiguous.
 
 Every operation declares whether its anchor must exist.
 
-- `required: true` — a missing anchor throws `OverlayAnchorError` and the app
-  surfaces it in the Harness panel.
+- `required: true` — a missing anchor throws `OverlayAnchorError`, which fails
+  `npm test` and, in the app, the first Spark turn.
 - `required: false` — a missing anchor is recorded in `skipped` and composition
   continues.
 
@@ -89,12 +89,17 @@ and describe it in the tool-protocol section. A declared tool with no executor
 produces a model that announces work it never did — the same failure mode
 `platform/ai` documents for its media tools.
 
+`app:<name>` and `mcp:<name>` are allowed by prefix instead. Their handlers come
+from `../spark-tools.ts` for each run, one per connector tool or MCP tool the host
+passed, and `spark-profile.ts` declares exactly those. A prefixed name with no
+handler gets the runtime's "Unknown tool" error, which lists the tools that exist.
+
 ## After changing anything here
 
 ```bash
-npm test    # agent-harness.test.mjs pins the guarantees above
+npm test    # spark-upstream-integrity.test.mjs pins the anchors and the shell rewrite
 ```
 
-Then read the composed prompt in the app: Code → Harness → Prompt. It is
-the exact string sent to the model, and it is the only way to see the result of
-composition end to end.
+Then read the composed prompt: `createSparkHarnessProfile` in
+`spark-profile.ts` returns the exact string sent to the model, and it is the
+only way to see the result of composition end to end.

@@ -14,6 +14,8 @@
  * rather than repaired.
  */
 
+import type { TurnMode, TurnStep } from '../harness/protocol';
+
 /**
  * Structurally the workbench's own `ChatMessage` (declared inside
  * `WorkbenchSidebar`, so it cannot be imported). Kept in sync by hand: a field
@@ -29,9 +31,41 @@ export interface ResumedCodeMessage {
   timestamp: number;
   attachments?: { type: 'image' | 'text' | 'file'; mimeType: string; data: string; name?: string }[];
   designNodeId?: string;
+  steps?: TurnStep[];
+  harnessMode?: TurnMode;
 }
 
 const ATTACHMENT_TYPES = new Set(['image', 'text', 'file']);
+
+const STEP_KINDS = new Set(['text', 'file', 'read', 'list', 'search', 'check', 'dependency', 'plan', 'skill', 'tool', 'notice', 'computer', 'image', 'design']);
+const STEP_STATUSES = new Set(['running', 'done', 'error']);
+
+/**
+ * A harness turn's steps, re-checked one by one.
+ *
+ * A step that is not an object with a known kind is dropped, and a step saved
+ * mid-turn (`running`) reads as finished, since nothing is running any more.
+ */
+const sanitizeSteps = (value: unknown): TurnStep[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const steps = value
+    .filter((entry: any) => entry && typeof entry === 'object' && typeof entry.id === 'string' && STEP_KINDS.has(entry.kind))
+    .map((entry: any) => {
+      const step = { ...entry };
+      if ('status' in step && !STEP_STATUSES.has(step.status)) step.status = 'done';
+      if (step.status === 'running') step.status = 'done';
+      if (step.kind === 'text' && typeof step.text !== 'string') step.text = '';
+      if (step.kind === 'plan' && !Array.isArray(step.items)) step.items = [];
+      if (step.kind === 'image') {
+        if (typeof step.caption !== 'string') step.caption = '';
+        // Only a picture the turn drew itself is kept inline; anything else is not a screenshot.
+        if (typeof step.src === 'string' && !step.src.startsWith('data:image/')) delete step.src;
+        if (step.notes !== undefined && !Array.isArray(step.notes)) delete step.notes;
+      }
+      return step as TurnStep;
+    });
+  return steps.length ? steps : undefined;
+};
 
 const sanitizeAttachments = (value: unknown): ResumedCodeMessage['attachments'] => {
   if (!Array.isArray(value)) return undefined;
@@ -67,14 +101,10 @@ const sanitizeFilesSnapshot = (value: unknown): Record<string, string> | undefin
 /**
  * Turn a saved chat body into workbench messages.
  *
- * Two fields are deliberately *not* carried across:
- *
- * - `isGenerating` / `isThinking`, so a reopened chat never resumes mid-turn —
- *   the same rule `serializeChatMessage` applies on the chat side.
- * - `codexTurnId`, which joins a message to the Agent harness's tool calls in
- *   `agent-store`. That store is in-memory only and is empty on a fresh mount,
- *   so a kept id would point at nothing; dropping it is what makes the message
- *   fall back to plain rendering instead of an empty agent timeline.
+ * `isGenerating` / `isThinking` are deliberately *not* carried across, so a
+ * reopened chat never resumes mid-turn — the same rule `serializeChatMessage`
+ * applies on the chat side. A harness turn's `steps` are, because they are the
+ * transcript: without them a reopened reply would lose its file and check rows.
  */
 export const sanitizeResumedCodeMessages = (value: unknown): ResumedCodeMessage[] => {
   if (!Array.isArray(value)) return [];
@@ -107,15 +137,21 @@ export const sanitizeResumedCodeMessages = (value: unknown): ResumedCodeMessage[
       if (typeof entry.designNodeId === 'string' && entry.designNodeId) {
         message.designNodeId = entry.designNodeId;
       }
+      if (entry.role === 'assistant') {
+        const steps = sanitizeSteps(entry.steps);
+        if (steps) message.steps = steps;
+        if (entry.harnessMode === 'plan') message.harnessMode = 'plan';
+      }
       return message;
     })
     // An entry with nothing to show would render an empty bubble. Checked after
-    // the mapping so that a message whose only content is an attachment or a
-    // file snapshot still counts.
+    // the mapping so that a message whose only content is an attachment, a file
+    // snapshot or a transcript still counts.
     .filter((message) =>
       message.content.trim().length > 0
       || !!message.attachments?.length
-      || !!message.filesSnapshot);
+      || !!message.filesSnapshot
+      || !!message.steps?.length);
 };
 
 /**

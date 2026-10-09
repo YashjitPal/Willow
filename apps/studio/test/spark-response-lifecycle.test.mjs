@@ -142,15 +142,16 @@ it('keeps an active work phase visible after response text has started', () => {
 it('collapses a run of same-label timeline tools that no work-log line interrupts', () => {
   // A model firing several searches back to back drew one "Google Search" row
   // per call. Comparing the rendered label subsumes the file-tool rule this
-  // replaced, since every file tool already renders as "Files".
+  // replaced, since every file tool already renders as "Files". Connector and
+  // MCP rows render their step title, so two different Drive steps stay apart.
   assert.match(
     detailSource,
-    /entry\.kind === 'tool'\s*&& last\?\.kind === 'tool'\s*&& getTimelineToolLabel\(last\.entry\.tool\) === getTimelineToolLabel\(entry\.tool\)/,
+    /entry\.kind === 'tool'\s*&& last\?\.kind === 'tool'\s*&& timelineRowLabel\(last\.entry\.tool, last\.entry\.label\) === timelineRowLabel\(entry\.tool, entry\.label\)/,
   );
   assert.doesNotMatch(detailSource, /isFileTimelineTool\(last\.entry\.tool\)/);
   assert.match(
     detailSource,
-    /if \(tool && previousTool && getTimelineToolLabel\(tool\) === getTimelineToolLabel\(previousTool\)\) return;/,
+    /if \(call && previousCall && timelineRowLabel\(call\.kind, call\.label\) === timelineRowLabel\(previousCall\.kind, previousCall\.label\)\) return;/,
   );
 
   // Adjacency is the whole test, so narration has to be grouped before the
@@ -158,7 +159,7 @@ it('collapses a run of same-label timeline tools that no work-log line interrupt
   // group last, and the next search is no longer adjacent to a tool row.
   const groupStart = detailSource.indexOf('const groupSparkActivity =');
   const narrationBranch = detailSource.indexOf("kind: 'narration', entries: [entry]", groupStart);
-  const collapseBranch = detailSource.indexOf('getTimelineToolLabel(last.entry.tool)', groupStart);
+  const collapseBranch = detailSource.indexOf('timelineRowLabel(last.entry.tool, last.entry.label)', groupStart);
   assert.notEqual(groupStart, -1);
   assert.notEqual(narrationBranch, -1);
   assert.ok(narrationBranch < collapseBranch);

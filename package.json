@@ -11,6 +11,9 @@
   "files": [
     "bin",
     "apps/studio/dist",
+    "api/_browse-proxy.js",
+    "api/_browse-bridge.js",
+    "api/_private-host.js",
     "README.md",
     "LICENSE"
   ],
@@ -37,12 +40,16 @@
     "agent-builder:test": "npm --prefix services/agent-builder test",
     "agent-builder:typecheck": "npm --prefix services/agent-builder run typecheck",
     "companion:start": "npm --prefix services/local-companion start",
-    "companion:test": "npm --prefix services/local-companion test"
+    "companion:test": "npm --prefix services/local-companion test",
+    "companion:computers": "npm --prefix services/local-companion run computers",
+    "desktop:dev": "npm --prefix apps/desktop run dev",
+    "desktop:build": "npm --prefix apps/desktop run build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
     "@google/genai": "^1.38.0",
     "@google/generative-ai": "^0.24.1",
+    "@material/web": "^2.5.0",
     "@nanostores/persistent": "^1.3.5",
     "@nanostores/react": "^0.7.3",
     "@octokit/rest": "^22.0.1",
@@ -78,17 +85,21 @@
     "puppeteer": "^25.4.0",
     "puppeteer-core": "^25.4.0",
     "puppeteer-screen-recorder": "^3.0.6",
+    "radix-ui": "^1.6.7",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "react-intl": "^7.1.14",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.11.0",
     "recast": "^0.23.11",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
+    "sonner": "^2.0.8",
     "tailwind-merge": "^3.4.0",
     "ts-morph": "^27.0.2",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@babel/core": "^7.28.6",

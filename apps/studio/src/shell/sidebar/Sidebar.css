@@ -209,9 +209,16 @@
     border: 0;
     border-radius: 50%;
     background: transparent;
-    color: #e3e3e3;
+    color: #e0e0e0;
     cursor: pointer;
     transition: background-color 150ms ease, color 150ms ease;
+  }
+
+  /* A Spark task is Gemini's full-screen chat view: its own header and back button take
+   * the top bar, and the drawer is reached by going back. Only the one on show: a task or bot
+   * kept behind another tab (`inert`) leaves that tab its drawer button. */
+  body:has(.spark-task-detail:not([inert] *)) .studio-sidebar-mobile-open {
+    display: none;
   }
 
   .studio-sidebar-mobile-open:hover {
@@ -230,7 +237,7 @@
   }
 
   .studio-sidebar-mobile-open:focus-visible {
-    outline: 2px solid #a8c7fa;
+    outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
     outline-offset: -2px;
   }
 
@@ -253,84 +260,187 @@
     border-radius: 50%;
   }
 
-  /* Mobile/Tablet Model Selector Button (Exact Gemini Material 3 styling & Ripple Animation) */
+  /*
+   * Header model picker: Gemini's `.logo-pill-btn`, a `mat-mdc-button`. Read off
+   * gemini.google.com at 390x844 and 800x1280, dpr 1.25 — identical at both widths, so
+   * there are no breakpoints here.
+   *
+   * The button is 24px tall with 12px inline padding, so the pill a press shows is thin
+   * and the text starts at x = 56 + 12 = 68. Text is set at 18px and drawn at 16px, the
+   * way Gemini scales it; the spacing between the parts is the one place Willow departs,
+   * see the text rules below.
+   *
+   * Nothing reflects the menu being open — no fill, no chevron rotation. The only states
+   * are the ripple while pressed, the state layer at 8% on mouse hover and keyboard focus,
+   * and 12% while a mouse button is held. Each snaps; only the ripple animates.
+   */
   .studio-mobile-model-button {
     position: relative;
-    background-color: transparent;
+    display: flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 12px;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--sync-062e6f, #062e6f);
+    font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+    outline: none;
+    user-select: none;
     -webkit-tap-highlight-color: transparent;
-    overflow: hidden;
-    cursor: pointer;
   }
 
-  .studio-mobile-model-button:hover {
-    background-color: transparent;
-  }
-
-  .studio-mobile-model-button:active,
-  .studio-mobile-model-button.is-active,
-  .studio-mobile-model-button.is-open {
-    background-color: #151d29 !important;
-  }
-
-  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-button:hover {
-    background-color: transparent;
-  }
-
-  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-button:active,
-  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-button.is-active,
-  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-button.is-open {
-    background-color: #d3e3fd !important;
-  }
-
-  /* Animated Material 3 pill state-layer */
-  .studio-mobile-model-pill {
+  .studio-mobile-model-state,
+  .studio-mobile-model-ripples {
     position: absolute;
     inset: 0;
-    border-radius: 9999px;
-    background-color: #151d29;
-    opacity: 0;
-    transform: scale(0.92);
-    transform-origin: center;
+    border-radius: inherit;
     pointer-events: none;
-    transition: opacity 180ms cubic-bezier(0.2, 0, 0, 1), transform 220ms cubic-bezier(0.05, 0.7, 0.1, 1);
   }
 
-  .studio-mobile-model-pill.is-active,
-  .studio-mobile-model-pill.is-open {
-    opacity: 1 !important;
-    transform: scale(1) !important;
+  .studio-mobile-model-state {
+    background-color: var(--sync-062e6f, #062e6f);
+    opacity: 0;
   }
 
-  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-pill {
-    background-color: #d3e3fd;
+  .studio-mobile-model-button:hover > .studio-mobile-model-state {
+    opacity: 0.08;
   }
 
-  /* Material 3 touch/click ripple expansion */
-  .studio-m3-ripple {
+  .studio-mobile-model-button:focus-visible > .studio-mobile-model-state {
+    opacity: 0.08;
+  }
+
+  .studio-mobile-model-button:active > .studio-mobile-model-state {
+    opacity: 0.12;
+  }
+
+  /*
+   * Gemini's own rule, `span` included. A touch press is :hover and :active at once, and
+   * the extra type selector outranks :active — so on touch the state layer never shows
+   * and the ripple is the only press feedback. With a mouse :active wins by source order.
+   */
+  @media (hover: none) {
+    .studio-mobile-model-button:hover > span.studio-mobile-model-state {
+      opacity: 0;
+    }
+  }
+
+  .studio-mobile-model-ripples {
+    overflow: hidden;
+  }
+
+  /* `.mat-ripple-element`. launchMaterialRipple sets the geometry and durations inline. */
+  .studio-mobile-model-ripple {
     position: absolute;
     border-radius: 50%;
     pointer-events: none;
-    transform: translate(-50%, -50%) scale(0);
-    animation: m3-ripple-expand 280ms cubic-bezier(0.05, 0.7, 0.1, 1) forwards;
-    background-color: #151d29;
+    background-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.12);
+    transform: scale3d(0, 0, 0);
+    transition: opacity, transform 0ms cubic-bezier(0, 0, 0.2, 1);
   }
 
-  :is(.light-theme, [data-theme="light"]) .studio-m3-ripple {
-    background-color: #d3e3fd;
+  .studio-mobile-model-label {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    height: 24px;
   }
 
-  @keyframes m3-ripple-expand {
-    0% {
-      transform: translate(-50%, -50%) scale(0);
-      opacity: 0.35;
-    }
-    60% {
-      opacity: 0.8;
-    }
-    100% {
-      transform: translate(-50%, -50%) scale(1);
-      opacity: 1;
-    }
+  .studio-mobile-model-primary,
+  .studio-mobile-model-secondary {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 24px;
+    letter-spacing: normal;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  /*
+   * Deliberate departure from Gemini: the name and the effort sit exactly one space
+   * apart. Gemini's gap is the scale slack after the first part — 11% of its width — so
+   * it widens with long names like "3.5 Flash Lite". `zoom` draws the same glyphs as the
+   * scale transform (widths agree to 0.04px) but shrinks the box with them, and a plain
+   * 16px font does not: this face reshapes by size and comes out ~2px wider.
+   */
+  .studio-mobile-model-primary {
+    zoom: 0.888888;
+    color: #e0e0e0;
+  }
+
+  .studio-mobile-model-primary:has(+ .studio-mobile-model-secondary)::after {
+    content: "\00a0";
+  }
+
+  /* Still the transform, so the chevron keeps Gemini's spacing after the last part. */
+  .studio-mobile-model-secondary {
+    transform: scale(0.888888);
+    transform-origin: left center;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  /*
+   * Light is unmeasured: the Gemini account used for the capture is pinned to dark. Text
+   * keeps Willow's earlier light colours, and the state layer and ripple sit on the same
+   * roles their dark values resolve from — the label colour, and primary at 12%.
+   */
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-button {
+    color: var(--sync-1a73e8, #1a73e8);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-state {
+    background-color: var(--sync-1a73e8, #1a73e8);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-ripple {
+    background-color: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.12);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-primary {
+    color: #1f1f1f;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-model-secondary {
+    color: #70757a;
+  }
+
+  /*
+   * The wordmark on the notebook list and create screens: Gemini's
+   * `bard-logo-container.logo-only`, a 36px new-chat link at x 56 padded `6px 8px`. Its
+   * text is the header's — set at 18px and drawn at 16px like the model picker's — in
+   * the emphasized title cut, `"ROND" 20, "wdth" 94, "wght" 470`, tracked -0.3px.
+   */
+  .studio-mobile-wordmark {
+    display: flex;
+    height: 36px;
+    align-items: center;
+    padding: 6px 8px;
+    background: transparent;
+    color: #e0e0e0;
+    font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+    outline: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .studio-mobile-wordmark-text {
+    display: inline-block;
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 24px;
+    letter-spacing: -0.3px;
+    font-optical-sizing: none;
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+    transform: scale(0.888888);
+    transform-origin: left center;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .studio-mobile-wordmark {
+    color: #1f1f1f;
   }
 
   /* Material 3 circular ripple indicator for two-bar menu icon */
@@ -370,11 +480,17 @@
     height: 44px !important;
   }
 
+  /*
+   * Gemini lays a 28px glyph over a 24px slot, so it overhangs 2px each side: icon at
+   * x 22, label at x 60. The negative margins give the 28px box that 24px footprint.
+   */
   .studio-sidebar .sidebar-item-icon-box {
     width: 28px !important;
     height: 28px !important;
     min-width: 28px !important;
     min-height: 28px !important;
+    margin-left: -2px !important;
+    margin-right: -2px !important;
   }
 
   .studio-sidebar .sidebar-item-icon-box .luminous-symbols,
@@ -384,7 +500,7 @@
     height: 28px !important;
     font-size: 28px !important;
     line-height: 28px !important;
-    font-variation-settings: 'FILL' 0, 'wght' 320, 'GRAD' 0, 'opsz' 28, 'ROND' 100 !important;
+    font-variation-settings: 'FILL' 0, 'wght' 260, 'GRAD' 0, 'opsz' 28, 'ROND' 100 !important;
   }
 
   .studio-sidebar .sidebar-item-icon-box svg {
@@ -392,12 +508,16 @@
     height: 28px !important;
   }
 
+  /*
+   * Gemini's drawer rows, measured at 390 and 800: 17px/24px at weight 400, the selected
+   * row at 540. Spark's "Customize" label is not one of these; it stays 13px.
+   */
   .studio-sidebar .sidebar-item-label {
-    font-size: 16px !important;
+    font-size: 17px !important;
     line-height: 24px !important;
   }
 
-  /* Expandable section headers (Notebooks, Recents) & Spark Customise header */
+  /* Expandable section headers (Notebooks, Recents) */
   .studio-sidebar .sidebar-section-header {
     height: 44px !important;
     margin-top: 8px !important;
@@ -417,7 +537,7 @@
     font-size: 24px !important;
     line-height: 24px !important;
     opacity: 1 !important;
-    font-variation-settings: 'FILL' 0, 'wght' 330, 'GRAD' 0, 'opsz' 24, 'ROND' 100 !important;
+    font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24, 'ROND' 100 !important;
   }
 
   /* Row menus (3 dots button) and pin indicator in Recents / Notebooks */
@@ -429,19 +549,13 @@
   }
 
   .studio-sidebar .sidebar-row-menu-btn .luminous-symbols,
-  .studio-sidebar .sidebar-row-menu-btn svg {
+  .studio-sidebar .sidebar-row-menu-btn svg,
+  .studio-sidebar .sidebar-row-pin-icon .luminous-symbols {
     width: 28px !important;
     height: 28px !important;
     font-size: 28px !important;
     line-height: 28px !important;
-    font-variation-settings: 'FILL' 0, 'wght' 320, 'GRAD' 0, 'opsz' 28, 'ROND' 100 !important;
-  }
-
-  .studio-sidebar .sidebar-row-pin-icon .luminous-symbols {
-    width: 24px !important;
-    height: 24px !important;
-    font-size: 24px !important;
-    line-height: 24px !important;
+    font-variation-settings: 'FILL' 0, 'wght' 260, 'GRAD' 0, 'opsz' 28, 'ROND' 100 !important;
   }
 
   /* Mobile active tab/nav item container and colors (measured from live Gemini mobile drawer: bg #141414, text #e0e0e0) */
@@ -462,7 +576,6 @@
 
   .studio-sidebar:not([data-theme="light"]):not(.light-theme) .sidebar-item-label {
     color: #e0e0e0 !important;
-    font-weight: 400 !important;
   }
 
   .studio-sidebar:not([data-theme="light"]):not(.light-theme) .sidebar-item-icon-box .luminous-symbols,
@@ -636,4 +749,286 @@
 @media (prefers-reduced-motion: reduce) {
   .willow-mat-menu-enter,
   .willow-mat-menu-exit { animation: none; }
+}
+
+/*
+ * The settings pane at <=960px: Gemini's `gem-bottom-sheet` inside a
+ * `mat-bottom-sheet-container`, measured at 390x844 and 800x1280.
+ *
+ *   container  full width, #1c1c1c, corners 56 56 0 0, Material's level-4 shadow
+ *   enter      _mat-bottom-sheet-enter 195ms cubic-bezier(0, 0, 0.2, 1), from translateY(100%)
+ *   exit       _mat-bottom-sheet-exit  150ms cubic-bezier(0.4, 0, 1, 1)
+ *   backdrop   rgba(0, 0, 0, 0.32), opacity over 400ms cubic-bezier(0.25, 0.8, 0.25, 1)
+ *   handle     54x5 at 55% white, radius 19, in a 15px strip (5px above and below)
+ *   rows       48px tiles on #0e0e0e, 2px apart, corners 4px with 12px at a group's ends
+ *
+ * Height is the sheet's own: SettingsSheet sets it inline (half or 80% of the viewport, or
+ * wherever a drag has it) and `max-height: fit-content` caps it at the content.
+ */
+@keyframes willow-settings-sheet-enter {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+
+@keyframes willow-settings-sheet-exit {
+  from { transform: none; }
+  to { transform: translateY(100%); }
+}
+
+@keyframes willow-settings-sheet-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes willow-settings-sheet-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.willow-settings-sheet-backdrop {
+  background: rgba(0, 0, 0, 0.32);
+  animation: willow-settings-sheet-backdrop-in 400ms cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.willow-settings-sheet-backdrop.is-leaving {
+  animation: willow-settings-sheet-backdrop-out 400ms cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.willow-settings-sheet {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 56px 56px 0 0;
+  background: #1c1c1c;
+  color: #e3e3e3;
+  box-shadow: 0 8px 10px -5px rgba(0, 0, 0, 0.2), 0 16px 24px 2px rgba(0, 0, 0, 0.14), 0 6px 30px 5px rgba(0, 0, 0, 0.12);
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-variation-settings: normal;
+  animation: willow-settings-sheet-enter 195ms cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+.willow-settings-sheet.is-leaving {
+  animation: willow-settings-sheet-exit 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.willow-settings-sheet-handle-area {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  padding: 5px 0;
+  touch-action: none;
+}
+
+.willow-settings-sheet-handle {
+  width: 54px;
+  height: 5px;
+  border-radius: 19px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.willow-settings-sheet-content {
+  position: relative;
+  min-height: 0;
+  padding: 0 16px 8px;
+  overscroll-behavior: contain;
+  /* Scrolls by touch, like Gemini's sheet, without ever painting a bar. */
+  scrollbar-width: none;
+}
+
+.willow-settings-sheet-content::-webkit-scrollbar {
+  display: none;
+}
+
+.willow-settings-sheet-list {
+  padding: 0 16px;
+}
+
+.willow-settings-sheet-subheader {
+  margin: 12px 16px;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+}
+
+.willow-settings-sheet-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 48px;
+  margin-bottom: 2px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #0e0e0e;
+  color: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.willow-settings-sheet-row.is-first {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+
+.willow-settings-sheet-row.is-last {
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+/* `.mat-mdc-list-item-interactive::before`: #e3e3e3 at 8% on hover. Gemini's rows have no ripple. */
+.willow-settings-sheet-row::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgb(227, 227, 227);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.willow-settings-sheet-row:hover::before {
+  opacity: 0.08;
+}
+
+.willow-settings-sheet-row:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: -2px;
+}
+
+/* A 24px slot that a 28px glyph overhangs, 16px either side of it: label at x 56 in the row. */
+.willow-settings-sheet-row-icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 0 16px;
+  color: #c4c7c5;
+}
+
+.willow-settings-sheet-row-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-settings-sheet-row-trailing {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 0 16px 0 28px;
+  color: #c4c7c5;
+}
+
+.willow-settings-sheet-gap {
+  height: 16px;
+}
+
+/* `location-footer.lr26` in a 16px-padded list item: 8px more, so text starts 24px in. */
+.willow-settings-sheet-location {
+  padding: 8px 24px;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.willow-settings-sheet-location-name {
+  display: flex;
+  height: 24px;
+  align-items: center;
+  color: #e0e0e0;
+}
+
+/* Gemini centres the name line at 768px and below, and only that line. */
+@media (max-width: 768px) {
+  .willow-settings-sheet-location-name {
+    justify-content: center;
+  }
+}
+
+.willow-settings-sheet-location-dot {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  font-family: "Google Symbols", sans-serif;
+  font-size: 8px;
+  font-variation-settings: "FILL" 1;
+}
+
+.willow-settings-sheet-location-detail,
+.willow-settings-sheet-location-action {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-settings-sheet-location-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Willow's own accent row under the theme options; Gemini's sheet has no equivalent. */
+.willow-settings-sheet-swatches {
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.willow-settings-sheet-swatches::before {
+  display: none;
+}
+
+/* Light is unmeasured (the probed account is pinned dark); these follow Willow's light menus. */
+.willow-settings-sheet.is-light {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+.willow-settings-sheet.is-light .willow-settings-sheet-handle {
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.willow-settings-sheet.is-light .willow-settings-sheet-row {
+  background: #f2f0f0;
+}
+
+.willow-settings-sheet.is-light .willow-settings-sheet-row::before {
+  background: #1f1f1f;
+}
+
+.willow-settings-sheet.is-light .willow-settings-sheet-row-icon,
+.willow-settings-sheet.is-light .willow-settings-sheet-row-trailing {
+  color: #444746;
+}
+
+.willow-settings-sheet.is-light .willow-settings-sheet-location-name {
+  color: #1f1f1f;
+}
+
+.willow-settings-sheet.is-light .willow-settings-sheet-location-detail,
+.willow-settings-sheet.is-light .willow-settings-sheet-location-action {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-settings-sheet,
+  .willow-settings-sheet.is-leaving,
+  .willow-settings-sheet-backdrop,
+  .willow-settings-sheet-backdrop.is-leaving {
+    animation-duration: 1ms;
+  }
 }

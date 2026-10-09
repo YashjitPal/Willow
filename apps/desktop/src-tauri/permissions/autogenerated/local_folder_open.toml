@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-folder-open"
+description = "Enables the local_folder_open command without any pre-configured scope."
+commands.allow = ["local_folder_open"]
+
+[[permission]]
+identifier = "deny-local-folder-open"
+description = "Denies the local_folder_open command without any pre-configured scope."
+commands.deny = ["local_folder_open"]

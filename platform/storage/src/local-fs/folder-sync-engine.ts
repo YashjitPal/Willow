@@ -40,6 +40,12 @@ export interface FolderSyncRecord {
   dirty: boolean;
   tombstone: boolean;
   updatedAt: number;
+  /**
+   * A tombstone's: when its file left disk — moved to the Recycle Bin for it, or found gone. Unset
+   * while the removal is still to happen. A file under the tombstone no newer than this was moved
+   * back from the bin (files keep their time through the move), not written by a copy of Willow.
+   */
+  removedAt?: number;
 }
 
 /**
@@ -138,14 +144,23 @@ export const reconcileFolder = async (ports: FolderSyncPorts): Promise<Reconcile
   const taken = new Set<string>([...ports.ids, ...disk.keys()]);
 
   // Durable tombstones beat a still-present file, and the removal is retried
-  // every pass until it sticks.
+  // every pass until it sticks — unless the file is one moved back from the
+  // Recycle Bin after its removal, which is the user's, and read as new.
   for (const [id, record] of Object.entries(ports.records)) {
     if (!record.tombstone) continue;
-    if (disk.has(id)) {
+    const entry = disk.get(id);
+    if (entry && record.removedAt && entry.mtime <= record.removedAt) {
+      delete ports.records[id];
+      continue;
+    }
+    if (entry) {
       try {
         await ports.remove(id);
         disk.delete(id);
+        ports.records[id] = { ...record, removedAt: Date.now() };
       } catch {}
+    } else if (!record.removedAt) {
+      ports.records[id] = { ...record, removedAt: Date.now() };
     }
     try { await ports.deleteCache(id); } catch {}
     if (ports.ids.includes(id)) {
@@ -264,6 +279,7 @@ export const reconcileFolder = async (ports: FolderSyncPorts): Promise<Reconcile
         dirty: false,
         tombstone: true,
         updatedAt: Date.now(),
+        removedAt: Date.now(),
       };
       ports.ids.splice(0, ports.ids.length, ...ports.ids.filter((x) => x !== id));
       delete ports.timestamps[id];

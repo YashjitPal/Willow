@@ -114,6 +114,10 @@ const STYLE_CSS = [
   '  text-underline-offset: 3.91px;',
   '}',
   '.smd-link:hover { color: #ffffff; text-decoration-color: #ffffff; }',
+  // The narrow layout's on-surface: measured on a Spark reply's links at 390 and 800 wide.
+  '@media screen and (max-width: 959.98px) {',
+  '  .smd-link { color: rgb(224, 224, 224); text-decoration-color: rgb(224, 224, 224); }',
+  '}',
   '.smd-rich-resource-group { margin: 32px 0; white-space: normal; }',
   /*
    * The query container is the card's TEXT COLUMN, and deliberately not the group
@@ -375,7 +379,7 @@ const STYLE_CSS = [
   '  padding: 6px;',
   '}',
   '.smd-icon-button:hover { background: rgba(255, 255, 255, 0.08); }',
-  '.smd-icon-button:focus-visible { outline: 2px solid rgba(138, 180, 248, 0.9); outline-offset: 1px; }',
+  '.smd-icon-button:focus-visible { outline: 2px solid rgba(var(--sync-8ab4f8-rgb, 138, 180, 248), 0.9); outline-offset: 1px; }',
   '.smd-code-scroll { width: 100%; overflow: auto; }',
   '.smd-code-pre {',
   '  width: 100%;',
@@ -523,7 +527,7 @@ const STYLE_CSS = [
   '  padding: 8px;',
   '}',
   '.smd-svg-preview-button:hover { background: rgba(255, 255, 255, 0.08); }',
-  '.smd-svg-preview-button:focus-visible { outline: 2px solid rgba(138, 180, 248, 0.9); outline-offset: 1px; }',
+  '.smd-svg-preview-button:focus-visible { outline: 2px solid rgba(var(--sync-8ab4f8-rgb, 138, 180, 248), 0.9); outline-offset: 1px; }',
   '.smd-svg-preview-canvas { width: 100%; height: 400px; background: rgb(19, 19, 20); }',
   '.smd-svg-preview-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; }',
   '.smd-table-block { position: relative; width: 100%; min-width: 0; }',
@@ -644,7 +648,10 @@ const STYLE_CSS = [
   '  padding: 0;',
   '  text-align: left;',
   '}',
+  // The frame is a <span> inside the card's <button>, so without an explicit block display its
+  // width, aspect ratio and minimum height are all ignored and the card collapses to its border.
   '.smd-media-frame {',
+  '  display: block;',
   '  position: relative;',
   '  width: 100%;',
   '  aspect-ratio: var(--smd-media-ratio, 4 / 3);',
@@ -1068,6 +1075,13 @@ const STYLE_CSS = [
   '  .smd-table-block { width: 100%; }',
   '  .smd-table th, .smd-table td { min-width: 132px; }',
   '}',
+  // At <=756px Gemini pads every top-level block 24px instead of centring a
+  // 708px column, and that padding replaces the lists' own 3.36/4px indent, so
+  // bullets and numbers start at the text's edge. From 757px the column is back
+  // and so is the indent. Measured at 390, 600, 756, 757, 758 and 800.
+  '@media (max-width: 756px) {',
+  '  .smd-root > .smd-list { padding-left: 0; }',
+  '}',
   '@media (prefers-reduced-motion: reduce) {',
   '  .smd-streaming .smd-w, .smd-streaming .smd-h, .smd-streaming .smd-list > li.smd-reveal-block:not(.smd-settled)::before, .smd-streaming .smd-code-block,',
   '  .smd-streaming .smd-table-block, .smd-streaming .smd-media-gallery, .smd-streaming .smd-math-display { animation: none !important; }',
@@ -1317,8 +1331,8 @@ const STYLE_CSS = [
   // ── Light Theme Scoped Rules (Google Gemini measured) ─────────────────────
   ':is(.light-theme, [data-theme="light"]) .smd-root { color: rgb(31, 31, 31); }',
   ':is(.light-theme, [data-theme="light"]) .smd-heading { color: rgb(31, 31, 31); }',
-  ':is(.light-theme, [data-theme="light"]) .smd-link { color: #0b57d0; text-decoration-color: #0b57d0; }',
-  ':is(.light-theme, [data-theme="light"]) .smd-link:hover { color: #0842a0; text-decoration-color: #0842a0; }',
+  ':is(.light-theme, [data-theme="light"]) .smd-link { color: var(--sync-0b57d0, #0b57d0); text-decoration-color: var(--sync-0b57d0, #0b57d0); }',
+  ':is(.light-theme, [data-theme="light"]) .smd-link:hover { color: var(--sync-0842a0, #0842a0); text-decoration-color: var(--sync-0842a0, #0842a0); }',
   ':is(.light-theme, [data-theme="light"]) .smd-inline-code { background: rgb(240, 244, 249); color: rgb(31, 31, 31); }',
   ':is(.light-theme, [data-theme="light"]) .smd-task-box { border-color: rgba(31, 31, 31, 0.4); color: #ffffff; }',
   ':is(.light-theme, [data-theme="light"]) .smd-task-box[data-checked="true"] { background: rgb(31, 31, 31); }',
@@ -1328,7 +1342,7 @@ const STYLE_CSS = [
   ':is(.light-theme, [data-theme="light"]) .smd-code-header { background: rgb(240, 244, 249); color: rgb(31, 31, 31); }',
   ':is(.light-theme, [data-theme="light"]) .smd-icon-button { color: rgb(0, 0, 0); }',
   ':is(.light-theme, [data-theme="light"]) .smd-icon-button:hover { background: rgba(0, 0, 0, 0.08); }',
-  ':is(.light-theme, [data-theme="light"]) .smd-icon-button:focus-visible { outline: 2px solid rgba(11, 87, 208, 0.9); }',
+  ':is(.light-theme, [data-theme="light"]) .smd-icon-button:focus-visible { outline: 2px solid rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.9); }',
   ':is(.light-theme, [data-theme="light"]) .smd-code-pre code { color: rgb(31, 31, 31); }',
   ':is(.light-theme, [data-theme="light"]) .smd-code-exec-panel { background: rgb(240, 244, 249); }',
   ':is(.light-theme, [data-theme="light"]) .smd-code-exec-output-header { color: rgb(31, 31, 31); }',

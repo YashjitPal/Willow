@@ -1,0 +1,234 @@
+/*
+ * A sent message as Willow's chat shows it (features/chat UserMessageBubble and ChatView): a
+ * #171717 / #f2f0f0 bubble 508px wide at most, 40px corners, 20px 28px in, the text in
+ * Google Sans Flex 17px/24px at wdth 92. Past four lines it folds under a round toggle in its
+ * corner. Under it, on hover, its 36px round buttons on a frosted 34% / 80% fill.
+ */
+
+.willow-user-bubble {
+  position: relative;
+  min-width: 0;
+  max-width: min(508px, 100%);
+  padding: 20px 28px;
+  border-radius: 40px;
+  background: #f2f0f0;
+  color: #1f1f1f;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  overflow-wrap: anywhere;
+}
+
+:root.dark .willow-user-bubble {
+  background: #171717;
+  color: #e3e3e3;
+}
+
+.willow-user-bubble .chat-markdown,
+.willow-user-bubble .chat-markdown :is(p, li, span, a, strong, em, blockquote) {
+  color: inherit;
+  font-size: 17px;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.willow-user-bubble .chat-markdown p {
+  margin: 0;
+}
+
+.willow-user-bubble .chat-markdown p + p {
+  margin-top: 24px;
+}
+
+/*
+ * Its pictures and videos, in a row over it (ChatView's sent-message block): the composer's 112px
+ * tiles (platform/ui GeminiAttachmentCard), cover-cropped, without a remove button.
+ */
+[data-willow-attachment-tile] {
+  background: rgb(0 0 0 / 8%);
+}
+
+:root.dark [data-willow-attachment-tile] {
+  background: rgb(255 255 255 / 12%);
+}
+
+.willow-user-body {
+  overflow: hidden;
+  transition:
+    max-height 300ms cubic-bezier(0.2, 0, 0, 1),
+    padding-bottom 300ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.willow-user-toggle {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  width: 40px;
+  height: 24px;
+  pointer-events: none;
+}
+
+.willow-user-toggle__fade {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 10;
+  width: 92px;
+  height: 22px;
+  transform: translateY(-50%);
+  background: linear-gradient(to right, transparent, #f2f0f0 56px, #f2f0f0 100%);
+}
+
+:root.dark .willow-user-toggle__fade {
+  background: linear-gradient(to right, transparent, #171717 56px, #171717 100%);
+}
+
+.willow-user-toggle__button {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #444746;
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
+
+:root.dark .willow-user-toggle__button {
+  color: #c4c7c5;
+}
+
+.willow-user-toggle__button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 25%);
+}
+
+:root.dark .willow-user-toggle__button:focus-visible {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 25%);
+}
+
+.willow-user-toggle__pill {
+  display: flex;
+  width: 32px;
+  height: 22px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 22px;
+  background: #ffffff;
+}
+
+:root.dark .willow-user-toggle__pill {
+  background: #1e1f20;
+}
+
+.willow-user-toggle__glyph {
+  font-family: "Luminous Symbols";
+  font-size: 20px;
+  font-weight: 320;
+  line-height: 20px;
+  font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "ROND" 100, "opsz" 20;
+  font-feature-settings: "liga";
+  user-select: none;
+}
+
+/*
+ * The bubble's buttons, under it on hover (ChatView's `gemini-user-actions`): 4px below, 12px in
+ * from the right, 250ms in and out. They take the top of the 52px Willow leaves under a message,
+ * so the gap stays 52px whether they show or not.
+ */
+[data-willow-user-row] > [data-willow-user-actions] {
+  width: auto;
+  max-width: none;
+  height: 36px;
+  margin-inline-end: 12px;
+  padding: 0;
+  transition: opacity 250ms;
+}
+
+/* A reply's buttons come and go as Willow's under a response do (ChatView, 240ms). */
+[data-willow-assistant-actions] {
+  transition: opacity 240ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* 4px, the buttons' 36px, and this: Willow's 52px between a message and its reply. */
+[data-timeline-row-kind="message"]:has(> [data-willow-user-row]),
+[data-timeline-row-kind="message"]:has(> * > [data-willow-user-row]) {
+  padding-bottom: 12px;
+}
+
+[data-willow-user-actions] > div {
+  gap: 8px;
+}
+
+[data-willow-user-actions] [data-slot="tooltip-trigger"]:is(p, span) {
+  color: rgb(0 0 0 / 55%);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+:root.dark [data-willow-user-actions] [data-slot="tooltip-trigger"]:is(p, span) {
+  color: rgb(255 255 255 / 55%);
+}
+
+[data-willow-user-actions] :is(button, [role="button"]) {
+  position: relative;
+  display: flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgb(0 0 0 / 5%);
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 80%);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 5%);
+  color: #1f1f1f;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+:root.dark [data-willow-user-actions] :is(button, [role="button"]) {
+  border-color: transparent;
+  background: rgb(31 31 31 / 34%);
+  box-shadow: none;
+  color: #e6e6e6;
+}
+
+[data-willow-user-actions] :is(button, [role="button"])::before {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: #000000;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms;
+}
+
+:root.dark [data-willow-user-actions] :is(button, [role="button"])::before {
+  background: #e0e0e0;
+}
+
+[data-willow-user-actions] :is(button, [role="button"]):hover::before {
+  opacity: 0.1;
+}
+
+[data-willow-user-actions] :is(button, [role="button"]) svg {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  color: inherit;
+  opacity: 1;
+}

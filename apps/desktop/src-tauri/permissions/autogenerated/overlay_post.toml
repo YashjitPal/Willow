@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-overlay-post"
+description = "Enables the overlay_post command without any pre-configured scope."
+commands.allow = ["overlay_post"]
+
+[[permission]]
+identifier = "deny-overlay-post"
+description = "Denies the overlay_post command without any pre-configured scope."
+commands.deny = ["overlay_post"]

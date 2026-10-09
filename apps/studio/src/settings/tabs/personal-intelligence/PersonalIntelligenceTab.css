@@ -10,7 +10,7 @@
 
   --gem-sys-color--surface-container: #1e1f20;
   --gem-sys-color--on-surface-variant: #c4c7c5;
-  --gem-sys-color--primary: #a8c7fa;
+  --gem-sys-color--primary: var(--sync-a8c7fa, #a8c7fa);
   --gem-sys-shape--corner-medium: 12px;
   
   width: 100%;
@@ -233,8 +233,8 @@
 }
 
 .personal-intelligence-container .mdc-switch--checked .mdc-switch__track {
-  background-color: #a8c7fa;
-  border-color: #a8c7fa;
+  background-color: var(--sync-a8c7fa, #a8c7fa);
+  border-color: var(--sync-a8c7fa, #a8c7fa);
 }
 
 .personal-intelligence-container .mdc-switch__handle-track {
@@ -267,7 +267,7 @@
   height: 24px;
   top: 4px;
   left: 4px;
-  background-color: #003060;
+  background-color: var(--sync-003060, #003060);
 }
 
 .personal-intelligence-container .mdc-switch__icons {
@@ -288,7 +288,7 @@
 .personal-intelligence-container .mdc-switch__icon {
   width: 16px;
   height: 16px;
-  fill: #003060;
+  fill: var(--sync-003060, #003060);
 }
 
 /* Light Theme overrides matching Gemini 1:1 */
@@ -298,7 +298,7 @@
   background-color: var(--studio-surface, #faf9f9);
   --gem-sys-color--surface-container: #f0f4f9;
   --gem-sys-color--on-surface-variant: #444746;
-  --gem-sys-color--primary: #0b57d0;
+  --gem-sys-color--primary: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .personal-intelligence-container .gds-display-s,
@@ -329,7 +329,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .personal-intelligence-container .links a {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .personal-intelligence-container .mdc-switch__track {
@@ -352,5 +352,60 @@
 
 :is(.light-theme, [data-theme="light"]) .personal-intelligence-container .mdc-switch--checked .mdc-switch__icon {
   fill: var(--studio-toggle-icon, #0b57d0);
+}
+
+/*
+ * At 960px and below, measured off /personalization-settings at 390x844 and 800x1280:
+ * every text role carries its own width axis, the description reads in on-surface
+ * #e3e3e3, and the checked switch shows its check alone, 16px in the 24px handle.
+ *
+ * The page scrolls in a region that starts under Gemini's 68px top bar, on its black
+ * surface, so content never passes beneath the menu button.
+ */
+@media (max-width: 960px) {
+  .personal-intelligence-container {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+
+  .dark-theme .personal-intelligence-container {
+    background-color: #000000;
+  }
+
+  .personal-intelligence-container .page-content {
+    margin-top: 0;
+  }
+
+  .personal-intelligence-container .gds-display-s {
+    font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
+  }
+
+  .personal-intelligence-container .gds-body-l {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .personal-intelligence-container .page-description {
+    color: #e3e3e3;
+  }
+
+  .personal-intelligence-container .gds-title-l {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  .personal-intelligence-container .links a {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  }
+
+  .personal-intelligence-container .mdc-switch--checked .mdc-switch__icon--off {
+    display: none;
+  }
+}
+
+/* On a tablet the headline keeps its 12px top margin under a page that starts 12px lower
+ * (`.page-content` at y=80, headline at 92); on a phone the headline loses the margin. */
+@media (min-width: 769px) and (max-width: 960px) {
+  .personal-intelligence-container .page-content {
+    margin-top: 12px;
+  }
 }
 

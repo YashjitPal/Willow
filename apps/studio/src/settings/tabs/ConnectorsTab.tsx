@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronDown, Cloud, FlaskConical, Search, FolderOpen, HardDrive, Check, AlertCircle, Shield, Plug } from 'lucide-react';
+import { isDesktopApp } from '@willow/core/desktop-bridge';
 // Its own file: this one is already six connectors long, and MCP brings a form,
 // a status list and per-server error reporting with it.
 import { McpConnector } from './connectors/McpConnector';
@@ -14,6 +15,7 @@ interface ConnectorsTabProps {
   isLocalFSSupported: boolean;
   isLocalFolderConnected: boolean;
   localFolderName: string | null;
+  localFolderProblem: string | null;
   connectLocalFolder: () => Promise<boolean>;
   disconnectLocalFolder: () => void;
   // Drive
@@ -29,6 +31,7 @@ export const ConnectorsTab: React.FC<ConnectorsTabProps> = ({
   isLocalFSSupported,
   isLocalFolderConnected,
   localFolderName,
+  localFolderProblem,
   connectLocalFolder,
   disconnectLocalFolder,
   isDriveConnected,
@@ -450,11 +453,12 @@ export const ConnectorsTab: React.FC<ConnectorsTabProps> = ({
                   </div>
                   
                   {isLocalFolderConnected ? (
+                    /* In the desktop app saving is always on: the folder can be moved, not turned off. */
                     <button 
-                      onClick={disconnectLocalFolder}
+                      onClick={isDesktopApp() ? () => { void connectLocalFolder(); } : disconnectLocalFolder}
                       className="px-4 py-2 bg-[#1c1c1c] text-zinc-400 text-[13px] font-medium rounded-lg hover:bg-[#2a2a2a] hover:text-white transition-colors border border-white/10"
                     >
-                      Disconnect
+                      {isDesktopApp() ? 'Change folder' : 'Disconnect'}
                     </button>
                   ) : (
                     <button 
@@ -469,8 +473,15 @@ export const ConnectorsTab: React.FC<ConnectorsTabProps> = ({
                 </div>
               </div>
 
-              {/* Permissions Information Box */}
-              <div className="bg-blue-900/10 border border-blue-900/20 rounded-xl p-5 text-zinc-300">
+              {localFolderProblem && (
+                <div className="bg-red-900/20 border border-red-900/30 rounded-xl p-4 flex items-start gap-3" role="status">
+                  <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={18} />
+                  <p className="text-[13px] text-zinc-300">{localFolderProblem}</p>
+                </div>
+              )}
+
+              {/* Permissions Information Box: a browser's prompts, which the desktop app never shows. */}
+              {!isDesktopApp() && <div className="bg-blue-900/10 border border-blue-900/20 rounded-xl p-5 text-zinc-300">
                 <h3 className="text-[14px] font-bold text-white mb-2 flex items-center gap-2">
                   <Shield size={16} className="text-blue-400" />
                   Bypassing Permission Prompts
@@ -483,7 +494,7 @@ export const ConnectorsTab: React.FC<ConnectorsTabProps> = ({
                   <li>Find the <strong className="text-white">File System</strong> or <strong className="text-white">Edit files on your device</strong> setting.</li>
                   <li>Change its value to <strong className="text-white">Allow</strong>.</li>
                 </ol>
-              </div>
+              </div>}
             </>
           )}
         </div>

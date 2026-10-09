@@ -7,9 +7,18 @@ export { latestThoughtHeading };
 interface ThoughtSummaryLineProps {
   /** The newest heading. Gemini samples it after a minimum visible hold. */
   heading: string;
+  /**
+   * The connected app a "Connecting to <app>" heading names. Gemini draws that line as
+   * "Connecting to", the app's 24px logo (`gem-icon.tool-logo`, `lm-icon-l`) and its name, in
+   * the same `animated-thinking-content` element — captured mid-call at 1536, 800 and 390 wide.
+   */
+  app?: { label: string; logo: string };
 }
 
 const MINIMUM_HEADING_HOLD_MS = 3000;
+
+/** The heading a connected app's running tool gets: "Connecting to YouTube". */
+export const connectingHeading = (label: string): string => `Connecting to ${label}`;
 
 /**
  * Gemini's one-line thought summary, with its exact wipe.
@@ -39,7 +48,7 @@ const MINIMUM_HEADING_HOLD_MS = 3000;
  * and 3 never painted; 5 and 6 arrived during the next hold and the response
  * ended before another swap. This is latest-only sampling, not a FIFO queue.
  */
-export const ThoughtSummaryLine = ({ heading }: ThoughtSummaryLineProps) => {
+export const ThoughtSummaryLine = ({ heading, app }: ThoughtSummaryLineProps) => {
   const [shown, setShown] = useState(heading);
   const [leaving, setLeaving] = useState(false);
   const pendingRef = useRef(heading);
@@ -102,7 +111,13 @@ export const ThoughtSummaryLine = ({ heading }: ThoughtSummaryLineProps) => {
       className={`thought-summary-line${leaving ? ' thought-summary-line--out' : ''}`}
       onAnimationEnd={leaving ? () => commitRef.current() : undefined}
     >
-      {shown}
+      {app && shown === connectingHeading(app.label) ? (
+        <>
+          Connecting to
+          <img className="thought-summary-line__logo" src={app.logo} alt="" />
+          {app.label}
+        </>
+      ) : shown}
     </span>
   );
 };

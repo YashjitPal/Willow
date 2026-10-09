@@ -47,7 +47,7 @@ test('keeps the task detail as the owner of its divider and Progress panel', () 
   assert.match(detailSource, /const \[libraryCollapsed, setLibraryCollapsed\] = useState\(false\)/);
   assert.match(detailSource, /const isProgressPanelOpen = isLibraryCollapsed/);
   assert.match(detailSource, /className="spark-task-detail__library-divider"/);
-  assert.match(detailSource, /className=\{`spark-task-detail__progress-panel\$\{isProgressPanelOpen \? ' is-open' : ''\}`\}/);
+  assert.match(detailSource, /className=\{`spark-task-detail__progress-panel\$\{isProgressPanelOpen \? ' is-open' : ''\}/);
   assert.match(detailCss, /\.spark-task-detail__progress-panel\.is-open\s*\{[\s\S]*?flex:\s*0 0 var\(--spark-progress-panel-width\)/);
   // The basis animation is the only motion. The slab inside is pinned to the
   // panel's open width, so it rides the shrinking box's edge and is clipped
@@ -107,7 +107,9 @@ test('keeps connected-view CSS transition-only', () => {
 
 test('keeps the All Tasks composer as the shared prompt surface', () => {
   assert.match(allTasksSource, /className="spark-all-tasks" aria-label="Spark tasks"/);
-  assert.doesNotMatch(allTasksSource, /Put Willow Spark to work for you/);
+  // Gemini's desktop task list has no heading; its <=960px layout puts one above the composer.
+  assert.equal(allTasksSource.match(/Put Willow Spark to work for you/g)?.length, 1);
+  assert.match(allTasksSource, /\{isCompact && \(\s*<div className="spark-all-tasks__header">\s*<h1 className="spark-all-tasks__heading">Put Willow Spark to work for you<\/h1>/);
   assert.match(allTasksSource, /data-spark-new-composer-anchor/);
   assert.match(allTasksSource, /data-spark-glow-anchor/);
   assert.match(allTasksSource, /className="spark-task-detail__filter-button"/);

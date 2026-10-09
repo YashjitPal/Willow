@@ -1,0 +1,572 @@
+/*
+ * The editor pages, the image editor and the Scenebuilder (the video view and a scene), on tablets
+ * (601-960px) and phones (600px and below). Flow has no narrow design for them; this one is
+ * Willow's, on the narrow metrics the rest of Media uses (media-responsive.css):
+ *
+ * - The header keeps one row, back, the name and the actions as 44px round buttons, and gives the
+ *   navigation rail a row of its own beneath, centred and scrolled by a finger. A phone moves the
+ *   rarer actions into More (ImageEditor.tsx, SceneBuilder.tsx); History is an icon by itself.
+ * - The picture takes what is left; its tools (crop, a scene's shape) float in its top corner.
+ * - History is the version strip (VersionStrip.tsx), between the picture and the prompt.
+ * - The prompt spans the screen up to 600px, and the page ends above an open keyboard.
+ *
+ * Every rule sits in a max-width (or touch-only) block, so the desktop editors, measured off Flow,
+ * never see them. Each is scoped under `.sb-editor` (or `body`, for what portals out), so it
+ * outranks the rule it overrides whichever stylesheet loads first. Pinned by
+ * apps/studio/test/media-responsive.test.mjs.
+ */
+
+@media (max-width: 960px) {
+  .sb-editor {
+    padding-right: 0;
+    padding-bottom: var(--media-keyboard-inset, 0px);
+  }
+
+  /* ---- Header ------------------------------------------------------------------------------- */
+
+  .sb-editor .sb-header {
+    flex-wrap: wrap;
+    min-height: 0;
+    padding: env(safe-area-inset-top) 8px 0;
+    column-gap: 4px;
+  }
+
+  .sb-editor .sb-header__left {
+    height: 64px;
+    gap: 0;
+  }
+
+  .sb-editor .sb-header__right {
+    flex: 0 0 auto;
+    height: 64px;
+  }
+
+  .sb-editor .sb-header__center {
+    display: flex;
+    order: 3;
+    flex: 1 0 100%;
+    justify-content: center;
+    min-width: 0;
+    height: 44px;
+  }
+
+  .sb-editor .sb-rail {
+    --max-container-width: calc(100vw - 16px);
+    --thumbnail-size: 30px;
+    --thumbnail-gap: 8px;
+    max-width: 100%;
+  }
+
+  .sb-editor .sb-rail__container {
+    max-width: 100%;
+  }
+
+  /* A finger scrolls the rail; its arrows only ever showed on hover. */
+  .sb-editor .sb-rail__arrow {
+    display: none;
+  }
+
+  .sb-editor .sb-nav-header {
+    flex: 1 1 auto;
+    gap: 0;
+  }
+
+  .sb-editor .sb-title,
+  .sb-editor .sb-editable {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .sb-editor .sb-editable__input {
+    max-width: 100%;
+    text-overflow: ellipsis;
+  }
+
+  .sb-editor .sb-cta {
+    gap: 0;
+  }
+
+  .sb-editor .sb-header .sb-icon-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+  }
+
+  /* History by its glyph alone, its label kept for screen readers. */
+  .sb-editor .sb-cta .sb-btn:not(.sb-btn--tonal) {
+    width: 44px;
+    min-width: 0;
+    height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    background-color: transparent;
+    backdrop-filter: none;
+  }
+
+  .sb-editor .sb-cta .sb-btn:not(.sb-btn--tonal) .sb-btn__icon {
+    margin-right: 0;
+  }
+
+  .sb-editor .sb-cta .sb-btn:not(.sb-btn--tonal) > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .sb-editor .sb-cta .sb-btn--tonal {
+    height: 36px;
+    margin-left: 4px;
+    border-radius: 18px;
+  }
+
+  /* Under the prompt rather than over the corner of the page. */
+  .sb-editor .sb-footer-disclaimer {
+    position: static;
+    flex-shrink: 0;
+    padding: 0 16px calc(6px + env(safe-area-inset-bottom));
+    text-align: center;
+    white-space: normal;
+  }
+
+  /* ---- The version strip (VersionStrip.tsx) ------------------------------------------------ */
+
+  .vs-strip {
+    display: flex;
+    flex-shrink: 0;
+    gap: 8px;
+    box-sizing: border-box;
+    width: 100%;
+    height: 72px;
+    padding: 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .vs-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Centred while they fit, scrolling from the first once they don't. */
+  .vs-strip > :first-child {
+    margin-left: auto;
+  }
+
+  .vs-strip > :last-child {
+    margin-right: auto;
+  }
+
+  .vs-step {
+    position: relative;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    border-radius: 10px;
+    background-color: var(--sb-bg-15, #1f1f1f);
+    color: var(--sb-fg-75, rgba(255, 255, 255, 0.75));
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+
+  .vs-step img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+  }
+
+  .vs-step::after {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    content: "";
+    pointer-events: none;
+  }
+
+  .vs-step.is-selected::after {
+    box-shadow: inset 0 0 0 2px #fff;
+  }
+
+  .vs-step.is-failed {
+    color: rgb(242, 139, 130);
+  }
+
+  .vs-step__pct {
+    position: absolute;
+    right: 6px;
+    bottom: 4px;
+    z-index: 40;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 16px;
+  }
+
+  /* What the version was made from, heading its sheet. */
+  .vs-menu-caption {
+    display: -webkit-box;
+    max-width: 100%;
+    margin: 2px 16px 8px;
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 13px;
+    line-height: 18px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  /* ---- The image editor ------------------------------------------------------------------- */
+
+  .sb-editor .ie-content {
+    flex-direction: column;
+    gap: 0;
+    padding: 0 8px;
+  }
+
+  .sb-editor .ie-editor-container {
+    gap: 8px;
+  }
+
+  .sb-editor .ie-options-and-image {
+    position: relative;
+    gap: 0;
+  }
+
+  .sb-editor .ie-options {
+    position: absolute;
+    top: 8px;
+    left: 0;
+    z-index: 2;
+    padding: 0;
+  }
+
+  .sb-editor .ie-options .sb-icon-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(12px);
+  }
+
+  .sb-editor .ie-options .sb-icon-btn.is-selected {
+    background-color: rgba(255, 255, 255, 0.24);
+  }
+
+  .sb-editor .ie-image-and-crop {
+    gap: 8px;
+  }
+
+  .sb-editor .ie-prompt-slot {
+    padding-bottom: 8px;
+  }
+
+  /* The crop shapes, in a row over Cancel and Crop instead of a menu beside the button. */
+  .ie-crop-shapes {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding-top: 4px;
+  }
+
+  .ie-crop-shape {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 40px;
+    padding: 0 14px 0 10px;
+    border: 0.8px solid rgba(255, 255, 255, 0.24);
+    border-radius: 20px;
+    background: transparent;
+    color: #fff;
+    font: 500 13px/20px var(--sb-font, "Google Sans Text", sans-serif);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .ie-crop-shape.is-selected {
+    border-color: transparent;
+    background-color: rgba(255, 255, 255, 0.16);
+  }
+
+  .sb-editor .ie-crop-actions {
+    padding: 4px 0 8px;
+  }
+
+  .sb-editor .ie-crop-btn {
+    min-height: 44px;
+  }
+
+  /* The edit settings, as a sheet over a dimmed page. */
+  .ie-settings-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    background: rgba(0, 0, 0, 0.32);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .sb-editor .ie-settings.is-sheet {
+    top: auto !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: auto;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 16px 12px calc(16px + env(safe-area-inset-bottom));
+    border-radius: 28px 28px 0 0;
+  }
+
+  /* The toggles' row is sized for 42px toggles; here it grows to the 44px ones it holds. */
+  .sb-editor .ie-settings.is-sheet .ie-toggles {
+    height: auto;
+  }
+
+  .sb-editor .ie-settings.is-sheet .ie-toggle,
+  .sb-editor .ie-settings.is-sheet .ie-model-select {
+    min-height: 44px;
+  }
+
+  .sb-editor .ie-settings.is-sheet .ie-model-select {
+    width: 100%;
+  }
+
+  /* The share and flag dialogs keep 12px off either edge. */
+  body .ie-dialog {
+    max-width: calc(100vw - 24px);
+  }
+
+  body .ie-share {
+    width: min(348px, calc(100vw - 24px));
+  }
+
+  body .ie-share__preview {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+
+  /* ---- The Scenebuilder ------------------------------------------------------------------- */
+
+  .sb-editor .sb-content {
+    gap: 0;
+  }
+
+  /* A scene's shape: a pill in the corner instead of a column of its own. */
+  .sb-editor .sb-left-toolbar {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 3;
+    padding: 0;
+  }
+
+  .sb-editor .sb-aspect-btn.sb-btn {
+    width: auto;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 18px;
+  }
+
+  .sb-editor .sb-aspect-btn__content {
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .sb-editor .sb-canvas-col {
+    gap: 4px;
+    padding: 8px 8px 4px;
+  }
+
+  .sb-editor .sb-playback {
+    width: 100%;
+    max-width: 600px;
+  }
+
+  .sb-editor .sb-playback__row {
+    padding: 0;
+  }
+
+  .sb-editor .sb-playback .sb-icon-btn--30 {
+    width: min(40px, 10vw);
+    height: 40px;
+    border-radius: 50%;
+  }
+
+  .sb-editor .sb-playback__play.sb-icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .sb-editor .sb-save-frame.sb-icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+  }
+
+  .sb-editor .sb-prompt-container {
+    box-sizing: border-box;
+    padding: 4px 8px 8px;
+  }
+
+  .sb-editor .sb-zoom .sb-icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* ---- Phones ---------------------------------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  .sb-editor .sb-header {
+    padding: env(safe-area-inset-top) 4px 0;
+  }
+
+  .sb-editor .sb-header__left,
+  .sb-editor .sb-header__right {
+    height: 56px;
+  }
+
+  .vs-strip {
+    height: 56px;
+  }
+
+  /* A phone opens asset info from More, at the right: it spans the screen under the header. */
+  body .ie-info {
+    right: 8px;
+    left: 8px !important;
+    max-width: none;
+  }
+
+  /* The playback row as three groups: the time, the transport, then sound, full screen and loop. */
+  .sb-editor .sb-playback__row {
+    justify-content: flex-start;
+    gap: 0;
+  }
+
+  .sb-editor .sb-playback__row > :nth-child(2) { order: 1; }
+  .sb-editor .sb-playback__row > :nth-child(6) { order: 2; }
+  .sb-editor .sb-playback__row > :nth-child(3) { order: 3; margin-left: auto; }
+  .sb-editor .sb-playback__row > :nth-child(4) { order: 4; }
+  .sb-editor .sb-playback__row > :nth-child(5) { order: 5; }
+  .sb-editor .sb-playback__row > :nth-child(1) { order: 6; margin-left: auto; }
+  .sb-editor .sb-playback__row > :nth-child(7) { order: 7; }
+  .sb-editor .sb-playback__row > :nth-child(8) { order: 8; }
+
+  .sb-editor .sb-playback .sb-timecode,
+  .sb-editor .sb-playback .sb-timecode--duration {
+    flex-shrink: 0;
+    min-width: 0;
+    padding: 0 0 0 4px;
+  }
+
+  /* The time keeps its width; on the narrowest phones the buttons give instead. */
+  .sb-editor .sb-playback .sb-icon-btn--30 {
+    width: min(40px, 9.4vw);
+  }
+
+  .sb-editor .sb-playback .sb-timecode--duration::before {
+    padding: 0 4px 0 0;
+    color: var(--sb-fg-50, rgba(255, 255, 255, 0.5));
+    content: "/";
+  }
+
+  .sb-editor .sb-playback .sb-timecode--duration {
+    padding-left: 4px;
+  }
+
+  .sb-editor .sb-timeline__area {
+    height: 120px;
+  }
+}
+
+/* ---- A phone on its side ------------------------------------------------------------------------
+ * Too short to stack the picture over its tools: the page scrolls instead, the picture (with its
+ * playback and version strip) keeping the height under the header, the timeline and the prompt
+ * below it. The navigation rail's row gives up its height. */
+
+@media (max-width: 960px) and (max-height: 500px) {
+  .sb-editor {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .sb-editor .sb-header__center {
+    display: none;
+  }
+
+  .sb-editor .sb-content,
+  .sb-editor .ie-content {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .sb-editor .sb-area {
+    flex: 0 0 auto;
+    height: max(240px, calc(100dvh - 64px - env(safe-area-inset-top)));
+  }
+
+  /* Columns: these stop filling the window's height and take their content's. */
+  .sb-editor .ie-editor-container,
+  .sb-editor .ie-image-editor,
+  .sb-editor .ie-options-and-image {
+    flex: 0 0 auto;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* In a row beside the crop button: it keeps the width, only its height goes to its content. */
+  .sb-editor .ie-image-and-crop {
+    height: auto;
+    overflow: visible;
+  }
+
+  .sb-editor .ie-image-container {
+    flex: 0 0 auto;
+    height: max(200px, calc(100dvh - 88px - env(safe-area-inset-top)));
+  }
+}
+
+/* ---- Touch screens ------------------------------------------------------------------------------
+ * A finger on the timeline scrolls it, as on any touch screen, and a tap seeks; the playhead and a
+ * clip's trim handles take the drag instead (SceneTimeline.tsx). Both grow to a finger's width,
+ * and the canvas's Save frame, a hover reveal, stays shown. */
+
+@media (hover: none) {
+  .sb-editor .sb-playhead-hit,
+  .sb-editor .sb-trim {
+    touch-action: none;
+  }
+
+  .sb-editor .sb-playhead-hit {
+    width: 32px;
+    margin-left: -8px;
+  }
+
+  .sb-editor .sb-clip {
+    --clip-handle-hover-width: 24px;
+  }
+
+  .sb-editor .sb-save-frame.sb-icon-btn {
+    opacity: 1;
+  }
+
+  .sb-editor .sb-step__hover,
+  .sb-editor .sb-clip {
+    -webkit-touch-callout: none;
+  }
+}

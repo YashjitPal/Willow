@@ -1,0 +1,123 @@
+/*
+ * Characters' full-window pages (New character, a character's own page) on tablets (601-960px) and
+ * phones (600px and below): Willow's narrow layout, on the metrics the rest of Media uses.
+ *
+ * - New character: the hero line steps down, the six samples are two columns on a tablet and one
+ *   list of smaller cards on a phone, and the page scrolls under a prompt that keeps 8-16px off
+ *   the edges.
+ * - Both pages: the header is the narrow 56/64px bar, the page ends above an open keyboard, and the
+ *   disclaimer sits under the prompt instead of over the page's corner.
+ *
+ * A character's page keeps the stacked layout characters.css already gives it at this width; its
+ * history is the version strip under the image (CharacterEditPage.tsx), and on a touch screen the
+ * image's actions, a hover reveal, stay shown.
+ *
+ * Every rule sits in a max-width (or touch-only) block and is scoped under `.cp-page`, so it
+ * outranks the rule it overrides whichever stylesheet loads first. Pinned by
+ * apps/studio/test/media-responsive.test.mjs.
+ */
+
+@media (max-width: 960px) {
+  .cp-page {
+    padding-right: 0;
+    padding-bottom: var(--media-keyboard-inset, 0px);
+  }
+
+  .cp-page .cp-header {
+    min-height: 64px;
+    padding: env(safe-area-inset-top) 8px 0;
+  }
+
+  .cp-page .cp-back.sb-icon-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+  }
+
+  .cp-page .cn-body {
+    padding: 0 16px 16px;
+  }
+
+  .cp-page .cn-carousel-wrapper {
+    gap: 32px;
+    padding-top: 16px;
+  }
+
+  .cp-page .cn-hero {
+    font-size: 28px;
+    line-height: 36px;
+  }
+
+  .cp-page .cn-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cp-page .cn-footer {
+    box-sizing: border-box;
+    gap: 12px;
+    padding: 0 16px 8px;
+  }
+
+  .cp-page .sb-footer-disclaimer {
+    position: static;
+    flex-shrink: 0;
+    padding: 0 16px calc(6px + env(safe-area-inset-bottom));
+    text-align: center;
+    white-space: normal;
+  }
+
+  /* The version strip, right under the image (characters.css orders the image 1, the slots 2). */
+  .cp-page .ce-strip {
+    order: 1;
+    width: 100%;
+  }
+}
+
+/* ---- Touch screens: the image's Download, Delete, Reroll and Try again stay shown ----------- */
+
+@media (hover: none) {
+  .cp-page .ce-frame__top.is-hidden,
+  .cp-page .ce-frame__actions.is-hidden {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* ---- Phones ---------------------------------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  .cp-page .cp-header {
+    min-height: 56px;
+    padding: env(safe-area-inset-top) 4px 0;
+  }
+
+  /* From the top: the list runs past the screen and scrolls. */
+  .cp-page .cn-carousel-wrapper {
+    justify-content: flex-start;
+    gap: 20px;
+    padding-top: 8px;
+  }
+
+  .cp-page .cn-hero {
+    font-size: 22px;
+    line-height: 28px;
+  }
+
+  .cp-page .cn-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .cp-page .cn-card__thumb {
+    width: 64px;
+    height: 64px;
+  }
+
+  .cp-page .cn-footer {
+    padding: 0 8px 8px;
+  }
+
+  .cp-page .cn-mode-btn {
+    height: 44px;
+  }
+}

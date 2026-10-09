@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@nanostores/react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -26,7 +27,7 @@ import { locationStore, requestUserLocation } from '@willow/core/location-store'
 import { useLocalFS, isTempChatId } from '@willow/storage/local-fs/LocalFSContext';
 import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { useBackground, BackgroundType } from '../BackgroundContext';
-import { forgetScannedCodeChat, hasScannedCodeChat, isCodeChat, markCodeChat, markScannedCodeChat, migrateVerifiedLegacyCodeChat, readCodeChats, renameCodeChat, renameScannedCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
+import { checkCodeChat, forgetScannedCodeChat, hasScannedCodeChat, isCodeChat, isCodeChatBody, markCodeChat, markScannedCodeChat, migrateVerifiedLegacyCodeChat, readCodeChats, renameCodeChat, renameScannedCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
 import { requestCodeChatOpen } from '@willow/storage/code-chat-open-store';
 import {
   STUDIO_SIDEBAR_COLLAPSED_WIDTH,
@@ -35,25 +36,53 @@ import {
 import {
   goToAllSparkTasks,
   goToSparkApps,
+  goToSparkDot,
+  goToSparkDots,
   goToSparkHome,
   goToSparkSchedules,
+  goToSparkPages,
+  goToSparkPets,
   goToSparkSkills,
   sparkLocation,
 } from '@willow/spark/spark-store';
+import { PetPawIcon } from '@willow/spark/pets/PetPawIcon';
+import { setSparkActiveProject, sparkProjects, startSparkTaskInProject } from '@willow/spark/spark-projects';
+import { addSparkFolderFromPicker } from '@willow/spark/SparkNativeBar';
+import { SparkFolderSections } from './SparkFolderSections';
+import { isDesktopApp } from '@willow/core/desktop-bridge';
+import { isAndroidApp } from '@willow/core/android-bridge';
+import { HARNESSES } from '@willow/harness/harnesses';
+import { harnessRailGlyph } from '@willow/harness/HarnessLogos';
+import { openHarnessTab } from '@willow/harness/harness-store';
+import { SparkDotAvatar } from '@willow/spark/dots/DotsDirectory';
+import { deleteSparkDot, sparkDotExpandRequest, sparkDotName, sparkDots, toggleSparkDotPin, type SparkDot } from '@willow/spark/dots/dots-store';
+import { DotDeleteDialog, DotRenameDialog } from '@willow/spark/dots/DotDialogs';
+import { openDotOnboarding, useCreationStore } from '@willow/spark/dots/state/creation-store';
 import type { StudioExperience } from '@willow/core/types';
 // NOTE: import from './index' (not './sidebar'). On a case-insensitive
 // filesystem (Windows/macOS) './sidebar' can resolve to THIS file (Sidebar.tsx),
 // causing a circular self-import whose named exports are undefined — which crashed
 // the whole app to a black screen. '/index' forces the folder to resolve.
 import { MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu, RecentChatRow } from './index';
+import { SettingsSheet, type SettingsSheetRow } from './SettingsSheet';
+import { isCompactViewport, useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { $chatCreationPage, $chatCreationPageRequest, type ChatCreationPage } from '@willow/chat/chat-page-store';
 import { NotebooksSection } from '@willow/notebooks/NotebooksSection';
 import { $chatDialogRequest, consumeChatDialogRequest } from '@willow/notebooks/chat-dialog-requests';
 import { MoveChatDialog } from '@willow/notebooks/MoveChatDialog';
 import { hydrateNotebooks, notebooksStore, subscribeToNotebookWrites } from '@willow/notebooks/notebooks-store';
 import { AgentIcon } from '@willow/ui/AgentIcon';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { ProfilePhoto } from '@willow/ui/ProfilePhoto';
 import { GeminiDialog, GeminiDialogPill, GeminiOutlinedField } from '@willow/ui/GeminiDialog';
-import { emitChatActionIntent, onChatActionIntent, pinnedChatsStorageKey } from '../chat-actions';
+import {
+  PINNED_CHATS_CHANGED_EVENT,
+  emitChatActionIntent,
+  onChatActionIntent,
+  pinnedChatsStorageKey,
+  readPinnedChats,
+  writePinnedChats,
+} from '../chat-actions';
 
 // Recents renders a window over the chat list rather than the whole thing, and
 // grows it as you scroll. The full id list is already in memory (localStorage),
@@ -71,6 +100,13 @@ const RECENTS_SPINNER_MIN_MS = 280;
 // Stable identity for the "no pins yet" case, so the memos below don't churn
 // during the effect-sized window after a scope switch.
 const NO_PINNED_CHATS: string[] = [];
+
+// Willow's Android app has no rail, so the agents the rail pins open from here, with its glyphs.
+const ANDROID_AGENT_ROWS = HARNESSES.filter((harness) => harness.pinnedByDefault).map((harness) => {
+  const Glyph = harnessRailGlyph(harness.id, 20);
+  const Icon = ({ className }: { className?: string }) => <Glyph className={className} />;
+  return { id: harness.id, label: harness.label, Icon };
+});
 
 // Returns a function whose identity never changes but which always invokes the
 // latest render's implementation. Lets the memoized Recents rows receive stable
@@ -108,6 +144,9 @@ type GeminiSettingsMenuProps = {
   isCollapsed: boolean;
   onClose: () => void;
   onSettingsClick?: (tabId?: string) => void;
+  /** The button that opens it. A press there is the button's own, which closes the pane on
+   *  its click; taken for a press outside, it closed the pane only for the click to reopen it. */
+  triggerRef?: React.RefObject<HTMLElement | null>;
 };
 
 type GeminiSettingsItem = {
@@ -177,6 +216,32 @@ const GeminiSettingsItemIcon: React.FC<{ item: GeminiSettingsItem }> = ({ item }
       weight={300}
       roundness={100}
       opticalSize={24}
+    />
+  );
+};
+
+/*
+ * The same glyphs in Gemini's bottom sheet: `lm-icon-xl`, a 28px glyph at weight 260 over a
+ * 24px slot, except the three rows it draws at `lm-icon-l` (24px, weight 300).
+ */
+const GEMINI_SHEET_SMALL_ICONS = new Set(['limits', 'skills', 'gems']);
+
+const GeminiSheetItemIcon: React.FC<{ item: GeminiSettingsItem }> = ({ item }) => {
+  if (item.iconFamily === 'spark-settings') return <GeminiSparkSettingsIcon />;
+  if (item.iconFamily === 'custom') {
+    if (item.icon === 'agent') return <AgentIcon size={24} className="shrink-0" />;
+    if (item.icon === 'github') return <Github size={24} strokeWidth={1.8} />;
+    if (item.icon === 'discord') return <DiscordIcon size={24} strokeWidth={1.6} />;
+  }
+  const small = GEMINI_SHEET_SMALL_ICONS.has(item.id);
+  return (
+    <MaterialSymbol
+      name={item.icon}
+      family={(item.iconFamily ?? 'luminous') as any}
+      size={small ? 24 : 28}
+      weight={small ? 300 : 260}
+      roundness={100}
+      opticalSize={small ? 24 : 28}
     />
   );
 };
@@ -382,11 +447,11 @@ const SidebarGlyph: React.FC<{ name: string; className?: string }> = ({ name, cl
   </span>
 );
 
-const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isCollapsed, onClose, onSettingsClick }) => {
+const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isCollapsed, onClose, onSettingsClick, triggerRef }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const themeRowRef = useRef<HTMLElement | null>(null);
-  const { userProfile, updateUserProfile } = useAuth();
+  const { workspaceColor, setWorkspaceColor } = useAuth();
   const experiments = useStore(experimentsStore);
   const { location, status: locationStatus, error: locationError } = useStore(locationStore);
   /*
@@ -440,21 +505,14 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   const [themeTop, setThemeTop] = useState(0);
   const themeCloseTimer = useRef<number | null>(null);
   const { themeChoice, isLight, setThemeChoice } = useThemeMode();
+  // At <=960px Gemini shows this pane as a bottom sheet instead; see SettingsSheet.
+  const isCompact = useCompactViewport();
 
-  const [activeColor, setActiveColor] = useState<string>(() => {
-    return userProfile?.workspaceColor || 'green';
-  });
-
-  useEffect(() => {
-    if (userProfile?.workspaceColor) {
-      setActiveColor(userProfile.workspaceColor);
-    }
-  }, [userProfile?.workspaceColor]);
+  const activeColor = workspaceColor;
 
   const handleColorSelect = (colorId: string) => {
-    setActiveColor(colorId);
-    void updateUserProfile({ workspaceColor: colorId as any }).catch(() => {
-      /* offline / guest */
+    void setWorkspaceColor(colorId as typeof workspaceColor).catch(() => {
+      /* offline: this device keeps the colour regardless */
     });
   };
 
@@ -530,9 +588,12 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    // The sheet is portalled out of `containerRef` and closes itself.
+    if (!isOpen || isCompact) return;
     const handlePointerDown = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) onClose();
+      const target = event.target as Node;
+      if (triggerRef?.current?.contains(target)) return;
+      if (containerRef.current && !containerRef.current.contains(target)) onClose();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -543,9 +604,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onClose]);
-
-  if (phase === 'closed') return null;
+  }, [isOpen, isCompact, onClose, triggerRef]);
 
   const handleItemClick = (item: GeminiSettingsItem) => {
     if (item.url) {
@@ -558,6 +617,47 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
       onSettingsClick?.(item.id);
     }
   };
+
+  if (isCompact) {
+    // Gemini's sheet keeps the desktop rows but splits the trailing-arrow links into a group
+    // of their own, the way it sets Help apart from the rest.
+    const toRow = (item: GeminiSettingsItem): SettingsSheetRow => ({
+      id: item.id,
+      label: item.label,
+      icon: <GeminiSheetItemIcon item={item} />,
+      trailingArrow: item.trailingArrow,
+      opensTheme: item.submenu === 'theme',
+      // Gemini's memory row is `gds-label-l` where the rest are body type: measured 184px vs 193.
+      labelStyle: item.id === 'memory' ? { fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 370' } : undefined,
+      onSelect: () => handleItemClick(item),
+    });
+    const isLink = (item: GeminiSettingsItem) => item.trailingArrow && !item.submenu;
+    return (
+      <SettingsSheet
+        isOpen={isOpen}
+        isLight={isLight}
+        onClose={onClose}
+        groups={[items.filter((item) => !isLink(item)).map(toRow), items.filter(isLink).map(toRow)]}
+        theme={{
+          value: themeChoice,
+          options: GEMINI_THEME_OPTIONS,
+          onSelect: (id) => handleThemeSelect(id as GeminiThemeChoice),
+          colors: GEMINI_THEME_ACCENT_COLORS,
+          activeColor,
+          onSelectColor: handleColorSelect,
+        }}
+        location={{
+          title: locationRow.title,
+          detail: locationRow.detail,
+          action: locationStatus === 'locating' ? 'Locating…' : location ? 'Update location' : 'Set location',
+          actionDisabled: locationStatus === 'locating',
+          onAction: () => { void requestUserLocation(); },
+        }}
+      />
+    );
+  }
+
+  if (phase === 'closed') return null;
 
   return (
     /*
@@ -677,7 +777,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
           circle
         </span>
         <span className="min-w-0 leading-[17px]">
-          <span className={`block truncate ${locationRow.known ? (isLight ? 'text-[#0b57d0]' : 'text-[#a8c7fa]') : (isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]')}`}>
+          <span className={`block truncate ${locationRow.known ? (isLight ? 'text-[color:var(--sync-0b57d0,#0b57d0)]' : 'text-[color:var(--sync-a8c7fa,#a8c7fa)]') : (isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]')}`}>
             {locationRow.title}
           </span>
           <span className={`block truncate ${isLight ? 'text-[#444746]' : 'text-[#e6e6e6]'}`}>{locationRow.detail}</span>
@@ -732,14 +832,21 @@ export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'w
 
 const SparkSidebarItem: React.FC<{
   label: string;
-  symbol: string;
+  /** A Luminous Symbols glyph name; ignored when `icon` is given. */
+  symbol?: string;
+  /** A 20px icon drawn in place of the glyph. */
+  icon?: React.ReactNode;
   isCollapsed: boolean;
   active?: boolean;
   onClick?: () => void;
-}> = ({ label, symbol, isCollapsed, active = false, onClick }) => {
+  /** A trailing control beside the row, revealed on hover like a Recents or Notebooks row's menu button. */
+  actions?: React.ReactNode;
+  keepActionsVisible?: boolean;
+}> = ({ label, symbol, icon, isCollapsed, active = false, onClick, actions, keepActionsVisible = false }) => {
   const { isLight } = useThemeMode();
+  const hasActions = actions != null && !isCollapsed;
   return (
-  <div className="px-1.5 max-[960px]:px-2">
+  <div className="group/spark-row relative px-1.5 max-[960px]:px-2">
     <button
       type="button"
       onClick={onClick}
@@ -759,25 +866,233 @@ const SparkSidebarItem: React.FC<{
           : `text-[#e6e6e6] hover:bg-[rgba(230,230,230,0.08)] ${active ? 'is-active bg-[#171717] max-[960px]:!bg-[#141414]' : ''}`
       } ${
         isCollapsed ? 'ml-1 mr-0 w-8 gap-0 px-1.5' : 'w-full gap-1.5 max-[960px]:gap-3 px-1.5 max-[960px]:px-4'
-      }`}
+      }${hasActions ? ' pr-9 max-[960px]:pr-12' : ''}`}
     >
       <div className={`${isCollapsed ? 'h-5 w-5' : 'h-7 w-7'} flex items-center justify-center shrink-0 sidebar-item-icon-box`}>
-        <MaterialSymbol
-          family="luminous"
-          name={symbol}
-          size={20}
-          opticalSize={20}
-          fill={active}
-          className="transition-transform duration-200 group-active/spark-item:scale-90"
-        />
+        {icon != null ? (
+          <span className="inline-flex transition-transform duration-200 group-active/spark-item:scale-90">{icon}</span>
+        ) : (
+          <MaterialSymbol
+            family="luminous"
+            name={symbol ?? ''}
+            size={20}
+            opticalSize={20}
+            fill={active}
+            className="transition-transform duration-200 group-active/spark-item:scale-90"
+          />
+        )}
       </div>
       {!isCollapsed && (
-        <span className={`sidebar-item-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] max-[960px]:!text-[16px] max-[960px]:!leading-6 ${active ? 'font-medium text-white max-[960px]:!font-normal max-[960px]:!text-[#e0e0e0]' : 'font-normal text-[#e6e6e6] max-[960px]:!text-[#e0e0e0]'} ${isLight ? '!text-[#1f1f1f]' : ''}`}>
+        <span className={`sidebar-item-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] leading-[17px] max-[960px]:!text-[17px] max-[960px]:!leading-6 ${active ? 'font-medium text-white' : 'font-normal text-[#e6e6e6]'} max-[960px]:!text-[#e0e0e0]${active ? ' max-[960px]:!font-[540]' : ''} ${isLight ? '!text-[#1f1f1f]' : ''}`}>
           {label}
         </span>
       )}
     </button>
+    {hasActions && (
+      <div
+        className={`absolute top-1/2 right-3 flex -translate-y-1/2 items-center max-[960px]:right-5 ${
+          keepActionsVisible ? 'visible' : 'invisible group-hover/spark-row:visible group-focus-within/spark-row:visible'
+        }`}
+      >
+        {actions}
+      </div>
+    )}
   </div>
+  );
+};
+
+/**
+ * A Spark sidebar section heading, hidden on the collapsed rail. Given `onToggle` it folds its section like the
+ * Notebooks header (`SectionHeader`): the same chevron, revealed on hover, beside the title.
+ */
+const SparkSidebarHeading: React.FC<{
+  label: string;
+  isCollapsed: boolean;
+  isExpanded?: boolean;
+  onToggle?: () => void;
+  controlsId?: string;
+}> = ({ label, isCollapsed, isExpanded = true, onToggle, controlsId }) => {
+  const { isLight } = useThemeMode();
+  const className = `mx-3 mt-3 flex h-8 items-center px-1.5 max-[960px]:pl-2 text-[13px] font-normal leading-[17px] ${isLight ? 'text-black/55' : 'text-white/55'}`;
+  if (isCollapsed) return onToggle ? <div aria-hidden="true" className="h-3 shrink-0" /> : null;
+  if (!onToggle) return <div className={className}>{label}</div>;
+  return (
+    <button
+      type="button"
+      aria-label={`Toggle ${label}`}
+      aria-expanded={isExpanded}
+      aria-controls={controlsId}
+      onClick={onToggle}
+      className={`group/section w-[calc(100%-24px)] text-left outline-none ${className}`}
+    >
+      <span className="min-w-0 truncate">{label}</span>
+      <span
+        aria-hidden="true"
+        className="luminous-symbols ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center text-[16px] leading-4 opacity-0 transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.2,0,0,1)] group-hover/section:opacity-100 group-focus-visible/section:opacity-100"
+        style={{
+          fontFamily: "'Luminous Symbols', sans-serif",
+          fontWeight: 330,
+          fontVariationSettings: '"FILL" 0, "wght" 330, "GRAD" 0, "opsz" 16, "ROND" 100',
+        }}
+      >
+        {isExpanded ? 'keyboard_arrow_down' : 'keyboard_arrow_right'}
+      </span>
+    </button>
+  );
+};
+
+/**
+ * A bot row's ⋮ menu in the Spark sidebar: the Recents row menu's surface and placement (`handleMenuClick`), with the
+ * bot's Pin, Rename and Delete from its open-dot menu. Deleting the open bot leaves it for the Bots tab first.
+ */
+const SparkDotRowMenu: React.FC<{ dot: SparkDot; isOpenDot: boolean; onOpenChange: (open: boolean) => void }> = ({ dot, isOpenDot, onOpenChange }) => {
+  const { isLight } = useThemeMode();
+  const name = sparkDotName(dot);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ top?: number; bottom?: number; left: number; isAbove: boolean } | null>(null);
+  const [dialog, setDialog] = useState<'rename' | 'delete' | null>(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+
+  const close = () => {
+    setPosition(null);
+    onOpenChangeRef.current(false);
+  };
+
+  useEffect(() => {
+    if (!position) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
+      close();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      close();
+      buttonRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [position]);
+
+  const open = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const menuHeight = 124; // 3 rows x 36 + 2 x 8 padding — for the flip test only
+    const isAbove = window.innerHeight - rect.bottom < menuHeight;
+    setPosition({ top: isAbove ? undefined : rect.bottom, bottom: isAbove ? window.innerHeight - rect.top : undefined, left: rect.left, isAbove });
+    onOpenChangeRef.current(true);
+  };
+
+  const itemClass = `${GEMINI_MENU_ITEM_CLASS} ${isLight ? '!text-[#1f1f1f] hover:!bg-[rgba(0,0,0,0.06)]' : ''}`;
+  const labelClass = `${GEMINI_MENU_LABEL_CLASS} ${isLight ? '!text-[#1f1f1f]' : ''}`;
+  const symbolProps = { family: 'luminous' as const, size: 20, weight: 320, roundness: 100, opticalSize: 20, className: '!w-6 shrink-0' };
+
+  return (
+    <>
+      {/*
+        * The Recents row's trailing slot (`RecentChatRow`): a pinned bot rests on Gemini's 16px `push_pin` marker,
+        * and the three-dot button replaces it on hover or while the menu is open, in the same 24x24 box.
+        */}
+      <div className="relative flex h-6 w-6 shrink-0 items-center justify-center">
+        {dot.pinned && (
+          <span
+            className={`absolute inset-0 flex items-center justify-center pointer-events-none ${
+              position ? 'hidden' : 'group-hover/spark-row:hidden group-focus-within/spark-row:hidden'
+            }`}
+          >
+            <MaterialSymbol name="push_pin" family="luminous" size={16} weight={330} roundness={100} opticalSize={16} className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'} />
+          </span>
+        )}
+        <button
+          ref={buttonRef}
+          type="button"
+          aria-label={`More options for ${name}`}
+          aria-haspopup="menu"
+          aria-expanded={position != null}
+          onClick={() => (position ? close() : open())}
+          className={`sidebar-row-menu-btn relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 ${
+            isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'
+          } before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08] ${
+            position ? 'visible' : 'invisible group-hover/spark-row:visible group-focus-within/spark-row:visible'
+          }`}
+        >
+          <MaterialSymbol name="more_vert" family="luminous" size={20} weight={320} roundness={100} opticalSize={20} className="relative" />
+        </button>
+      </div>
+      {position &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={`Actions for ${name}`}
+            className={`fixed z-[9999] box-border min-w-[150px] max-w-[280px] rounded-[20px] ${
+              isLight ? 'bg-[#ffffff] text-[#1f1f1f] shadow-[0_0_20px_rgba(0,0,0,0.04)] border border-black/5' : 'bg-[#1f1f1f] text-[#e6e6e6] shadow-[0_0_20px_rgba(0,0,0,0.28)]'
+            } p-2 ${position.isAbove ? 'origin-bottom-left' : 'origin-top-left'} willow-mat-menu-enter`}
+            style={{
+              ...(position.top !== undefined ? { top: `${position.top}px` } : {}),
+              ...(position.bottom !== undefined ? { bottom: `${position.bottom}px` } : {}),
+              left: `${position.left}px`,
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className={itemClass}
+              onClick={() => {
+                close();
+                toggleSparkDotPin(dot.id);
+              }}
+            >
+              <MaterialSymbol name={dot.pinned ? 'unpin' : 'push_pin'} {...symbolProps} />
+              <span className={labelClass}>{dot.pinned ? 'Unpin' : 'Pin'}</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={itemClass}
+              onClick={() => {
+                close();
+                setDialog('rename');
+              }}
+            >
+              <MaterialSymbol name="edit" {...symbolProps} />
+              <span className={labelClass}>Rename</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={itemClass}
+              onClick={() => {
+                close();
+                setDialog('delete');
+              }}
+            >
+              <MaterialSymbol name="delete" {...symbolProps} />
+              <span className={labelClass}>Delete</span>
+            </button>
+          </div>,
+          document.body,
+        )}
+      {dialog === 'rename' && <DotRenameDialog dot={dot} onClose={() => setDialog(null)} />}
+      {dialog === 'delete' && (
+        <DotDeleteDialog
+          dot={dot}
+          onClose={() => setDialog(null)}
+          onDelete={() => {
+            setDialog(null);
+            if (isOpenDot) goToSparkDots();
+            deleteSparkDot(dot.id);
+          }}
+        />
+      )}
+    </>
   );
 };
 
@@ -828,9 +1143,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSignInClick,
 }) => {
   const navigate = useNavigate();
-  const { user, userProfile, loading: isAuthLoading } = useAuth();
+  const { user, userProfile, loading: isAuthLoading, workspaceColor } = useAuth();
   const { isLight } = useThemeMode();
   const currentSparkLocation = useStore(sparkLocation);
+  const sparkFolderState = useStore(sparkProjects);
+  const { dots: sparkDotList } = useStore(sparkDots);
+  const openDotId = currentSparkLocation.page === 'dots' ? currentSparkLocation.dotId : undefined;
+  const isDotOnboardingOpen = useCreationStore((s) => s.onboardingOpen);
+  const [isDotsSectionExpanded, setDotsSectionExpanded] = useState(true);
+  const [openDotMenuId, setOpenDotMenuId] = useState<string | null>(null);
+  // Two bots before "All bots" takes over. Pinned bots always stay listed, and at least one unpinned bot with them.
+  const pinnedSidebarDots = sparkDotList.filter((dot) => dot.pinned);
+  const unpinnedSidebarDots = sparkDotList.filter((dot) => !dot.pinned);
+  const sidebarDots = [...pinnedSidebarDots, ...unpinnedSidebarDots.slice(0, Math.max(1, 2 - pinnedSidebarDots.length))];
   /*
    * True only on the render in which the rail opens or closes.
    *
@@ -920,6 +1245,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   } = useLocalFS();
 
   const isChatOngoing = studioExperience === 'chat' && (!!activeChatId || hasActiveChat);
+  // Images and Videos light up instead of New chat while the new chat is on their page.
+  const creationPage = useStore($chatCreationPage);
+  const openCreationPage = (page: ChatCreationPage) => {
+    if (isChatOngoing) {
+      selectLocalFSInboxChat(null);
+      if (onNewChat) onNewChat();
+    }
+    onViewChange('home');
+    onModeChange?.('chat');
+    $chatCreationPageRequest.set(page);
+  };
 
   /*
    * Every Spark page renders at `currentView === 'home'`, and the rail keeps
@@ -986,7 +1322,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Pinned chats persistence. The key format comes from the shared builder so it
   // cannot drift from the read the top-right conversation-actions menu does —
-  // that menu reads pins, and this component remains the only writer.
+  // that menu reads pins; this component and `settings.json` write them, each
+  // through `writePinnedChats`, so each hears the other.
   const pinnedChatsKey = pinnedChatsStorageKey(chatScopeId);
   const [pinnedChatState, setPinnedChatState] = useState<{ scopeId: string; chats: string[] }>(() => ({
     scopeId: chatScopeId,
@@ -999,30 +1336,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // rows test it again — O(n) `.includes()` per row made that quadratic.
   const pinnedChatSet = useMemo(() => new Set(pinnedChats), [pinnedChats]);
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(pinnedChatsKey);
-      const parsed = stored ? JSON.parse(stored) : [];
-      setPinnedChatState({
-        scopeId: chatScopeId,
-        chats: Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [],
-      });
-    } catch {
-      setPinnedChatState({ scopeId: chatScopeId, chats: [] });
-    }
+    const load = () => setPinnedChatState({ scopeId: chatScopeId, chats: readPinnedChats(chatScopeId) ?? [] });
+    load();
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== pinnedChatsKey) return;
-      try {
-        const parsed = event.newValue ? JSON.parse(event.newValue) : [];
-        setPinnedChatState({
-          scopeId: chatScopeId,
-          chats: Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [],
-        });
-      } catch {
-        setPinnedChatState({ scopeId: chatScopeId, chats: [] });
-      }
+      if (event.key === pinnedChatsKey) load();
+    };
+    const onChanged = (event: Event) => {
+      if ((event as CustomEvent<{ chatScopeId?: string }>).detail?.chatScopeId === chatScopeId) load();
     };
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    window.addEventListener(PINNED_CHATS_CHANGED_EVENT, onChanged);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(PINNED_CHATS_CHANGED_EVENT, onChanged);
+    };
   }, [pinnedChatsKey]);
 
   const togglePinChat = (chatId: string) => {
@@ -1030,7 +1357,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? pinnedChats.filter((c) => c !== chatId)
       : [...pinnedChats, chatId];
     setPinnedChatState({ scopeId: chatScopeId, chats: next });
-    localStorage.setItem(pinnedChatsKey, JSON.stringify(next));
+    writePinnedChats(chatScopeId, next);
   };
 
   // Three-dot menu state
@@ -1156,7 +1483,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         // rename or the chat silently loses it.
         const next = pinnedChats.map((c) => (c === editingChatId ? trimmed : c));
         setPinnedChatState({ scopeId: chatScopeId, chats: next });
-        localStorage.setItem(pinnedChatsKey, JSON.stringify(next));
+        writePinnedChats(chatScopeId, next);
       }
       if (success) {
         renameCodeChat(chatScopeId, editingChatId!, trimmed);
@@ -1229,7 +1556,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (pinnedChats.includes(chatToDelete)) {
         const next = pinnedChats.filter((c) => c !== chatToDelete);
         setPinnedChatState({ scopeId: chatScopeId, chats: next });
-        localStorage.setItem(pinnedChatsKey, JSON.stringify(next));
+        writePinnedChats(chatScopeId, next);
       }
     }
   };
@@ -1280,6 +1607,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [shouldRenderMenu, isMenuClosing]);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [recentsExpanded, setRecentsExpanded] = useState(true);
 
   // ── Recents windowing ──────────────────────────────────────────────────────
@@ -1388,6 +1716,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (growRecentsTimerRef.current !== undefined) window.clearTimeout(growRecentsTimerRef.current);
   }, []);
 
+  // A later click wins over a check still reading an earlier one.
+  const selectChatSequenceRef = useRef(0);
   // Stable handler identities for the memoized rows. Every one of these closes
   // over state that changes, so a plain arrow would defeat React.memo on the
   // whole list — which is the entire point of extracting RecentChatRow.
@@ -1410,13 +1740,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
      * The mode switch is App's, not this row's: the Search dialog opens chats too
      * and is rendered from StudioLayout with no access to those setters, so all
      * three doors publish the request and App routes it.
+     *
+     * A row with no marker that the backfill below has not read yet (its marker
+     * is another scope's after a sign-in or sign-out, or it is below the window)
+     * is read once first (`checkCodeChat`); a click on a chat already read is as
+     * immediate as ever.
      */
-    if (codeChats[chatId] === true) {
-      requestCodeChatOpen(chatId);
+    const sequence = ++selectChatSequenceRef.current;
+    const open = (isCode: boolean) => {
+      if (sequence !== selectChatSequenceRef.current) return;
+      if (isCode) {
+        requestCodeChatOpen(chatId);
+        return;
+      }
+      onModeChange?.('chat');
+      selectLocalFSInboxChat(chatId);
+    };
+    if (codeChats[chatId] === true || hasScannedCodeChat(chatScopeId, chatId)) {
+      open(codeChats[chatId] === true);
       return;
     }
-    onModeChange?.('chat');
-    selectLocalFSInboxChat(chatId);
+    void checkCodeChat(chatScopeId, chatId, loadLocalFSChat).then(open);
   });
   const handleMenuClickStable = useEventCallback(handleMenuClick);
 
@@ -1464,7 +1808,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const messages = await loadLocalFSChat(chatId);
         if (cancelled) return;
         inFlight = null;
-        if (messages?.some((message: any) => message?.willowMode === 'code')) {
+        if (isCodeChatBody(messages)) {
           // Old marker keys had no owner. The body check is the ownership
           // proof that makes adopting a matching legacy marker safe.
           if (!migrateVerifiedLegacyCodeChat(chatScopeId, chatId)) markCodeChat(chatScopeId, chatId);
@@ -1492,8 +1836,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setIsSettingsMenuOpen(false);
   };
 
+  const handleSettingsToggle = () => {
+    // Gemini dismisses the drawer as its settings sheet comes up.
+    if (isCompactViewport() && !isCollapsed && !isSettingsMenuOpen) onToggleCollapse();
+    setIsSettingsMenuOpen((open) => !open);
+    setIsUserMenuOpen(false);
+  };
+
   useEffect(() => {
-    setIsSettingsMenuOpen(false);
+    // The desktop pane hangs off the rail; the <=960px sheet outlives the drawer it came from.
+    if (!isCompactViewport()) setIsSettingsMenuOpen(false);
   }, [isCollapsed]);
 
   // Dynamic logo color filter based on workspace color
@@ -1503,7 +1855,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Dynamically update favicon in the browser tab
   useEffect(() => {
     const updateFaviconColor = () => {
-      const color = userProfile?.workspaceColor;
+      const color = workspaceColor;
       const img = new Image();
       img.src = '/favicon-32x32.png';
       img.crossOrigin = 'anonymous';
@@ -1527,7 +1879,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
 
     updateFaviconColor();
-  }, [userProfile?.workspaceColor]);
+  }, [workspaceColor]);
 
   // Gemini fades the expanded rail surface into the studio surface as it collapses.
   const expandedSidebarBgClass = isLight
@@ -1596,7 +1948,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
            * expanded, where that is what was measured.
            */
           data-tooltip-position={isCollapsed ? 'right' : 'below'}
-          className="group/logo relative ml-[10px] mt-3 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-200 active:scale-95 max-[960px]:ml-2 max-[960px]:mt-2 max-[960px]:h-8 max-[960px]:w-8"
+          className="group/logo relative ml-[10px] mt-3 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-200 active:scale-95 max-[960px]:ml-3 max-[960px]:mt-2 max-[960px]:h-8 max-[960px]:w-8"
         >
           {/*
            * `opacity-100 scale-100` are UNCONDITIONAL on purpose. They used to sit only in
@@ -1626,7 +1978,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               src={logo}
               alt="Logo"
               className="h-[22px] w-[22px] object-contain shrink-0 transition-[filter,transform] duration-300 max-[960px]:!h-[28px] max-[960px]:!w-[28px]"
-              style={{ filter: getLogoFilter(userProfile?.workspaceColor) }}
+              style={{ filter: getLogoFilter(workspaceColor) }}
             />
           </div>
           {isCollapsed && (
@@ -1647,7 +1999,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {!isCollapsed && (
           <span
-            className={`willow-sidenav-text ml-1 mt-4 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[17px] leading-6 text-[#e6e6e6] max-[960px]:!text-[20px] max-[960px]:!leading-6 max-[960px]:ml-3 max-[960px]:mt-2.5 ${isLight ? '!text-[#1f1f1f]' : ''}`}
+            className={`willow-sidenav-text ml-1 mt-4 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[17px] leading-6 text-[#e6e6e6] max-[960px]:text-[#e0e0e0] max-[960px]:!text-[20px] max-[960px]:!leading-6 max-[960px]:ml-2 max-[960px]:mt-3 ${isLight ? '!text-[#1f1f1f]' : ''}`}
             style={{
               fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
               fontWeight: 470
@@ -1658,7 +2010,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {!isCollapsed && (
-          <div className="absolute right-[14px] top-1.5 max-[960px]:right-2 max-[960px]:top-0">
+          <div className="absolute right-[14px] top-1.5 max-[960px]:right-[9px] max-[960px]:top-0">
             <button
               onClick={onToggleCollapse}
               aria-label="Collapse sidebar"
@@ -1678,7 +2030,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 side_nav
               </span>
               <span
-                className={`inline-flex min-[961px]:hidden luminous-symbols text-[24px] max-[960px]:!text-[28px] leading-none select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
+                className={`inline-flex min-[961px]:hidden luminous-symbols text-[24px] max-[960px]:!text-[28px] leading-none select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3] max-[960px]:text-[#e0e0e0]'}`}
                 style={{
                   fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
                   fontWeight: 260,
@@ -1936,7 +2288,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
          * the icons did not stay on the y they occupy expanded — which the Chat
          * rows, whose container pads the same either way, get right.
          */
-        <div className="min-h-0 flex-1 pb-4 pt-0">
+        <div className={`min-h-0 flex-1 pb-4 pt-0${isDesktopApp() ? ' overflow-y-auto gemini-chat-scrollbar' : ''}`}>
           <SparkSidebarItem
             label="Tasks"
             symbol="edit_rectangle"
@@ -1946,21 +2298,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
               && (
                 currentSparkLocation.page === 'home'
                 || currentSparkLocation.page === 'all-tasks'
-                || currentSparkLocation.page === 'task'
+                // A task in a folder is highlighted in its folder's section instead.
+                || (currentSparkLocation.page === 'task' && !sparkFolderState.taskProjects[currentSparkLocation.taskId])
               )
             }
             onClick={() => {
               onStudioExperienceChange('spark');
               onViewChange('home');
+              // A task started from here works across the computer, not in a folder.
+              if (isDesktopApp()) setSparkActiveProject(null);
               goToAllSparkTasks();
             }}
           />
-
-          {!isCollapsed && (
-            <div className={`sidebar-section-header sidebar-section-title mx-3 mt-3 flex h-8 items-center px-1.5 text-[13px] font-normal leading-[17px] ${isLight ? 'text-black/55' : 'text-white/55'}`}>
-              Customise
-            </div>
+          <SparkSidebarItem
+            label="Pages"
+            icon={
+              <MaterialSymbol
+                name="description"
+                size={20}
+                opticalSize={20}
+                weight={currentSparkLocation.page === 'pages' && isSparkWorkspaceOpen ? 400 : 300}
+                fill={isSparkWorkspaceOpen && currentSparkLocation.page === 'pages'}
+              />
+            }
+            isCollapsed={isCollapsed}
+            active={isSparkWorkspaceOpen && currentSparkLocation.page === 'pages'}
+            onClick={() => {
+              onStudioExperienceChange('spark');
+              onViewChange('home');
+              goToSparkPages();
+            }}
+          />
+          {/* A folder on this computer for Spark to work in; desktop only. Its tasks list in its own section below. */}
+          {isDesktopApp() && (
+            <SparkSidebarItem
+              label="Add folder"
+              // Luminous has no folder-with-plus; Google Symbols' does, rounded to Luminous's corners.
+              icon={<MaterialSymbol family="google-symbols" name="create_new_folder" size={20} weight={320} roundness={100} />}
+              isCollapsed={isCollapsed}
+              onClick={() => {
+                void addSparkFolderFromPicker().then((folder) => {
+                  if (!folder) return;
+                  onStudioExperienceChange('spark');
+                  onViewChange('home');
+                  startSparkTaskInProject(folder.id);
+                  goToSparkHome();
+                });
+              }}
+            />
           )}
+
+          <SparkSidebarHeading label="Customise" isCollapsed={isCollapsed} />
 
           <SparkSidebarItem
             label="Schedules"
@@ -1995,6 +2383,103 @@ export const Sidebar: React.FC<SidebarProps> = ({
               goToSparkApps();
             }}
           />
+          {/* The desktop pet lives in the desktop app only. */}
+          {isDesktopApp() && (
+            <SparkSidebarItem
+              label="Pets"
+              icon={<PetPawIcon size={20} />}
+              isCollapsed={isCollapsed}
+              active={isSparkWorkspaceOpen && currentSparkLocation.page === 'pets'}
+              onClick={() => {
+                onStudioExperienceChange('spark');
+                onViewChange('home');
+                goToSparkPets();
+              }}
+            />
+          )}
+
+          {/*
+            * Laid out as the Notebooks section (`NotebooksSection`): New bot first, then the bots themselves, pinned
+            * first, then All bots once there is a bot to list, which opens the Bots tab.
+            */}
+          <SparkSidebarHeading
+            label="Your Bots"
+            isCollapsed={isCollapsed}
+            isExpanded={isDotsSectionExpanded}
+            onToggle={() => setDotsSectionExpanded((expanded) => !expanded)}
+            controlsId="willow-spark-dots-section"
+          />
+          <div
+            id="willow-spark-dots-section"
+            className="grid min-h-0"
+            style={{
+              gridTemplateRows: isDotsSectionExpanded ? '1fr' : '0fr',
+              transition: 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
+            }}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <SparkSidebarItem
+                label="New bot"
+                symbol="add_2"
+                isCollapsed={isCollapsed}
+                active={isSparkWorkspaceOpen && currentSparkLocation.page === 'dots' && openDotId == null && isDotOnboardingOpen}
+                onClick={() => {
+                  onStudioExperienceChange('spark');
+                  onViewChange('home');
+                  goToSparkDots();
+                  openDotOnboarding();
+                }}
+              />
+              {sidebarDots.map((dot) => (
+                <SparkSidebarItem
+                  key={dot.id}
+                  label={sparkDotName(dot)}
+                  icon={<SparkDotAvatar dotId={dot.id} className="spark-dots-avatar--sidebar" />}
+                  isCollapsed={isCollapsed}
+                  active={isSparkWorkspaceOpen && openDotId === dot.id}
+                  onClick={() => {
+                    onStudioExperienceChange('spark');
+                    onViewChange('home');
+                    // Straight from the sidebar, a bot opens expanded: the bots list collapsed, its profile docked.
+                    sparkDotExpandRequest.set(dot.id);
+                    goToSparkDot(dot.id);
+                  }}
+                  keepActionsVisible={Boolean(dot.pinned) || openDotMenuId === dot.id}
+                  actions={
+                    <SparkDotRowMenu
+                      dot={dot}
+                      isOpenDot={openDotId === dot.id}
+                      onOpenChange={(open) => setOpenDotMenuId((current) => (open ? dot.id : current === dot.id ? null : current))}
+                    />
+                  }
+                />
+              ))}
+              {sparkDotList.length > 0 && (
+                <SparkSidebarItem
+                  label="All bots"
+                  symbol="more_horiz"
+                  isCollapsed={isCollapsed}
+                  active={isSparkWorkspaceOpen && currentSparkLocation.page === 'dots' && openDotId == null && !isDotOnboardingOpen}
+                  onClick={() => {
+                    onStudioExperienceChange('spark');
+                    onViewChange('home');
+                    goToSparkDots();
+                  }}
+                />
+              )}
+            </div>
+          </div>
+
+          {isDesktopApp() && (
+            <SparkFolderSections
+              isCollapsed={isCollapsed}
+              isSparkWorkspaceOpen={isSparkWorkspaceOpen}
+              onOpenSpark={() => {
+                onStudioExperienceChange('spark');
+                onViewChange('home');
+              }}
+            />
+          )}
         </div>
       ) : (
         <>
@@ -2005,7 +2490,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label="New chat" 
           shortcut="Ctrl+Shift+O"
           isCollapsed={isCollapsed} 
-          active={currentView === 'home' && studioMode === 'chat' && !isChatOngoing}
+          active={currentView === 'home' && studioMode === 'chat' && !isChatOngoing && !creationPage}
           onClick={() => {
             if (isChatOngoing) {
               selectLocalFSInboxChat(null);
@@ -2013,20 +2498,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onNewChat();
               }
             }
+            if (creationPage) $chatCreationPageRequest.set('none');
             onViewChange('home');
             onModeChange?.('chat');
           }}
         />
-        {user && (
-          <SidebarItem 
-            symbol="search" 
-            label="Search chats"
-            shortcut="Ctrl+Shift+K"
-            isCollapsed={isCollapsed} 
-            active={currentView === 'search'}
-            onClick={onSearchClick}
-          />
-        )}
+        <SidebarItem 
+          symbol="search" 
+          label="Search chats"
+          shortcut="Ctrl+Shift+K"
+          isCollapsed={isCollapsed} 
+          active={currentView === 'search'}
+          onClick={onSearchClick}
+        />
       </div>
 
       {/*
@@ -2043,29 +2527,66 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="h-full overflow-y-auto pt-0 pb-0 gemini-chat-scrollbar"
         >
           <div className="space-y-0">
-            <SidebarItem 
+            {/* Gemini's Images and Videos, under its search: Luminous `image_create` and
+                `movie`, each a new chat with the tool picked, at /images and /videos. */}
+            <SidebarItem
               flushRight
-              icon={Terminal} 
-              label="Code" 
-              isCollapsed={isCollapsed} 
-              active={currentView === 'home' && studioMode === 'develop'}
-              onClick={() => {
-                onViewChange('home');
-                onModeChange?.('develop');
-              }}
+              symbol="image_create"
+              label="Images"
+              isCollapsed={isCollapsed}
+              active={currentView === 'home' && studioMode === 'chat' && creationPage === 'images'}
+              onClick={() => openCreationPage('images')}
             />
-            <SidebarItem 
+            <SidebarItem
               flushRight
-              icon={MediaIcon} 
-              iconClassName="ml-[2px]"
-              label="Media" 
-              isCollapsed={isCollapsed} 
-              active={currentView === 'home' && studioMode === 'media'}
-              onClick={() => {
-                onViewChange('home');
-                onModeChange?.('media');
-              }}
+              symbol="movie"
+              label="Videos"
+              isCollapsed={isCollapsed}
+              active={currentView === 'home' && studioMode === 'chat' && creationPage === 'videos'}
+              onClick={() => openCreationPage('videos')}
             />
+            {/* The desktop app reaches Code and Media from its rail, and only there. */}
+            {!isDesktopApp() && (
+              <>
+                <SidebarItem 
+                  flushRight
+                  icon={Terminal} 
+                  label="Code" 
+                  isCollapsed={isCollapsed} 
+                  active={currentView === 'home' && studioMode === 'develop'}
+                  onClick={() => {
+                    onViewChange('home');
+                    onModeChange?.('develop');
+                  }}
+                />
+                <SidebarItem 
+                  flushRight
+                  icon={MediaIcon} 
+                  iconClassName="ml-[2px] max-[960px]:translate-x-[2px]"
+                  label="Media" 
+                  isCollapsed={isCollapsed} 
+                  active={currentView === 'home' && studioMode === 'media'}
+                  onClick={() => {
+                    onViewChange('home');
+                    onModeChange?.('media');
+                  }}
+                />
+                {isAndroidApp() && ANDROID_AGENT_ROWS.map(({ id, label, Icon }) => (
+                  <SidebarItem
+                    key={id}
+                    flushRight
+                    icon={Icon}
+                    label={label}
+                    isCollapsed={isCollapsed}
+                    onClick={() => {
+                      // Closes the drawer on a phone, as every row does.
+                      onViewChange(currentView);
+                      openHarnessTab(id);
+                    }}
+                  />
+                ))}
+              </>
+            )}
             {/*
               * Agents and Design are unfinished, so they ship hidden behind
               * Settings > Labs rather than sitting in the rail half-built. The
@@ -2101,7 +2622,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               * sort, visibility, status and creator filters are still inert.
               * App.tsx reads the same flag; hiding the row is not the gate.
               */}
-            {experiments['projects-panel'] && (user || isLocalFolderConnected) && (
+            {experiments['projects-panel'] && (
               <SidebarItem
                 flushRight
                 icon={LayoutGrid}
@@ -2119,6 +2640,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               active={currentView === 'customize'}
               onClick={() => onViewChange('customize')}
             />
+            {/* Gemini's own row sits under Labs: Luminous `gems`, to the Gem manager. */}
+            <SidebarItem
+              flushRight
+              symbol="gems"
+              label="Gems"
+              isCollapsed={isCollapsed}
+              active={currentView === 'gems'}
+              onClick={() => onViewChange('gems')}
+            />
             {experiments['waifu-tab'] && (
               <SidebarItem
                 flushRight
@@ -2131,128 +2661,124 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {(user || isLocalFolderConnected) && (
-            <>
-              {/*
-                * Notebooks sits between Projects and Recents, which is where
-                * Gemini puts it: its rail runs Notebooks (y=336) then Recents
-                * (y=508) with a `.section-divider` between, and Willow's
-                * Projects block occupies the space above both.
-                *
-                * The section owns its own expanded state and hydration — it is
-                * the only consumer of the notebook registry in the sidebar, so
-                * lifting either into this component would just be plumbing.
-                */}
-              {/*
-                * Hidden outright on the rail, which is a DELIBERATE DEPARTURE
-                * from Gemini — measured in its own collapsed rail, the notebook
-                * rows are still there (`add_2` y=374, `notebook` 406 and 438,
-                * `more_horiz` 470, all at x=16). Willow keeps the rail to the
-                * modes alone; asked for by name, so do not "correct" it back
-                * against the measurement.
-                */}
-              {!isCollapsed && (
-              <NotebooksSection
-                isCollapsed={isCollapsed}
-                activeNotebookId={activeNotebookId}
-                isAllNotebooksActive={currentView === 'notebooks'}
-                isCreateNotebookActive={currentView === 'notebook-create'}
-                onOpenNotebook={(notebookId) => onOpenNotebook?.(notebookId)}
-                onCreateNotebook={() => onViewChange('notebook-create')}
-                onOpenAllNotebooks={() => onViewChange('notebooks')}
-              />
-              )}
+          {/*
+            * Notebooks sits between Projects and Recents, which is where
+            * Gemini puts it: its rail runs Notebooks (y=336) then Recents
+            * (y=508) with a `.section-divider` between, and Willow's
+            * Projects block occupies the space above both.
+            *
+            * The section owns its own expanded state and hydration — it is
+            * the only consumer of the notebook registry in the sidebar, so
+            * lifting either into this component would just be plumbing.
+            */}
+          {/*
+            * Hidden outright on the rail, which is a DELIBERATE DEPARTURE
+            * from Gemini — measured in its own collapsed rail, the notebook
+            * rows are still there (`add_2` y=374, `notebook` 406 and 438,
+            * `more_horiz` 470, all at x=16). Willow keeps the rail to the
+            * modes alone; asked for by name, so do not "correct" it back
+            * against the measurement.
+            */}
+          {!isCollapsed && (
+          <NotebooksSection
+            isCollapsed={isCollapsed}
+            activeNotebookId={activeNotebookId}
+            isAllNotebooksActive={currentView === 'notebooks'}
+            isCreateNotebookActive={currentView === 'notebook-create'}
+            onOpenNotebook={(notebookId) => onOpenNotebook?.(notebookId)}
+            onCreateNotebook={() => onViewChange('notebook-create')}
+            onOpenAllNotebooks={() => onViewChange('notebooks')}
+          />
+          )}
 
-              {/*
-                * Gated on `isChatListHydrated`, NOT on `!isInitializingLocalFS`.
-                * The list comes out of localStorage in one synchronous pass and
-                * the titles are the filenames, so it is ready at the same moment
-                * the nav rows above it are; the init flag additionally waits on
-                * folder permission, a per-file disk reconcile, and a projects
-                * scan. See the field's note in `LocalFSContext.tsx`.
-                *
-                * `sortedChats.length > 0` covers the HEADER too, deliberately.
-                * This used to read `(!isLocalFolderAuthorized || localChats.length > 0)`,
-                * which rendered a bare "Recents" heading with nothing beneath it
-                * during the window where the folder is connected but permission
-                * has not been re-granted — the body below is gated on the same
-                * count, so that branch could only ever produce a label over empty
-                * space. A section heading is a promise that there is a section; it
-                * now appears only once there is one.
-                *
-                * The **filtered** count, not `localChats.length`: a workspace whose
-                * every chat is filed into a notebook has chats but no recents, and
-                * the unfiltered count would put the heading back over nothing.
-                */}
-              {isChatListHydrated && isLocalFolderConnected && sortedChats.length > 0 && (
-                <>
-                  <SectionHeader
-                    title="Recents"
-                    isCollapsed={isCollapsed}
-                    isExpanded={recentsExpanded}
-                    onToggle={() => {
-                      setRecentsExpanded((expanded) => {
-                        if (expanded) {
-                          if (shouldRenderMenu) triggerCloseMenu();
-                        } else {
-                          // Re-opening the section is a fresh start, so don't
-                          // re-mount however many rows were grown before it was
-                          // collapsed.
-                          setRecentsLimit(RECENTS_INITIAL_COUNT);
-                        }
-                        return !expanded;
-                      });
-                    }}
-                    controlsId="willow-recents-section"
-                  />
-                  <div
-                    id="willow-recents-section"
-                    className="grid min-h-0"
-                    aria-hidden={isCollapsed || !recentsExpanded}
-                    style={{
-                      gridTemplateRows: !isCollapsed && recentsExpanded ? '1fr' : '0fr',
-                      transition: railToggling ? 'none' : 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
-                    }}
-                  >
-                    <div className="min-h-0 overflow-hidden space-y-0">
-                    {!isCollapsed && recentsExpanded && sortedChats.length > 0 ? (
-                      <>
-                        {windowedChats.map((chat) => {
-                          const isTemp = isTempChatId(chat);
-                          if (isTemp && activeChatId === chat) {
-                            return <SidebarSkeleton key={chat} isCollapsed={isCollapsed} />;
-                          }
-                          return (
-                            <RecentChatRow
-                              key={chat}
-                              chatId={chat}
-                              displayName={isTemp ? 'Untitled' : chatDisplayName(chat)}
-                              isCollapsed={isCollapsed}
-                              isActive={currentView === 'home' && studioMode === 'chat' && activeChatId === chat}
-                              isPinned={pinnedChatSet.has(chat)}
-                              startedInCode={codeChats[chat] === true}
-                              isMenuOpen={menuActiveChat === chat}
-                              onSelect={handleSelectChat}
-                              onMenuClick={handleMenuClickStable}
-                            />
-                          );
-                        })}
-                        {/* Gemini shows a small indeterminate spinner under the
-                            list while the next chunk arrives. Ours is gated on a
-                            transition, because appending rows is synchronous —
-                            a plain flag would mount and unmount inside one frame
-                            and never actually be seen. */}
-                        {isGrowingRecents && hasMoreRecents && (
-                          <div className="flex items-center justify-center py-2.5" aria-hidden="true">
-                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/15 border-t-white/55" />
-                          </div>
-                        )}
-                      </>
-                    ) : null}
-                    </div>
-                  </div>
-                </>
-              )}
+          {/*
+            * Gated on `isChatListHydrated`, NOT on `!isInitializingLocalFS`.
+            * The list comes out of localStorage in one synchronous pass and
+            * the titles are the filenames, so it is ready at the same moment
+            * the nav rows above it are; the init flag additionally waits on
+            * folder permission, a per-file disk reconcile, and a projects
+            * scan. See the field's note in `LocalFSContext.tsx`.
+            *
+            * `sortedChats.length > 0` covers the HEADER too, deliberately.
+            * This used to read `(!isLocalFolderAuthorized || localChats.length > 0)`,
+            * which rendered a bare "Recents" heading with nothing beneath it
+            * during the window where the folder is connected but permission
+            * has not been re-granted — the body below is gated on the same
+            * count, so that branch could only ever produce a label over empty
+            * space. A section heading is a promise that there is a section; it
+            * now appears only once there is one.
+            *
+            * The **filtered** count, not `localChats.length`: a workspace whose
+            * every chat is filed into a notebook has chats but no recents, and
+            * the unfiltered count would put the heading back over nothing.
+            */}
+          {isChatListHydrated && isLocalFolderConnected && sortedChats.length > 0 && (
+            <>
+              <SectionHeader
+                title="Recents"
+                isCollapsed={isCollapsed}
+                isExpanded={recentsExpanded}
+                onToggle={() => {
+                  setRecentsExpanded((expanded) => {
+                    if (expanded) {
+                      if (shouldRenderMenu) triggerCloseMenu();
+                    } else {
+                      // Re-opening the section is a fresh start, so don't
+                      // re-mount however many rows were grown before it was
+                      // collapsed.
+                      setRecentsLimit(RECENTS_INITIAL_COUNT);
+                    }
+                    return !expanded;
+                  });
+                }}
+                controlsId="willow-recents-section"
+              />
+              <div
+                id="willow-recents-section"
+                className="grid min-h-0"
+                aria-hidden={isCollapsed || !recentsExpanded}
+                style={{
+                  gridTemplateRows: !isCollapsed && recentsExpanded ? '1fr' : '0fr',
+                  transition: railToggling ? 'none' : 'grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1)',
+                }}
+              >
+                <div className="min-h-0 overflow-hidden space-y-0">
+                {!isCollapsed && recentsExpanded && sortedChats.length > 0 ? (
+                  <>
+                    {windowedChats.map((chat) => {
+                      const isTemp = isTempChatId(chat);
+                      if (isTemp && activeChatId === chat) {
+                        return <SidebarSkeleton key={chat} isCollapsed={isCollapsed} />;
+                      }
+                      return (
+                        <RecentChatRow
+                          key={chat}
+                          chatId={chat}
+                          displayName={isTemp ? 'Untitled' : chatDisplayName(chat)}
+                          isCollapsed={isCollapsed}
+                          isActive={currentView === 'home' && studioMode === 'chat' && activeChatId === chat}
+                          isPinned={pinnedChatSet.has(chat)}
+                          startedInCode={codeChats[chat] === true}
+                          isMenuOpen={menuActiveChat === chat}
+                          onSelect={handleSelectChat}
+                          onMenuClick={handleMenuClickStable}
+                        />
+                      );
+                    })}
+                    {/* Gemini shows a small indeterminate spinner under the
+                        list while the next chunk arrives. Ours is gated on a
+                        transition, because appending rows is synchronous —
+                        a plain flag would mount and unmount inside one frame
+                        and never actually be seen. */}
+                    {isGrowingRecents && hasMoreRecents && (
+                      <div className="flex items-center justify-center py-2.5" aria-hidden="true">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/15 border-t-white/55" />
+                      </div>
+                    )}
+                  </>
+                ) : null}
+                </div>
+              </div>
             </>
           )}
         </div>
@@ -2327,7 +2853,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         * "behaves weirdly different while collapsing and expanding" that was reported.
         */}
       <div
-        className="relative mt-auto flex shrink-0 select-none px-1.5 py-1 max-[960px]:h-[52px] max-[960px]:px-2 max-[960px]:py-2 max-[960px]:pb-2"
+        className="relative mt-auto flex shrink-0 select-none px-1.5 py-1 max-[960px]:!h-[64px] max-[960px]:pl-[17px] max-[960px]:pr-[15px] max-[960px]:pt-2 max-[960px]:pb-4"
         style={{
           height: isCollapsed ? '92px' : '48px',
           flexDirection: isCollapsed ? 'column-reverse' : 'row',
@@ -2374,13 +2900,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 aria-label="Open account menu"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={handleUserMenuToggle}
-                className="group/profile relative flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left max-[960px]:h-10 max-[960px]:gap-2 max-[960px]:pl-0"
+                className="group/profile relative flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left max-[960px]:h-10 max-[960px]:gap-2"
               >
                 {userProfile?.photoURL ? (
-                  <img
+                  <ProfilePhoto
                     src={userProfile.photoURL}
-                    alt="User"
-                    className={`willow-profile-reveal h-[30px] w-[30px] max-[960px]:!h-[28px] max-[960px]:!w-[28px] shrink-0 rounded-full object-cover transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}
+                    alt=""
+                    className={`willow-profile-reveal h-[30px] w-[30px] max-[960px]:!h-[28px] max-[960px]:!w-[28px] transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}
                   />
                 ) : (
                   <span className={`willow-profile-reveal flex h-[30px] w-[30px] max-[960px]:!h-[28px] max-[960px]:!w-[28px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[12px] font-medium text-white transition-transform active:scale-90 ${isUserMenuOpen ? 'scale-105' : ''}`}>
@@ -2409,7 +2935,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  * ever exists, the numbers above are the measurement to build it from.
                  */}
                 {!isCollapsed && (
-                  <span className={`willow-profile-reveal min-w-0 max-w-[180px] overflow-hidden truncate text-left text-[15px] font-normal leading-5 text-[#e6e6e6] max-[960px]:!text-[17px] max-[960px]:!leading-6 ${isLight ? '!text-[#1f1f1f]' : ''}`}>
+                  <span className={`willow-profile-reveal min-w-0 max-w-[180px] overflow-hidden truncate text-left text-[15px] font-normal leading-5 text-[#e6e6e6] max-[960px]:text-[#e0e0e0] max-[960px]:!text-[17px] max-[960px]:!leading-6 ${isLight ? '!text-[#1f1f1f]' : ''}`}>
                     {userProfile?.displayName || user?.email || 'Account'}
                   </span>
                 )}
@@ -2419,7 +2945,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               onClick={onSignInClick ? onSignInClick : () => navigate('/login')}
-              className={`flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left max-[960px]:h-10 max-[960px]:gap-2 max-[960px]:pl-0 ${isLight ? 'text-black/80' : 'text-white/80'}`}
+              className={`flex h-10 min-w-0 items-center gap-2 pl-[5px] pr-1.5 text-left max-[960px]:h-10 max-[960px]:gap-2 ${isLight ? 'text-black/80' : 'text-white/80'}`}
               title="Sign In"
             >
               <span className={`flex h-[30px] w-[30px] max-[960px]:!h-[28px] max-[960px]:!w-[28px] shrink-0 items-center justify-center rounded-full border ${isLight ? 'border-black/10' : 'border-white/10'}`}><LogIn size={18} /></span>
@@ -2438,7 +2964,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
          * no-op on the cross axis, collapsed (column-reverse) it pins the gear to the
          * rail's right edge. Measured collapsed: 32x32 at (16,8) in a 52px rail.
          */}
-        <div className="m-1 max-[960px]:m-0 flex shrink-0 items-center gap-3 self-end">
+        <div className="m-1 max-[960px]:m-0 flex shrink-0 items-center gap-3 self-end max-[960px]:self-center">
           <button
             type="button"
             aria-label="Settings"
@@ -2459,8 +2985,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
              * left == anchor.right and top == anchor.top, i.e. right, not below.
              */
             data-tooltip-position="right"
-            onClick={() => { setIsSettingsMenuOpen((open) => !open); setIsUserMenuOpen(false); }}
-            className={`group/settings relative flex h-8 w-8 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
+            ref={settingsButtonRef}
+            onClick={handleSettingsToggle}
+            className={`group/settings relative flex h-8 w-8 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6] max-[960px]:text-[#e0e0e0]'}`}
           >
             <span
               aria-hidden="true"
@@ -2491,6 +3018,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         isCollapsed={isCollapsed}
         onClose={() => setIsSettingsMenuOpen(false)}
         onSettingsClick={onSettingsClick}
+        triggerRef={settingsButtonRef}
       />
 
       {shouldRenderMenu && menuActiveChat && menuPosition && (

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Search, ChevronDown, Users, MoreHorizontal } from 'lucide-react';
+import { ProfilePhoto } from '@willow/ui/ProfilePhoto';
 
 interface PeopleTabProps {
   userProfile: any;
@@ -90,11 +91,7 @@ export const PeopleTab: React.FC<PeopleTabProps> = ({ userProfile, user }) => (
         <div className="grid grid-cols-[1fr_120px_140px_120px_120px_120px_40px] px-4 py-4 items-center group hover:bg-white/[0.02] transition-colors">
           <div className="flex items-center gap-3">
             {userProfile?.photoURL ? (
-              <img 
-                src={userProfile.photoURL} 
-                alt="User" 
-                className="w-10 h-10 rounded-full border border-white/10 object-cover" 
-              />
+              <ProfilePhoto src={userProfile.photoURL} alt="" className="w-10 h-10 border border-white/10" />
             ) : (
               <div className="w-10 h-10 rounded-full border border-white/10 bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] flex items-center justify-center text-white font-medium">
                 {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}

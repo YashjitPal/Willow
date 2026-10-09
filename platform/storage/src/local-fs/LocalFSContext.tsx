@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { isDesktopApp, openDesktopLocalFolder, pickDirectory } from '@willow/core/desktop-bridge';
 import {
+  handlesReferToSameEntry,
   isFSAAPISupported,
   storeDirectoryHandle,
   getStoredDirectoryRecord,
@@ -8,7 +10,9 @@ import {
   writeFileRecursively,
   readFilesRecursively,
   readProjectManifest,
-  writeProjectManifest
+  readProjectManifestTime,
+  writeProjectManifest,
+  holdsProjectManifest
 } from '../adapters/local-disk';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
@@ -28,17 +32,23 @@ import {
   type ChatStorageScope,
   type StoredChatAttachment,
 } from '../indexeddb/willow-db';
-import type { ChatAttachment } from '@willow/core/attachments';
-import { isActiveProjectRegistryStorageKey, isProjectSaveBlocked, markProjectDeleted, readProjectRegistry, setProjectStorageScope, writeProjectRegistry } from '@willow/projects/registry';
+import { toPersistedChatAttachment, type ChatAttachment } from '@willow/core/attachments';
+import { isActiveProjectRegistryStorageKey, isProjectSaveBlocked, markProjectDeleted, markProjectFolderRemoved, readProjectRegistry, releaseRestoredProject, setProjectStorageScope, writeProjectRegistry } from '@willow/projects/registry';
 import {
+  NOTEBOOKS_DIR_NAME,
+  NOTEBOOK_CHATS_DIR_NAME,
   adoptChatIntoNotebook,
   deriveNotebookFolderName,
   ensureNotebookFolderName,
+  notebookFromManifest,
+  notebookManifest,
   readNotebookChatIndex,
   readNotebooks,
   setNotebookFolderName,
   setNotebookSourceFsName,
   setNotebookStorageScope,
+  sortNotebooks,
+  writeNotebooks,
 } from '@willow/notebooks/notebooks-backend';
 import {
   LEGACY_CHAT_KEYS,
@@ -62,15 +72,31 @@ export { isTempChatId, parseTempIdTimestamp, sortChatsNewestToOldest } from './c
 import { generateChatDescriptionWith, generateChatTitleWith } from './chat-title';
 import { bumpChatSelectionEpoch } from './chat-selection-store';
 import { ensureProjectManifest, getProjectIdByName } from './project-manifest';
-import { getSyncedFolders } from '../synced-folders';
+import { getSyncedFolders, syncedFolderAt, SYNCED_FOLDERS_CHANGED_EVENT } from '../synced-folders';
 import { syncRegisteredFolder } from './synced-folder-driver';
 import { getProjectAreas, getProjectAreaFolder, type LocalProjectKind } from './project-areas';
 import {
+  deleteCollectionFolderOnDisk,
   deleteMediaFileFromDisk,
+  dirAtPath,
+  ensureCollectionFolderOnDisk,
+  moveMediaFileOnDisk,
+  renameCollectionFolderOnDisk,
   renameMediaFileOnDisk,
   saveMediaFileToDisk,
   saveProjectCoverToDisk,
 } from './media-disk';
+import { deleteSceneFileFromDisk, readSceneFilesFromDisk, writeSceneFileToDisk, type SceneFileOnDisk } from './scene-disk';
+import {
+  collectionPath,
+  COLLECTIONS_CHANGED_EVENT,
+  deleteCollection as deleteStoredCollection,
+  listCollections,
+  MEDIA_AGENT_SESSIONS_FOLDER,
+  RESERVED_PROJECT_FOLDERS,
+  saveCollection,
+  type StoredCollection,
+} from '../media-collections';
 import {
   saveProjectChatToDisk,
   saveProjectFilesToDisk,
@@ -85,16 +111,31 @@ import {
   ensureNotebookDirIn,
   moveFileBetweenDirs,
   openNotebookChatsDir,
+  readNotebookManifests,
   renameNotebookFolder,
+  writeNotebookManifest,
   saveNotebookSourceToDisk,
   type NotebookSourcePayload,
 } from './notebooks-disk';
+import {
+  CONVERSATION_FOLDERS,
+  conversationFileName,
+  deleteConversationFolder,
+  moveConversationFolder,
+  readConversationFile,
+  safeFileStem,
+  writeConversationFiles,
+  type ConversationFile,
+} from './conversation-files';
+import { moveToRecycleBin } from './recycle-bin';
 import {
   deleteSavedInfoFromDisk,
   readSavedInfoFromDisk,
   writeSavedInfoToDisk,
 } from './saved-info-disk';
 import { attachSavedInfoDisk } from '@willow/core/saved-info-store';
+import { attachSettingsFile } from '@willow/core/settings-file';
+import { readSettingsFile, writeSettingsFile } from './settings-file-disk';
 import {
   deleteProfileFromDisk,
   readProfileFromDisk,
@@ -116,19 +157,54 @@ interface LocalFSContextType {
   isLocalFolderConnected: boolean;
   isLocalFolderAuthorized: boolean;
   localFolderName: string | null;
+  /** Why the folder the user last picked is not the one in use, until a pick works. */
+  localFolderProblem: string | null;
   connectLocalFolder: () => Promise<boolean>;
   disconnectLocalFolder: () => Promise<void>;
   authorizeLocalFolder: () => Promise<boolean>;
   saveLocalFSProject: (projectName: string, files: FileContent[]) => Promise<boolean>;
   saveLocalFSDesignProject: (projectName: string, files: FileContent[]) => Promise<boolean>;
   loadLocalFSProject: (projectName: string) => Promise<FileContent[] | null>;
-  saveLocalFSChat: (chatId: string, messages: any[], oldChatId?: string | null) => Promise<boolean>;
+  /*
+   * Every saved conversation is one JSON file, and its files — attachments, an agent's
+   * screenshots — go in a folder of the same name beside it (`./conversation-files`).
+   * Chat finds its attachments in `messages`; `files` are for one carrying bytes inline.
+   *
+   * A saved chat becomes the open chat (`activeChatId`) when none is open, which is what
+   * Chat shows. `openInChat: false` is for chats Chat must never show: Code's inbox chats.
+   */
+  saveLocalFSChat: (chatId: string, messages: any[], oldChatId?: string | null, files?: readonly ConversationFile[], options?: { openInChat?: boolean }) => Promise<boolean>;
   saveLocalFSChatAttachment: (attachment: ChatAttachment, blob: Blob) => Promise<boolean>;
-  loadLocalFSChatAttachment: (attachmentId: string) => Promise<StoredChatAttachment | null>;
-  saveLocalFSProjectChat: (projectName: string, chatId: string, messages: any[], oldChatId?: string | null) => Promise<boolean>;
-  saveLocalFSMedia: (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob) => Promise<string | null>;
-  deleteLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string) => Promise<boolean>;
-  renameLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string) => Promise<string | null>;
+  /** Given the chat it belongs to, one missing from IndexedDB is read from the chat's folder. */
+  loadLocalFSChatAttachment: (attachmentId: string, source?: { chatId: string; attachment: ChatAttachment }) => Promise<StoredChatAttachment | null>;
+  saveLocalFSProjectChat: (projectName: string, chatId: string, messages: any[], oldChatId?: string | null, files?: readonly ConversationFile[]) => Promise<boolean>;
+  /** A conversation's folder beside its file, in a folder registered with `registerSyncedFolder`. */
+  writeLocalFSConversationFiles: (folder: string, stem: string, files: readonly ConversationFile[]) => Promise<boolean>;
+  readLocalFSConversationFile: (folder: string, stem: string, path: string) => Promise<File | null>;
+  deleteLocalFSConversationFolder: (folder: string, stem: string) => Promise<boolean>;
+  /** `Media/<project>/Agent sessions/<id>.json`, with `files` in `<id>/` beside it. */
+  saveLocalFSMediaAgentSession: (projectName: string, session: { id: string }, files?: readonly ConversationFile[]) => Promise<boolean>;
+  deleteLocalFSMediaAgentSession: (projectName: string, sessionId: string) => Promise<boolean>;
+  /**
+   * A Media scene's file, `Media/<project>/Scenes/<name>.json` (see ./scene-disk): written under
+   * the scene's current name, from `previousFsName` if it had one; the final file name, or null.
+   */
+  saveLocalFSScene: (projectName: string, previousFsName: string | undefined, sceneName: string, text: string) => Promise<string | null>;
+  deleteLocalFSScene: (projectName: string, fsName: string) => Promise<boolean>;
+  /** Every scene file of the project; null when the folder can't be read. */
+  listLocalFSScenes: (projectName: string) => Promise<SceneFileOnDisk[] | null>;
+  /** `folder` is a collection's folder for an item in one; the kind folder otherwise. */
+  saveLocalFSMedia: (projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob, folder?: string) => Promise<string | null>;
+  deleteLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string, folder?: string) => Promise<boolean>;
+  renameLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string, folder?: string) => Promise<string | null>;
+  /*
+   * Media collections on disk: one folder per collection, `Media/<project>/<collection>/`,
+   * holding the files of the items in it.
+   */
+  ensureLocalFSCollectionFolder: (projectName: string, folder: string) => Promise<boolean>;
+  moveLocalFSMediaFile: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string, fromFolder: string | undefined, toFolder: string | undefined) => Promise<string | null>;
+  renameLocalFSCollectionFolder: (projectName: string, oldFolder: string, newFolder: string) => Promise<boolean>;
+  deleteLocalFSCollectionFolder: (projectName: string, folder: string) => Promise<boolean>;
   /*
    * Notebooks on disk: `Notebooks/<name>/{Sources,Chats}`. Addressed by notebook
    * id, never by folder name — the folder name is stored on the notebook and
@@ -158,7 +234,7 @@ interface LocalFSContextType {
   loadLocalFSChat: (chatId: string) => Promise<any[] | null>;
   refreshLocalChats: () => Promise<void>;
   refreshLocalMedia: (projectId: string, projectName: string, liveItems?: any[]) => Promise<any[]>;
-  loadLocalFSMediaUrl: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string) => Promise<string | null>;
+  loadLocalFSMediaUrl: (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string, folder?: string) => Promise<string | null>;
   deleteLocalFSChat: (chatId: string) => Promise<boolean>;
   deleteLocalFSProject: (projectId: string, projectName: string) => Promise<boolean>;
   renameLocalFSChat: (oldChatId: string, newChatId: string) => Promise<boolean>;
@@ -195,6 +271,39 @@ const LocalFSContext = createContext<LocalFSContextType | null>(null);
  */
 const CHATS_DIR_NAME = 'Chats';
 
+/** Where a chat folder is from the root, for the Recycle Bin: `Chats/`, or a notebook's own. */
+const chatFolderPath = (notebookFolder: string): string[] =>
+  notebookFolder ? [NOTEBOOKS_DIR_NAME, notebookFolder, NOTEBOOK_CHATS_DIR_NAME] : [CHATS_DIR_NAME];
+
+/** How many collections deep the media reconcile reads folders inside folders. */
+const MAX_COLLECTION_DEPTH = 8;
+
+/** Where a chat attachment is kept in its chat's folder: `Attachments/<name [hash].ext>`. */
+export const chatAttachmentPath = (attachment: Pick<ChatAttachment, 'id' | 'name' | 'mimeType'>): string =>
+  `${CONVERSATION_FOLDERS.attachments}/${conversationFileName(attachment.name, attachment.id, attachment.mimeType)}`;
+
+/**
+ * The attachments a saved chat points at, once each. Only Chat's own shape — an id and
+ * a name, the bytes in `chat_attachments` — is read here; a conversation that carries
+ * its bytes inline hands its files to the save itself.
+ */
+const chatAttachmentRefs = (messages: unknown): ChatAttachment[] => {
+  if (!Array.isArray(messages)) return [];
+  const byId = new Map<string, ChatAttachment>();
+  const add = (attachment: any) => {
+    if (!attachment || typeof attachment.id !== 'string' || !attachment.id || typeof attachment.name !== 'string') return;
+    if (!byId.has(attachment.id)) byId.set(attachment.id, attachment as ChatAttachment);
+  };
+  for (const message of messages) {
+    const attachments = (message as { attachments?: unknown } | null)?.attachments;
+    if (Array.isArray(attachments)) attachments.forEach(add);
+    /* Chat's generated images, videos and tracks keep their bytes the same way an upload does. */
+    const media = (message as { media?: unknown } | null)?.media;
+    if (Array.isArray(media)) for (const item of media) { add(item?.attachment); add(item?.cover); }
+  }
+  return [...byId.values()];
+};
+
 export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any }> = ({ children, modelConfig }) => {
   const { user, userProfile, loading: isAuthLoading } = useAuth();
   const { apiKeys } = useUserDataContext();
@@ -206,6 +315,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   const [isLocalFolderConnected, setIsLocalFolderConnected] = useState(false);
   const [isLocalFolderAuthorized, setIsLocalFolderAuthorized] = useState(false);
   const [localFolderName, setLocalFolderName] = useState<string | null>(null);
+  const [localFolderProblem, setLocalFolderProblem] = useState<string | null>(null);
   // The correct storage scope depends on the authenticated user and the selected
   // root folder. Keep the first paint empty while that scope is restored so
   // a legacy/global list can never flash and then visibly reorder.
@@ -276,6 +386,16 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // by tombstoning the row and reaping the body (invariants 5 and 13).
   const notebookRenameOpsRef = useRef(0);
   const notebookRenameSettleUntilRef = useRef(0);
+  /** The scope whose notebook folders were last read for notebooks it has no row for. */
+  const notebooksAdoptedScopeRef = useRef('');
+  /** Each notebook's manifest as last written or found, by `<scope>\0<notebook id>`, with its folder. */
+  const notebookManifestsRef = useRef(new Map<string, string>());
+  /*
+   * Paths already written into each conversation's folder this session, keyed by the
+   * scope and where the conversation is, so a save that runs on every message does not
+   * probe the disk for every file it has. Dropped when the conversation moves or goes.
+   */
+  const conversationFilesKnownRef = useRef<Map<string, Set<string>>>(new Map());
 
   // Follow the rename chain (A→B→C) for a project name captured before one or
   // more renames landed. Entries expire after 60s — long enough for any
@@ -478,7 +598,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   // not yet saved to a folder) are NEVER auto-deleted. A failed/blocked scan is
   // treated as "unknown" and performs no deletions, so a transient permission or
   // IO hiccup can never wipe the registry.
-  const syncProjectsFromDisk = useCallback(async (rootDir: FileSystemDirectoryHandle): Promise<void> => {
+  const syncProjectsFromDiskOnce = useCallback(async (rootDir: FileSystemDirectoryHandle): Promise<void> => {
     type Reg = { id: string; name: string; hasCover?: boolean; isStarred?: boolean; kind?: LocalProjectKind; onDisk?: boolean };
     const scopeIdAtStart = chatScopeIdRef.current;
     const generationAtStart = providerGenerationRef.current;
@@ -495,6 +615,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         const parent = await rootDir.getDirectoryHandle(parentName);
         for await (const entry of (parent as any).values()) {
           if (entry.kind === 'directory') {
+            // A folder a feature syncs inside an area (Media/Tools) is not a project, unless a
+            // project of that name was there first. A manifest that can't be probed fails the scan.
+            if (syncedFolderAt(`${parentName}/${entry.name}`) && !(await holdsProjectManifest(entry))) continue;
             map.set(entry.name, entry as FileSystemDirectoryHandle);
           }
         }
@@ -617,7 +740,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           // Was on disk, folder is gone, and its id isn't present anywhere on disk
           // -> genuinely deleted externally. Remove it and clean its IndexedDB data.
           changed = true;
-          markProjectDeleted(p.name, scopeIdAtStart, p.id);
+          markProjectDeleted(p.name, scopeIdAtStart, p.id, Date.now());
           void deleteProjectData(p.id, scopeIdAtStart);
           // deleteProjectData only clears media + covers. Code-editor sessions
           // (and their content-addressed blobs) are keyed by project NAME —
@@ -636,6 +759,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         const id = info.id!;
         if (consumed.has(id)) continue;
         if (next.some(p => p.id === id || p.name === info.name)) continue;
+        // A project deleted here stays deleted — unless this is its folder moved back from
+        // the Recycle Bin, whose manifest is no newer than the deletion.
+        if (isProjectSaveBlocked(info.name, scopeIdAtStart)
+          && !releaseRestoredProject(info.name, await readProjectManifestTime(info.handle), scopeIdAtStart)) continue;
+        if (!scopeIsCurrent()) return;
         next.push({ id, name: info.name, kind: info.kind, onDisk: true });
         changed = true;
       }
@@ -800,6 +928,16 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
   }, []);
 
+  // Discovery passes must not overlap. Two passes over a folder that has no manifest yet each
+  // mint an id for it — one manifest write wins, but both ids get registered, and the project is
+  // listed twice. A pass that starts while another runs waits for it and then sees its manifest.
+  const projectSyncChainRef = useRef<Promise<void>>(Promise.resolve());
+  const syncProjectsFromDisk = useCallback((rootDir: FileSystemDirectoryHandle): Promise<void> => {
+    const run = projectSyncChainRef.current.catch(() => undefined).then(() => syncProjectsFromDiskOnce(rootDir));
+    projectSyncChainRef.current = run;
+    return run;
+  }, [syncProjectsFromDiskOnce]);
+
   /**
    * Which notebook's folder a chat's file belongs in — `''` for the global `Chats/`.
    *
@@ -860,6 +998,44 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     if (!(await ensureNotebookDirIn(rootDir, folderName, notebookId))) return null;
     return openNotebookChatsDir(rootDir, folderName, { create: true });
   }, []);
+
+  const knownConversationFiles = useCallback((key: string): Set<string> => {
+    const scoped = `${chatScopeIdRef.current}|${key}`;
+    let known = conversationFilesKnownRef.current.get(scoped);
+    if (!known) {
+      known = new Set();
+      conversationFilesKnownRef.current.set(scoped, known);
+    }
+    return known;
+  }, []);
+
+  const forgetConversationFiles = useCallback((key: string): void => {
+    conversationFilesKnownRef.current.delete(`${chatScopeIdRef.current}|${key}`);
+  }, []);
+
+  /**
+   * Puts the attachments a chat points at into its folder beside its file, from the
+   * browser's copy. One not in IndexedDB yet (its write races the chat's first save)
+   * is left for the next save.
+   */
+  const mirrorChatAttachments = useCallback(async (
+    dir: FileSystemDirectoryHandle,
+    notebookId: string,
+    chatId: string,
+    messages: unknown,
+    extraFiles: readonly ConversationFile[] = [],
+  ): Promise<void> => {
+    const scope = chatStorageScopeRef.current;
+    const files: ConversationFile[] = [
+      ...chatAttachmentRefs(messages).map((attachment) => ({
+        path: chatAttachmentPath(attachment),
+        read: async () => (await loadChatAttachment(attachment.id, scope).catch(() => null))?.blob ?? null,
+      })),
+      ...extraFiles,
+    ];
+    if (files.length === 0) return;
+    await writeConversationFiles(dir, chatId, files, knownConversationFiles(`chat:${notebookId}:${chatId}`));
+  }, [knownConversationFiles]);
 
   /**
    * One chat file, as found on disk.
@@ -964,17 +1140,40 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     };
 
     // Durable tombstones win over a still-present disk file. A failed removal
-    // is retried on every reconcile and can never resurrect the chat.
+    // is retried on every reconcile and can never resurrect the chat — but a file
+    // moved back from the Recycle Bin after its removal is no newer than it, and
+    // is the user's: the chat is read again from disk, at a revision any other
+    // tab's copy of the tombstone gives way to.
     for (const [chatId, record] of Object.entries(chatSyncRecordsRef.current)) {
       if (!record.tombstone) continue;
       const disk = diskFiles.get(chatId);
+      if (disk && record.removedAt && disk.mtime <= record.removedAt) {
+        chatSyncRecordsRef.current[chatId] = {
+          ...record,
+          revision: nextChatRevision(chatId),
+          diskMtime: 0,
+          dirty: false,
+          tombstone: false,
+          removedAt: undefined,
+          updatedAt: Date.now(),
+          notebookId: disk.notebookId,
+          locationDirty: false,
+        };
+        continue;
+      }
       if (disk) {
         try {
           // From whichever folder it turned up in, not from where the record
-          // expected it: a deleted chat the user had moved is still deleted.
-          await disk.dir.removeEntry(`${chatId}.json`);
+          // expected it: a deleted chat the user had moved is still deleted. Its
+          // folder goes first, so a failure leaves the file that brings this back.
+          const bin = { root: rootDir, path: chatFolderPath(disk.notebookId ? notebookIndex.folderByNotebookId[disk.notebookId] || '' : '') };
+          await deleteConversationFolder(disk.dir, chatId, bin);
+          await moveToRecycleBin(bin, disk.dir, `${chatId}.json`);
           diskFiles.delete(chatId);
+          chatSyncRecordsRef.current[chatId] = { ...record, removedAt: Date.now() };
         } catch {}
+      } else if (!record.removedAt) {
+        chatSyncRecordsRef.current[chatId] = { ...record, removedAt: Date.now() };
       }
       try { await deleteChatBody(chatId, chatStorageScopeRef.current); } catch {}
       localChatsRef.current = localChatsRef.current.filter((id) => id !== chatId);
@@ -1020,6 +1219,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
             const targetDir = await resolveChatDir(rootDir, wantedNotebookId, { create: true });
             const moved = !!targetDir && await moveFileBetweenDirs(disk.dir, targetDir, `${chatId}.json`);
             if (moved && targetDir) {
+              if (await moveConversationFolder(disk.dir, chatId, targetDir, chatId)) {
+                forgetConversationFiles(`chat:${disk.notebookId}:${chatId}`);
+              }
               activeDir = targetDir;
               activeNotebookId = wantedNotebookId;
               /*
@@ -1330,6 +1532,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
           // cross-tab merge, and where the chat belonged is still true.
           notebookId: record?.notebookId || '',
           locationDirty: false,
+          removedAt: Date.now(),
         };
         localChatsRef.current = localChatsRef.current.filter((id) => id !== chatId);
         delete chatTimestampsRef.current[chatId];
@@ -1340,7 +1543,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
 
     persistChatMetadata();
-  }, [enqueueChatOperation, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir, forgetConversationFiles]);
 
   // All startup, watcher, focus, and manual refreshes enter one reconciliation
   // loop. Requests arriving during a long scan are queued for another pass
@@ -1401,8 +1604,22 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       setIsLocalFolderAuthorized(false);
       const stored = await getStoredDirectoryRecord();
       if (!isCurrent()) return;
-      const handle = stored?.handle || null;
-      const nextRootId = stored?.rootId || 'browser';
+      let handle = stored?.handle || null;
+      let nextRootId = stored?.rootId || 'browser';
+      /*
+       * In the desktop app saving is always on: on every start the app hands over its Willow
+       * folder, already able to read and write. It stands in for the stored handle when the two
+       * are the same folder; a folder picked some other way stays the one in use.
+       */
+      if (isDesktopApp()) {
+        const appFolder = await openDesktopLocalFolder({ create: !handle });
+        if (!isCurrent()) return;
+        if (appFolder && (!handle || await handlesReferToSameEntry(handle, appFolder))) {
+          nextRootId = await storeDirectoryHandle(appFolder);
+          if (!isCurrent()) return;
+          handle = appFolder;
+        }
+      }
 
       // Only drop the visible chat registry when this restore is actually
       // moving to a different scope. This effect re-runs whenever
@@ -1464,6 +1681,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
             // Recover & re-tag projects from disk (self-healing registry).
             await syncProjectsFromDisk(handle);
+            // The desktop app is never without its folder again, so any chat left from a time it was joins it.
+            if (isDesktopApp() && isCurrent()) await adoptBrowserScopeChatsRef.current();
           } else {
             setIsLocalFolderAuthorized(false);
           }
@@ -1556,11 +1775,37 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
 
     try {
+      /*
+       * The desktop app's folder is picked with the system's picker and handed over by the
+       * app, which keeps it and hands it over again on every start. A cancelled pick leaves
+       * the folder in use as it was.
+       */
+      let handle: FileSystemDirectoryHandle | null;
+      if (isDesktopApp()) {
+        const path = await pickDirectory('Choose where Willow saves');
+        if (!path) return false;
+        // Some folders (AppData, Program Files and the like) are kept out of a page's reach:
+        // one of those opens but takes nothing written to it.
+        const picked = await openDesktopLocalFolder({ path });
+        let writable = false;
+        try {
+          await picked?.getDirectoryHandle(CHATS_DIR_NAME, { create: true });
+          writable = !!picked;
+        } catch { /* not writable */ }
+        handle = writable ? await openDesktopLocalFolder({ path, keep: true }) : null;
+        if (!handle) {
+          setLocalFolderProblem(`Willow can't save in ${path}, so it still saves where it did. Choose a folder in your own files, like Documents.`);
+          return false;
+        }
+        setLocalFolderProblem(null);
+      } else {
+        handle = await (window as any).showDirectoryPicker({
+          mode: 'readwrite'
+        });
+      }
+      if (!handle) return false;
       setIsInitializingLocalFS(true);
       setIsLocalFolderAuthorized(false);
-      const handle = await (window as any).showDirectoryPicker({
-        mode: 'readwrite'
-      });
 
       // Verify write access
       const hasPermission = await verifyPermission(handle, true);
@@ -1607,6 +1852,8 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * Disconnect local folder and clean up IndexedDB
    */
   const disconnectLocalFolder = useCallback(async (): Promise<void> => {
+    // In the desktop app saving is always on.
+    if (isDesktopApp()) return;
     try {
       // Invalidate in-flight reconciliation/writes before clearing the active
       // handle. The catalog in IndexedDB is intentionally retained so a later
@@ -1712,6 +1959,36 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     getActiveHandle,
   ]);
 
+  /*
+   * `settings.json` at the top of the folder: the settings and keys every part of Willow keeps in
+   * this browser, in a file a new copy of Willow on the same folder starts from (see
+   * `@willow/core/settings-file`). Re-attached when the scope changes, since that is a new folder or
+   * account, and what this browser last synced is remembered per folder.
+   */
+  useEffect(() => {
+    if (isAuthLoading) return;
+    // `browser` is the scope of no folder; the folder's own id arrives with its scope.
+    if (!isLocalFolderConnected || !isLocalFolderAuthorized || rootIdRef.current === 'browser') {
+      void attachSettingsFile(null);
+      return;
+    }
+    const deps = { getActiveHandle };
+    void attachSettingsFile({
+      id: rootIdRef.current,
+      read: () => readSettingsFile(deps),
+      write: (text) => writeSettingsFile(deps, text),
+    });
+    return () => {
+      void attachSettingsFile(null);
+    };
+  }, [
+    isAuthLoading,
+    isLocalFolderConnected,
+    isLocalFolderAuthorized,
+    getActiveHandle,
+    chatScopeId,
+  ]);
+
   // Disk write lives in ./code-disk; this wrapper keeps the context value
   // identity and dependency array exactly as they were.
   const saveLocalFSProjectInner = useCallback((projectName: string, files: FileContent[]): Promise<boolean> => (
@@ -1809,9 +2086,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
   }, [getActiveHandle, resolveCurrentProjectName]);
 
   /**
-   * Save general chat history locally
+   * Save general chat history locally.
+   *
+   * `files` are for a conversation that carries its bytes inline (a Code chat before
+   * its project exists); Chat's own attachments are found in `messages` and written
+   * from IndexedDB.
    */
-  const saveLocalFSChat = useCallback(async (chatId: string, messages: any[], oldChatId?: string | null): Promise<boolean> => {
+  const saveLocalFSChat = useCallback(async (chatId: string, messages: any[], oldChatId?: string | null, files?: readonly ConversationFile[], options?: { openInChat?: boolean }): Promise<boolean> => {
     chatId = chatId.replace(/[\/:*?"<>|]/g, '').trim();
     if (!chatId || !Array.isArray(messages)) return false;
     const previousId = oldChatId && oldChatId !== chatId ? oldChatId : null;
@@ -1929,7 +2210,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         }));
       }
 
-      setActiveChatId((current) => current === null || current === previousId ? chatId : current);
+      if (options?.openInChat !== false) {
+        setActiveChatId((current) => current === null || current === previousId ? chatId : current);
+      }
       if (!targetDir) return true;
 
       try {
@@ -1952,19 +2235,205 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       } catch {
         // IndexedDB succeeded; the durable dirty revision is retried later.
       }
+      // The chat's folder follows its file — a temp id's becomes the title's — and
+      // anything it points at that is not beside it yet is written now.
+      try {
+        if (previousId && previousDir && await moveConversationFolder(previousDir, previousId, targetDir, chatId)) {
+          forgetConversationFiles(`chat:${previousRecord ? previousRecord.notebookId : notebookId}:${previousId}`);
+        }
+        await mirrorChatAttachments(targetDir, notebookId, chatId, messages, files);
+      } catch {}
       return true;
     });
-  }, [enqueueChatOperation, getActiveHandle, nextChatRevision, persistChatMetadata, updateScopedChatTimestamp, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, getActiveHandle, nextChatRevision, persistChatMetadata, updateScopedChatTimestamp, chatNotebookId, resolveChatDir, forgetConversationFiles, mirrorChatAttachments]);
 
-  // Disk write lives in ./code-disk (see saveLocalFSProjectInner).
-  const saveLocalFSProjectChat = useCallback((projectName: string, chatId: string, messages: any[], oldChatId?: string | null): Promise<boolean> => (
-    saveProjectChatToDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, chatId, messages, oldChatId)
-  ), [getActiveHandle]);
+  /*
+   * Chats sent while the desktop app had no folder, kept in the `browser` scope, join the folder
+   * it now always has, so turning saving on hides none of them. Each joins once: it leaves the
+   * browser scope's list as it does. One whose name the folder already has gets a number; the
+   * bodies stay in the browser scope as well.
+   */
+  const adoptBrowserScopeChats = useCallback(async (): Promise<void> => {
+    const from: ChatStorageScope = { userId: chatStorageScopeRef.current.userId, rootId: 'browser' };
+    const keys = chatMetadataKeysForScope(buildChatScopeId('browser'));
+    const chats = validateChatList(readJSON(keys.chats, []));
+    const records = validateSyncRecords(readJSON(keys.sync, {}));
+    const timestamps = validateTimestampMap(readJSON(keys.timestamps, {}));
+    const joined = new Set<string>();
+    for (const chatId of chats) {
+      if (records[chatId]?.tombstone) continue;
+      const messages = await loadChatBody(chatId, from).catch(() => null);
+      if (!Array.isArray(messages) || messages.length === 0) continue;
+      let name = chatId;
+      for (let copy = 2; localChatsRef.current.includes(name); copy++) name = `${chatId} (${copy})`;
+      if (!(await saveLocalFSChat(name, messages, null, undefined, { openInChat: false }))) continue;
+      if (timestamps[chatId]) updateScopedChatTimestamp(name, timestamps[chatId]);
+      joined.add(chatId);
+    }
+    if (joined.size === 0) return;
+    persistChatMetadata();
+    localStorage.setItem(keys.chats, JSON.stringify(chats.filter((chatId) => !joined.has(chatId))));
+  }, [buildChatScopeId, saveLocalFSChat, updateScopedChatTimestamp, persistChatMetadata]);
+  const adoptBrowserScopeChatsRef = useRef(adoptBrowserScopeChats);
+  adoptBrowserScopeChatsRef.current = adoptBrowserScopeChats;
+
+  /*
+   * Collection folder writes join the project's save queue (the same one media saves use), so
+   * the media reconcile — which serves IndexedDB while a project has queued writes — never scans
+   * a folder halfway through a move or rename and adopts the half-moved copy as a collection.
+   * A conversation's files inside a project folder (Code's chat sessions, Media's agent chats)
+   * take it too: a rename moves the folder by copy-then-delete, and a write landing in the
+   * middle is lost, or brings the old folder back as a project of its own.
+   */
+  const runInProjectQueue = useCallback(<T,>(projectName: string, fallback: T, op: (queueKey: string) => Promise<T>): Promise<T> => {
+    const scopeId = chatScopeIdRef.current;
+    const queueKey = resolveCurrentProjectName(projectName);
+    const predecessor = projectSaveQueuesRef.current.get(queueKey) ?? Promise.resolve();
+    const run: Promise<T> = predecessor
+      .catch(() => undefined)
+      .then(async () => {
+        if (chatScopeIdRef.current !== scopeId) return fallback;
+        const locks = (navigator as any).locks;
+        if (!locks?.request) return op(queueKey);
+        return locks.request(`willow-project:${scopeId}:${queueKey}`, () => (
+          chatScopeIdRef.current !== scopeId ? fallback : op(queueKey)
+        ));
+      });
+    const settled = run.then(() => undefined, () => undefined);
+    projectSaveQueuesRef.current.set(queueKey, settled);
+    void settled.finally(() => {
+      if (projectSaveQueuesRef.current.get(queueKey) === settled) {
+        projectSaveQueuesRef.current.delete(queueKey);
+        window.setTimeout(() => window.dispatchEvent(new Event('willow_disk_changed')), 350);
+      }
+    });
+    return run;
+  }, [resolveCurrentProjectName]);
+
+  // Disk write lives in ./code-disk (see saveLocalFSProjectInner). The chat's own
+  // files go beside it in `Chat sessions/<chat>/`, through the project's queue.
+  const saveLocalFSProjectChat = useCallback(async (projectName: string, chatId: string, messages: any[], oldChatId?: string | null, files?: readonly ConversationFile[]): Promise<boolean> => {
+    const saved = await saveProjectChatToDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, chatId, messages, oldChatId);
+    const previousId = oldChatId && oldChatId !== chatId ? oldChatId : null;
+    if (!saved || (!files?.length && !previousId)) return saved;
+    await runInProjectQueue<void>(projectName, undefined, async (queueKey) => {
+      // A rename queued ahead of this one may have landed since it was queued.
+      const targetName = resolveCurrentProjectName(queueKey);
+      const rootHandle = await getActiveHandle();
+      if (!rootHandle) return;
+      try {
+        const codeDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('code'));
+        const sessionsDir = await (await codeDir.getDirectoryHandle(targetName)).getDirectoryHandle('Chat sessions');
+        if (previousId && await moveConversationFolder(sessionsDir, previousId, sessionsDir, chatId)) {
+          forgetConversationFiles(`code:${targetName}:${previousId}`);
+        }
+        if (files?.length) await writeConversationFiles(sessionsDir, chatId, files, knownConversationFiles(`code:${targetName}:${chatId}`));
+      } catch {}
+    });
+    return saved;
+  }, [getActiveHandle, resolveCurrentProjectName, runInProjectQueue, knownConversationFiles, forgetConversationFiles]);
+
+  /*
+   * A conversation's files beside it in a folder a feature registered with
+   * `registerSyncedFolder` — Spark's `Spark/Tasks/<task>.json` keeps them in
+   * `Spark/Tasks/<task>/`. Only a registered folder: Chats, notebooks and the project
+   * areas have rules of their own about who writes where, and their own calls above.
+   */
+  const syncedConversationDir = useCallback(async (folder: string, create: boolean): Promise<FileSystemDirectoryHandle | null> => {
+    const registered = getSyncedFolders().some((descriptor) => descriptor.folder.toLowerCase() === folder.toLowerCase());
+    if (!registered) return null;
+    const rootHandle = await getActiveHandle();
+    if (!rootHandle) return null;
+    try {
+      let dir = rootHandle;
+      for (const segment of folder.split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(segment, { create });
+      return dir;
+    } catch {
+      return null;
+    }
+  }, [getActiveHandle]);
+
+  const writeLocalFSConversationFiles = useCallback(async (folder: string, stem: string, files: readonly ConversationFile[]): Promise<boolean> => {
+    const dir = await syncedConversationDir(folder, true);
+    if (!dir) return false;
+    return writeConversationFiles(dir, stem, files, knownConversationFiles(`synced:${folder}:${stem}`));
+  }, [syncedConversationDir, knownConversationFiles]);
+
+  const readLocalFSConversationFile = useCallback(async (folder: string, stem: string, path: string): Promise<File | null> => {
+    const dir = await syncedConversationDir(folder, false);
+    return dir ? readConversationFile(dir, stem, path) : null;
+  }, [syncedConversationDir]);
+
+  const deleteLocalFSConversationFolder = useCallback(async (folder: string, stem: string): Promise<boolean> => {
+    forgetConversationFiles(`synced:${folder}:${stem}`);
+    const dir = await syncedConversationDir(folder, false);
+    const root = dir ? await getActiveHandle() : null;
+    return dir ? deleteConversationFolder(dir, stem, root ? { root, path: folder.split('/') } : undefined) : true;
+  }, [syncedConversationDir, forgetConversationFiles, getActiveHandle]);
+
+  /**
+   * A Media agent chat on disk: `Media/<project>/Agent sessions/<id>.json`, its files
+   * in `<id>/` beside it. Written through the project's queue like its media, and the
+   * folder name is reserved, so the media reconcile never adopts it as a collection.
+   */
+  const saveLocalFSMediaAgentSession = useCallback((projectName: string, session: { id: string }, files: readonly ConversationFile[] = []): Promise<boolean> => (
+    runInProjectQueue(projectName, false, async (queueKey) => {
+      const targetName = resolveCurrentProjectName(queueKey);
+      const stem = safeFileStem(session?.id || '', '');
+      const rootHandle = await getActiveHandle();
+      if (!rootHandle || !stem) return false;
+      try {
+        const mediaDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('media'), { create: true });
+        const projectDir = await mediaDir.getDirectoryHandle(targetName, { create: true });
+        await ensureProjectManifest(projectDir, targetName);
+        const sessionsDir = await projectDir.getDirectoryHandle(MEDIA_AGENT_SESSIONS_FOLDER, { create: true });
+        await writeConversationFiles(sessionsDir, stem, files, knownConversationFiles(`media-agent:${targetName}:${stem}`));
+        await writeFileRecursively(sessionsDir, `${stem}.json`, new Blob([JSON.stringify(session, null, 2)], { type: 'application/json' }));
+        return true;
+      } catch {
+        return false;
+      }
+    })
+  ), [runInProjectQueue, resolveCurrentProjectName, getActiveHandle, ensureProjectManifest, knownConversationFiles]);
+
+  const deleteLocalFSMediaAgentSession = useCallback((projectName: string, sessionId: string): Promise<boolean> => (
+    runInProjectQueue(projectName, false, async (queueKey) => {
+      const targetName = resolveCurrentProjectName(queueKey);
+      const stem = safeFileStem(sessionId || '', '');
+      forgetConversationFiles(`media-agent:${targetName}:${stem}`);
+      const rootHandle = await getActiveHandle();
+      if (!rootHandle || !stem) return true;
+      try {
+        const mediaDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('media'));
+        const sessionsDir = await (await mediaDir.getDirectoryHandle(targetName)).getDirectoryHandle(MEDIA_AGENT_SESSIONS_FOLDER);
+        const bin = { root: rootHandle, path: [getProjectAreaFolder('media'), targetName, MEDIA_AGENT_SESSIONS_FOLDER] };
+        if (!(await deleteConversationFolder(sessionsDir, stem, bin))) return false;
+        await moveToRecycleBin(bin, sessionsDir, `${stem}.json`);
+        return true;
+      } catch (error: any) {
+        return error?.name === 'NotFoundError';
+      }
+    })
+  ), [runInProjectQueue, resolveCurrentProjectName, getActiveHandle, forgetConversationFiles]);
+
+  // Scene files go through the project's queue like its media: a rename moves the folder by
+  // copy-then-delete, and a write landing in the middle would be lost.
+  const saveLocalFSScene = useCallback((projectName: string, previousFsName: string | undefined, sceneName: string, text: string): Promise<string | null> => (
+    runInProjectQueue<string | null>(projectName, null, (key) => writeSceneFileToDisk({ getActiveHandle, resolveCurrentProjectName }, key, previousFsName, sceneName, text))
+  ), [getActiveHandle, resolveCurrentProjectName, runInProjectQueue]);
+
+  const deleteLocalFSScene = useCallback((projectName: string, fsName: string): Promise<boolean> => (
+    runInProjectQueue(projectName, false, (key) => deleteSceneFileFromDisk({ getActiveHandle, resolveCurrentProjectName }, key, fsName))
+  ), [getActiveHandle, resolveCurrentProjectName, runInProjectQueue]);
+
+  const listLocalFSScenes = useCallback((projectName: string): Promise<SceneFileOnDisk[] | null> => (
+    readSceneFilesFromDisk({ getActiveHandle, resolveCurrentProjectName }, projectName)
+  ), [getActiveHandle, resolveCurrentProjectName]);
 
   // Disk write lives in ./media-disk; this wrapper keeps the context value
   // identity and dependency array exactly as they were.
-  const saveLocalFSMediaInner = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => (
-    saveMediaFileToDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, kind, fileName, blob)
+  const saveLocalFSMediaInner = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob, folder?: string): Promise<string | null> => (
+    saveMediaFileToDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, kind, fileName, blob, folder)
   ), [getActiveHandle]);
 
   /**
@@ -1975,7 +2444,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
    * unavailable. This is the disk-as-source read path: heavy bytes live on disk,
    * not in IndexedDB, and are streamed via blob URLs.
    */
-  const loadLocalFSMediaUrl = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string): Promise<string | null> => {
+  const loadLocalFSMediaUrl = useCallback(async (projectName: string, kind: 'image' | 'video' | 'audio', fsName: string, folder?: string): Promise<string | null> => {
     if (!projectName || !fsName) return null;
     const handle = directoryHandleRef.current;
     if (!handle) return null;
@@ -1988,7 +2457,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const targetName = resolveCurrentProjectName(projectName);
       const mediaDir = await handle.getDirectoryHandle(getProjectAreaFolder('media'));
       const projectDir = await mediaDir.getDirectoryHandle(targetName);
-      const subDir = await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio');
+      const subDir = folder ? await dirAtPath(projectDir, folder) : await projectDir.getDirectoryHandle(kind === 'image' ? 'Images' : kind === 'video' ? 'Videos' : 'Audio');
       const fileHandle = await subDir.getFileHandle(fsName);
       const file = await fileHandle.getFile();
       return URL.createObjectURL(file);
@@ -1997,13 +2466,29 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
   }, [resolveCurrentProjectName]);
 
-  const deleteLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fsName: string): Promise<boolean> => (
-    deleteMediaFileFromDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, kind, fsName)
+  const deleteLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fsName: string, folder?: string): Promise<boolean> => (
+    deleteMediaFileFromDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, kind, fsName, folder)
   ), [getActiveHandle]);
 
-  const renameLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string): Promise<string | null> => (
-    renameMediaFileOnDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, kind, oldFsName, newBaseName)
+  const renameLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', oldFsName: string, newBaseName: string, folder?: string): Promise<string | null> => (
+    renameMediaFileOnDisk({ getActiveHandle, resolveCurrentProjectName }, projectName, kind, oldFsName, newBaseName, folder)
   ), [getActiveHandle, resolveCurrentProjectName]);
+
+  const ensureLocalFSCollectionFolder = useCallback((projectName: string, folder: string): Promise<boolean> => (
+    runInProjectQueue(projectName, false, (key) => ensureCollectionFolderOnDisk({ getActiveHandle, resolveCurrentProjectName }, key, folder))
+  ), [getActiveHandle, resolveCurrentProjectName, runInProjectQueue]);
+
+  const moveLocalFSMediaFile = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fsName: string, fromFolder: string | undefined, toFolder: string | undefined): Promise<string | null> => (
+    runInProjectQueue<string | null>(projectName, null, (key) => moveMediaFileOnDisk({ getActiveHandle, resolveCurrentProjectName }, key, kind, fsName, fromFolder, toFolder))
+  ), [getActiveHandle, resolveCurrentProjectName, runInProjectQueue]);
+
+  const renameLocalFSCollectionFolder = useCallback((projectName: string, oldFolder: string, newFolder: string): Promise<boolean> => (
+    runInProjectQueue(projectName, false, (key) => renameCollectionFolderOnDisk({ getActiveHandle, resolveCurrentProjectName }, key, oldFolder, newFolder))
+  ), [getActiveHandle, resolveCurrentProjectName, runInProjectQueue]);
+
+  const deleteLocalFSCollectionFolder = useCallback((projectName: string, folder: string): Promise<boolean> => (
+    runInProjectQueue(projectName, false, (key) => deleteCollectionFolderOnDisk({ getActiveHandle, resolveCurrentProjectName }, key, folder))
+  ), [getActiveHandle, resolveCurrentProjectName, runInProjectQueue]);
 
   /*
    * ── Notebooks on disk ────────────────────────────────────────────────────────
@@ -2149,6 +2634,32 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
      */
     if (notebookRenameOpsRef.current > 0 || Date.now() < notebookRenameSettleUntilRef.current) return;
 
+    // ── 0. Notebooks this copy has no row for ──────────────────────────────────
+    /*
+     * A copy of Willow that starts without the registry (a reinstall, a fresh profile, the web
+     * version on the same folder) rebuilds a row for each folder whose manifest names a notebook it
+     * does not know, so the notebook is listed and the reconciler scans its `Chats/` again. Once
+     * per scope: a folder added by hand later is found on the next start. A deleted notebook's
+     * folder is in the Recycle Bin, so this cannot bring one back.
+     */
+    const scope = chatScopeIdRef.current;
+    if (notebooksAdoptedScopeRef.current !== scope) {
+      const manifests = await readNotebookManifests(rootDir);
+      if (manifests && chatScopeIdRef.current === scope) {
+        notebooksAdoptedScopeRef.current = scope;
+        const known = readNotebooks();
+        const ids = new Set(known.map((notebook) => notebook.id));
+        const folders = new Set(known.flatMap((notebook) => (notebook.fsFolder ? [notebook.fsFolder.toLowerCase()] : [])));
+        const rebuilt = manifests.flatMap(({ folderName, manifest }) => {
+          if (ids.has(manifest.id) || folders.has(folderName.toLowerCase())) return [];
+          ids.add(manifest.id);
+          const notebook = notebookFromManifest(manifest, folderName);
+          return notebook ? [notebook] : [];
+        });
+        if (rebuilt.length > 0) writeNotebooks(sortNotebooks([...known, ...rebuilt]));
+      }
+    }
+
     const notebooks = readNotebooks();
 
     // ── 1. Folders ─────────────────────────────────────────────────────────────
@@ -2226,6 +2737,24 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         persistChatMetadata();
       });
     }
+
+    // ── 4. Manifests ───────────────────────────────────────────────────────────
+    /*
+     * The notebook's details beside its id in `.willow.json` (`notebookManifest`), which step 0
+     * rebuilds a row from. Change-only like the rest: what was last written or found is kept per
+     * notebook, so a notebook nobody touched costs a string comparison per poll, and its file is
+     * read once a session.
+     */
+    for (const notebook of readNotebooks()) {
+      if (!notebook.fsFolder) continue;
+      const text = `${JSON.stringify(notebookManifest(notebook), null, 2)}\n`;
+      const key = `${scope}\0${notebook.id}`;
+      const settled = `${notebook.fsFolder}\0${text}`;
+      if (notebookManifestsRef.current.get(key) === settled) continue;
+      if (await writeNotebookManifest(rootDir, notebook.fsFolder, notebook.id, text)) {
+        notebookManifestsRef.current.set(key, settled);
+      }
+    }
   }, [enqueueChatOperation, persistChatMetadata, saveLocalFSNotebookSource]);
 
   /**
@@ -2290,6 +2819,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
             // next poll reads the move as an external edit and reloads the body
             // on every tick (invariant 7).
             try { movedMtime = (await (await toDir.getFileHandle(`${chatId}.json`)).getFile()).lastModified; } catch {}
+            // Its files go with it. A folder left behind is still found by
+            // `loadLocalFSChatAttachment`, which looks in every chat folder.
+            if (await moveConversationFolder(fromDir, chatId, toDir, chatId)) {
+              forgetConversationFiles(`chat:${from}:${chatId}`);
+            }
           }
         }
       } catch {}
@@ -2311,7 +2845,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
       return true;
     }) ?? false;
-  }, [enqueueChatOperation, getActiveHandle, persistChatMetadata, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, getActiveHandle, persistChatMetadata, chatNotebookId, resolveChatDir, forgetConversationFiles]);
 
   /**
    * Rename a project folder on disk so it stays in lock-step with a UI rename
@@ -2401,12 +2935,20 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     };
 
     projectRenameOpsRef.current++;
+    // Its chats' files move with the folder; what was written where is re-learned.
+    conversationFilesKnownRef.current.clear();
     try {
       const sourceParents: FileSystemDirectoryHandle[] = [];
       for (const parentName of getProjectAreas().map((area) => area.folder)) {
         try {
           const parent = await rootHandle.getDirectoryHandle(parentName);
           const source = await parent.getDirectoryHandle(oldName);
+          // A feature's synced folder (Media/Tools) is no part of this project, unless the project
+          // was there first; then moving it would carry the feature's files away with it.
+          if (syncedFolderAt(`${parentName}/${oldName}`)) {
+            if (await holdsProjectManifest(source)) return false;
+            continue;
+          }
           sourceParents.push(parent);
           try {
             const destination = await parent.getDirectoryHandle(newName);
@@ -2468,7 +3010,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
   }, [getActiveHandle]);
 
-  const saveLocalFSMedia = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob): Promise<string | null> => {
+  const saveLocalFSMedia = useCallback((projectName: string, kind: 'image' | 'video' | 'audio', fileName: string, blob: Blob, folder?: string): Promise<string | null> => {
     const scopeId = chatScopeIdRef.current;
     const queueKey = resolveCurrentProjectName(projectName);
     const predecessor = projectSaveQueuesRef.current.get(queueKey) ?? Promise.resolve();
@@ -2477,10 +3019,10 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       .then(async () => {
         if (chatScopeIdRef.current !== scopeId) return null;
         const locks = (navigator as any).locks;
-        if (!locks?.request) return saveLocalFSMediaInner(queueKey, kind, fileName, blob);
+        if (!locks?.request) return saveLocalFSMediaInner(queueKey, kind, fileName, blob, folder);
         return locks.request(`willow-project:${scopeId}:${queueKey}`, () => {
           if (chatScopeIdRef.current !== scopeId) return null;
-          return saveLocalFSMediaInner(queueKey, kind, fileName, blob);
+          return saveLocalFSMediaInner(queueKey, kind, fileName, blob, folder);
         });
       });
     const settled = run.then(() => undefined, () => undefined);
@@ -2700,16 +3242,89 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
     }
   }, []);
 
+  /**
+   * An attachment's bytes from the chat's folder on disk. Where the chat's file is
+   * first, then every other chat folder: a file moved by hand may have left its
+   * folder behind, and a move that was interrupted leaves the files in the old one.
+   */
+  const readChatAttachmentFromDisk = useCallback(async (chatId: string, attachment: ChatAttachment): Promise<Blob | null> => {
+    const rootHandle = await getActiveHandle();
+    if (!rootHandle) return null;
+    const path = chatAttachmentPath(attachment);
+    const home = chatNotebookId(chatId);
+    const notebookIds = [home, ...['', ...Object.keys(readNotebookChatIndex().folderByNotebookId)].filter((id) => id !== home)];
+    for (const notebookId of notebookIds) {
+      const dir = await resolveChatDir(rootHandle, notebookId, { create: false });
+      const file = dir ? await readConversationFile(dir, chatId, path) : null;
+      if (file) return file;
+    }
+    return null;
+  }, [getActiveHandle, chatNotebookId, resolveChatDir]);
+
+  /**
+   * IndexedDB first. Given the chat it belongs to, an attachment missing there is read
+   * from the chat's folder on disk — after a browser's data is cleared, or in another
+   * browser on the same folder — and kept in IndexedDB again.
+   */
   const loadLocalFSChatAttachment = useCallback(async (
     attachmentId: string,
+    source?: { chatId: string; attachment: ChatAttachment },
   ): Promise<StoredChatAttachment | null> => {
+    let stored: StoredChatAttachment | null = null;
     try {
-      return await loadChatAttachment(attachmentId, chatStorageScopeRef.current);
+      stored = await loadChatAttachment(attachmentId, chatStorageScopeRef.current);
     } catch (error) {
       console.error('Unable to load local chat attachment', error);
-      return null;
     }
-  }, []);
+    if (stored || !source?.chatId) return stored;
+    const blob = await readChatAttachmentFromDisk(source.chatId, source.attachment).catch(() => null);
+    if (!blob) return null;
+    const attachment = toPersistedChatAttachment(source.attachment);
+    try { await saveChatAttachment(attachment, blob, chatStorageScopeRef.current); } catch {}
+    return { attachment, blob, savedAt: Date.now() };
+  }, [readChatAttachmentFromDisk]);
+
+  /*
+   * Chats saved before their attachments were kept beside them get theirs written once,
+   * in the background: each chat's body from IndexedDB, one at a time, inside the chat's
+   * queue so no rename or move interleaves. Done once per scope — a pass cut short starts
+   * over and finds what it already wrote — and new attachments are written as they are
+   * saved, so it never needs to run again.
+   */
+  useEffect(() => {
+    if (!isLocalFolderConnected || !isLocalFolderAuthorized || isInitializingLocalFS) return undefined;
+    const scopeId = chatScopeIdRef.current;
+    const marker = `willow_conversation_files_backfill:v1:${scopeId}`;
+    try {
+      if (localStorage.getItem(marker)) return undefined;
+    } catch {
+      return undefined;
+    }
+    let cancelled = false;
+    void (async () => {
+      const rootHandle = await getActiveHandle();
+      if (!rootHandle) return;
+      for (const chatId of [...localChatsRef.current]) {
+        if (cancelled || chatScopeIdRef.current !== scopeId) return;
+        await enqueueChatOperation([chatId], async () => {
+          if (chatSyncRecordsRef.current[chatId]?.tombstone) return;
+          const body = await loadChatBody(chatId, chatStorageScopeRef.current).catch(() => null);
+          if (!body || chatAttachmentRefs(body).length === 0) return;
+          const notebookId = chatNotebookId(chatId);
+          const dir = await resolveChatDir(rootHandle, notebookId, { create: false });
+          if (dir) await mirrorChatAttachments(dir, notebookId, chatId, body);
+        });
+        // One chat per task, so the pass never holds the main thread.
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      }
+      if (!cancelled && chatScopeIdRef.current === scopeId) {
+        try { localStorage.setItem(marker, String(Date.now())); } catch {}
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLocalFolderConnected, isLocalFolderAuthorized, isInitializingLocalFS, chatScopeId, getActiveHandle, enqueueChatOperation, chatNotebookId, resolveChatDir, mirrorChatAttachments]);
 
   /**
    * Scan Chats folder and refresh lists
@@ -2805,69 +3420,181 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       const onDisk: any[] = [];
       const consumedDbIds = new Set<string>();
 
-      const scanFolder = async (folderName: string, kind: 'image' | 'video' | 'audio') => {
+      type DiskFile = { entry: any; fsName: string; kind: 'image' | 'video' | 'audio'; collectionId?: string };
+      const files: DiskFile[] = [];
+      const kindOfFile = (name: string): DiskFile['kind'] | null => {
+        const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+        if (/^(png|jpe?g|webp|gif|avif|bmp)$/.test(ext)) return 'image';
+        if (/^(mp4|webm|mov|m4v|mkv)$/.test(ext)) return 'video';
+        if (/^(mp3|wav|m4a|aac|ogg|oga|flac|opus)$/.test(ext)) return 'audio';
+        return null;
+      };
+      // `kind` is the kind folder's; a collection folder holds every kind, told apart by extension.
+      const listFolder = async (folderName: string, kind: DiskFile['kind'] | null, collectionId?: string) => {
         try {
-          const subDir = await projectDir.getDirectoryHandle(folderName);
+          const subDir = await dirAtPath(projectDir, folderName);
           for await (const entry of (subDir as any).values()) {
             if (entry.kind !== 'file') continue;
-            const fsName = entry.name as string;
-            const dot = fsName.lastIndexOf('.');
-            const baseName = dot !== -1 ? fsName.slice(0, dot) : fsName;
-            let matchName = baseName;
-            const suffixMatch = baseName.match(/ \(\d+\)$/);
-            if (suffixMatch) {
-              matchName = baseName.substring(0, suffixMatch.index);
-            }
-            
-            // Match to existing metadata by filename, else by prompt (legacy).
-            // fsNames are only unique WITHIN a folder, so also require the item's
-            // kind to match the folder being scanned — otherwise Images/X.png
-            // could consume an audio item whose cover is Audio/X.png (flipping
-            // its kind and losing the song from the music view). Both matchers
-            // are consumed-guarded so one metadata item can never be claimed by
-            // two disk files (which would push the same id twice — duplicate
-            // tiles sharing a React key, with ambiguous rename/delete-by-id).
-            const kindMatches = (m: any) => m.kind === kind || !m.kind;
-            let existing = dbMedia.find((m: any) => !consumedDbIds.has(m.id) && m.fsName === fsName && kindMatches(m));
-            if (!existing) {
-              const promptCandidates = dbMedia.filter((m: any) =>
-                !consumedDbIds.has(m.id) && kindMatches(m) &&
-                (m.shortenedPrompt === matchName || m.prompt === matchName)
-              );
-              // Prompt matching is legacy-only. A bulk batch intentionally has
-              // several items with the same prompt, so guessing among them
-              // swaps IDs/timestamps and visibly rearranges generated tiles.
-              if (promptCandidates.length === 1) existing = promptCandidates[0];
-            }
-            if (existing) {
-              consumedDbIds.add(existing.id);
-              // Keep metadata, mark disk-backed, drop bytes (hydrated on display).
-              onDisk.push({ ...existing, kind, fsName, isSavedToFS: true, status: 'completed', url: '' });
-            } else {
-              // A file added externally (e.g. dropped into the folder).
-              let ts = 0;
-              try { ts = (await entry.getFile()).lastModified; } catch {}
-              onDisk.push({
-                id: `disk_${kind}_${fsName}`,
-                kind, status: 'completed', url: '',
-                prompt: matchName, shortenedPrompt: matchName,
-                modelId: 'external', modelName: 'External Source', ratio: '16:9',
-                timestamp: ts, isSavedToFS: true, fsName,
-              });
-            }
+            const fileKind = kind ?? kindOfFile(entry.name);
+            if (fileKind) files.push({ entry, fsName: entry.name as string, kind: fileKind, collectionId });
           }
         } catch {}
       };
 
-      await scanFolder('Images', 'image');
-      await scanFolder('Videos', 'video');
+      await listFolder('Images', 'image');
+      await listFolder('Videos', 'video');
       // Audio/ holds a song's on-disk artifact (MediaView writes the cover art
       // there; externally dropped song files land there too). Without this scan
       // a saved audio item matched nothing on disk, so the leftover filter below
       // (stripped url + isSavedToFS) DROPPED it — songs silently vanished from
       // the gallery on the first reconcile after save.
-      await scanFolder('Audio', 'audio');
+      await listFolder('Audio', 'audio');
+
+      // Collections (media-collections.ts): every other folder in the project folder is one, and
+      // every folder inside a collection's is one nested in it. A folder made outside the app is
+      // adopted as a collection of the same name, and a collection whose folder was seen before
+      // but is gone now was deleted on disk. Collections are matched by path ("A/B"). If the
+      // records can't be read, collection folders are skipped and memberships left as they are.
+      const storedCollections = await listCollections(projectId, scopeIdAtStart).catch(() => null);
       if (!scopeIsCurrent()) return [];
+      let collectionsChanged = false;
+      /** Collections whose folder a successful listing no longer shows: deleted on disk. */
+      const goneCollections = new Set<string>();
+      if (storedCollections) {
+        // Parents before their children, which the adoption below relies on.
+        const diskFolders: string[] = [];
+        const walk = async (dir: any, prefix: string): Promise<void> => {
+          for await (const entry of dir.values()) {
+            const name = entry.name as string;
+            if (entry.kind !== 'directory' || name.startsWith('.')) continue;
+            if (!prefix && RESERVED_PROJECT_FOLDERS.has(name.toLowerCase())) continue;
+            const path = prefix ? `${prefix}/${name}` : name;
+            diskFolders.push(path);
+            if (path.split('/').length < MAX_COLLECTION_DEPTH) await walk(entry, path);
+          }
+        };
+        await walk(projectDir, '');
+        // A collection created, renamed or moved into since this scan began would read as a
+        // folder made (or deleted) outside the app. Its queued write re-runs the reconcile.
+        if (projectSaveQueuesRef.current.has(targetName)) return await loadBaseline();
+        const present = new Set(diskFolders.map((f) => f.toLowerCase()));
+        const storedById = new Map<string, StoredCollection>(storedCollections.map((c) => [c.id, c]));
+        const storedPath = (c: StoredCollection) => collectionPath(c, storedById).toLowerCase();
+        // One record per folder. Two can only arise from concurrent writers (two tabs, two
+        // passes); membership is read from where the files are, so dropping the newer loses
+        // nothing — its items land in the older one, which holds the same folder.
+        const byPath = new Map<string, StoredCollection>();
+        for (const c of [...storedCollections].sort((a, b) => a.createdAt - b.createdAt)) {
+          const key = storedPath(c);
+          if (byPath.has(key) && present.has(key)) {
+            await deleteStoredCollection(projectId, c.id, scopeIdAtStart);
+            collectionsChanged = true;
+            continue;
+          }
+          if (!byPath.has(key)) byPath.set(key, c);
+        }
+        const takenIds = new Set(storedCollections.map((c) => c.id));
+        for (const path of diskFolders) {
+          const key = path.toLowerCase();
+          const folder = path.slice(path.lastIndexOf('/') + 1);
+          const parentKey = key.includes('/') ? key.slice(0, key.lastIndexOf('/')) : '';
+          const parentId = parentKey ? byPath.get(parentKey)?.id : undefined;
+          let collection = byPath.get(key);
+          if (!collection) {
+            // Named after the folder's path, so two passes adopting it at once write one record.
+            const base = `collection-disk-${encodeURIComponent(key)}`;
+            let id = base;
+            for (let n = 2; takenIds.has(id); n += 1) id = `${base}-${n}`;
+            takenIds.add(id);
+            const now = Date.now();
+            collection = { id, name: folder, folder, ...(parentId ? { parentId } : {}), createdAt: now, updatedAt: now, onDisk: true };
+            await saveCollection(projectId, collection, scopeIdAtStart);
+            byPath.set(key, collection);
+            collectionsChanged = true;
+          } else if (!collection.onDisk || collection.folder !== folder || (collection.parentId || undefined) !== parentId) {
+            const next: StoredCollection = { ...collection, folder, onDisk: true };
+            if (parentId) next.parentId = parentId;
+            else delete next.parentId;
+            collection = next;
+            await saveCollection(projectId, collection, scopeIdAtStart);
+            byPath.set(key, collection);
+            collectionsChanged = true;
+          }
+          await listFolder(path, null, collection.id);
+        }
+        for (const collection of storedCollections) {
+          if (collection.onDisk && !present.has(storedPath(collection))) {
+            await deleteStoredCollection(projectId, collection.id, scopeIdAtStart);
+            goneCollections.add(collection.id);
+            collectionsChanged = true;
+          }
+        }
+      }
+      if (!scopeIsCurrent()) return [];
+
+      // Match each file to existing metadata. fsNames are only unique WITHIN a
+      // folder, so a match also requires the item's kind — otherwise Images/X.png
+      // could consume an audio item whose cover is Audio/X.png (flipping its kind
+      // and losing the song from the music view). Every matcher is consumed-guarded
+      // so one metadata item can never be claimed by two disk files (which would
+      // push the same id twice — duplicate tiles sharing a React key, with
+      // ambiguous rename/delete-by-id).
+      const kindMatches = (m: any, kind: DiskFile['kind']) => m.kind === kind || !m.kind;
+      const matched = new Map<DiskFile, any>();
+      const claim = (file: DiskFile, test: (m: any) => boolean) => {
+        if (matched.has(file)) return;
+        const existing = dbMedia.find((m: any) => !consumedDbIds.has(m.id) && kindMatches(m, file.kind) && test(m));
+        if (existing) {
+          consumedDbIds.add(existing.id);
+          matched.set(file, existing);
+        }
+      };
+      // 1. Same name in the folder the item's record says it is in.
+      for (const file of files) claim(file, (m) => m.fsName === file.fsName && (m.collectionId || undefined) === file.collectionId);
+      // 2. Same name in another folder: the file was moved between collections outside the app.
+      for (const file of files) claim(file, (m) => m.fsName === file.fsName);
+      for (const file of files) {
+        const dot = file.fsName.lastIndexOf('.');
+        const baseName = dot !== -1 ? file.fsName.slice(0, dot) : file.fsName;
+        let matchName = baseName;
+        const suffixMatch = baseName.match(/ \(\d+\)$/);
+        if (suffixMatch) {
+          matchName = baseName.substring(0, suffixMatch.index);
+        }
+        let existing = matched.get(file);
+        if (!existing && !file.collectionId) {
+          const promptCandidates = dbMedia.filter((m: any) =>
+            !consumedDbIds.has(m.id) && kindMatches(m, file.kind) &&
+            (m.shortenedPrompt === matchName || m.prompt === matchName)
+          );
+          // 3. By prompt, legacy-only. A bulk batch intentionally has several items
+          // with the same prompt, so guessing among them swaps IDs/timestamps and
+          // visibly rearranges generated tiles.
+          if (promptCandidates.length === 1) {
+            existing = promptCandidates[0];
+            consumedDbIds.add(existing.id);
+          }
+        }
+        if (existing) {
+          // Keep metadata, mark disk-backed, drop bytes (hydrated on display).
+          // Membership is where the file is.
+          onDisk.push({ ...existing, kind: file.kind, fsName: file.fsName, isSavedToFS: true, status: 'completed', url: '', collectionId: file.collectionId });
+        } else {
+          // A file added externally (e.g. dropped into the folder).
+          let ts = 0;
+          try { ts = (await file.entry.getFile()).lastModified; } catch {}
+          onDisk.push({
+            id: file.collectionId ? `disk_${file.kind}_${file.collectionId}_${file.fsName}` : `disk_${file.kind}_${file.fsName}`,
+            kind: file.kind, status: 'completed', url: '',
+            prompt: matchName, shortenedPrompt: matchName,
+            modelId: 'external', modelName: 'External Source', ratio: '16:9',
+            timestamp: ts, isSavedToFS: true, fsName: file.fsName,
+            ...(file.collectionId ? { collectionId: file.collectionId } : {}),
+          });
+        }
+      }
+      if (!scopeIsCurrent()) return [];
+      if (collectionsChanged) window.dispatchEvent(new CustomEvent(COLLECTIONS_CHANGED_EVENT, { detail: { projectId } }));
 
       // Keep any item not matched to a disk file UNLESS it's a disk-backed item
       // whose bytes are gone (stripped url + isSavedToFS + file missing = a real
@@ -2875,8 +3602,11 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // `audioUrl` for songs — the audio itself lives in IndexedDB and must not
       // die with its on-disk cover art) or were never on disk (in-progress /
       // failed / pre-folder) are preserved — we never discard media we still hold.
+      // A disk-backed item of a collection whose folder was deleted went with it, whatever the
+      // page still shows of it: the project listing that missed the folder did succeed.
       const leftover = dbMedia.filter((m: any) =>
-        !consumedDbIds.has(m?.id) && (!!m?.url || !!m?.audioUrl || !m?.isSavedToFS)
+        !consumedDbIds.has(m?.id) && (!!m?.url || !!m?.audioUrl || !m?.isSavedToFS) &&
+        !(m?.isSavedToFS && m?.collectionId && goneCollections.has(m.collectionId))
       );
 
       // De-dup (cleans up historical pileups, e.g. the same file scanned many
@@ -2884,7 +3614,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       // disk copy wins for a given file. Key by disk filename, else by id.
       const seen = new Set<string>();
       const deduped = [...onDisk, ...leftover].filter((m: any) => {
-        const key = m?.fsName ? `fs:${m.kind}:${m.fsName}` : `id:${m?.id}`;
+        const key = m?.fsName ? `fs:${m.kind}:${m.collectionId || ''}:${m.fsName}` : `id:${m?.id}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -2892,6 +3622,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
       const merged = deduped.sort(compareMediaItemsNewestFirst);
 
+      // A file moved between collection folders while this scan ran can be missed in both; the
+      // move's own queued reconcile reads the settled tree.
+      if (projectSaveQueuesRef.current.has(targetName)) return await loadBaseline();
       await saveProjectMedia(projectId, merged, scopeIdAtStart); // strips disk-backed bytes
       if (!scopeIsCurrent()) return [];
       return merged;
@@ -2994,6 +3727,13 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
     const onFocus = () => { void pollDiskNow(); fireMediaChanged(); };
     const onVisibility = () => { if (document.visibilityState === 'visible') { void pollDiskNow(); fireMediaChanged(); } };
+    // A feature's own change for its synced folder (requestSyncedFolderPass): nothing changed on
+    // disk, so no media refresh.
+    let passTimer: number | undefined;
+    const onSyncedFolderChange = () => {
+      if (passTimer) window.clearTimeout(passTimer);
+      passTimer = window.setTimeout(() => { void pollDiskNow(); }, 300);
+    };
 
     (async () => {
       void pollDiskNow(); // sync immediately on connect/mount
@@ -3025,14 +3765,17 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
 
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('focus', onFocus);
+    window.addEventListener(SYNCED_FOLDERS_CHANGED_EVENT, onSyncedFolderChange);
 
     return () => {
       disposed = true;
       if (debounceTimer) window.clearTimeout(debounceTimer);
+      if (passTimer) window.clearTimeout(passTimer);
       if (intervalId) window.clearInterval(intervalId);
       try { observer?.disconnect(); } catch {}
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener(SYNCED_FOLDERS_CHANGED_EVENT, onSyncedFolderChange);
     };
   }, [isSupported, isLocalFolderConnected, isLocalFolderAuthorized, pollDiskNow, chatScopeId]);
 
@@ -3077,17 +3820,31 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (rootHandle) {
         try {
           const chatsDir = await resolveChatDir(rootHandle, notebookId, { create: false });
-          if (chatsDir) await chatsDir.removeEntry(`${chatId}.json`);
+          if (chatsDir) {
+            // The folder of its files first: if the file's removal then fails, the
+            // reconciler's retry removes both.
+            const bin = { root: rootHandle, path: chatFolderPath(notebookId ? readNotebookChatIndex().folderByNotebookId[notebookId] || '' : '') };
+            await deleteConversationFolder(chatsDir, chatId, bin);
+            await moveToRecycleBin(bin, chatsDir, `${chatId}.json`);
+            const removed = chatSyncRecordsRef.current[chatId];
+            if (removed?.tombstone) {
+              chatSyncRecordsRef.current[chatId] = { ...removed, removedAt: Date.now() };
+              persistChatMetadata();
+            }
+          }
         } catch {
           // Tombstone remains and the reconciler retries — from whichever folder
           // the file actually turns up in, so a hand-moved file is still deleted.
         }
       }
+      forgetConversationFiles(`chat:${notebookId}:${chatId}`);
       return true;
     });
-  }, [enqueueChatOperation, getActiveHandle, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, getActiveHandle, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir, forgetConversationFiles]);
 
-  const deleteLocalFSProjectInner = useCallback(async (_projectId: string, projectName: string): Promise<boolean> => {
+  const deleteLocalFSProjectInner = useCallback(async (projectId: string, projectName: string): Promise<boolean> => {
+    // A later project of the same name must not inherit what this one had written.
+    conversationFilesKnownRef.current.clear();
     // Try deleting project folder from filesystem
     const rootHandle = await getActiveHandle();
     if (!rootHandle) return true; // No filesystem connected, just browser storage delete
@@ -3103,7 +3860,22 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       for (const folderName of getProjectAreas().map((area) => area.folder)) {
         try {
           const folderDir = await rootHandle.getDirectoryHandle(folderName, { create: false });
-          await folderDir.removeEntry(projectName, { recursive: true });
+          const synced = syncedFolderAt(`${folderName}/${projectName}`);
+          if (synced) {
+            // A feature's synced folder (Media/Tools): a project that was there first leaves, and
+            // the feature's files stay.
+            const dir = await folderDir.getDirectoryHandle(projectName);
+            if (!(await holdsProjectManifest(dir))) continue;
+            const doomed: string[] = [];
+            for await (const entry of (dir as any).values()) {
+              if (entry.kind === 'file' && entry.name.toLowerCase().endsWith(synced.extension.toLowerCase())) continue;
+              doomed.push(entry.name);
+            }
+            for (const name of doomed) await moveToRecycleBin({ root: rootHandle, path: [folderName, projectName] }, dir, name);
+            deletedAny = true;
+            continue;
+          }
+          await moveToRecycleBin({ root: rootHandle, path: [folderName] }, folderDir, projectName);
           console.log(`Deleted project folder: ${folderName}/${projectName}`);
           deletedAny = true;
         } catch (err: any) {
@@ -3118,6 +3890,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       if (!deletedAny) {
         console.warn(`Project folder not found on disk: ${projectName}`);
       }
+      if (!deleteFailed) markProjectFolderRemoved(projectName, undefined, projectId);
       return !deleteFailed;
     } catch (err) {
       console.error('Failed to delete project from filesystem:', err);
@@ -3244,6 +4017,9 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         try {
           await writeFileRecursively(chatsDir, `${newChatId}.json`, JSON.stringify(body, null, 2));
           try { await chatsDir.removeEntry(`${oldChatId}.json`); } catch {}
+          if (await moveConversationFolder(chatsDir, oldChatId, chatsDir, newChatId)) {
+            forgetConversationFiles(`chat:${notebookId}:${oldChatId}`);
+          }
           const written = await (await chatsDir.getFileHandle(`${newChatId}.json`)).getFile();
           const latest = chatSyncRecordsRef.current[newChatId];
           if (latest?.revision === newRevision) {
@@ -3262,7 +4038,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
       }
       return true;
     });
-  }, [enqueueChatOperation, getActiveHandle, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir]);
+  }, [enqueueChatOperation, getActiveHandle, nextChatRevision, persistChatMetadata, chatNotebookId, resolveChatDir, forgetConversationFiles]);
 
   return (
     <LocalFSContext.Provider
@@ -3272,6 +4048,7 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         isLocalFolderConnected,
         isLocalFolderAuthorized,
         localFolderName,
+        localFolderProblem,
         connectLocalFolder,
         disconnectLocalFolder,
         authorizeLocalFolder,
@@ -3282,9 +4059,21 @@ export const LocalFSProvider: React.FC<{ children: ReactNode, modelConfig?: any 
         saveLocalFSChatAttachment,
         loadLocalFSChatAttachment,
         saveLocalFSProjectChat,
+        writeLocalFSConversationFiles,
+        readLocalFSConversationFile,
+        deleteLocalFSConversationFolder,
+        saveLocalFSMediaAgentSession,
+        deleteLocalFSMediaAgentSession,
+        saveLocalFSScene,
+        deleteLocalFSScene,
+        listLocalFSScenes,
         saveLocalFSMedia,
         deleteLocalFSMediaFile,
         renameLocalFSMediaFile,
+        ensureLocalFSCollectionFolder,
+        moveLocalFSMediaFile,
+        renameLocalFSCollectionFolder,
+        deleteLocalFSCollectionFolder,
         ensureLocalFSNotebookDir,
         saveLocalFSNotebookSource,
         deleteLocalFSNotebookSource,

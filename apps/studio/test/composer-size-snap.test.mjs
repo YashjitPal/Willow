@@ -61,7 +61,7 @@ const codeOnly = (source) => source
  * backtick", because these classNames nest template literals.
  */
 const sizeWrapper = (source) => {
-  const m = source.match(/<div className=\{`textarea-wrapper[\s\S]{0,500}?`\}>/);
+  const m = source.match(/<div className=\{`textarea-wrapper[\s\S]{0,1200}?`\}>/);
   assert.ok(m, 'could not locate the .textarea-wrapper div');
   return m[0];
 };
@@ -75,7 +75,7 @@ const textareaClasses = (source) => {
 
 /** The absolutely-positioned trailing controls. */
 const rightControls = (source) => {
-  const m = source.match(/<div ref=\{rightControlsRef\} className=\{`[\s\S]{0,400}?`\}>/);
+  const m = source.match(/<div ref=\{rightControlsRef\} className=\{`[\s\S]{0,900}?`\}>/);
   assert.ok(m, 'could not locate the right-controls div');
   return m[0];
 };
@@ -142,7 +142,8 @@ it('snaps the trailing controls, as Gemini\'s trailing-actions-wrapper does', ()
   const controls = rightControls(codeOnly(COMPOSER()));
   assert.doesNotMatch(chatArm(controls), /transition|duration-/,
     'the trailing controls are easing again');
-  assert.match(controls, /\$\{chatVariant \? 'gap-1' : 'gap-3 transition-all duration-200'\}/,
+  // No gap on a desktop: the mic's own margins are Gemini's 48px slot.
+  assert.match(controls, /\$\{chatVariant \? 'gap-1 min-\[961px\]:gap-0' : 'gap-3 transition-all duration-200'\}/,
     'the trailing controls no longer distinguish the chat variant');
 });
 
@@ -152,13 +153,27 @@ it('keeps the trailing controls at a fixed right anchor', () => {
   // be `solidExpanded ? 'right-[1px]' : 'right-[0px]'` — a 1px hop on every wrap
   // and unwrap, which was hidden by the 400ms ease until the ease was removed
   // and it turned into a visible jerk. It must not depend on the expanded state.
-  const controls = rightControls(codeOnly(COMPOSER()));
-  const anchors = [...controls.matchAll(/right-\[(-?\d+)px\]/g)].map((m) => Number(m[1]));
-  assert.ok(anchors.length > 0, 'could not read the trailing controls\' right anchor');
-  assert.equal(new Set(anchors).size, 1,
-    `the trailing controls have more than one right anchor (${anchors.join(', ')}) — they will jump sideways when the composer expands`);
+  // Phones and tablets each have their own measured anchor; what matters is one
+  // anchor per breakpoint.
+  const source = codeOnly(COMPOSER());
+  const controls = rightControls(source);
+  const anchors = new Map();
+  for (const m of controls.matchAll(/((?:(?:min|max)-\[\d+px\]:)*)right-\[(-?\d+)px\]/g)) {
+    anchors.set(m[1], [...(anchors.get(m[1]) ?? []), Number(m[2])]);
+  }
+  assert.ok(anchors.has(''), 'could not read the trailing controls\' right anchor');
+  for (const [variant, values] of anchors) {
+    assert.equal(new Set(values).size, 1,
+      `the trailing controls have more than one right anchor at "${variant || 'base'}" (${values.join(', ')}) — they will jump sideways when the composer expands`);
+  }
   assert.doesNotMatch(controls, /solidExpanded/,
     'the trailing controls\' position depends on the expanded state again');
+  // The expanded-only touch offset moves the cluster down to the bottom row; it
+  // must never carry a horizontal anchor of its own.
+  const touchOffset = source.match(/const trailingTouchOffset = [\s\S]*?;/);
+  assert.ok(touchOffset, 'could not locate trailingTouchOffset');
+  assert.doesNotMatch(touchOffset[0], /right-\[/,
+    'the expanded-only trailing offset sets a right anchor, so the cluster hops sideways on wrap');
 });
 
 // ── Nothing left over ───────────────────────────────────────────────────────

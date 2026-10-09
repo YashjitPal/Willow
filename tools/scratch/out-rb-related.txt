@@ -1,0 +1,884 @@
+﻿TAP version 13
+# Subtest: reading what a model asked for
+    # Subtest: reads a time the ways a model writes one
+    ok 1 - reads a time the ways a model writes one
+      ---
+      duration_ms: 3.2369
+      type: 'test'
+      ...
+    # Subtest: turns a create_schedule call into the schedule Spark stores
+    ok 2 - turns a create_schedule call into the schedule Spark stores
+      ---
+      duration_ms: 2.7382
+      type: 'test'
+      ...
+    # Subtest: reads weekly with no days, or with all seven, as daily
+    ok 3 - reads weekly with no days, or with all seven, as daily
+      ---
+      duration_ms: 0.9984
+      type: 'test'
+      ...
+    # Subtest: says what is wrong in words the model can act on, and saves nothing
+    ok 4 - says what is wrong in words the model can act on, and saves nothing
+      ---
+      duration_ms: 1.0461
+      type: 'test'
+      ...
+    # Subtest: names a skill in kebab-case, as Gemini does, and refuses one the library already has
+    ok 5 - names a skill in kebab-case, as Gemini does, and refuses one the library already has
+      ---
+      duration_ms: 1.9686
+      type: 'test'
+      ...
+    1..5
+ok 1 - reading what a model asked for
+  ---
+  duration_ms: 12.9575
+  type: 'suite'
+  ...
+# Subtest: how a schedule reads
+    # Subtest: on Spark's card: Gemini's "When to run"
+    ok 1 - on Spark's card: Gemini's "When to run"
+      ---
+      duration_ms: 1.4262
+      type: 'test'
+      ...
+    # Subtest: on the chat's card: Gemini's "Saturday by 10 AM"
+    ok 2 - on the chat's card: Gemini's "Saturday by 10 AM"
+      ---
+      duration_ms: 1.0123
+      type: 'test'
+      ...
+    # Subtest: writes each card's body as Gemini lays it out
+    ok 3 - writes each card's body as Gemini lays it out
+      ---
+      duration_ms: 0.7644
+      type: 'test'
+      ...
+    # Subtest: mirrors SparkΓÇÖs schedules, waking readers only on a real change
+    ok 4 - mirrors SparkΓÇÖs schedules, waking readers only on a real change
+      ---
+      duration_ms: 1.0035
+      type: 'test'
+      ...
+    1..4
+ok 2 - how a schedule reads
+  ---
+  duration_ms: 5.0977
+  type: 'suite'
+  ...
+# Subtest: the chat's tools
+    # Subtest: are offered, and explained, only when the turn can save
+    ok 1 - are offered, and explained, only when the turn can save
+      ---
+      duration_ms: 0.9374
+      type: 'test'
+      ...
+    # Subtest: save a schedule through Spark, under the chatΓÇÖs scope, and put its card on the turn
+    ok 2 - save a schedule through Spark, under the chatΓÇÖs scope, and put its card on the turn
+      ---
+      duration_ms: 1.873
+      type: 'test'
+      ...
+    # Subtest: never save a schedule twice
+    ok 3 - never save a schedule twice
+      ---
+      duration_ms: 1.2713
+      type: 'test'
+      ...
+    # Subtest: save a skill once, and refuse another skill under a name the library has
+    ok 4 - save a skill once, and refuse another skill under a name the library has
+      ---
+      duration_ms: 1.4878
+      type: 'test'
+      ...
+    # Subtest: hand a bad call back instead of saving it
+    ok 5 - hand a bad call back instead of saving it
+      ---
+      duration_ms: 0.7714
+      type: 'test'
+      ...
+    # Subtest: keep what a turn saved through a save and a reload
+    ok 6 - keep what a turn saved through a save and a reload
+      ---
+      duration_ms: 2.1973
+      type: 'test'
+      ...
+    1..6
+ok 3 - the chat's tools
+  ---
+  duration_ms: 9.3439
+  type: 'suite'
+  ...
+# Subtest: the wiring in Chat
+    # Subtest: declares the tools on a turn that can keep them, and nowhere else
+    ok 1 - declares the tools on a turn that can keep them, and nowhere else
+      ---
+      duration_ms: 6.6541
+      type: 'test'
+      ...
+    # Subtest: runs a call only when its declarations went out, and keeps the card across a retry
+    ok 2 - runs a call only when its declarations went out, and keeps the card across a retry
+      ---
+      duration_ms: 2.5422
+      type: 'test'
+      ...
+    # Subtest: shows the card as the save lands, and keeps it when the turn settles
+    ok 3 - shows the card as the save lands, and keeps it when the turn settles
+      ---
+      duration_ms: 4.1647
+      type: 'test'
+      ...
+    1..3
+ok 4 - the wiring in Chat
+  ---
+  duration_ms: 13.8358
+  type: 'suite'
+  ...
+# Subtest: the chat's scheduled-action card
+    # Subtest: is GeminiΓÇÖs measured card
+    ok 1 - is GeminiΓÇÖs measured card
+      ---
+      duration_ms: 1.1695
+      type: 'test'
+      ...
+    # Subtest: draws its clock from the one face that has it
+    ok 2 - draws its clock from the one face that has it
+      ---
+      duration_ms: 0.4742
+      type: 'test'
+      ...
+    # Subtest: switches, edits and deletes the Spark schedule itself
+    ok 3 - switches, edits and deletes the Spark schedule itself
+      ---
+      duration_ms: 0.424
+      type: 'test'
+      ...
+    # Subtest: places its popups by layout size, not by a mid-animation rect
+    ok 4 - places its popups by layout size, not by a mid-animation rect
+      ---
+      duration_ms: 0.4445
+      type: 'test'
+      ...
+    1..4
+ok 5 - the chat's scheduled-action card
+  ---
+  duration_ms: 2.9922
+  type: 'suite'
+  ...
+# Subtest: the Spark agent
+    # Subtest: may call both, and Plan mode refuses both
+    ok 1 - may call both, and Plan mode refuses both
+      ---
+      duration_ms: 0.8685
+      type: 'test'
+      ...
+    # Subtest: saves a schedule with the step's title as its timeline row, once per run
+    ok 2 - saves a schedule with the step's title as its timeline row, once per run
+      ---
+      duration_ms: 2.3416
+      type: 'test'
+      ...
+    # Subtest: registers neither without somewhere to save, and says so in the prompt only when it can
+    ok 3 - registers neither without somewhere to save, and says so in the prompt only when it can
+      ---
+      duration_ms: 4.0701
+      type: 'test'
+      ...
+    # Subtest: puts the card and the "Created ΓÇª" row on the turn
+    ok 4 - puts the card and the "Created ΓÇª" row on the turn
+      ---
+      duration_ms: 2.2002
+      type: 'test'
+      ...
+    1..4
+ok 6 - the Spark agent
+  ---
+  duration_ms: 10.0872
+  type: 'suite'
+  ...
+# Subtest: Create with Gemini
+    # Subtest: on Schedules, opens a Spark task that already asks, as Gemini's does
+    ok 1 - on Schedules, opens a Spark task that already asks, as Gemini's does
+      ---
+      duration_ms: 0.9557
+      type: 'test'
+      ...
+    # Subtest: on Skills, leaves for a new chat holding GeminiΓÇÖs question
+    ok 2 - on Skills, leaves for a new chat holding GeminiΓÇÖs question
+      ---
+      duration_ms: 0.4628
+      type: 'test'
+      ...
+    # Subtest: asks the shell once per request, and hands the seed to one chat
+    ok 3 - asks the shell once per request, and hands the seed to one chat
+      ---
+      duration_ms: 0.6134
+      type: 'test'
+      ...
+    # Subtest: is carried out by the shell, and played by the new chat without a model
+    ok 4 - is carried out by the shell, and played by the new chat without a model
+      ---
+      duration_ms: 6.1302
+      type: 'test'
+      ...
+    1..4
+ok 7 - Create with Gemini
+  ---
+  duration_ms: 8.6151
+  type: 'suite'
+  ...
+# Subtest: theme-mode module exports correct modes and options
+ok 8 - theme-mode module exports correct modes and options
+  ---
+  duration_ms: 3.3509
+  type: 'test'
+  ...
+# Subtest: UserMessageBubble implements measured light mode tokens while keeping dark mode intact
+ok 9 - UserMessageBubble implements measured light mode tokens while keeping dark mode intact
+  ---
+  duration_ms: 1.178
+  type: 'test'
+  ...
+# Subtest: ThemesMenu and ModelsMenu support light theme popovers
+ok 10 - ThemesMenu and ModelsMenu support light theme popovers
+  ---
+  duration_ms: 2.1484
+  type: 'test'
+  ...
+# Subtest: ChatResponseChrome supports light theme actions and sidebars
+ok 11 - ChatResponseChrome supports light theme actions and sidebars
+  ---
+  duration_ms: 1.1517
+  type: 'test'
+  ...
+# Subtest: streaming-markdown-styles declares light theme rules
+ok 12 - streaming-markdown-styles declares light theme rules
+  ---
+  duration_ms: 1.3968
+  type: 'test'
+  ...
+# Subtest: GeminiDialog.css declares light theme rules
+ok 13 - GeminiDialog.css declares light theme rules
+  ---
+  duration_ms: 1.0654
+  type: 'test'
+  ...
+# Subtest: index.html declares light theme scrollbar and background glow rules
+ok 14 - index.html declares light theme scrollbar and background glow rules
+  ---
+  duration_ms: 10.58
+  type: 'test'
+  ...
+# Subtest: Tooltip.css declares light theme tooltip surface and wrapper rules
+ok 15 - Tooltip.css declares light theme tooltip surface and wrapper rules
+  ---
+  duration_ms: 1.5881
+  type: 'test'
+  ...
+# Subtest: composers and workspaces adapt send and live button to light mode with high-contrast icon
+ok 16 - composers and workspaces adapt send and live button to light mode with high-contrast icon
+  ---
+  duration_ms: 2.8196
+  type: 'test'
+  ...
+# Subtest: CustomizeView and CustomizeCard declare light theme rules
+ok 17 - CustomizeView and CustomizeCard declare light theme rules
+  ---
+  duration_ms: 7.1373
+  type: 'test'
+  ...
+# Subtest: UsageLimitsView and UsageLimitsTab declare light theme rules
+ok 18 - UsageLimitsView and UsageLimitsTab declare light theme rules
+  ---
+  duration_ms: 2.7551
+  type: 'test'
+  ...
+# Subtest: Gems manager, editor and dialogs declare light theme rules
+ok 19 - Gems manager, editor and dialogs declare light theme rules
+  ---
+  duration_ms: 3.2324
+  type: 'test'
+  ...
+# Subtest: PersonalIntelligenceTab, SavedInfoTab, ConnectedAppsTab, Memory, and Activity declare light theme rules
+ok 20 - PersonalIntelligenceTab, SavedInfoTab, ConnectedAppsTab, Memory, and Activity declare light theme rules
+  ---
+  duration_ms: 4.007
+  type: 'test'
+  ...
+# Subtest: Labs, SettingsModal, ModelsApi, Notebooks, and Projects declare light theme rules
+ok 21 - Labs, SettingsModal, ModelsApi, Notebooks, and Projects declare light theme rules
+  ---
+  duration_ms: 6.1552
+  type: 'test'
+  ...
+# Subtest: Gemini thinking dots and prompt edit form support light theme
+ok 22 - Gemini thinking dots and prompt edit form support light theme
+  ---
+  duration_ms: 4.945
+  type: 'test'
+  ...
+# Subtest: Spark views, customise pages, and editors declare light theme rules
+ok 23 - Spark views, customise pages, and editors declare light theme rules
+  ---
+  duration_ms: 19.851
+  type: 'test'
+  ...
+# Subtest: keeps each of the shell's tabs mounted once opened, hidden while another is on show
+ok 24 - keeps each of the shell's tabs mounted once opened, hidden while another is on show
+  ---
+  duration_ms: 6.1091
+  type: 'test'
+  ...
+# Subtest: keeps Bots and the rest of Spark as two tabs inside the one Spark workspace
+ok 25 - keeps Bots and the rest of Spark as two tabs inside the one Spark workspace
+  ---
+  duration_ms: 2.7294
+  type: 'test'
+  ...
+# Subtest: keeps the Code home mounted once opened, not only while its turn runs
+ok 26 - keeps the Code home mounted once opened, not only while its turn runs
+  ---
+  duration_ms: 0.4956
+  type: 'test'
+  ...
+# Subtest: keeps the shell mounted beside the screens outside it, against its last address
+ok 27 - keeps the shell mounted beside the screens outside it, against its last address
+  ---
+  duration_ms: 13.5642
+  type: 'test'
+  ...
+# Subtest: leaves the window's files, Escape and Settings to the tab on show
+ok 28 - leaves the window's files, Escape and Settings to the tab on show
+  ---
+  duration_ms: 8.2916
+  type: 'test'
+  ...
+# Subtest: opens Customize where it was left, after a reload too
+ok 29 - opens Customize where it was left, after a reload too
+  ---
+  duration_ms: 1.3973
+  type: 'test'
+  ...
+# Subtest: lets only the frame on show answer the strip's menus and open Ask Willow
+ok 30 - lets only the frame on show answer the strip's menus and open Ask Willow
+  ---
+  duration_ms: 3.2459
+  type: 'test'
+  ...
+# Subtest: connects task-list navigation without wrapping or embedding the task views
+ok 31 - connects task-list navigation without wrapping or embedding the task views
+  ---
+  duration_ms: 3.4843
+  type: 'test'
+  ...
+# Subtest: keeps the task detail as the owner of its divider and Progress panel
+ok 32 - keeps the task detail as the owner of its divider and Progress panel
+  ---
+  duration_ms: 2.0626
+  type: 'test'
+  ...
+# Subtest: keeps connected-view CSS transition-only
+ok 33 - keeps connected-view CSS transition-only
+  ---
+  duration_ms: 2.7614
+  type: 'test'
+  ...
+# Subtest: keeps the All Tasks composer as the shared prompt surface
+ok 34 - keeps the All Tasks composer as the shared prompt surface
+  ---
+  duration_ms: 2.7559
+  type: 'test'
+  ...
+# Subtest: reading a created file back
+    # Subtest: finds it under the path the run reported, in the workspace the harness wrote
+    ok 1 - finds it under the path the run reported, in the workspace the harness wrote
+      ---
+      duration_ms: 36.2622
+      type: 'test'
+      ...
+    # Subtest: reports nothing, rather than throwing, for a file that is not there
+    ok 2 - reports nothing, rather than throwing, for a file that is not there
+      ---
+      duration_ms: 28.8884
+      type: 'test'
+      ...
+    # Subtest: never creates what it looks for
+    ok 3 - never creates what it looks for
+      ---
+      duration_ms: 64.8005
+      type: 'test'
+      ...
+    1..3
+ok 35 - reading a created file back
+  ---
+  duration_ms: 136.4336
+  type: 'suite'
+  ...
+# Subtest: which file each task has open
+    # Subtest: keeps one per task, and closing one leaves the others
+    ok 1 - keeps one per task, and closing one leaves the others
+      ---
+      duration_ms: 1.6741
+      type: 'test'
+      ...
+    # Subtest: tells no one when nothing changed
+    ok 2 - tells no one when nothing changed
+      ---
+      duration_ms: 0.958
+      type: 'test'
+      ...
+    1..2
+ok 36 - which file each task has open
+  ---
+  duration_ms: 3.1062
+  type: 'suite'
+  ...
+# Subtest: the card and the side panel
+    # Subtest: says Open, and the whole card opens the file
+    ok 1 - says Open, and the whole card opens the file
+      ---
+      duration_ms: 2.4458
+      type: 'test'
+      ...
+    # Subtest: opens it in the remote browser's side panel, collapsing the list the same way
+    ok 2 - opens it in the remote browser's side panel, collapsing the list the same way
+      ---
+      duration_ms: 2.1899
+      type: 'test'
+      ...
+    # Subtest: opens it from the Files rows as well
+    ok 3 - opens it from the Files rows as well
+      ---
+      duration_ms: 3.2273
+      type: 'test'
+      ...
+    # Subtest: opens it full-screen at 960px and below, as the browser does
+    ok 4 - opens it full-screen at 960px and below, as the browser does
+      ---
+      duration_ms: 1.88
+      type: 'test'
+      ...
+    # Subtest: draws Docs' chrome where it can do something: Download, Open in new tab, Close, Print, Zoom
+    ok 5 - draws Docs' chrome where it can do something: Download, Open in new tab, Close, Print, Zoom
+      ---
+      duration_ms: 0.6649
+      type: 'test'
+      ...
+    # Subtest: opens a page in a new tab where it cannot reach Willow's storage
+    ok 6 - opens a page in a new tab where it cannot reach Willow's storage
+      ---
+      duration_ms: 0.4067
+      type: 'test'
+      ...
+    # Subtest: sets the page as Docs does, measured off Gemini
+    ok 7 - sets the page as Docs does, measured off Gemini
+      ---
+      duration_ms: 0.77
+      type: 'test'
+      ...
+    1..7
+ok 37 - the card and the side panel
+  ---
+  duration_ms: 12.6045
+  type: 'suite'
+  ...
+# Subtest: Spark recent-task scroll fade
+    # Subtest: uses Gemini Spark's 48px variable-driven mask at both scroll edges
+    ok 1 - uses Gemini Spark's 48px variable-driven mask at both scroll edges
+      ---
+      duration_ms: 5.1728
+      type: 'test'
+      ...
+    # Subtest: updates the binary top and bottom mask variables from the actual list scroll position
+    ok 2 - updates the binary top and bottom mask variables from the actual list scroll position
+      ---
+      duration_ms: 0.7564
+      type: 'test'
+      ...
+    1..2
+ok 38 - Spark recent-task scroll fade
+  ---
+  duration_ms: 9.6904
+  type: 'suite'
+  ...
+# Subtest: assigns an active Spark run to exactly one response
+ok 39 - assigns an active Spark run to exactly one response
+  ---
+  duration_ms: 7.9149
+  type: 'test'
+  ...
+# Subtest: holds the response action row until the reveal animation finishes
+ok 40 - holds the response action row until the reveal animation finishes
+  ---
+  duration_ms: 1.3084
+  type: 'test'
+  ...
+# Subtest: clears a follow-up processing phase when undefined is explicitly supplied
+ok 41 - clears a follow-up processing phase when undefined is explicitly supplied
+  ---
+  duration_ms: 0.5397
+  type: 'test'
+  ...
+# Subtest: keeps follow-up processing metadata on the follow-up turn
+ok 42 - keeps follow-up processing metadata on the follow-up turn
+  ---
+  duration_ms: 1.3456
+  type: 'test'
+  ...
+# Subtest: keeps an active work phase visible after response text has started
+ok 43 - keeps an active work phase visible after response text has started
+  ---
+  duration_ms: 0.8153
+  type: 'test'
+  ...
+# Subtest: collapses a run of same-label timeline tools that no work-log line interrupts
+ok 44 - collapses a run of same-label timeline tools that no work-log line interrupts
+  ---
+  duration_ms: 0.7266
+  type: 'test'
+  ...
+# Subtest: ends the planning phase when the plan call completes
+ok 45 - ends the planning phase when the plan call completes
+  ---
+  duration_ms: 3.0479
+  type: 'test'
+  ...
+# Subtest: schedule times read "8:00 AM" below 961px and keep "8:00 am" on the desktop
+ok 46 - schedule times read "8:00 AM" below 961px and keep "8:00 am" on the desktop
+  ---
+  duration_ms: 2245.2019
+  type: 'test'
+  ...
+# Subtest: the task list swaps in the bottom sheet and Gemini's dialogs only when compact
+ok 47 - the task list swaps in the bottom sheet and Gemini's dialogs only when compact
+  ---
+  duration_ms: 5.8969
+  type: 'test'
+  ...
+# Subtest: the bottom sheet is Material's, as Gemini's gem-bottom-sheet measures
+ok 48 - the bottom sheet is Material's, as Gemini's gem-bottom-sheet measures
+  ---
+  duration_ms: 2.0808
+  type: 'test'
+  ...
+# Subtest: the task list heading exists below 961px and nowhere on the desktop
+ok 49 - the task list heading exists below 961px and nowhere on the desktop
+  ---
+  duration_ms: 4.8463
+  type: 'test'
+  ...
+# Subtest: the task view's follow-up composer splits at 768px as Gemini's does
+ok 50 - the task view's follow-up composer splits at 768px as Gemini's does
+  ---
+  duration_ms: 36.6565
+  type: 'test'
+  ...
+# Subtest: the drawer button gives way to the task view's own back button below 961px
+ok 51 - the drawer button gives way to the task view's own back button below 961px
+  ---
+  duration_ms: 125.4062
+  type: 'test'
+  ...
+# Subtest: Connected apps keeps Gemini's Workspace columns and a chip row that cannot clip
+ok 52 - Connected apps keeps Gemini's Workspace columns and a chip row that cannot clip
+  ---
+  duration_ms: 7.2989
+  type: 'test'
+  ...
+# Subtest: the connected composer only reads "Describe task" on the compact task list
+ok 53 - the connected composer only reads "Describe task" on the compact task list
+  ---
+  duration_ms: 5.1612
+  type: 'test'
+  ...
+# Subtest: the skill editor fills the viewport below 961px and keeps its desktop card above
+ok 54 - the skill editor fills the viewport below 961px and keeps its desktop card above
+  ---
+  duration_ms: 8.326
+  type: 'test'
+  ...
+# Subtest: a reply's actions and their menu take Gemini's compact sizes below 961px
+ok 55 - a reply's actions and their menu take Gemini's compact sizes below 961px
+  ---
+  duration_ms: 9.6985
+  type: 'test'
+  ...
+# Subtest: the processing pill, lists and links sit where Gemini's do below 961px
+ok 56 - the processing pill, lists and links sit where Gemini's do below 961px
+  ---
+  duration_ms: 5.6573
+  type: 'test'
+  ...
+# Subtest: the task menu drops flush from its trigger with Gemini's compact rows below 961px
+ok 57 - the task menu drops flush from its trigger with Gemini's compact rows below 961px
+  ---
+  duration_ms: 3.6564
+  type: 'test'
+  ...
+# Subtest: the status pill opens Gemini's full-screen side panel below 961px and the popover above
+ok 58 - the status pill opens Gemini's full-screen side panel below 961px and the popover above
+  ---
+  duration_ms: 18.2262
+  type: 'test'
+  ...
+# Subtest: a schedule's trigger line reads the way Gemini writes it
+ok 59 - a schedule's trigger line reads the way Gemini writes it
+  ---
+  duration_ms: 241.6832
+  type: 'test'
+  ...
+# Subtest: the compact Beta badge sits over the schedule editor but not the skill editor
+ok 60 - the compact Beta badge sits over the schedule editor but not the skill editor
+  ---
+  duration_ms: 2.6228
+  type: 'test'
+  ...
+# Subtest: opens a mention only where a word starts, and never across a line break
+ok 61 - opens a mention only where a word starts, and never across a line break
+  ---
+  duration_ms: 5.0144
+  type: 'test'
+  ...
+# Subtest: filters like Gemini: a case-insensitive substring, connected apps before dimmed ones
+ok 62 - filters like Gemini: a case-insensitive substring, connected apps before dimmed ones
+  ---
+  duration_ms: 0.5114
+  type: 'test'
+  ...
+# Subtest: writes a picked mention with a trailing space, and Backspace removes it whole
+ok 63 - writes a picked mention with a trailing space, and Backspace removes it whole
+  ---
+  duration_ms: 0.8088
+  type: 'test'
+  ...
+# Subtest: moves the highlight as Gemini does: the first Down lands on row one, Up wraps
+ok 64 - moves the highlight as Gemini does: the first Down lands on row one, Up wraps
+  ---
+  duration_ms: 0.2522
+  type: 'test'
+  ...
+# Subtest: places the skill tooltip right of the row, or above it narrowed where the right has no room
+ok 65 - places the skill tooltip right of the row, or above it narrowed where the right has no room
+  ---
+  duration_ms: 0.5607
+  type: 'test'
+  ...
+# Subtest: keeps GeminiΓÇÖs five recommended skills, word for word and in order
+ok 66 - keeps GeminiΓÇÖs five recommended skills, word for word and in order
+  ---
+  duration_ms: 0.4082
+  type: 'test'
+  ...
+# Subtest: records reading a skill on the timeline, including one the user applied with "/"
+ok 67 - records reading a skill on the timeline, including one the user applied with "/"
+  ---
+  duration_ms: 1.6247
+  type: 'test'
+  ...
+# Subtest: runs a connected appΓÇÖs tool as app:<name>, keeping SparkΓÇÖs step title away from the tool
+ok 68 - runs a connected appΓÇÖs tool as app:<name>, keeping SparkΓÇÖs step title away from the tool
+  ---
+  duration_ms: 1.4022
+  type: 'test'
+  ...
+# Subtest: reports a connector or MCP failure as failed, on the row and to the model
+ok 69 - reports a connector or MCP failure as failed, on the row and to the model
+  ---
+  duration_ms: 1.2301
+  type: 'test'
+  ...
+# Subtest: labels an MCP row with its step title and server, and stringifies structured results
+ok 70 - labels an MCP row with its step title and server, and stringifies structured results
+  ---
+  duration_ms: 0.6795
+  type: 'test'
+  ...
+# Subtest: declares connectors, MCP tools and the "/" and "@" rules to the model
+ok 71 - declares connectors, MCP tools and the "/" and "@" rules to the model
+  ---
+  duration_ms: 2.3675
+  type: 'test'
+  ...
+# Subtest: turns arguments into a copyable signature
+ok 72 - turns arguments into a copyable signature
+  ---
+  duration_ms: 0.3342
+  type: 'test'
+  ...
+# Subtest: labels skill rows and connector rows the way GeminiΓÇÖs timeline does
+ok 73 - labels skill rows and connector rows the way GeminiΓÇÖs timeline does
+  ---
+  duration_ms: 2.2991
+  type: 'test'
+  ...
+# Subtest: restyles the menus at 960px and below as Gemini does
+ok 74 - restyles the menus at 960px and below as Gemini does
+  ---
+  duration_ms: 1.7825
+  type: 'test'
+  ...
+# Subtest: Willow TV library
+    # Subtest: a project with a finished video is a channel; one without is not
+    ok 1 - a project with a finished video is a channel; one without is not
+      ---
+      duration_ms: 12.2325
+      type: 'test'
+      ...
+    # Subtest: characters, failed videos and dead blob URLs are not clips; disk files are when the folder can be read
+    ok 2 - characters, failed videos and dead blob URLs are not clips; disk files are when the folder can be read
+      ---
+      duration_ms: 2.7845
+      type: 'test'
+      ...
+    # Subtest: slugs are unique, and never the search or short-film channels
+    ok 3 - slugs are unique, and never the search or short-film channels
+      ---
+      duration_ms: 1.7228
+      type: 'test'
+      ...
+    # Subtest: channels come newest first, by their latest clip
+    ok 4 - channels come newest first, by their latest clip
+      ---
+      duration_ms: 2.6385
+      type: 'test'
+      ...
+    # Subtest: a scene is a short film of the clips whose videos the TV has; a trashed or empty one is not
+    ok 5 - a scene is a short film of the clips whose videos the TV has; a trashed or empty one is not
+      ---
+      duration_ms: 2.0481
+      type: 'test'
+      ...
+    # Subtest: the label above a prompt follows how the clip was made
+    ok 6 - the label above a prompt follows how the clip was made
+      ---
+      duration_ms: 0.4979
+      type: 'test'
+      ...
+    # Subtest: search matches every word of the prompt or channel name, within a model filter
+    ok 7 - search matches every word of the prompt or channel name, within a model filter
+      ---
+      duration_ms: 111.7996
+      type: 'test'
+      ...
+    # Subtest: a channel name splits into Flow TV's two balanced lines
+    ok 8 - a channel name splits into Flow TV's two balanced lines
+      ---
+      duration_ms: 2.0458
+      type: 'test'
+      ...
+    1..8
+ok 75 - Willow TV library
+  ---
+  duration_ms: 139.4965
+  type: 'suite'
+  ...
+# Subtest: Willow TV remote props
+    # Subtest: channels sit in a ring, and a dead cover becomes the first clip's frame
+    ok 1 - channels sit in a ring, and a dead cover becomes the first clip's frame
+      ---
+      duration_ms: 1.901
+      type: 'test'
+      ...
+    # Subtest: a lone channel has no neighbours
+    ok 2 - a lone channel has no neighbours
+      ---
+      duration_ms: 1.162
+      type: 'test'
+      ...
+    # Subtest: a clip knows its neighbours in the channel; Mixing picks another channel
+    ok 3 - a clip knows its neighbours in the channel; Mixing picks another channel
+      ---
+      duration_ms: 2.0418
+      type: 'test'
+      ...
+    # Subtest: a short film plays in the short-film channel, with its project as its author
+    ok 4 - a short film plays in the short-film channel, with its project as its author
+      ---
+      duration_ms: 1.4274
+      type: 'test'
+      ...
+    # Subtest: search results play as a channel named for the search
+    ok 5 - search results play as a channel named for the search
+      ---
+      duration_ms: 1.1486
+      type: 'test'
+      ...
+    1..5
+ok 76 - Willow TV remote props
+  ---
+  duration_ms: 8.7592
+  type: 'suite'
+  ...
+# Subtest: Willow TV routes
+    # Subtest: paths parse to Flow TV's pages under /tv
+    ok 1 - paths parse to Flow TV's pages under /tv
+      ---
+      duration_ms: 0.8052
+      type: 'test'
+      ...
+    # Subtest: links carry Flow TV's query parameters
+    ok 2 - links carry Flow TV's query parameters
+      ---
+      duration_ms: 1.3684
+      type: 'test'
+      ...
+    1..2
+ok 77 - Willow TV routes
+  ---
+  duration_ms: 2.5162
+  type: 'suite'
+  ...
+# Subtest: Willow TV motion
+    # Subtest: Flow TV's easings start at 0, end at 1, and never go back
+    ok 1 - Flow TV's easings start at 0, end at 1, and never go back
+      ---
+      duration_ms: 15.0006
+      type: 'test'
+      ...
+    1..1
+ok 78 - Willow TV motion
+  ---
+  duration_ms: 15.2888
+  type: 'suite'
+  ...
+# Subtest: Willow TV stylesheet and icons
+    # Subtest: Flow TV's two `controls` modules and two `grid` modules stay apart in the port
+    ok 1 - Flow TV's two `controls` modules and two `grid` modules stay apart in the port
+      ---
+      duration_ms: 7.916
+      type: 'test'
+      ...
+    # Subtest: page-wide rules only reach inside Willow TV's root
+    ok 2 - page-wide rules only reach inside Willow TV's root
+      ---
+      duration_ms: 2.6375
+      type: 'test'
+      ...
+    # Subtest: the subset scripts always ask for the two-letter `tv` glyph the harvest skips
+    ok 3 - the subset scripts always ask for the two-letter `tv` glyph the harvest skips
+      ---
+      duration_ms: 248.6289
+      type: 'test'
+      ...
+    # Subtest: both of Media's Willow TV menu items open Willow TV
+    ok 4 - both of Media's Willow TV menu items open Willow TV
+      ---
+      duration_ms: 26.8259
+      type: 'test'
+      ...
+    1..4
+ok 79 - Willow TV stylesheet and icons
+  ---
+  duration_ms: 286.7138
+  type: 'suite'
+  ...
+1..79
+# tests 127
+# suites 16
+# pass 127
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 18258.815

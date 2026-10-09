@@ -97,6 +97,17 @@ npm run dev
 
 > Running `npm install` from source automatically provisions dependencies across the entire project, including Studio and the standalone backend services (`services/agent-builder`, `services/local-companion`). You can also run `npm run willow` to preview the built production app locally.
 
+### Option 4: The desktop app
+
+Willow also runs as a desktop app for Windows, macOS and Linux, built with [Tauri](https://tauri.app). It is the same Studio in a window of its own, plus what a browser tab cannot do: it keeps running in the tray when you close the window, so your dots keep working; it can open at login; it sends native notifications; your dots can work in a folder on your computer, running only the commands you approve; each dot can have a computer of its own — its own account on a Linux machine on your PC that your dots share (Windows, WSL 2), with a desktop, a browser, files and a shell, whose screen you can watch live and take over; and a pet stands on your desktop, telling you which Spark tasks are working, need you, or are done (Spark → Customise → Pets).
+
+```bash
+npm install
+npm run desktop:build   # needs Rust: https://rustup.rs
+```
+
+The installer lands in `apps/desktop/src-tauri/target/release/bundle/`. It carries its own Node.js, so the computer it goes on needs nothing else. The desktop app keeps its own settings and keys, separate from the browser's. Builds are not code-signed yet, so Windows SmartScreen and macOS Gatekeeper warn the first time. More in [apps/desktop](apps/desktop/AGENTS.md).
+
 <br />
 
 Open **http://localhost:3000**, then open **Settings → Models** and paste in a
@@ -270,9 +281,10 @@ cares which one you picked — and adding a third is a single file.
 ### API keys, and what leaves your machine
 
 **Your provider keys are stored on your device and nowhere else.** They sit in
-your browser's `localStorage` and go straight from your browser to whichever
-provider you're calling. They are never sent to Willow, and signing in does not
-change that.
+your browser's `localStorage` — and, once a folder is connected (always, in the
+desktop app), in `settings.json` at the top of it, beside your other settings —
+and go straight from your browser to whichever provider you're calling. They are
+never sent to Willow, and signing in does not change that.
 
 | You are | Where your keys live | Do they leave your machine? |
 | :-- | :-- | :-- |
@@ -327,6 +339,9 @@ nanostores for cross-surface state.
 | `npm run test` | The browser-side test suite |
 | `npm run agent-builder:test` | The workflow-engine backend's suite |
 | `npm run companion:test` | The local companion backend smoke test |
+| `npm run companion:computers` | Dots' own computers, for real (Windows with WSL 2; the first run builds the base) |
+| `npm run desktop:dev` | The desktop app against a dev server on port 3417 |
+| `npm run desktop:build` | Build the desktop app and its installer for this OS |
 | `npm run lint` | ESLint |
 
 ### CLI Options

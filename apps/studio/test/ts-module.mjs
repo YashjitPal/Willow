@@ -268,6 +268,21 @@ const buildModule = async (file, cache, pending, query = '') => {
     if (isBuiltin(specifier)) continue;
     if (!walkable.has(specifier)) continue;
     if (isBare(specifier)) {
+      // `esbuild-wasm/esbuild.wasm?url` — a package file imported for its URL or
+      // text rather than as a module.
+      const { path: barePath, query: bareQuery } = splitQuery(specifier);
+      if (bareQuery === 'url' || bareQuery === 'raw') {
+        try {
+          const file = requireFromRepo.resolve(barePath);
+          specifiers.set(
+            specifier,
+            toDataUrl(`export default ${JSON.stringify(bareQuery === 'raw' ? fs.readFileSync(file, 'utf8') : file)};`),
+          );
+        } catch {
+          /* Unresolvable: leave it, so the import fails naming the package. */
+        }
+        continue;
+      }
       const url = resolveBare(specifier);
       if (url) specifiers.set(specifier, url);
       continue;

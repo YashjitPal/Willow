@@ -142,22 +142,16 @@
   animation: willow-gem-menu-in 0.1s ease-in-out;
 }
 
-@keyframes willow-bottom-sheet-enter {
-  0% { transform: translateY(100%); }
-  100% { transform: translateY(0); }
-}
-
-.willow-bottom-sheet-enter {
-  animation: willow-bottom-sheet-enter 0.195s cubic-bezier(0, 0, 0.2, 1) forwards;
-}
-
-@keyframes willow-backdrop-fade-in {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
-}
-
-.willow-backdrop-fade-in {
-  animation: willow-backdrop-fade-in 0.2s ease forwards;
+/*
+ * A tap leaves :hover on the element it hit, so on touch screens the composer's icon buttons
+ * would keep their hover circle after opening the plus menu. Gemini switches the layer off:
+ *
+ *   @media (hover: none) { .mat-mdc-button-base:hover > .mat-mdc-button-persistent-ripple::before { opacity: 0 } }
+ */
+@media (hover: none) {
+  .willow-composer-icon-button:hover {
+    background-color: transparent !important;
+  }
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -170,8 +164,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .willow-gem-menu-in { animation: none; }
-  .willow-bottom-sheet-enter { animation: none; }
-  .willow-backdrop-fade-in { animation: none; }
 }
 
 /* ==========================================================================
@@ -330,13 +322,83 @@
     color: rgba(0, 0, 0, 0.55);
   }
 
-  .willow-composer-leading-actions .luminous-symbols {
+  /*
+   * Once a conversation is on screen Gemini's placeholder drops to the prompt
+   * text's own 17px at weight 400, in an opaque #9a9b9c rather than 55% white.
+   * Measured at every width from 390 to 959; the 20px one above is the new-chat
+   * screen's. Light is unmeasured and keeps its colour.
+   */
+  .willow-gemini-composer[data-docked] .willow-dictation-textarea::-webkit-input-placeholder,
+  .willow-gemini-composer[data-docked] .willow-dictation-textarea::placeholder {
+    font-size: 17px;
+    font-weight: 400;
+    color: #9a9b9c;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .willow-gemini-composer[data-docked] .willow-dictation-textarea::-webkit-input-placeholder,
+  :is(.light-theme, [data-theme="light"]) .willow-gemini-composer[data-docked] .willow-dictation-textarea::placeholder {
+    color: rgba(0, 0, 0, 0.55);
+  }
+
+  /* The plus menu renders inside this cluster but draws its own 24px glyphs. */
+  .willow-composer-leading-actions .luminous-symbols:not([role="menu"] *) {
     font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260 !important;
     font-weight: 260 !important;
     width: 28px !important;
     height: 28px !important;
     font-size: 28px !important;
   }
+
+  /* The mic is the same `lm-icon-xl` glyph as the plus: 28px at weight 260. */
+  .willow-composer-mic-glyph {
+    font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260 !important;
+    font-weight: 260 !important;
+    line-height: 28px !important;
+  }
+
+  /*
+   * Dictating, the mic is Gemini's stop button: `send-button stop is-mobile`, #141414 here
+   * (#171717 above 960px), its filled `stop` glyph `lm-icon-xl` at 28px and weight 260.
+   * Gemini focuses it as the take starts, and at this width its focus shows: a 2.4px #e0e0e0
+   * ring, 1.6px out. Measured at 390 and 800 off gemini.google.com/app (Oct 2026).
+   */
+  .willow-dictation-stop {
+    background-color: #141414 !important;
+  }
+
+  .willow-dictation-stop-glyph {
+    font-variation-settings: "FILL" 1, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260 !important;
+    font-weight: 260 !important;
+    line-height: 28px !important;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .willow-dictation-stop {
+    background-color: #f2f0f0 !important;
+  }
+
+  .willow-dictation-stop:focus {
+    outline: 2.4px solid #e0e0e0;
+    outline-offset: 1.6px;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .willow-dictation-stop:focus {
+    outline-color: #1f1f1f;
+  }
+}
+
+/* While voice typing sets up on this device (its first download), in place of the waveform. */
+.willow-dictation-status {
+  overflow: hidden;
+  color: #c4c7c5;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-dictation-status {
+  color: #444746;
 }
 
 

@@ -39,6 +39,22 @@ interface ProjectMenuProps {
   onRename?: () => void;
 }
 
+interface ProjectMenuItem {
+  label: string;
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+  variant?: 'danger';
+  onClick?: () => void;
+}
+
+const projectMenuItems = (onRename?: () => void, onDelete?: () => void): ProjectMenuItem[] => [
+  { label: 'Select', icon: SquareDashed },
+  { label: 'Move to folder', icon: Folder },
+  { label: 'Remix', icon: RotateCcw },
+  { label: 'Rename', icon: Pencil, onClick: onRename },
+  { label: 'Settings', icon: Settings },
+  { label: 'Delete', icon: Trash2, variant: 'danger', onClick: onDelete },
+];
+
 const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose, onDelete, onRename }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<'top' | 'bottom'>('bottom');
@@ -65,14 +81,7 @@ const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose, onDelete, onRename }
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
 
-  const menuItems: { label: string; icon: any; variant?: string; onClick?: () => void }[] = [
-    { label: 'Select', icon: SquareDashed },
-    { label: 'Move to folder', icon: Folder },
-    { label: 'Remix', icon: RotateCcw },
-    { label: 'Rename', icon: Pencil, onClick: onRename },
-    { label: 'Settings', icon: Settings },
-    { label: 'Delete', icon: Trash2, variant: 'danger', onClick: onDelete },
-  ];
+  const menuItems = projectMenuItems(onRename, onDelete);
 
   return (
     <div
@@ -101,6 +110,8 @@ const ProjectMenu: React.FC<ProjectMenuProps> = ({ onClose, onDelete, onRename }
 import { useBackground } from '@willow/studio/shell/BackgroundContext';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { GeminiBottomSheet, GeminiSheetItem, GeminiSheetList } from '@willow/ui/GeminiBottomSheet';
 import { HardDrive } from 'lucide-react';
 
 interface BottomPanelProps {
@@ -127,6 +138,12 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
   const { background } = useBackground();
   const { isDriveConnected } = useAuth();
   const { deleteLocalFSProject, renameLocalFSProject, isLocalFolderConnected } = useLocalFS();
+  const isCompact = useCompactViewport();
+  // At 960px and below a card's actions are a bottom sheet, in the Code tab's copy and Media's,
+  // as every other narrow page does. The sheet keeps the last project it opened for, so its rows
+  // stay filled while it animates out.
+  const menuAsSheet = isCompact;
+  const [sheetProjectId, setSheetProjectId] = useState<string | null>(null);
 
   const [projectsList, setProjectsList] = useState<{ id: string; name: string; hasCover?: boolean; isStarred?: boolean; coverUrl?: string }[]>([]);
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({});
@@ -248,8 +265,10 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
 
   const toggleMenu = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    if (openMenuId !== id) setSheetProjectId(id);
     setOpenMenuId(openMenuId === id ? null : id);
   };
+  const sheetProject = menuAsSheet ? projectsList.find((p) => p.id === sheetProjectId) : undefined;
 
   if (background === 'solid' && !forceVisible) {
     return null;
@@ -264,7 +283,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
     : 'bg-[#0d0d0d]/70';
 
   return (
-    <div className="mx-12 pt-7 pb-8 px-8 mt-auto relative z-20 transition-colors duration-300">
+    <div className="showcase-panel mx-12 pt-7 pb-8 px-8 mt-auto relative z-20 transition-colors duration-300">
       <style>{`
         @keyframes subtle-star-jump {
           0%, 100% { transform: translateY(0); }
@@ -303,9 +322,9 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
       )}
 
       {/* "My Apps" Center Aligned */}
-      <div className="flex flex-col items-center justify-center gap-1.5 mb-6">
+      <div className="showcase-head flex flex-col items-center justify-center gap-1.5 mb-6">
         <h2 
-          className="text-[#fbfcfe] text-center select-none font-bold antialiased" 
+          className="showcase-title text-[#fbfcfe] text-center select-none font-bold antialiased" 
           style={{ 
             fontFamily: '"Plus Jakarta Sans", "Outfit", "Ginto", "ui-sans-serif", "system-ui", "sans-serif"', 
             fontSize: '34px', 
@@ -317,10 +336,10 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
           My Apps
         </h2>
       </div>
-      <div className="h-[1px] bg-white/10 w-full mb-8" />
+      <div className="showcase-divider h-[1px] bg-white/10 w-full mb-8" />
 
       {/* Horizontal Tabs / Pills Center Aligned */}
-      <div className="flex items-center justify-center gap-5 select-none mb-8">
+      <div className="showcase-pills flex items-center justify-center gap-5 select-none mb-8">
         {['Recents', 'Starred', 'Published', 'All Apps', 'Archived'].map((filter) => {
           const isActive = selectedFilter === filter;
           return (
@@ -339,7 +358,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
         })}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="showcase-grid grid grid-cols-1 xl:grid-cols-2 gap-4">
         {projectsList.map((project, index) => {
           const isStarred = starredProjects.has(project.id);
           const isAnimating = animatingStar === project.id;
@@ -349,10 +368,10 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
           return (
             <div
               key={project.id}
-              className="group relative flex bg-[#1f1f1f]/50 border border-white/5 rounded-2xl p-3 transition-all hover:border-white/10 cursor-pointer"
+              className="showcase-card group relative flex bg-[#1f1f1f]/50 border border-white/5 rounded-2xl p-3 transition-all hover:border-white/10 cursor-pointer"
               onClick={() => openProject(project as any)}
             >
-                <div className="relative w-[240px] aspect-[16/9] bg-[#2c2c2e] rounded-xl overflow-hidden shrink-0 border border-white/5">
+                <div className="showcase-thumb relative w-[240px] aspect-[16/9] bg-[#2c2c2e] rounded-xl overflow-hidden shrink-0 border border-white/5">
                     {thumbnail ? (
                       isCoverVideo(thumbnail) ? (
                         <video src={thumbnail} className="w-full h-full object-cover opacity-90" autoPlay loop muted playsInline />
@@ -362,10 +381,10 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
                     ) : (
                       <div className="w-full h-full bg-[#2c2c2e]" />
                     )}
-                    <div className="absolute top-2 right-2">
+                    <div className="showcase-star-slot absolute top-2 right-2">
                       <button 
                         onClick={(e) => toggleStar(e, project.id)}
-                        className={`w-8 h-8 flex items-center justify-center backdrop-blur-xl rounded-xl border active:scale-95
+                        className={`showcase-star w-8 h-8 flex items-center justify-center backdrop-blur-xl rounded-xl border active:scale-95
                           ${isStarred 
                             ? 'opacity-100 bg-black/60 border-white/10 text-yellow-400 shadow-lg shadow-yellow-500/10' 
                             : 'opacity-0 group-hover:opacity-100 bg-black/40 border-white/10 text-white/70 hover:text-white hover:bg-black/60'}`}
@@ -377,7 +396,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
                     </div>
                 </div>
                 
-                <div className="flex flex-col flex-1 min-w-0 pl-5 pt-1 pb-0">
+                <div className="showcase-details flex flex-col flex-1 min-w-0 pl-5 pt-1 pb-0">
                     <div className="flex items-center justify-between gap-4">
                         {renamingId === project.id ? (
                           <input
@@ -405,7 +424,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
                             className="flex-1 min-w-0 bg-transparent border-b border-white/20 text-white text-[18px] font-bold outline-none"
                           />
                         ) : (
-                          <h3 className="text-[18px] font-bold text-white truncate">
+                          <h3 className="showcase-name text-[18px] font-bold text-white truncate">
                             {project.name}
                           </h3>
                         )}
@@ -414,14 +433,14 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
                           <button
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => toggleMenu(e, project.id)}
-                            className={`p-1.5 rounded-lg transition-opacity
+                            className={`showcase-more p-1.5 rounded-lg transition-opacity
                               ${isMenuOpen
                                 ? 'opacity-100 text-white bg-transparent'
                                 : 'opacity-0 group-hover:opacity-100 text-[#8e8e93] hover:text-white hover:bg-white/5'}`}
                           >
                             <MoreHorizontal size={16} />
                           </button>
-                          {isMenuOpen && (
+                          {isMenuOpen && !menuAsSheet && (
                             <ProjectMenu
                               onClose={() => setOpenMenuId(null)}
                               onDelete={() => handleDeleteProject(project.id, project.name)}
@@ -431,11 +450,11 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
                         </div>
                     </div>
 
-                    <p className="text-[13px] text-[#71717a] line-clamp-2 leading-relaxed max-w-[500px] mt-1">
+                    <p className="showcase-desc text-[13px] text-[#71717a] line-clamp-2 leading-relaxed max-w-[500px] mt-1">
                       {(project as any).kind === 'code' ? 'A React application built with Willow Code. Automatically saved to your workspace.' : 'A multimedia project with generated assets and content.'}
                     </p>
 
-                    <div className="mt-auto flex items-center justify-end gap-1.5 pt-4">
+                    <div className="showcase-actions mt-auto flex items-center justify-end gap-1.5 pt-4">
                         <button className="px-3 py-1 rounded-full text-[11.5px] font-medium bg-zinc-800 text-zinc-100 hover:bg-zinc-700 transition-colors">
                             Archive
                         </button>
@@ -454,6 +473,32 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ onOpenDriveSettings, m
           );
         })}
       </div>
+
+      {/* Outside the cards: a portal still bubbles React clicks, and a card's click opens its project. */}
+      {sheetProject && (
+        <GeminiBottomSheet
+          isOpen={openMenuId !== null}
+          onClose={() => setOpenMenuId(null)}
+          label={`Options for ${sheetProject.name}`}
+        >
+          <GeminiSheetList label={`Options for ${sheetProject.name}`}>
+            {projectMenuItems(
+              () => startRename(sheetProject),
+              () => handleDeleteProject(sheetProject.id, sheetProject.name),
+            ).map((item) => (
+              <GeminiSheetItem
+                key={item.label}
+                glyph={<item.icon size={22} strokeWidth={1.75} />}
+                label={item.label}
+                onSelect={() => {
+                  setOpenMenuId(null);
+                  item.onClick?.();
+                }}
+              />
+            ))}
+          </GeminiSheetList>
+        </GeminiBottomSheet>
+      )}
     </div>
   );
 };

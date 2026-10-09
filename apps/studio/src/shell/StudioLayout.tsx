@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { ProfilePhoto } from '@willow/ui/ProfilePhoto';
 import { Sidebar, ViewType } from './sidebar/Sidebar';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { SearchModal } from './SearchModal';
@@ -11,18 +13,25 @@ import { STUDIO_SIDEBAR_COLLAPSED_WIDTH, STUDIO_SIDEBAR_EXPANDED_WIDTH } from '@
 import type { StudioExperience } from '@willow/core/types';
 import { useStore } from '@nanostores/react';
 import { $chatPanelOpen, $voiceModeActive } from '@willow/chat/chat-panel-store';
+import { $chatGemId } from '@willow/gems/gem-chat-store';
 import { useAuth } from '@willow/auth/AuthContext';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { useThemeMode } from '@willow/core/theme-mode';
 import { experimentsStore } from '@willow/core/experiments-store';
+import { canChooseWindowButtons, isDesktopApp, reportDesktopWindowButtons } from '@willow/core/desktop-bridge';
+import { isAndroidApp } from '@willow/core/android-bridge';
+import { sparkLocation } from '@willow/spark/spark-store';
 import profileRingAsset from '@willow/assets/brand/profile-ring.png';
+import { DesktopFrame } from './rail/DesktopFrame';
+import { ShellActiveContext } from './shell-active';
+import { navigateRail, railCurrentFor } from './rail/rail-navigation';
+import { HarnessView } from '@willow/harness/HarnessView';
+import { $harnessLast, $harnessTab } from '@willow/harness/harness-store';
 
 /*
  * Signed out is NOT a different layout. Everything Willow does runs locally, so
- * the shell, the sidebar and the background are identical in both states and the
- * only thing sign-in changes is the handful of features that genuinely need an
- * account — those call `onAuthRequired` at their own call sites (see
- * `ChatView.tsx` `isAuthenticated` guards).
+ * the shell, the sidebar and the background are identical in both states, and
+ * only what genuinely needs a Google account (Drive) asks for one.
  *
  * This used to be three separate signed-out overrides: the `lines` shader forced
  * on regardless of the user's saved background, the sidebar gated out entirely,
@@ -62,11 +71,16 @@ export const StudioLayout: React.FC<{
   isSidebarCollapsed: boolean;
   setIsSidebarCollapsed: (collapsed: boolean) => void;
   isSidebarHidden?: boolean;
+  /** The desktop app's Code and Media, reached from its rail: the page is theirs, with no
+   *  sidebar — gone at once, not slid away as a workspace hides it. */
+  isSidebarAway?: boolean;
   modelConfig: any;
   /** The open notebook, forwarded so its sidebar row renders active. */
   activeNotebookId?: string | null;
   onOpenNotebook?: (notebookId: string) => void;
   onSignInClick?: () => void;
+  /** `/gems/create` or `/gems/edit/…`, whose narrow top bar shows the model picker instead of the wordmark. */
+  isGemsEditor?: boolean;
 }> = ({
   isSearchOpen,
   setIsSearchOpen,
@@ -85,10 +99,12 @@ export const StudioLayout: React.FC<{
   isSidebarCollapsed,
   setIsSidebarCollapsed,
   isSidebarHidden = false,
+  isSidebarAway = false,
   modelConfig,
   activeNotebookId = null,
   onOpenNotebook,
   onSignInClick,
+  isGemsEditor = false,
 }) => {
   const { background } = useBackground();
   const { 
@@ -101,8 +117,8 @@ export const StudioLayout: React.FC<{
     disconnectLocalFolder
   } = useLocalFS();
 
-  const { user, userProfile } = useAuth();
-  const theme = getWorkspaceTheme(userProfile?.workspaceColor);
+  const { user, userProfile, workspaceColor } = useAuth();
+  const theme = getWorkspaceTheme(workspaceColor);
   const selectionBg = theme.creamy.rgba;
 
   const { isLight } = useThemeMode();
@@ -112,10 +128,42 @@ export const StudioLayout: React.FC<{
   const chatPanelOpen = useStore($chatPanelOpen);
   const voiceModeActive = useStore($voiceModeActive);
   const isChatOngoing = isChatExperience && (!!activeChatId || hasActiveChat);
+  /*
+   * A Gem's chat, even before its first message. Gemini's top bar there is the ongoing
+   * chat's — New chat, not the temporary-chat button and avatar — and its three-dot opens
+   * an empty menu until there is a conversation, so only New chat is drawn.
+   */
+  const chatGemId = useStore($chatGemId);
+  const isGemChat = isChatExperience && !!chatGemId;
   const studioSurface = isLight ? '#faf9f9' : undefined;
   const [isSidebarOpenPressed, setIsSidebarOpenPressed] = useState(false);
-  
-  return (
+  const sparkPage = useStore(sparkLocation).page;
+  const isDesktop = isDesktopApp();
+  // Labs' choice of window buttons, which the strip draws; macOS always has its own.
+  const macWindowButtons = (experiments['mac-window-buttons'] ?? false) && canChooseWindowButtons();
+  useEffect(() => {
+    if (isDesktop) reportDesktopWindowButtons(macWindowButtons);
+  }, [isDesktop, macWindowButtons]);
+
+  // An agent tab, while one is in front, shows in the page instead of Willow's own layout.
+  const harnessTab = useStore($harnessTab);
+  const shellActive = React.useContext(ShellActiveContext);
+  const harnessLast = useStore($harnessLast);
+  const railCurrent = railCurrentFor({ harnessTab, currentView, studioExperience, studioMode, sparkPage });
+  const navigate = useNavigate();
+  /*
+   * <main> is the scroller of Spark's pages, shared by the rail's tabs, each kept mounted
+   * (`keptShellTabs` in App, `withBots` in Spark): each keeps its own place in it, put back as it
+   * comes on show again — at once, since <main> scrolls smoothly.
+   */
+  const mainRef = React.useRef<HTMLElement>(null);
+  const mainScrollKey = `${currentView}:${isChatExperience ? studioMode : sparkPage === 'dots' ? 'bots' : 'spark'}`;
+  const mainScrollsRef = React.useRef(new Map<string, number>());
+  React.useLayoutEffect(() => {
+    mainRef.current?.scrollTo({ top: mainScrollsRef.current.get(mainScrollKey) ?? 0, behavior: 'instant' });
+  }, [mainScrollKey]);
+
+  const layout = (
     <div
       className={`studio-layout studio-layout--${studioExperience} ${isLight ? 'light-theme text-[#1f1f1f]' : 'text-white'} flex h-screen w-screen overflow-hidden bg-[var(--studio-surface)] relative`}
       style={{
@@ -146,7 +194,7 @@ export const StudioLayout: React.FC<{
       )}
 
       {/* Mobile sidebar toggle button (universal across all views; exact Gemini 32px menu icon in Luminous Symbols) */}
-      {isSidebarCollapsed && !isSidebarHidden && (
+      {isSidebarCollapsed && !isSidebarHidden && !isSidebarAway && (
         <button
           type="button"
           className="studio-sidebar-mobile-open"
@@ -180,47 +228,50 @@ export const StudioLayout: React.FC<{
           </span>
         </button>
       )}
-      <Sidebar
-        onSearchClick={() => {
-          setIsSearchOpen(false);
-          setCurrentView('search');
-        }}
-        currentView={currentView}
-        onViewChange={(view) => {
-          if (typeof window !== 'undefined' && window.innerWidth <= 960) {
-            setIsSidebarCollapsed(true);
-          }
-          setCurrentView(view);
-        }}
-        studioMode={studioMode}
-        onModeChange={onModeChange}
-        studioExperience={studioExperience}
-        onStudioExperienceChange={onStudioExperienceChange}
-        onSettingsClick={onSettingsClick}
-        backgroundType={background}
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        hasActiveChat={isChatOngoing}
-        onNewChat={() => {
-          if (typeof window !== 'undefined' && window.innerWidth <= 960) {
-            setIsSidebarCollapsed(true);
-          }
-          selectLocalFSInboxChat(null);
-          onNewChat();
-        }}
-        isIncognito={isIncognito}
-        onIncognitoChat={onIncognitoChat}
-        isHidden={isSidebarHidden}
-        activeNotebookId={activeNotebookId}
-        onOpenNotebook={(id) => {
-          if (typeof window !== 'undefined' && window.innerWidth <= 960) {
-            setIsSidebarCollapsed(true);
-          }
-          onOpenNotebook?.(id);
-        }}
-        onSignInClick={onSignInClick}
-      />
-      {!isSidebarCollapsed && (
+      {/* Kept mounted while away, so its lists and scroll are as they were on the way back. */}
+      <div style={{ display: isSidebarAway ? 'none' : 'contents' }}>
+        <Sidebar
+          onSearchClick={() => {
+            setIsSearchOpen(false);
+            setCurrentView('search');
+          }}
+          currentView={currentView}
+          onViewChange={(view) => {
+            if (typeof window !== 'undefined' && window.innerWidth <= 960) {
+              setIsSidebarCollapsed(true);
+            }
+            setCurrentView(view);
+          }}
+          studioMode={studioMode}
+          onModeChange={onModeChange}
+          studioExperience={studioExperience}
+          onStudioExperienceChange={onStudioExperienceChange}
+          onSettingsClick={onSettingsClick}
+          backgroundType={background}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          hasActiveChat={isChatOngoing}
+          onNewChat={() => {
+            if (typeof window !== 'undefined' && window.innerWidth <= 960) {
+              setIsSidebarCollapsed(true);
+            }
+            selectLocalFSInboxChat(null);
+            onNewChat();
+          }}
+          isIncognito={isIncognito}
+          onIncognitoChat={onIncognitoChat}
+          isHidden={isSidebarHidden}
+          activeNotebookId={activeNotebookId}
+          onOpenNotebook={(id) => {
+            if (typeof window !== 'undefined' && window.innerWidth <= 960) {
+              setIsSidebarCollapsed(true);
+            }
+            onOpenNotebook?.(id);
+          }}
+          onSignInClick={onSignInClick}
+        />
+      </div>
+      {!isSidebarCollapsed && !isSidebarAway && (
         <button
           type="button"
           className="studio-sidebar-mobile-scrim"
@@ -242,15 +293,18 @@ export const StudioLayout: React.FC<{
               Willow requires your permission to read and write to the connected folder in order to sync your chats and projects.
             </p>
             <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void disconnectLocalFolder();
-                }}
-                className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
-              >
-                Turn off
-              </button>
+              {/* In the desktop app saving is always on. */}
+              {!isDesktop && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void disconnectLocalFolder();
+                  }}
+                  className="px-5 py-2.5 text-[14px] font-medium text-[#e3e3e3] hover:bg-white/5 rounded-full transition-colors"
+                >
+                  Turn off
+                </button>
+              )}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -292,7 +346,9 @@ export const StudioLayout: React.FC<{
           leave. The label has no interactive content, so this changes nothing
           visual.
         */}
-        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isIncognito && isChatOngoing && (
+        {/* Like the actions menu below, it steps aside for a right-hand panel: a full-screen
+            canvas's toolbar owns this strip. */}
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isIncognito && isChatOngoing && !chatPanelOpen && (
           <div
             data-test-id="temporary-chat-header"
             className="absolute inset-x-0 top-0 z-20 flex items-center justify-center p-4 pointer-events-none select-none"
@@ -326,7 +382,7 @@ export const StudioLayout: React.FC<{
           Tablet & Mobile (<= 960px): 48x48 at top 8 / right 52 with 32px icon (opsz 32, wght 240, lm-icon-xxl).
         */}
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && (
-          <div className="absolute top-[14px] right-[12px] max-[960px]:right-[52px] max-[960px]:top-[8px] z-30 flex items-center">
+          <div className={`absolute top-[14px] right-[12px] max-[960px]:right-[52px] max-[960px]:top-[8px] z-30 flex items-center${isGemChat ? ' max-[960px]:hidden' : ''}`}>
             <button
               onClick={() => {
                 selectLocalFSInboxChat(null);
@@ -370,7 +426,7 @@ export const StudioLayout: React.FC<{
           Button: 36x36 at top 14 / right 48 (directly adjacent to the 36x36 conversation menu at right 12).
           Icon: `gemini_chat` in Luminous Symbols at 24px (opsz 24, wght 300, lm-icon-l).
         */}
-        {currentView === 'home' && isChatExperience && studioMode === 'chat' && isChatOngoing && (
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && (isChatOngoing || isGemChat) && (
           <div className="min-[961px]:hidden absolute top-[14px] right-[48px] z-30 flex items-center">
             <button
               type="button"
@@ -400,12 +456,67 @@ export const StudioLayout: React.FC<{
           </div>
         )}
         {/*
+          The notebook list and create screens' top bar below 961px, as Gemini draws it
+          there: the wordmark at x 56 (a new-chat link) and the 36x36 New chat button 12px
+          from the right edge, its `gemini_chat` glyph 24px at weight 300 in #e0e0e0.
+          The Gems pages carry the same bar; in the Gem editor the model picker the editor
+          renders stands where the wordmark is. Customize, which Gemini has no counterpart
+          for, borrows it on every one of its screens.
+        */}
+        {(currentView === 'notebooks' || currentView === 'notebook-create' || currentView === 'gems' || currentView === 'customize') && (
+          <>
+            {!(currentView === 'gems' && isGemsEditor) && (
+            <div className="min-[961px]:hidden absolute top-[14px] left-[56px] z-30 flex items-center">
+              <button
+                type="button"
+                onClick={() => {
+                  selectLocalFSInboxChat(null);
+                  onNewChat();
+                  setCurrentView('home');
+                }}
+                aria-label="New chat"
+                className="studio-mobile-wordmark"
+              >
+                <span className="studio-mobile-wordmark-text">Willow</span>
+              </button>
+            </div>
+            )}
+            <div className="min-[961px]:hidden absolute top-[14px] right-[12px] z-30 flex items-center">
+              <button
+                type="button"
+                onClick={() => {
+                  selectLocalFSInboxChat(null);
+                  onNewChat();
+                  setCurrentView('home');
+                }}
+                title="New chat"
+                aria-label="New Chat"
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors bg-transparent active:scale-95 ${
+                  isLight ? 'text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#e0e0e0] hover:bg-[#e3e3e3]/[0.08]'
+                }`}
+              >
+                <span
+                  className="lumi-symbols text-[24px] leading-none select-none"
+                  style={{
+                    fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
+                    fontVariationSettings: '"FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300',
+                    fontWeight: 300,
+                  }}
+                >
+                  gemini_chat
+                </span>
+              </button>
+            </div>
+          </>
+        )}
+        {/*
           Mobile top-right account avatar button (Exact Gemini mobile specs at right: 8px, top: 12px, 40x40).
           Only shown in zero-state, matching Gemini (in an active conversation, replaced by conversation actions & new chat).
           Avatar is 32px (h-8 w-8 rounded-full).
           When the "Ring" experiment is enabled in Labs, overlays the exact Gemini membership ring (42x42 at -top-[1px] -left-[1px]).
+          Not over a workspace that hides the shell sidebar (the Code workbench, Design): their own headers own that corner.
         */}
-        {currentView === 'home' && isChatExperience && !isChatOngoing && (
+        {currentView === 'home' && isChatExperience && !isChatOngoing && !isGemChat && !isSidebarHidden && (
           <div className="min-[961px]:hidden absolute top-[12px] right-[8px] z-30 flex items-center">
             <button
               type="button"
@@ -422,11 +533,7 @@ export const StudioLayout: React.FC<{
                 />
               )}
               {userProfile?.photoURL ? (
-                <img
-                  src={userProfile.photoURL}
-                  alt="User"
-                  className="h-8 w-8 rounded-full object-cover"
-                />
+                <ProfilePhoto src={userProfile.photoURL} alt="" className="h-8 w-8" />
               ) : (
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#1e3a29] via-[#4a7c59] to-[#8fb896] text-[13px] font-medium text-white">
                   {userProfile?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
@@ -454,16 +561,54 @@ export const StudioLayout: React.FC<{
           </div>
         )}
         <main
+          ref={mainRef}
           className={`flex-1 relative z-10 ${
             isChatExperience ? 'overflow-hidden' : 'overflow-y-auto scroll-smooth'
           } flex flex-col ${
             isChatExperience ? '' : 'spark-studio-scroll'
           }`}
           style={isChatExperience ? undefined : { scrollbarGutter: 'stable' }}
+          onScroll={(event) => mainScrollsRef.current.set(mainScrollKey, event.currentTarget.scrollTop)}
         >
              {children}
         </main>
       </div>
     </div>
+  );
+
+  const withAgentTabs = (
+    <>
+      <div style={{ display: harnessTab ? 'none' : 'contents' }}>{layout}</div>
+      {harnessLast && <HarnessView harness={harnessTab ?? harnessLast} isLight={isLight} visible={harnessTab !== null} />}
+    </>
+  );
+
+  // The rail and the rounded page are the desktop app's; the website keeps its full-window layout,
+  // and Willow's Android app its agent tabs too, which its sidebar opens.
+  if (!isDesktop) return isAndroidApp() ? withAgentTabs : layout;
+
+  return (
+    <DesktopFrame
+      current={railCurrent}
+      onNavigate={(destination) => navigateRail(destination, {
+        current: railCurrent,
+        onShell: true,
+        currentView,
+        studioExperience,
+        setCurrentView,
+        onModeChange,
+        onStudioExperienceChange,
+        navigate,
+      })}
+      isIncognito={isIncognito}
+      onNewChat={onNewChat}
+      onTemporaryChat={onIncognitoChat}
+      onSettings={() => onSettingsClick()}
+      onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+      modelConfig={modelConfig}
+      active={shellActive}
+    >
+      {withAgentTabs}
+    </DesktopFrame>
   );
 };

@@ -25,7 +25,13 @@ import {
   type ProviderApiFormat,
 } from '@willow/ai/providers/profiles';
 import { collectSavedModelsInCatalogOrder, getModelCatalogKey, getModelCategory, getNormalizedModelOrder } from '@willow/core/model-catalog';
-import { CHROME_NATIVE_TRANSCRIPTION_MODEL, CHROME_NATIVE_TRANSCRIPTION_NAME, isLiveOnlyTranscriptionModel } from '@willow/ai/transcription';
+import {
+  CHROME_NATIVE_TRANSCRIPTION_MODEL,
+  CHROME_NATIVE_TRANSCRIPTION_NAME,
+  ON_DEVICE_TRANSCRIPTION_MODEL,
+  ON_DEVICE_TRANSCRIPTION_NAME,
+  canTranscribeAudio,
+} from '@willow/ai/transcription';
 import { useProviderSettings } from '../../use-provider-settings';
 import {
   DEFAULT_CUSTOM_REASONING_EFFORTS,
@@ -275,8 +281,8 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
    * and the composer's send button. Handed to the CSS as variables, which is how
    * the notebooks pages do it.
    */
-  const { userProfile } = useAuth();
-  const theme = getWorkspaceTheme(userProfile?.workspaceColor);
+  const { workspaceColor } = useAuth();
+  const theme = getWorkspaceTheme(workspaceColor);
 
   const [managingProvider, setManagingProvider] = React.useState<ProviderId | null>(null);
   const [wasManaging, setWasManaging] = React.useState(false);
@@ -397,11 +403,12 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
     [allSystemDefaultModels, providerState],
   );
 
-  // Dictation sends a finished recording, so the live-only transcribe SKU is not
-  // a choice this row can honour.
+  // Only models that can hear a finished recording: Gemini's, and OpenAI's transcription and
+  // audio models. A chat model with no audio input (Claude, Grok, GPT-5…) only ever failed
+  // here, and the live-only transcribe SKU has no recorded-audio API at all.
   const selectableTranscriptionModels = React.useMemo(
     () => configuredSystemDefaultModels.filter(
-      (model: any) => !isLiveOnlyTranscriptionModel(model.modelId || model.id),
+      (model: any) => canTranscribeAudio(model.provider, model.modelId || model.id),
     ),
     [configuredSystemDefaultModels],
   );
@@ -459,10 +466,9 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
   ].find((model: any) => model.modelId === modelId)?.name;
 
   const GEMINI_RENAMING_FALLBACKS: Record<string, string> = {
-    'gemini-3.7-flash': 'Gemini 3.7 Flash',
+    'gemini-3.8-flash': 'Gemini 3.8 Flash',
     'gemini-3.1-flash-lite': 'Gemini 3.1 Flash Lite',
     'gemini-3.5-flash-lite': 'Gemini 3.5 Flash Lite',
-    'gemini-3.6-flash': 'Gemini 3.6 Flash',
   };
 
   const chatRenamingLabel = savedModelName(systemDefaults.chatRenaming)
@@ -476,6 +482,7 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
 
   const TRANSCRIPTION_FALLBACKS: Record<string, string> = {
     [CHROME_NATIVE_TRANSCRIPTION_MODEL]: CHROME_NATIVE_TRANSCRIPTION_NAME,
+    [ON_DEVICE_TRANSCRIPTION_MODEL]: ON_DEVICE_TRANSCRIPTION_NAME,
     'gemini-3.5-transcribe': 'Gemini 3.5 Transcribe',
     'gemini-3.5-transcribe-live': 'Gemini 3.5 Transcribe Live',
     'gemini-3.5-flash-lite': 'Gemini 3.5 Flash Lite',
@@ -732,7 +739,7 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
       <div className="ma-row">
         <div className="ma-row-text">
           <div className="ma-title-m">Model for transcription</div>
-          <div className="ma-label-m">Model used to transcribe recorded voice input.</div>
+          <div className="ma-label-m">Model used to transcribe the composer's voice input.</div>
         </div>
         <div className="ma-row-control">
           <Dropdown
@@ -743,10 +750,17 @@ export const ModelsApiPage: React.FC<ModelsApiPageProps> = ({ modelConfig, setMo
               {
                 key: 'chrome-native',
                 label: CHROME_NATIVE_TRANSCRIPTION_NAME,
-                note: 'No API key · on-device when available',
+                note: 'No API key · where the browser has none, a keyed model or this device takes over',
                 selected: systemDefaults.transcription === CHROME_NATIVE_TRANSCRIPTION_MODEL,
-                dividerAfter: selectableTranscriptionModels.length > 0,
                 onSelect: () => setSystemDefault('transcription', CHROME_NATIVE_TRANSCRIPTION_MODEL),
+              },
+              {
+                key: 'on-device-whisper',
+                label: ON_DEVICE_TRANSCRIPTION_NAME,
+                note: 'No API key · audio never leaves this device · 39 MB download once',
+                selected: systemDefaults.transcription === ON_DEVICE_TRANSCRIPTION_MODEL,
+                dividerAfter: selectableTranscriptionModels.length > 0,
+                onSelect: () => setSystemDefault('transcription', ON_DEVICE_TRANSCRIPTION_MODEL),
               },
               ...selectableTranscriptionModels.map((model: any) => ({
                 key: `${model.provider}-${model.id || model.modelId}`,

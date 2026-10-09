@@ -4,7 +4,7 @@ import { embedGeminiText, embedGeminiTexts } from '@willow/ai/embeddings';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { loadChatEmbedding, saveChatEmbedding } from '@willow/storage/indexeddb/willow-db';
 import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
-import { isCodeChat } from '@willow/storage/code-chat-storage';
+import { checkCodeChat } from '@willow/storage/code-chat-storage';
 import { requestCodeChatOpen } from '@willow/storage/code-chat-open-store';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
@@ -484,26 +484,30 @@ const SearchResults: React.FC<{
  *
  * `selectLocalFSInboxChat` is skipped for the same reason as in the sidebar: it
  * would leave the code chat as the active chat, so the next switch to Chat mode
- * would open it there regardless.
+ * would open it there regardless. A chat with no Code marker is read once when
+ * nothing has read it yet (`checkCodeChat`), as the sidebar's rows are.
  */
 const openFoundChat = (
   scopeId: string,
   chatId: string,
   selectInboxChat: (chatId: string) => unknown,
+  loadChat: (chatId: string) => Promise<unknown[] | null>,
   onOpenChat?: (chatId: string) => void,
 ): void => {
-  if (isCodeChat(scopeId, chatId)) {
-    requestCodeChatOpen(chatId);
-    return;
-  }
-  void selectInboxChat(chatId);
-  onOpenChat?.(chatId);
+  void checkCodeChat(scopeId, chatId, loadChat).then((isCode) => {
+    if (isCode) {
+      requestCodeChatOpen(chatId);
+      return;
+    }
+    void selectInboxChat(chatId);
+    onOpenChat?.(chatId);
+  });
 };
 
 export const SearchChatsPage: React.FC<{ onOpenChat?: (chatId: string) => void; modelConfig: any }> = ({ onOpenChat, modelConfig }) => {
   const [query, setQuery] = useState('');
   const { results, isSearching } = useChatSearch(query, modelConfig);
-  const { chatScopeId, selectLocalFSInboxChat, isChatListHydrated } = useLocalFS();
+  const { chatScopeId, selectLocalFSInboxChat, loadLocalFSChat, isChatListHydrated } = useLocalFS();
 
   useEffect(() => {
     const loadingReason = 'search-chats-hydrating';
@@ -526,7 +530,7 @@ export const SearchChatsPage: React.FC<{ onOpenChat?: (chatId: string) => void; 
           results={results}
           isSearching={isSearching}
           onOpenChat={(chatId) => {
-            openFoundChat(chatScopeId, chatId, selectLocalFSInboxChat, onOpenChat);
+            openFoundChat(chatScopeId, chatId, selectLocalFSInboxChat, loadLocalFSChat, onOpenChat);
           }}
         />
       ) : (
@@ -539,7 +543,7 @@ export const SearchChatsPage: React.FC<{ onOpenChat?: (chatId: string) => void; 
 export const SearchChatsDialog: React.FC<SearchChatsProps> = ({ onOpenChat, autoFocus = true, onClose, modelConfig }) => {
   const [query, setQuery] = useState('');
   const { results, isSearching } = useChatSearch(query, modelConfig);
-  const { chatScopeId, selectLocalFSInboxChat, isChatListHydrated } = useLocalFS();
+  const { chatScopeId, selectLocalFSInboxChat, loadLocalFSChat, isChatListHydrated } = useLocalFS();
 
   useEffect(() => {
     const loadingReason = 'search-dialog-hydrating';
@@ -562,7 +566,7 @@ export const SearchChatsDialog: React.FC<SearchChatsProps> = ({ onOpenChat, auto
           results={results}
           isSearching={isSearching}
           onOpenChat={(chatId) => {
-            openFoundChat(chatScopeId, chatId, selectLocalFSInboxChat, onOpenChat);
+            openFoundChat(chatScopeId, chatId, selectLocalFSInboxChat, loadLocalFSChat, onOpenChat);
             onClose?.();
           }}
           compact

@@ -823,6 +823,89 @@
 
 /* ---------- Narrow viewports ---------- */
 
+/*
+ * Below 961px Models & API follows the Gemini-matched settings pages it is drawn after,
+ * Personal Intelligence first: the page starts under the 68px top bar on black and drops
+ * the 68px it held inside, and the headings take Gemini's narrow type axes. The cards keep
+ * their desktop surface, as Personal Intelligence's do.
+ */
+@media (max-width: 960px) {
+  .models-api-container {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+
+  .dark-theme .models-api-container {
+    --ma-surface: #000000;
+  }
+
+  .models-api-container .ma-page-content {
+    margin-top: 0;
+  }
+
+  .models-api-container .ma-display-s {
+    font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
+  }
+
+  .models-api-container .ma-page-description {
+    color: var(--ma-on-surface);
+  }
+
+  .models-api-container .ma-title-l {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  /*
+   * A grid track sized `auto` grows to its widest row's min-content, and a model row's
+   * min-content is its whole unwrapped name plus the price pill and both buttons, so the
+   * list pushed the page sideways. One shrinkable track keeps every row inside its card.
+   */
+  .models-api-container .ma-model-list,
+  .models-api-container .ma-provider-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .models-api-container .ma-model-row,
+  .models-api-container .ma-provider-row {
+    min-width: 0;
+  }
+}
+
+/*
+ * On a phone a model row's fixed parts alone (logo, price pill, remove and reorder) are
+ * wider than the card, so the row takes two lines: the logo and the buttons span both,
+ * with the name over the price between them.
+ */
+@media (max-width: 600px) {
+  .models-api-container .ma-model-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "mark text actions"
+      "mark price actions";
+    align-items: center;
+    column-gap: var(--ma-spacing-m);
+    row-gap: 6px;
+  }
+
+  .models-api-container .ma-model-mark {
+    grid-area: mark;
+  }
+
+  .models-api-container .ma-model-text {
+    grid-area: text;
+  }
+
+  .models-api-container .ma-model-price {
+    grid-area: price;
+    justify-self: start;
+  }
+
+  .models-api-container .ma-model-actions {
+    grid-area: actions;
+  }
+}
+
 @media (max-width: 767px) {
   .models-api-container .ma-field-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -926,7 +1009,7 @@
 :is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-button:focus,
 :is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-trigger:focus-visible,
 :is(.light-theme, [data-theme="light"]) .models-api-container .ma-input:focus {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .models-api-container .ma-dropdown-menu {
@@ -980,11 +1063,11 @@
 
 :is(.light-theme, [data-theme="light"]) .models-api-container .ma-button-outlined {
   border-color: #747775;
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .models-api-container .ma-button-outlined:hover {
-  background-color: rgba(11, 87, 208, 0.08);
+  background-color: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .models-api-container .ma-empty {

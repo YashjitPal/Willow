@@ -1,0 +1,304 @@
+/*
+ * A bot's Discord page (DotDiscord.tsx), inside the profile's page frame: the profile's groups and rows, with
+ * Discord's own mark and blurple where it stands for Discord.
+ */
+
+.dot-discord {
+  display: flex;
+  flex-direction: column;
+  --dot-discord-blurple: #5865f2;
+  --dot-discord-online: #23a55a;
+  --dot-discord-waiting: #f0b232;
+}
+
+.dot-discord__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22px 16px 18px;
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container);
+  text-align: center;
+}
+
+.dot-discord__mark {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--dot-discord-blurple);
+}
+
+.dot-discord__title {
+  margin-top: 14px;
+  color: var(--md-sys-color-on-surface);
+  font-size: 16px;
+  line-height: 22px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 100, "wght" 450;
+}
+
+.dot-discord__text {
+  margin-top: 4px;
+  color: var(--dot-panel-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.dot-discord__steps {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dot-discord__step {
+  display: flex;
+  min-height: 56px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+}
+
+.dot-discord__step.is-last {
+  align-items: flex-start;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.dot-discord__step-number {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.dot-discord__step.is-last .dot-discord__step-number {
+  margin-top: 16px;
+}
+
+.dot-discord__step-copy {
+  min-width: 0;
+  flex: 1;
+  color: var(--md-sys-color-on-surface);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.dot-discord__token-block {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.dot-discord__token {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot-discord__token-block .dot-discord__problem {
+  margin: 8px 2px 0;
+}
+
+.dot-discord__field {
+  min-width: 0;
+  flex: 1;
+  --md-outlined-text-field-container-shape: 12px;
+}
+
+.dot-discord__chip {
+  display: inline-flex;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s;
+}
+
+.dot-discord__chip:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 14%, var(--md-sys-color-surface-container-highest));
+}
+
+.dot-discord__chip:focus-visible,
+.dot-discord__primary:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.dot-discord a.dot-discord__primary {
+  height: 36px;
+  text-decoration: none;
+}
+
+.dot-discord__problem {
+  margin: 10px 6px 0;
+  color: var(--md-sys-color-error);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* ── Linked ─────────────────────────────────────────────────────────────── */
+
+/* What a row says here is how the bot behaves on Discord: worth reading whole, so it wraps rather than trails off. */
+.dot-discord :is(.dot-panel__row-title, .dot-panel__row-sub) {
+  white-space: normal;
+}
+
+.dot-discord__account {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.dot-discord__avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--dot-discord-blurple);
+  object-fit: cover;
+}
+
+.dot-discord__account-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dot-discord__account-name {
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface);
+  font-size: 16px;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 100, "wght" 450;
+}
+
+.dot-discord__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dot-panel-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.dot-discord__status-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--md-sys-color-outline);
+}
+
+.dot-discord__status.is-online .dot-discord__status-dot {
+  background: var(--dot-discord-online);
+}
+
+.dot-discord__status.is-connecting .dot-discord__status-dot,
+.dot-discord__status.is-offline .dot-discord__status-dot {
+  background: var(--dot-discord-waiting);
+}
+
+.dot-discord__status.is-error {
+  color: var(--md-sys-color-error);
+}
+
+.dot-discord__status.is-error .dot-discord__status-dot {
+  background: var(--md-sys-color-error);
+}
+
+.dot-discord__callout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 2px;
+  padding: 16px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--dot-discord-blurple) 16%, var(--md-sys-color-surface-container));
+  color: var(--md-sys-color-on-surface);
+  font-size: 13.5px;
+  line-height: 19px;
+}
+
+.dot-discord__callout.is-error {
+  margin-top: 12px;
+  background: color-mix(in srgb, var(--md-sys-color-error) 14%, var(--md-sys-color-surface-container));
+}
+
+.dot-discord__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dot-discord__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 18px;
+}
+
+.dot-discord__footer-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--dot-panel-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.dot-discord .dot-discord__danger {
+  --md-text-button-label-text-color: var(--md-sys-color-error);
+  --md-text-button-hover-label-text-color: var(--md-sys-color-error);
+  --md-text-button-focus-label-text-color: var(--md-sys-color-error);
+  --md-text-button-pressed-label-text-color: var(--md-sys-color-error);
+}
+
+/* The Discord button under the bot's name: a dot for how its Discord bot is doing. */
+.dot-panel__contact .spark-dots-profile__action.has-status {
+  position: relative;
+}
+
+.dot-panel__contact .spark-dots-profile__action.has-status::after {
+  position: absolute;
+  top: 8px;
+  right: calc(50% - 15px);
+  width: 7px;
+  height: 7px;
+  border: 2px solid var(--md-sys-color-surface-container, #1e1f20);
+  border-radius: 50%;
+  background: #23a55a;
+  content: "";
+}
+
+.dot-panel__contact .spark-dots-profile__action.has-status.is-error::after {
+  background: var(--md-sys-color-error, #f2b8b5);
+}

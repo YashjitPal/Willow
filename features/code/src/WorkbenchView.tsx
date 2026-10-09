@@ -9,11 +9,14 @@ import { useAutoSave } from './use-auto-save';
 import { useAuth } from '@willow/auth/AuthContext';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
-import { testStore } from '@willow/ai/computer-use/test-store';
+import { CodeSessionContext, useCodeScreenSession } from './session/code-session';
 import { MessageLoading } from '@willow/ui/message-loading';
 import { PROJECT_NAME_MODEL } from '@models';
 import { PROJECTS_UPDATED_EVENT, readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { deriveFallbackTitle } from '@willow/core/fallback-title';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { useViewportWidth } from './use-viewport-width';
+import './code-responsive.css';
 
 interface WorkbenchViewProps {
   prompt?: string;
@@ -24,10 +27,29 @@ interface WorkbenchViewProps {
   setSelectedModelId: (id: string) => void;
 }
 
+interface WorkbenchScreenProps extends WorkbenchViewProps {
+  /** The shell's name for this screen (see `session/code-session.ts`). */
+  screenKey: string;
+  /** False while the shell keeps the screen mounted, hidden, for a turn still running. */
+  isOnShow: boolean;
+}
+
+const WorkbenchScreen: React.FC<WorkbenchScreenProps> = ({ screenKey, isOnShow, ...props }) => {
+  const session = useCodeScreenSession(screenKey, isOnShow);
+  return (
+    <CodeSessionContext.Provider value={session}>
+      <WorkbenchView {...props} />
+    </CodeSessionContext.Provider>
+  );
+};
+
 const WorkbenchView: React.FC<WorkbenchViewProps> = ({ prompt: propPrompt, onSettingsClick, modelConfig, setModelConfig, selectedModelId, setSelectedModelId }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const location = useLocation();
+  // Below 961px the sidebar and the preview take turns filling the screen; see CodeHome.
+  const isCompact = useCompactViewport();
+  const viewportWidth = useViewportWidth();
   const urlPrompt = searchParams.get('prompt') || '';
   const projectId = searchParams.get('projectId') || '';
   const urlMode = searchParams.get('mode') || 'ship';
@@ -394,14 +416,25 @@ const WorkbenchView: React.FC<WorkbenchViewProps> = ({ prompt: propPrompt, onSet
 
   const [activeTab, setActiveTab] = useState('preview');
   
-  // Note: Test mode is no longer tied to activeTab
-  // testStore.enterTestMode() is called when test starts in WorkbenchSidebar.startTestGeneration()
-  // testStore.exitTestMode() is called when test completes
+  // Note: Test mode is no longer tied to activeTab. The harness's preview
+  // session turns this screen's testing overlay on and off as the agent tests.
   
   // Calculate effective layout based on chat mode
   const containerStyle = isChatMode 
     ? { width: '100%' } 
-    : { width: `${isSidebarCollapsed ? 0 : sidebarWidth}px` };
+    : isCompact
+      ? { width: isSidebarCollapsed ? '0px' : '100%' }
+      : { width: `${isSidebarCollapsed ? 0 : sidebarWidth}px` };
+
+  // A tool opens on the pane that holds it below 961px (see CodeHome).
+  useEffect(() => {
+    if (!isCompact || isChatMode) return;
+    if (activeTab === 'design' || activeTab === 'agents' || activeTab === 'canvas') {
+      setIsSidebarCollapsed(false);
+    } else if (activeTab === 'agent-builder' || activeTab === 'canvas-screens' || activeTab === 'canvas-elements') {
+      setIsSidebarCollapsed(true);
+    }
+  }, [activeTab]);
 
   const minimizeChat = useCallback(() => {
     setIsChatMode(false);
@@ -475,7 +508,7 @@ const WorkbenchView: React.FC<WorkbenchViewProps> = ({ prompt: propPrompt, onSet
             position: 'relative',
             left: isChatMode ? '50%' : '0',
             transform: isChatMode ? 'translateX(-50%)' : 'translateX(0)',
-            width: isChatMode ? '800px' : '100%',
+            width: isChatMode && !isCompact ? '800px' : '100%',
             ...(!isDragging && {
               transitionProperty: isChatMode ? 'left, transform, width' : 'width',
               transitionDuration: '500ms',
@@ -484,7 +517,7 @@ const WorkbenchView: React.FC<WorkbenchViewProps> = ({ prompt: propPrompt, onSet
           }}
         >
           <Sidebar
-            width={isChatMode ? 800 : sidebarWidth}
+            width={isCompact ? viewportWidth : isChatMode ? 800 : sidebarWidth}
             isCollapsed={isSidebarCollapsed}
             onToggle={toggleSidebar}
             prompt={prompt}
@@ -507,7 +540,7 @@ const WorkbenchView: React.FC<WorkbenchViewProps> = ({ prompt: propPrompt, onSet
       
       {/* Resizer Handle - Always rendered but hidden in Chat Mode */}
       <div 
-        className={`w-0 relative z-50 group flex-shrink-0 transition-opacity duration-300 ${isChatMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+        className={`w-0 relative z-50 group flex-shrink-0 transition-opacity duration-300 ${isChatMode || isCompact ? 'opacity-0 pointer-events-none' : 'opacity-100'}${isCompact ? ' hidden' : ''}`}
         onMouseDown={startResizing}
       >
           <div
@@ -558,4 +591,4 @@ const WorkbenchView: React.FC<WorkbenchViewProps> = ({ prompt: propPrompt, onSet
   );
 };
 
-export default React.memo(WorkbenchView);
+export default React.memo(WorkbenchScreen);

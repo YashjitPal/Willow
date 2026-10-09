@@ -1,0 +1,1350 @@
+/*
+ * Gemini Spark's remote-browser pane, measured at 1536×826 (dark theme): the side
+ * panel's `section-header`, `computer-use-panel` and `vnc-viewer`. Dumps and
+ * screenshots are in tools/ui-research/captures/spark/134-remote-browser/.
+ */
+.spark-remote-browser,
+.spark-remote-browser *,
+.spark-remote-browser-takeover,
+.spark-remote-browser-takeover * {
+  box-sizing: border-box;
+}
+
+.spark-remote-browser {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  color: #e3e3e3;
+}
+
+/* `.section-header`: 56px, `padding: 8px 16px`. */
+.spark-remote-browser__header {
+  display: flex;
+  height: 56px;
+  flex: 0 0 56px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+}
+
+/* `.title-wrapper`: `padding: 8px 12px`, gap 8px — a 24px weight-300 `monitor` and gds-title-s. */
+.spark-remote-browser__title-wrapper {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: #e3e3e3;
+}
+
+.spark-remote-browser__title {
+  color: #e6e6e6;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+}
+
+.spark-remote-browser__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* `.computer-use-close-button`: 36px, on-surface-variant, with the usual 8% state layer. */
+.spark-remote-browser__close {
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-remote-browser__close::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  content: "";
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.spark-remote-browser__close:hover::before,
+.spark-remote-browser__close:focus-visible::before {
+  opacity: 0.08;
+}
+
+.spark-remote-browser__content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+}
+
+/*
+ * `.floating-container` and `.iframe-container`: the viewer is 5:4 and as large as
+ * the box allows — `width: min(100cqw, 125cqh)` — under 24px of padding on three
+ * sides. At 1536×826 that is the measured 868.75×695.
+ */
+.spark-remote-browser__floating {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 24px 0;
+  overflow: hidden;
+  container-type: size;
+}
+
+.spark-remote-browser__viewer {
+  position: relative;
+  width: min(100cqw, 125cqh);
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 5 / 4;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+/* `vnc-viewer`: 2px larger than its container both ways, on surface-container. */
+.spark-remote-browser__screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  overflow: hidden;
+  border-radius: 16px;
+  background: #1e1f20;
+}
+
+/* The remote desktop: Gemini's VM is 1280×1024, drawn into the viewer at its scale. */
+.spark-remote-browser__display {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1280px;
+  height: 1024px;
+  overflow: hidden;
+  background: #ffffff;
+  transform-origin: 0 0;
+}
+
+.spark-remote-browser__page {
+  position: absolute;
+  top: 87px;
+  left: 0;
+  width: 1280px;
+  height: 937px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.spark-remote-browser__page > iframe {
+  display: block;
+  width: 1280px;
+  height: 937px;
+  border: 0;
+  pointer-events: none;
+}
+
+.spark-remote-browser__viewer.is-interactive .spark-remote-browser__page > iframe {
+  pointer-events: auto;
+}
+
+.spark-remote-browser__screenshot {
+  position: absolute;
+  top: 87px;
+  left: 0;
+  width: 1280px;
+  height: 937px;
+  object-fit: cover;
+  object-position: top left;
+  user-select: none;
+}
+
+/* The remote desktop's pointer, where the agent is acting. */
+.spark-remote-browser__cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 14px;
+  height: 22px;
+  margin: -1px 0 0 -1px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='22' viewBox='0 0 14 22'%3E%3Cpath d='M1.2 1.2v17.4l4.3-4.1 2.8 6.4 2.8-1.2-2.7-6.3h6z' fill='%23000' stroke='%23fff' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat;
+  pointer-events: none;
+  transition: transform 320ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/*
+ * The loader while the first page loads. Gemini's covers a VM boot: a band of
+ * #1e1f20 → #35383b sliding across, on a box three times the viewer, turned 33°,
+ * every 4.3s.
+ */
+.spark-remote-browser__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #1e1f20;
+}
+
+.spark-remote-browser__loading::before {
+  position: absolute;
+  inset: -100%;
+  background-image: linear-gradient(
+    90deg,
+    rgba(22, 22, 23, 0.2),
+    #1e1f20,
+    #35383b,
+    #1e1f20,
+    rgba(22, 22, 23, 0.2),
+    #1e1f20,
+    #35383b,
+    #1e1f20
+  );
+  background-size: 200% 200%;
+  content: "";
+  transform: rotate(33deg);
+  animation: spark-remote-browser-gradient 4.3s linear infinite;
+}
+
+@keyframes spark-remote-browser-gradient {
+  0% {
+    background-position: 200% center;
+  }
+
+  100% {
+    background-position: 0 center;
+  }
+}
+
+/*
+ * A step of the history whose image is in neither the browser nor the task's folder.
+ * Over the page only — the frame's address bar above still names the step — on the
+ * screen's own surface, in the loader's type.
+ */
+.spark-remote-browser__unavailable {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #1e1f20;
+  text-align: center;
+}
+
+.spark-remote-browser__unavailable-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: translate 0.2s ease-in-out;
+}
+
+/* Centred at rest; it makes way for "View Live", in step with the scrim's fade. */
+.spark-remote-browser__viewer:is(:hover, :focus-within) .spark-remote-browser__unavailable-body,
+.spark-remote-browser__viewer:has(.spark-remote-browser__scrim.is-revealed) .spark-remote-browser__unavailable-body {
+  translate: 0 72px;
+}
+
+.spark-remote-browser__unavailable-icon {
+  display: flex;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 8px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #282a2c;
+  color: #c4c7c5;
+}
+
+.spark-remote-browser__unavailable-title {
+  color: #e3e3e3;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 500;
+}
+
+.spark-remote-browser__unavailable-text,
+.spark-remote-browser__unavailable-details {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.spark-remote-browser__unavailable-text {
+  color: #c4c7c5;
+}
+
+.spark-remote-browser__unavailable-details {
+  margin-top: 4px;
+  color: #8e918f;
+}
+
+/* gds-label-l: 17px/24px weight 370. */
+.spark-remote-browser__loading-text {
+  position: relative;
+  color: #e3e3e3;
+  font-size: 17px;
+  font-weight: 370;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+}
+
+/*
+ * `.scrim`: fades in over the viewer on hover — transparent to 40% black down
+ * the frame — carrying previous/next either side of "Take over task" (or, viewing
+ * the history, "View Live" and the dots).
+ */
+.spark-remote-browser__scrim {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.4));
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.spark-remote-browser__scrim.has-screenshots {
+  justify-content: space-between;
+}
+
+.spark-remote-browser__viewer:hover .spark-remote-browser__scrim,
+.spark-remote-browser__scrim:focus-within,
+.spark-remote-browser__scrim.is-revealed {
+  opacity: 1;
+}
+
+.spark-remote-browser__nav-button {
+  display: flex;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 20px;
+  padding: 4px;
+  border: 0;
+  border-radius: 9999px;
+  background: #1e1f20;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-remote-browser__nav-button:hover:not(:disabled) {
+  opacity: 0.8;
+}
+
+.spark-remote-browser__nav-button:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
+/*
+ * `.take-control-button`: tonal, 56px, Material's -8px icon offset inside 24px padding.
+ * Scoped under the pane to outrank `.spark-task-detail button { font: inherit }`,
+ * which would otherwise set these labels in the thread's 16px.
+ */
+.spark-remote-browser .spark-remote-browser__take-over,
+.spark-remote-browser .spark-remote-browser__live-button,
+.spark-remote-browser-takeover__give-back {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  /* Material's button labels sit on the full width axis, not Spark's 92%. */
+  font-stretch: 100%;
+  line-height: 17.6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.spark-remote-browser__take-over {
+  height: 56px;
+  background: var(--spark-tonal-bg, #004a77);
+  color: var(--spark-tonal-text, #c2e7ff);
+  box-shadow:
+    rgba(0, 0, 0, 0.2) 0 2px 1px -1px,
+    rgba(0, 0, 0, 0.14) 0 1px 1px 0,
+    rgba(0, 0, 0, 0.12) 0 1px 3px 0;
+}
+
+.spark-remote-browser__live-button {
+  height: 56px;
+  background: #1e1f20;
+  color: #c4c7c5;
+}
+
+.spark-remote-browser__take-over > :first-child,
+.spark-remote-browser__live-button > :first-child {
+  position: relative;
+  margin: 0 8px 0 -8px;
+}
+
+.spark-remote-browser__take-over > span:last-child,
+.spark-remote-browser__live-button > span:last-child {
+  position: relative;
+}
+
+.spark-remote-browser__take-over::before,
+.spark-remote-browser__live-button::before,
+.spark-remote-browser-takeover__give-back::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  content: "";
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.spark-remote-browser__take-over:hover::before,
+.spark-remote-browser__take-over:focus-visible::before,
+.spark-remote-browser__live-button:hover::before,
+.spark-remote-browser-takeover__give-back:hover::before,
+.spark-remote-browser-takeover__give-back:focus-visible::before {
+  opacity: 0.08;
+}
+
+/* `.screenshot-dots`: 20px above the bottom, 6px dots 4px apart; the current one 14px wide. */
+.spark-remote-browser__dots {
+  position: absolute;
+  right: 0;
+  bottom: 20px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.spark-remote-browser__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 6px;
+  background: #1e1f20;
+  opacity: 0.6;
+}
+
+.spark-remote-browser__dot.is-active {
+  width: 14px;
+  opacity: 1;
+}
+
+/* `.computer-use-disclaimer`: 10px on a 17px line, on-surface-variant, centred. */
+.spark-remote-browser__disclaimer {
+  display: block;
+  flex: 0 0 auto;
+  margin: 8px 0;
+  padding: 0 16px;
+  color: #c4c7c5;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  text-align: center;
+}
+
+.spark-remote-browser :is(button, [role="button"], input):focus-visible,
+.spark-remote-browser-takeover :is(button, [role="button"], input):focus-visible {
+  outline: 2px solid #e3e3e3;
+  outline-offset: 2px;
+}
+
+/*
+ * "Take over task": `computer-use-panel.fullscreen-panel` — fixed over the whole
+ * window on Spark's #030303, a 72px header ("Remote computer" and the tonal
+ * "Go back to …"), the same 5:4 viewer, and the disclaimer 24px above the bottom.
+ */
+.spark-remote-browser-takeover {
+  position: fixed;
+  /* The whole window, or in the desktop app's frame its page (apps/studio shell/rail/AppRail.css). */
+  inset: var(--willow-frame-inset, 0);
+  border-radius: var(--willow-frame-page-radius, 0);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 24px;
+  background: #030303;
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+}
+
+.spark-remote-browser-takeover__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+.spark-remote-browser-takeover__header-left {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  gap: 12px;
+  color: #c4c7c5;
+}
+
+.spark-remote-browser-takeover__title {
+  color: #e3e3e3;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.spark-remote-browser-takeover__give-back {
+  height: 40px;
+  background: var(--spark-tonal-bg, #004a77);
+  color: var(--spark-tonal-text, #c2e7ff);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Phones and tablets (the pane's `compact`, 960px and below), measured off    */
+/* Gemini at 390×844 and 800×1280 while its VM was up. Captures, and the       */
+/* component's own stylesheet, in captures/spark/134-remote-browser/          */
+/* narrow-takeover/ (css/computer-use-panel.css).                             */
+/* ------------------------------------------------------------------------- */
+
+/* `computer-use-panel.fullscreen-panel`: the pane over the whole screen on #030303, 24px free under the disclaimer. */
+.spark-remote-browser.is-fullscreen {
+  padding-bottom: 24px;
+  background: #030303;
+}
+
+/* `.header.full-screen`: 16px all round — a 20px `monitor` 12px from "Remote computer", and the 40px close. */
+.spark-remote-browser.is-fullscreen .spark-remote-browser__header {
+  height: auto;
+  flex: 0 0 auto;
+  padding: 16px;
+}
+
+.spark-remote-browser.is-fullscreen .spark-remote-browser__title-wrapper {
+  gap: 12px;
+  padding: 0;
+  color: #c4c7c5;
+}
+
+.spark-remote-browser.is-fullscreen .spark-remote-browser__title {
+  color: #e3e3e3;
+}
+
+.spark-remote-browser.is-fullscreen .spark-remote-browser__close {
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+}
+
+/* `.bottom-container`: centred under the viewer, 12px above and between, wrapping; taken over, without its sides. */
+.spark-remote-browser__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 12px 0;
+}
+
+.spark-remote-browser__actions.is-in-control {
+  padding: 12px 0 0;
+}
+
+/*
+ * `.mobile-take-control-button` and its siblings: 48px pills as wide as 320px, an
+ * 18px glyph 8px from the label. "View history" sits on the surface; "Take over
+ * task" and "View Live" are Spark's tonal pair. Two fit a row on a tablet.
+ */
+.spark-remote-browser .spark-remote-browser__action {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+  min-width: 100px;
+  max-width: 320px;
+  height: 48px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px 8px 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: #131314;
+  color: #e3e3e3;
+  font-size: 14px;
+  font-weight: 500;
+  font-stretch: 100%;
+  font-variation-settings: normal;
+  line-height: 17.6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.spark-remote-browser .spark-remote-browser__action.is-tonal {
+  background: var(--spark-tonal-bg, #004a77);
+  color: var(--spark-tonal-text, #c2e7ff);
+}
+
+/*
+ * Taken over: the header is only its title, 52px; under the viewer, the controls.
+ * `.in-control-container` is 100% wide up to 390px inside its 16px (so 422px on a
+ * tablet), on the lowest surface, with only its top corners round until the screen
+ * is 423px wide.
+ */
+.spark-remote-browser-takeover.is-narrow .spark-remote-browser-takeover__header-left {
+  height: 20px;
+}
+
+.spark-remote-browser__control-bar {
+  display: flex;
+  width: 100%;
+  max-width: 390px;
+  box-sizing: content-box;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px 16px 0 0;
+  background: #0e0e0e;
+}
+
+@media (min-width: 423px) {
+  .spark-remote-browser__control-bar {
+    border-radius: 16px;
+  }
+}
+
+.spark-remote-browser__control-group {
+  display: flex;
+  gap: 12px;
+}
+
+/* `.icon-button`: 40px on the low surface; the lit switch on the primary container. */
+.spark-remote-browser__control {
+  position: relative;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 0;
+  border-radius: 9999px;
+  background: #1b1b1b;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-remote-browser__control.is-selected {
+  background: var(--sync-1f3760, #1f3760);
+  color: var(--sync-d3e3fd, #d3e3fd);
+}
+
+/*
+ * `keyboard-input-bar`: a tray along the bottom, slid up over 0.3s, #f0f0f0 in the
+ * dark theme too, as Gemini's is. In it a 56px pill on the container surface, 16px
+ * in and 8px off the bottom edge: the hide key, the text 4px either side, backspace
+ * and send.
+ */
+.spark-remote-browser__keyboard {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  padding-bottom: 10px;
+  border-radius: 16px 16px 0 0;
+  background: #f0f0f0;
+  box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+  animation: spark-remote-browser-keyboard-in 0.3s ease-out;
+}
+
+@supports (bottom: env(keyboard-inset-height)) {
+  .spark-remote-browser__keyboard {
+    padding-bottom: calc(10px + env(keyboard-inset-height));
+  }
+}
+
+@keyframes spark-remote-browser-keyboard-in {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+.spark-remote-browser__keyboard-field {
+  display: flex;
+  min-width: 0;
+  height: 56px;
+  box-sizing: content-box;
+  flex: 1 1 auto;
+  align-items: center;
+  margin: 16px 16px 8px;
+  border: 1px solid #444746;
+  border-radius: 9999px;
+  background: #1e1f20;
+}
+
+.spark-remote-browser__keyboard-button {
+  position: relative;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #c4c7c5;
+  cursor: pointer;
+}
+
+.spark-remote-browser__keyboard-input {
+  min-width: 0;
+  height: 24px;
+  flex: 1 1 auto;
+  margin: 0 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #e0e0e0;
+  caret-color: var(--sync-a8c7fa, #a8c7fa);
+  font: 400 16px/24px "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-variation-settings: normal;
+}
+
+.spark-remote-browser__keyboard-input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+  opacity: 1;
+}
+
+/* A Material text field shows no ring of its own; the pill is the field. */
+.spark-remote-browser-takeover input.spark-remote-browser__keyboard-input:focus-visible {
+  outline: none;
+}
+
+.spark-remote-browser .spark-remote-browser__action::before,
+.spark-remote-browser__control::before,
+.spark-remote-browser__keyboard-button::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  content: "";
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.spark-remote-browser .spark-remote-browser__action > *,
+.spark-remote-browser__control > *,
+.spark-remote-browser__keyboard-button > * {
+  position: relative;
+}
+
+.spark-remote-browser .spark-remote-browser__action:focus-visible::before,
+.spark-remote-browser__control:focus-visible::before,
+.spark-remote-browser__keyboard-button:focus-visible::before {
+  opacity: 0.08;
+}
+
+@media (hover: hover) {
+  .spark-remote-browser .spark-remote-browser__action:hover::before,
+  .spark-remote-browser__control:hover::before,
+  .spark-remote-browser__keyboard-button:hover::before {
+    opacity: 0.08;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-remote-browser__keyboard {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Chrome, as the remote desktop shows it: measured 1:1 off the 1280×1024 VNC  */
+/* framebuffer (vnc-frame.png).                                               */
+/* ------------------------------------------------------------------------- */
+
+.spark-remote-browser__chrome {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1280px;
+  height: 87px;
+  overflow: hidden;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-family: Roboto, "Google Sans Text", "Segoe UI", Arial, sans-serif;
+  font-variation-settings: normal;
+}
+
+/* The 40px tab strip in Chrome's default #d3e3fd. */
+.spark-remote-browser__tabstrip {
+  position: relative;
+  height: 40px;
+  background: #d3e3fd;
+}
+
+.spark-remote-browser__tab-search {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #ecf3fe;
+  color: #041e49;
+}
+
+.spark-remote-browser__pinned-tab {
+  position: absolute;
+  top: 12px;
+  left: 52px;
+  display: flex;
+  width: 16px;
+  height: 16px;
+  color: #828282;
+}
+
+/* The active tab: white, 12px top corners, and Chrome's 10px flares into the toolbar. */
+.spark-remote-browser__tab {
+  position: absolute;
+  top: 6px;
+  left: 84px;
+  width: 235px;
+  height: 34px;
+  border-radius: 12px 12px 0 0;
+  background: #ffffff;
+}
+
+.spark-remote-browser__tab::before,
+.spark-remote-browser__tab::after {
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  content: "";
+}
+
+.spark-remote-browser__tab::before {
+  left: -10px;
+  background: radial-gradient(circle at 0 0, transparent 9.5px, #ffffff 10px);
+}
+
+.spark-remote-browser__tab::after {
+  right: -10px;
+  background: radial-gradient(circle at 100% 0, transparent 9.5px, #ffffff 10px);
+}
+
+.spark-remote-browser__tab-icon {
+  position: absolute;
+  top: 9px;
+  left: 10px;
+  display: flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  color: #474747;
+}
+
+.spark-remote-browser__tab-icon img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+/* Chrome's loading throbber in place of the favicon. */
+.spark-remote-browser__throbber {
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 2px solid #0b57d0;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spark-remote-browser-throbber 700ms linear infinite;
+}
+
+@keyframes spark-remote-browser-throbber {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spark-remote-browser__tab-title {
+  position: absolute;
+  top: 8px;
+  left: 34px;
+  width: 172px;
+  overflow: hidden;
+  color: #1f1f1f;
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(90deg, #000 80%, transparent);
+  mask-image: linear-gradient(90deg, #000 80%, transparent);
+}
+
+.spark-remote-browser__tab-close {
+  position: absolute;
+  top: 9px;
+  left: 209px;
+  display: flex;
+  width: 16px;
+  height: 16px;
+  color: #1f1f1f;
+}
+
+/* Chrome's new-tab plus: a 10px cross of 2px bars in #474747. */
+.spark-remote-browser__new-tab {
+  position: absolute;
+  top: 15px;
+  left: 333px;
+  width: 10px;
+  height: 10px;
+}
+
+.spark-remote-browser__new-tab::before,
+.spark-remote-browser__new-tab::after {
+  position: absolute;
+  background: #474747;
+  content: "";
+}
+
+.spark-remote-browser__new-tab::before {
+  top: 4px;
+  left: 0;
+  width: 10px;
+  height: 2px;
+}
+
+.spark-remote-browser__new-tab::after {
+  top: 0;
+  left: 4px;
+  width: 2px;
+  height: 10px;
+}
+
+/* GTK's window controls in #5f6368. */
+.spark-remote-browser__window-controls > span {
+  position: absolute;
+}
+
+.spark-remote-browser__window-minimize {
+  top: 23px;
+  left: 1192px;
+  width: 10px;
+  height: 2px;
+  background: #5f6368;
+}
+
+/* GTK's restore: a whole 7px square behind, and only the left and bottom edges of the one in front. */
+.spark-remote-browser__window-restore {
+  top: 15px;
+  left: 1225px;
+  width: 10px;
+  height: 10px;
+}
+
+.spark-remote-browser__window-restore::before,
+.spark-remote-browser__window-restore::after {
+  position: absolute;
+  box-sizing: border-box;
+  border: 0 solid #5f6368;
+  content: "";
+}
+
+.spark-remote-browser__window-restore::before {
+  top: 0;
+  left: 3px;
+  width: 7px;
+  height: 7px;
+  border-width: 2px;
+}
+
+.spark-remote-browser__window-restore::after {
+  top: 2px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-bottom-width: 2px;
+  border-left-width: 2px;
+}
+
+.spark-remote-browser__window-close {
+  top: 14.5px;
+  left: 1257px;
+  width: 10px;
+  height: 10px;
+}
+
+.spark-remote-browser__window-close::before,
+.spark-remote-browser__window-close::after {
+  position: absolute;
+  top: 4px;
+  left: -1px;
+  width: 12px;
+  height: 2px;
+  background: #5f6368;
+  content: "";
+}
+
+.spark-remote-browser__window-close::before {
+  transform: rotate(45deg);
+}
+
+.spark-remote-browser__window-close::after {
+  transform: rotate(-45deg);
+}
+
+/* The 46px toolbar, then a 1px #e1e3e1 rule above the page. */
+.spark-remote-browser__toolbar {
+  position: relative;
+  height: 47px;
+  border-bottom: 1px solid #e1e3e1;
+  background: #ffffff;
+}
+
+.spark-remote-browser__toolbar-button {
+  position: absolute;
+  top: 4.5px;
+  display: flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #474747;
+  pointer-events: none;
+}
+
+.spark-remote-browser__toolbar-button:nth-of-type(1) {
+  left: 4.5px;
+}
+
+.spark-remote-browser__toolbar-button:nth-of-type(2) {
+  left: 40.5px;
+}
+
+.spark-remote-browser__toolbar-button:nth-of-type(3) {
+  left: 76.5px;
+}
+
+.spark-remote-browser__toolbar-button:disabled {
+  color: #ababab;
+}
+
+.is-interactive .spark-remote-browser__toolbar-button:not(:disabled) {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.is-interactive .spark-remote-browser__toolbar-button:not(:disabled):hover {
+  background: rgba(31, 31, 31, 0.08);
+}
+
+.spark-remote-browser__omnibox {
+  position: absolute;
+  top: 6px;
+  left: 121px;
+  display: flex;
+  width: 1019px;
+  height: 34px;
+  align-items: center;
+  margin: 0;
+  border-radius: 17px;
+  background: #edf2fa;
+}
+
+.spark-remote-browser__site-info {
+  position: absolute;
+  top: 5px;
+  left: 4.5px;
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+.spark-remote-browser__omnibox-text,
+.spark-remote-browser__omnibox-input {
+  position: absolute;
+  top: 0;
+  left: 37px;
+  width: 940px;
+  height: 34px;
+  overflow: hidden;
+  color: #1f1f1f;
+  font-size: 14px;
+  line-height: 34px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-remote-browser__omnibox-input {
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+}
+
+.is-interactive .spark-remote-browser__omnibox-text {
+  cursor: text;
+}
+
+.spark-remote-browser__omnibox-host {
+  color: #1f1f1f;
+}
+
+.spark-remote-browser__omnibox-rest {
+  color: #474747;
+}
+
+.spark-remote-browser__omnibox-end {
+  position: absolute;
+  top: 7px;
+  left: 985.5px;
+  display: flex;
+  width: 20px;
+  height: 20px;
+  color: #474747;
+}
+
+.spark-remote-browser__toolbar-icon {
+  position: absolute;
+  top: 12.5px;
+  display: flex;
+  width: 20px;
+  height: 20px;
+  color: #474747;
+}
+
+.spark-remote-browser__toolbar-icon:nth-of-type(1) {
+  left: 1157.5px;
+}
+
+.spark-remote-browser__toolbar-icon.is-profile {
+  left: 1210.5px;
+  color: #0b57d0;
+}
+
+.spark-remote-browser__toolbar-icon:last-child {
+  left: 1247px;
+}
+
+.spark-remote-browser__toolbar-separator {
+  position: absolute;
+  top: 14.5px;
+  left: 1193px;
+  width: 2px;
+  height: 16px;
+  background: #d3e3fd;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Light theme                                                                */
+/* ------------------------------------------------------------------------- */
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__title-wrapper,
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__close,
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__disclaimer {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__screen,
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__nav-button,
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__live-button {
+  background: #f0f4f9;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__loading {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__loading::before {
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.2),
+    #f0f4f9,
+    #dde3ea,
+    #f0f4f9,
+    rgba(255, 255, 255, 0.2),
+    #f0f4f9,
+    #dde3ea,
+    #f0f4f9
+  );
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__loading-text {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__dot {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__unavailable {
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__unavailable-icon {
+  background: #dde3ea;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__unavailable-title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__unavailable-text {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__unavailable-details {
+  color: #747775;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser-takeover {
+  background: #f8fafd;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser-takeover__header-left {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser-takeover__title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser-takeover .spark-remote-browser__disclaimer {
+  color: #444746;
+}
+
+/* The narrow pieces. Gemini's account is dark, so these follow the light surfaces above, unmeasured. */
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser.is-fullscreen {
+  background: #f8fafd;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser.is-fullscreen .spark-remote-browser__title-wrapper {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser.is-fullscreen .spark-remote-browser__title {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser .spark-remote-browser__action {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser .spark-remote-browser__action.is-tonal {
+  background: var(--spark-tonal-bg, #c2e7ff);
+  color: var(--spark-tonal-text, #001d35);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__control-bar {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__control {
+  background: #f0f4f9;
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__control.is-selected {
+  background: var(--sync-d3e3fd, #d3e3fd);
+  color: var(--sync-0842a0, #0842a0);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__keyboard-field {
+  border-color: #c4c7c5;
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__keyboard-button {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__keyboard-input {
+  color: #1f1f1f;
+  caret-color: var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-remote-browser__keyboard-input::placeholder {
+  color: rgba(0, 0, 0, 0.55);
+}

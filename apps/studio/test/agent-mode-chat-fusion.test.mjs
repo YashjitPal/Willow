@@ -1,21 +1,20 @@
 /**
- * The media-agent harness must not leak into normal chat.
+ * The Media agent declares only tools it executes, and nothing leaks into normal chat.
  *
- * WHAT WENT WRONG. `platform/ai/src/chat.ts` is shared by every caller that
+ * WHAT WENT WRONG, TWICE. `platform/ai/src/chat.ts` is shared by every caller that
  * streams a Gemini turn — chat, code, design, spark, visual-edit and the media
  * agent. It used to push a 20-tool media harness (`generate_image`,
- * `generate_video_from_text`, …) into *every* one of those turns, prefix each
- * caller's system prompt with an instruction to "call tools whenever the user
- * requests image/video generation", and set `functionCallingConfig.mode: AUTO`.
+ * `generate_video_from_text`, …) into *every* one of those turns, and when a tool
+ * came back with no executor the loop fell through to `mockExecuteTool`, whose
+ * `generate_image` branch returned a canned success pointing at one Unsplash photo.
+ * Normal chat asked for a picture, got a fabricated success, and reported it.
  *
- * Then, when a tool came back with no executor wired up, the loop silently fell
- * through to `mockExecuteTool`, whose `generate_image` branch returns a canned
- * success payload pointing at one hardcoded Unsplash photo.
- *
- * So asking normal chat for a picture made the model call an image generator it
- * did not have, receive a fabricated success, and report a generation that never
- * happened. Only the media agent passes a real `onToolCall`, so only the media
- * agent may opt in.
+ * Gating the suite on `enableMediaTools` fixed chat but not the Media agent itself:
+ * the suite was copied from Google Flow, and the agent ran every call through the
+ * same mock. Four video tools dropped a stock "stars in space" clip into the
+ * gallery, and a dozen more answered with invented collections, avatars, Street
+ * View images and credit balances. The tools now live with their executors in
+ * `features/media/src/agent/`, and chat.ts declares none of its own.
  */
 
 import { readFileSync } from 'node:fs';
@@ -27,6 +26,8 @@ const repoRoot = join(import.meta.dirname, '..', '..', '..');
 const read = (...parts) => readFileSync(join(repoRoot, ...parts), 'utf8');
 
 const chatTs = () => read('platform', 'ai', 'src', 'chat.ts');
+const agentTools = () => read('features', 'media', 'src', 'agent', 'agent-tools.ts');
+const agentSession = () => read('features', 'media', 'src', 'agent', 'agent-session.ts');
 
 /** Strip line comments so a rule quoted in prose never satisfies an assertion. */
 const codeOnly = (source) =>
@@ -35,88 +36,91 @@ const codeOnly = (source) =>
     .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
     .join('\n');
 
-// ── The gate itself ──────────────────────────────────────────────────────────
+// ── The shared stream client ─────────────────────────────────────────────────
 
-it('declares the media-tool opt-in, defaulting to off', () => {
+it('keeps the media-turn flag optional, so omitting it means off', () => {
   const source = chatTs();
-  assert.match(
-    source,
-    /enableMediaTools\?:\s*boolean/,
-    'AiOptions must carry an explicit opt-in for the generation harness',
-  );
-  // Optional, so `undefined` — the value every existing caller passes — is off.
+  assert.match(source, /enableMediaTools\?:\s*boolean/);
   assert.ok(
     !/enableMediaTools:\s*boolean(?!\s*\|)/.test(source),
     'the flag must stay optional so omitting it means off',
   );
 });
 
-it('pushes the harness tools only behind that flag', () => {
+it('declares no media tools of its own', () => {
   const source = codeOnly(chatTs());
-  const gate = source.match(
-    /const\s+mediaToolsEnabled\s*=\s*options\.enableMediaTools\s*===\s*true/,
-  );
-  assert.ok(gate, 'the harness must be gated on an explicit === true');
-
-  // The tool block must be guarded, not pushed unconditionally.
-  assert.match(
-    source,
-    /if\s*\(mediaToolsEnabled\)\s*tools\.push\(\{\s*[\r\n]+\s*functionDeclarations:/,
-    'functionDeclarations must sit behind the gate',
-  );
-  assert.ok(
-    !/(?<!if \(mediaToolsEnabled\) )tools\.push\(\{\s*[\r\n]+\s*functionDeclarations/.test(source),
-    'no unguarded functionDeclarations push may remain',
-  );
+  for (const name of ['generate_image', 'generate_video', 'check_video_generation_status', 'get_geo_grounding_image']) {
+    assert.ok(
+      !new RegExp(`name:\\s*["']${name}`).test(source),
+      `chat.ts must not declare ${name}; the Media agent declares its own tools`,
+    );
+  }
+  assert.ok(!/AGENT HARNESS SYSTEM INSTRUCTIONS/.test(source), 'no harness instruction may be injected into a caller prompt');
 });
 
-it('keeps the harness instruction out of an ungated system prompt', () => {
+it('sends the caller system prompt to Gemini verbatim', () => {
   const source = codeOnly(chatTs());
-  // With the gate off, the caller's own prompt must pass through untouched —
-  // the harness used to override each caller's style rules wholesale.
-  assert.match(
-    source,
-    /const\s+combinedSystemPrompt\s*=\s*mediaToolsEnabled/,
-    'the harness instruction must be conditional on the gate',
-  );
-  assert.match(
-    source,
-    /:\s*systemPrompt;/,
-    'with the gate off, the caller system prompt is used verbatim',
-  );
+  assert.match(source, /systemInstruction:\s*systemPrompt/);
+  assert.ok(!/combinedSystemPrompt/.test(source), 'nothing may rewrite the caller prompt any more');
 });
 
-// ── The silent fallback that fabricated the result ───────────────────────────
-
-it('never falls back to the mock executor inside the stream loop', () => {
-  const source = codeOnly(chatTs());
-  // `mockExecuteTool` may still be *exported* — MediaView passes it in on
-  // purpose — but the loop must not reach for it on its own.
-  assert.ok(
-    !/toolResult\s*=\s*mockExecuteTool\(/.test(source),
-    'a missing executor must surface as an error, not as a fabricated success',
-  );
+it('has no mock executor left to fall back to', () => {
+  assert.ok(!/mockExecuteTool/.test(chatTs()), 'the canned-result executor must stay deleted');
   assert.match(
-    source,
+    codeOnly(chatTs()),
     /is not available in this context/,
-    'the no-executor branch must tell the model the tool did not run',
+    'a tool with no executor must be reported to the model as not having run',
   );
 });
 
-it('still exports the mock for the one caller that opts in', () => {
-  assert.match(chatTs(), /export const mockExecuteTool/);
+// ── The Media agent ──────────────────────────────────────────────────────────
+
+const declaredToolNames = () => {
+  const source = codeOnly(agentTools());
+  const start = source.indexOf('export function buildMediaAgentToolDeclarations');
+  const end = source.indexOf('export function buildMediaAgentSystemPrompt');
+  assert.ok(start > 0 && end > start, 'could not find the declaration builder');
+  return [...source.slice(start, end).matchAll(/^\s*name:\s*'([a-z_]+)'/gm)].map((m) => m[1]).sort();
+};
+
+const executedToolNames = () => {
+  const source = codeOnly(agentSession());
+  const start = source.indexOf('const executeTool = async');
+  assert.ok(start > 0, 'could not find the tool executor');
+  const body = source.slice(start, source.indexOf('\n  };', start));
+  return [...body.matchAll(/case\s+'([a-z_]+)':/g)].map((m) => m[1]).sort();
+};
+
+it('gives every tool the Media agent declares an executor, and declares nothing else', () => {
+  const declared = declaredToolNames();
+  assert.ok(declared.length >= 4, `expected the agent to declare its tools, found ${declared.join(', ')}`);
+  assert.deepEqual(declared, executedToolNames());
+  const listed = [...codeOnly(agentTools()).match(/MEDIA_AGENT_TOOL_NAMES[^=]*=\s*\[([^\]]*)\]/)[1].matchAll(/'([a-z_]+)'/g)]
+    .map((m) => m[1])
+    .sort();
+  assert.deepEqual(listed, declared, 'MEDIA_AGENT_TOOL_NAMES must match the declarations');
+});
+
+it('opts into the media turn and supplies its own declarations', () => {
+  const source = codeOnly(agentSession());
+  assert.match(source, /enableMediaTools:\s*true/);
+  assert.match(source, /toolDeclarations:\s*buildMediaAgentToolDeclarations\(/);
+});
+
+it('ships no canned media for any tool', () => {
+  for (const parts of [
+    ['features', 'media', 'src', 'agent', 'agent-session.ts'],
+    ['features', 'media', 'src', 'agent', 'agent-tools.ts'],
+    ['features', 'media', 'src', 'MediaView.tsx'],
+  ]) {
+    const source = read(...parts);
+    assert.ok(!/mixkit\.co|unsplash\.com/.test(source), `${parts.join('/')} must not return stock media as a result`);
+  }
 });
 
 // ── Who may turn it on ───────────────────────────────────────────────────────
 
-it('enables media tools in the media agent, which has a real executor', () => {
-  const source = read('features', 'media', 'src', 'MediaView.tsx');
-  assert.match(source, /enableMediaTools:\s*true/, 'the media agent opts in');
-  // And it is the opt-in that pairs with a real onToolCall.
-  assert.match(source, /mockExecuteTool\(name,\s*args\)/);
-});
-
-it('leaves every other streamChat caller without the harness', () => {
+it('leaves every other streamChat caller without the media turn or its tools', () => {
   const callers = [
     ['features', 'chat', 'src', 'chat-turn-runner.ts'],
     ['features', 'code', 'src', 'workbench', 'WorkbenchSidebar.tsx'],
@@ -126,17 +130,12 @@ it('leaves every other streamChat caller without the harness', () => {
   ];
   for (const parts of callers) {
     const source = read(...parts);
-    assert.ok(
-      !/enableMediaTools/.test(source),
-      `${parts.join('/')} must not request the generation harness`,
-    );
+    assert.ok(!/enableMediaTools/.test(source), `${parts.join('/')} must not request the media turn`);
+    assert.ok(!/buildMediaAgentToolDeclarations/.test(source), `${parts.join('/')} must not declare the media tools`);
   }
 });
 
-it('drops the dead streamChat import the fusion left in the agent sidebar', () => {
+it('keeps streamChat out of the agent sidebar, which only renders the session', () => {
   const source = read('features', 'media', 'src', 'AgentSidebar.tsx');
-  assert.ok(
-    !/\bstreamChat\b/.test(source),
-    'AgentSidebar imported streamChat but never called it',
-  );
+  assert.ok(!/\bstreamChat\b/.test(source), 'turns run in agent-session.ts, not in the sidebar');
 });

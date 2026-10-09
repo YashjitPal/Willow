@@ -159,8 +159,21 @@
 .willow-search-results--compact .willow-search-result__title { font-size: 14px; }
 .willow-search-results--compact .willow-search-result__date { font-size: 13px; }
 
+/*
+ * Below 961px the page starts under the 68px top bar, as the narrow settings pages do, so
+ * the field never sits under the menu button; 12px of its own inset stays above the bar.
+ */
+@media (max-width: 960px) {
+  .willow-search-page {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+    padding-top: 12px;
+  }
+
+  .dark-theme .willow-search-page { background: #000000; }
+}
+
 @media (max-width: 720px) {
-  .willow-search-page { padding-top: 32px; }
   .willow-search-bar { width: calc(100% - 24px); }
   .willow-search-results__heading { width: calc(100% - 24px); }
   .willow-search-results__inner { width: calc(100% - 24px); }

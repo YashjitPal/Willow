@@ -1,0 +1,692 @@
+/*
+ * The side panel as the Codex app's (the Codex app UI clone's components/panels): the chat's own
+ * surface past a hairline, a strip of 32px tabs (13px, tertiary until chosen; the chosen one on a
+ * soft fill with a hairline edge and a faint drop), 28px icon buttons beside them, each surface
+ * under a hairline with a 40px bar of its own controls. Its launcher is Codex's new-tab page:
+ * soft-filled 40px rows naming each surface and its key. Diffs take Codex's git colours.
+ */
+
+[data-preview-panel-mode] {
+  --diff-addition: var(--codex-git-added);
+  --diff-deletion: var(--codex-git-deleted);
+  border-left-color: var(--codex-border) !important;
+  font-family: var(--font-sans);
+}
+
+/* ── The tab strip (PanelTabs) ────────────────────────────────────────────── */
+
+[data-right-panel-tabbar] {
+  gap: 4px;
+  padding-left: 8px;
+}
+
+[data-right-panel-tab-list] > * > div {
+  gap: 2px;
+}
+
+/*
+ * A tab (here and in the terminal drawer) is Willow's: the 12px corners of its menu rows, no edge,
+ * its rows' hover and its chips' fill (composer.css `--willow-chip-surface`) for the chosen one,
+ * in its secondary ink until chosen.
+ */
+:root {
+  --willow-tab-hover: rgb(0 0 0 / 5%);
+}
+
+:root.dark {
+  --willow-tab-hover: rgb(230 230 230 / 8%);
+}
+
+[data-right-panel-tab-list] [data-active-tab] {
+  position: relative;
+  height: 32px;
+  max-width: 224px;
+  gap: 8px;
+  padding: 4px 8px 4px 10px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--willow-pill-text);
+  font-size: 13px;
+  line-height: 18px;
+  user-select: none;
+}
+
+[data-right-panel-tab-list] [data-active-tab]:hover {
+  background: var(--willow-tab-hover);
+  color: var(--willow-pill-text-hover);
+}
+
+[data-right-panel-tab-list] [data-active-tab="true"],
+[data-right-panel-tab-list] [data-active-tab="true"]:hover {
+  background: var(--willow-chip-surface);
+  box-shadow: none;
+  color: var(--willow-chip-text);
+}
+
+[data-right-panel-tab-list] [data-active-tab] svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Codex's ghost icon buttons (IconButton, 28px): +, full screen, close. */
+[data-right-panel-tabbar] [data-slot="button"] {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--codex-icon);
+}
+
+[data-right-panel-tabbar] [data-slot="button"]:hover,
+[data-right-panel-tabbar] [data-slot="button"][data-popup-open] {
+  background: var(--codex-tertiary-hover);
+  color: var(--codex-ink);
+}
+
+[data-right-panel-tabbar] [data-slot="button"] svg {
+  width: 16px;
+  height: 16px;
+}
+
+[data-right-panel-surface-content] {
+  border-top: 1px solid var(--codex-border);
+}
+
+/*
+ * Willow's desktop app draws the panel's tabs in the strip across its window, over the panel
+ * (willow/stripTabs.ts). The row here keeps only the panel's controls, laid at its right end over
+ * the surface, and the surface's own bar (the browser's address bar, a review's tools) moves up
+ * beside them into the row's place, at the row's height and clear of the controls.
+ */
+:has(> [data-right-panel-tabbar][data-willow-strip-tabs]) {
+  position: relative;
+}
+
+[data-right-panel-tabbar][data-willow-strip-tabs] {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  padding-left: 0;
+  pointer-events: none;
+}
+
+[data-right-panel-tabbar][data-willow-strip-tabs] > * {
+  pointer-events: auto;
+}
+
+[data-right-panel-tabbar][data-willow-strip-tabs]
+  :is([data-right-panel-tab-list], [aria-label="Scroll panel tabs"]) {
+  display: none;
+}
+
+[data-right-panel-tabbar][data-willow-strip-tabs] + [data-right-panel-surface-content] {
+  border-top: 0;
+}
+
+[data-right-panel-tabbar][data-willow-strip-tabs] + [data-right-panel-surface-content] [data-surface-subheader] {
+  height: var(--workspace-topbar-height);
+  min-height: var(--workspace-topbar-height);
+  padding-inline-end: calc(var(--willow-panel-controls-width, 120px) + 4px);
+}
+
+[data-right-panel-tabbar][data-willow-strip-tabs]
+  + [data-right-panel-surface-content]:not(:has([data-surface-subheader])) {
+  padding-top: var(--workspace-topbar-height);
+}
+
+/* ── The terminal drawer: Codex's bottom panel (BottomPanel) ─────────────── */
+
+/* Under the chat past the shell's hairline, a 36px header: a tab per terminal as the panel strip
+   draws them (hairline separators that hide beside the chosen tab, a 20px close on the chosen tab
+   or under the pointer), then the actions as the strip's 28px icon buttons. */
+[data-thread-terminal-drawer] {
+  border-top-color: var(--codex-border);
+}
+
+[data-terminal-tab] {
+  border-radius: 12px;
+  color: var(--willow-pill-text);
+  font-size: 13px;
+  line-height: 18px;
+  user-select: none;
+}
+
+[data-terminal-tab] > button[role="tab"] {
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+[data-terminal-tab]:hover {
+  background: var(--willow-tab-hover);
+}
+
+[data-terminal-tab][data-shown] {
+  color: var(--willow-chip-text);
+}
+
+[data-terminal-tab][data-active] {
+  background: var(--willow-chip-surface);
+  box-shadow: none;
+  color: var(--willow-chip-text);
+}
+
+[data-terminal-tab-close] {
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in oklab, var(--codex-ink) 60%, transparent);
+  transition: opacity 150ms;
+}
+
+[data-terminal-tab-close]:hover {
+  background: var(--codex-tertiary-hover);
+  color: var(--codex-ink);
+}
+
+[data-terminal-tab-separator] {
+  background: var(--codex-border);
+  transition: opacity 150ms;
+}
+
+/* The drawer's buttons are Willow's round header buttons: its icon ink, its 6% / 8% hover. */
+[data-terminal-actions] button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #1f1f1f;
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+
+.dark [data-terminal-actions] button {
+  color: #e0e0e0;
+}
+
+[data-terminal-actions] button:hover {
+  background: rgb(0 0 0 / 6%);
+}
+
+.dark [data-terminal-actions] button:hover {
+  background: rgb(227 227 227 / 8%);
+}
+
+[data-terminal-actions] .willow-icon-glyph {
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+}
+
+[data-terminal-actions] .willow-icon-glyph--luminous {
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "ROND" 100, "opsz" 24;
+}
+
+/* ── A surface's own bar (ChangesPanel's 40px header) ─────────────────────── */
+
+[data-surface-subheader] {
+  height: 40px;
+  min-height: 40px;
+  margin-bottom: 0;
+  padding: 0 6px;
+  gap: 6px;
+  border-bottom: 1px solid var(--codex-border);
+  background: transparent;
+}
+
+[data-surface-subheader] [data-slot="button"],
+[data-surface-subheader] [data-slot="toggle"] {
+  height: 28px;
+  min-width: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--codex-ink-tertiary);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+[data-surface-subheader] [data-slot="button"]:is(:hover, [data-popup-open]),
+[data-surface-subheader] [data-slot="toggle"]:hover {
+  background: var(--codex-tertiary-hover);
+  color: var(--codex-ink);
+}
+
+[data-surface-subheader] [data-slot="toggle"]:is([data-pressed], [aria-pressed="true"]) {
+  background: var(--codex-secondary-soft);
+  color: var(--codex-ink);
+}
+
+/* The review source ("Changes", "Uncommitted"): Codex's medium-weight menu button. */
+[data-surface-subheader] [data-slot="button"][data-variant="secondary"] {
+  gap: 4px;
+  color: var(--codex-ink);
+  font-weight: 500;
+}
+
+[data-surface-subheader] [data-slot="button"] svg,
+[data-surface-subheader] [data-slot="toggle"] svg {
+  width: 14px;
+  height: 14px;
+}
+
+[data-surface-subheader] [data-slot="toggle-group"] {
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* The diff body sits on the panel's surface, as Codex's DiffView does inside its panel. */
+[data-right-panel-surface-content] {
+  --code-background: var(--background);
+}
+
+/*
+ * The panel's icon buttons at Willow's size rather than Codex's 28px: 32px with the glyph at
+ * 20px, as Willow's side panel draws its toolbar's (CanvasPanel's 20px glyphs). The thread's and
+ * panel's own controls at the top right are Willow's 36px header buttons (primitives.css).
+ */
+:is([data-right-panel-tabbar], [data-surface-subheader], [data-terminal-actions])
+  button:has(> svg:only-child):not([data-panel-layout-controls] button, [data-willow-header-control]) {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+:is([data-right-panel-tabbar], [data-surface-subheader], [data-terminal-actions])
+  button:has(> svg:only-child):not([data-panel-layout-controls] button, [data-willow-header-control])
+  > svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── A file in the review (ChangesPanel's FileDiff header, in the viewer's slots) ── */
+
+.willow-diff-file {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--codex-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.willow-diff-file__toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: color-mix(in oklab, var(--codex-ink) 50%, transparent);
+}
+
+.willow-diff-file__toggle:disabled {
+  opacity: 0.4;
+}
+
+.willow-diff-file__chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 150ms;
+}
+
+.willow-diff-file__chevron[data-expanded] {
+  transform: rotate(90deg);
+}
+
+.willow-diff-file__icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: color-mix(in oklab, var(--codex-ink) 60%, transparent);
+}
+
+.willow-diff-file__label {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.willow-diff-file__name,
+.willow-diff-file__folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-diff-file__name {
+  flex-shrink: 0;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.willow-diff-file__name:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.willow-diff-file__folder {
+  color: var(--codex-ink-tertiary);
+  font-size: 12px;
+}
+
+.willow-diff-file__tag {
+  flex-shrink: 0;
+  color: var(--codex-ink-tertiary);
+  font-size: 12px;
+}
+
+.willow-diff-file__tag[data-change="new"] {
+  color: var(--codex-git-added);
+}
+
+.willow-diff-file__tag[data-change="deleted"] {
+  color: var(--codex-git-deleted);
+}
+
+.willow-diff-file__actions {
+  border-radius: 8px;
+}
+
+/* ── The review's files beside it (ChangesPanel's file list) ──────────────── */
+
+.willow-review-files {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  border-inline-end: 1px solid var(--codex-border);
+  font-family: var(--font-sans);
+}
+
+.willow-review-files__filter {
+  padding: 8px;
+}
+
+.willow-review-files__search {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--codex-ink) 2.5%, transparent);
+  color: color-mix(in oklab, var(--codex-ink) 50%, transparent);
+}
+
+.willow-review-files__search:focus-within {
+  box-shadow: 0 0 0 1px var(--codex-border-heavy);
+}
+
+.willow-review-files__search input {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  color: var(--codex-ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.willow-review-files__search input::placeholder {
+  color: var(--codex-ink-tertiary);
+}
+
+/* The Files surface's search, as FilesPanel's filter: the same 28px soft field. */
+[data-slot="input-group"][data-files-search] {
+  height: 28px;
+  gap: 6px;
+  padding: 0 8px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--codex-ink) 2.5%, transparent);
+  box-shadow: none;
+  color: color-mix(in oklab, var(--codex-ink) 50%, transparent);
+}
+
+[data-slot="input-group"][data-files-search]::before {
+  display: none;
+}
+
+[data-slot="input-group"][data-files-search]:focus-within {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--codex-ink) 2.5%, transparent);
+  box-shadow: 0 0 0 1px var(--codex-border-heavy);
+}
+
+[data-files-search] [data-slot="input-group-addon"] {
+  padding: 0;
+}
+
+[data-files-search] [data-slot="input-group-addon"] svg {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  opacity: 1;
+}
+
+[data-files-search] [data-slot="input"] {
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--codex-ink);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+[data-files-search] [data-slot="input"]::placeholder {
+  color: var(--codex-ink-tertiary);
+}
+
+.willow-review-files__list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 4px 8px;
+}
+
+.willow-review-files__empty {
+  padding: 4px 8px;
+  color: var(--codex-ink-tertiary);
+  font-size: 13px;
+}
+
+.willow-review-files__row {
+  display: flex;
+  width: 100%;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--codex-ink-secondary);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+}
+
+.willow-review-files__row:hover,
+.willow-review-files__row[data-selected] {
+  background: var(--codex-tertiary-hover);
+  color: var(--codex-ink);
+}
+
+.willow-review-files__icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: color-mix(in oklab, var(--codex-ink) 60%, transparent);
+}
+
+.willow-review-files__name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-review-files__row .willow-diff-stats {
+  font-size: 12px;
+}
+
+/* ── The launcher (NewTabPage) ────────────────────────────────────────────── */
+
+[aria-label="Open a surface"] > div {
+  max-width: 576px;
+  padding: 24px 12px;
+}
+
+[aria-label="Open a surface"] h3 {
+  display: none;
+}
+
+[aria-label="Open a surface"] > div > div {
+  gap: 4px;
+}
+
+[aria-label="Open a surface"] > div > div > :is(div, [aria-disabled]) > button,
+[aria-label="Open a surface"] > div > div > [aria-disabled] {
+  min-height: 40px;
+  height: auto;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--codex-ink) 2.5%, transparent);
+  color: var(--codex-ink);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+[aria-label="Open a surface"] > div > div > div:hover > button,
+[aria-label="Open a surface"] > div > div > div > button[class~="bg-accent/60"] {
+  background: var(--codex-secondary-soft);
+}
+
+[aria-label="Open a surface"] button svg,
+[aria-label="Open a surface"] [aria-disabled] svg {
+  width: 16px;
+  height: 16px;
+  color: var(--codex-ink-secondary);
+}
+
+/* Codex's key caps (Button.tsx Kbd): an 11px label in a hairline box. */
+[aria-label="Open a surface"] [data-slot="kbd"] {
+  height: auto;
+  min-width: 0;
+  padding: 0 4px;
+  border: 1px solid var(--codex-border);
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--codex-ink-tertiary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* ── The browser's bar (BrowserPanel) ─────────────────────────────────────────
+   28px buttons on 8px corners in the full ink (30% when there is nowhere to go), and the address
+   as plain text centred in the bar: a soft fill under the pointer, and the field's ring and its
+   left-set text only while it is edited. */
+
+form[data-surface-subheader]:has([data-preview-url-input]) {
+  height: 40px;
+  min-height: 40px;
+  gap: 4px;
+  border-bottom-color: var(--codex-border);
+}
+
+form[data-surface-subheader]:has([data-preview-url-input]) [data-slot="button"] {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--codex-ink);
+}
+
+form[data-surface-subheader]:has([data-preview-url-input]) [data-slot="button"]:hover {
+  background: var(--codex-secondary-soft);
+}
+
+form[data-surface-subheader]:has([data-preview-url-input]) [data-slot="button"]:disabled {
+  color: color-mix(in srgb, var(--codex-ink) 30%, transparent);
+  opacity: 1;
+}
+
+form[data-surface-subheader]:has([data-preview-url-input]) [data-slot="button"] svg {
+  width: 16px;
+  height: 16px;
+}
+
+form[data-surface-subheader] [data-slot="input-group"]:has([data-preview-url-input]) {
+  height: 28px;
+  max-width: 770px;
+  margin-inline: auto;
+  border-color: transparent;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  transition:
+    background-color 150ms,
+    border-color 150ms;
+}
+
+form[data-surface-subheader] [data-slot="input-group"]:has([data-preview-url-input])::before {
+  display: none;
+}
+
+form[data-surface-subheader] [data-slot="input-group"]:has([data-preview-url-input]):hover {
+  border-color: transparent;
+  background: var(--codex-secondary-soft);
+}
+
+form[data-surface-subheader] [data-slot="input-group"]:has([data-preview-url-input]):focus-within {
+  border-color: var(--codex-border);
+  background: var(--codex-secondary-soft);
+  box-shadow: none;
+}
+
+[data-preview-url-input] {
+  color: var(--codex-ink);
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+}
+
+[data-preview-url-input]:focus {
+  text-align: start;
+}
+
+[data-preview-url-input]::placeholder {
+  color: var(--codex-ink-tertiary);
+}

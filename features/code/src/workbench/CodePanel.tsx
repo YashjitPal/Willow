@@ -14,10 +14,12 @@ import {
   GitBranch,
   Image,
   LayoutTemplate,
-  FolderOpen
+  FolderOpen,
+  ChevronLeft
 } from 'lucide-react';
-import { workbenchStore } from '../runtime/sandpack';
+import { useCodeSession } from '../session/code-session';
 import { codeNavigationRequest } from '../visual-editing/engine/index';
+import { useViewportWidth } from '../use-viewport-width';
 
 interface FileNode {
   id: string;
@@ -81,8 +83,7 @@ function buildFileTree(filesMap: Record<string, any>): FileNode[] {
 }
 
 const CodePanel: React.FC = () => {
-  // Use bolt.diy files store
-  const filesMap = useStore(workbenchStore.files);
+  const filesMap = useStore(useCodeSession().workbench.files);
 
   const [activeSideTab, setActiveSideTab] = useState<'files' | 'search'>('files');
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
@@ -95,6 +96,9 @@ const CodePanel: React.FC = () => {
   const lineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const wheelAxisLockRef = useRef<'x' | 'y' | null>(null);
   const wheelAxisReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A phone has room for the explorer or the editor, not both: opening a file shows the editor.
+  const isPhone = useViewportWidth() <= 600;
+  const [phonePane, setPhonePane] = useState<'files' | 'editor'>('files');
 
   // Listen for code navigation requests from visual editor
   useEffect(() => {
@@ -128,6 +132,7 @@ const CodePanel: React.FC = () => {
         setOpenTabs(prev => [...prev, { path: foundPath!, name: fileName }]);
       }
       setActiveFilePath(foundPath);
+      setPhonePane('editor');
 
       // Set highlighted line range
       const startLine = request.line;
@@ -206,6 +211,7 @@ const CodePanel: React.FC = () => {
         setOpenTabs(prev => [...prev, { path: node.path, name: node.name }]);
       }
       setActiveFilePath(node.path);
+      setPhonePane('editor');
     }
   };
 
@@ -215,6 +221,7 @@ const CodePanel: React.FC = () => {
     if (activeFilePath === path) {
       const remaining = openTabs.filter(t => t.path !== path);
       setActiveFilePath(remaining.length > 0 ? remaining[remaining.length - 1].path : null);
+      if (remaining.length === 0) setPhonePane('files');
     }
   };
 
@@ -311,7 +318,7 @@ const CodePanel: React.FC = () => {
               : 'hover:bg-[#2a2d35]/30'
           }`}
         >
-          <span className={`w-14 text-right pr-6 text-[13px] select-none flex-shrink-0 font-mono ${
+          <span className={`code-line-no w-14 text-right pr-6 text-[13px] select-none flex-shrink-0 font-mono ${
             isHighlighted ? 'text-blue-400' : 'text-white opacity-40'
           }`}>
             {lineNumber}
@@ -399,11 +406,14 @@ const CodePanel: React.FC = () => {
     });
   }, [activeFileContent, isImageFile]);
 
+  // Nothing open falls back to the file list, whatever the last pane was.
+  const showsPhoneEditor = isPhone && phonePane === 'editor' && !!activeFileContent;
+
   return (
-    <div className="h-full flex-1 min-h-0 w-full bg-[#1c1c1c] border border-[#27272a] rounded-[12px] flex overflow-hidden font-sans shadow-2xl">
+    <div className="code-panel h-full flex-1 min-h-0 w-full bg-[#1c1c1c] border border-[#27272a] rounded-[12px] flex overflow-hidden font-sans shadow-2xl">
       
       {/* Left Sidebar - Explorer - FIXED WIDTH */}
-      <div className="flex flex-col w-[280px] min-w-[280px] max-w-[280px] bg-[#1c1c1c] flex-shrink-0">
+      <div className={`code-panel-explorer flex flex-col w-[280px] min-w-[280px] max-w-[280px] bg-[#1c1c1c] flex-shrink-0${isPhone ? (showsPhoneEditor ? ' hidden' : ' is-phone-full') : ''}`}>
         
         {/* Sidebar Header with Toggle */}
         <div className="p-3 pb-2">
@@ -457,11 +467,21 @@ const CodePanel: React.FC = () => {
       </div>
 
       {/* Right Content - Editor */}
-      <div className={`flex-1 flex flex-col min-w-0 ${activeFileContent ? 'bg-[#1c1c1c]' : 'bg-transparent'}`}>
+      <div className={`flex-1 flex flex-col min-w-0 ${activeFileContent ? 'bg-[#1c1c1c]' : 'bg-transparent'}${isPhone && !showsPhoneEditor ? ' hidden' : ''}`}>
         
         {/* Editor Tabs Header - Only show if there's content */}
         {activeFileContent && (
           <div ref={tabsContainerRef} className="flex items-center bg-[#1c1c1c] px-2 pt-3 pb-2 gap-1 overflow-x-auto flex-shrink-0 scroll-smooth">
+             {isPhone && (
+               <button
+                 onClick={() => setPhonePane('files')}
+                 className="flex flex-shrink-0 items-center gap-1 rounded-md py-1.5 pl-1 pr-2.5 text-[13px] font-medium text-gray-300 transition-colors hover:bg-[#27272a]/50 hover:text-white"
+                 aria-label="Back to files"
+               >
+                 <ChevronLeft size={16} />
+                 Files
+               </button>
+             )}
              {openTabs.map((tab) => (
                <div 
                  key={tab.path}
@@ -478,7 +498,7 @@ const CodePanel: React.FC = () => {
                  <span className="truncate max-w-[120px]">{tab.name}</span>
                  <button 
                    onClick={(e) => closeTab(tab.path, e)}
-                   className="text-gray-400 hover:text-white p-0.5 rounded-sm hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                   className="code-tab-close text-gray-400 hover:text-white p-0.5 rounded-sm hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
                  >
                    <X size={13} />
                  </button>

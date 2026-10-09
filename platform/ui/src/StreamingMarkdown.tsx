@@ -660,6 +660,7 @@ interface RenderContext {
   source: string;
   settledBefore: number;
   mediaItems?: any[];
+  renderMediaItem?: (item: any | undefined) => React.ReactNode;
   onOpenResource?: (resource: RichResource) => void;
   definitions: Map<string, DefinitionRecord>;
   footnoteNumbers: Map<string, number>;
@@ -783,12 +784,23 @@ interface MediaDescriptor {
   href?: string;
 }
 
+/** The default card's failure glyph. Inline because `warning` is not in Willow's Luminous subset. */
+const MediaWarningGlyph = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" strokeLinejoin="miter" aria-hidden="true">
+    <path d="M12 2 L22 21 H2 Z" />
+    <line x1="12" y1="8" x2="12" y2="14" />
+    <line x1="12" y1="17.5" x2="12" y2="18" strokeWidth="2.5" />
+  </svg>
+);
+
 function MediaCard({
   descriptor,
   mediaItems,
+  renderMediaItem,
 }: {
   descriptor: MediaDescriptor;
   mediaItems?: any[];
+  renderMediaItem?: (item: any | undefined) => React.ReactNode;
 }) {
   const resolved = resolveMediaItem(descriptor.url, mediaItems);
   const item = resolved.item;
@@ -817,9 +829,11 @@ function MediaCard({
         className="smd-media-frame"
         style={{ '--smd-media-ratio': ratio } as React.CSSProperties}
       >
-        {failed ? (
+        {renderMediaItem && descriptor.url.startsWith('media-id:') ? (
+          renderMediaItem(item)
+        ) : failed ? (
           <span className="smd-media-error">
-            <MaterialSymbol family="luminous" name="warning" size={20} weight={300} roundness={100} />
+            <MediaWarningGlyph />
             <span className="smd-media-error-title">Failed</span>
             <span className="smd-media-error-detail">
               {item?.error || 'This media could not be generated.'}
@@ -847,11 +861,13 @@ const MediaGallery = React.memo(
   function MediaGallery({
     items,
     mediaItems,
+    renderMediaItem,
     settled,
     revealTiming,
   }: {
     items: MediaDescriptor[];
     mediaItems?: any[];
+    renderMediaItem?: (item: any | undefined) => React.ReactNode;
     settled?: boolean;
     revealTiming?: GeminiBlockRevealTiming;
   }) {
@@ -863,12 +879,15 @@ const MediaGallery = React.memo(
         style={revealTimingStyle(revealTiming)}
       >
         {items.map((item) => (
-          <MediaCard key={item.key} descriptor={item} mediaItems={mediaItems} />
+          <MediaCard key={item.key} descriptor={item} mediaItems={mediaItems} renderMediaItem={renderMediaItem} />
         ))}
       </div>
     );
   },
-  (previous, next) => previous.items === next.items && previous.mediaItems === next.mediaItems
+  (previous, next) =>
+    previous.items === next.items
+    && previous.mediaItems === next.mediaItems
+    && previous.renderMediaItem === next.renderMediaItem
 );
 
 function renderInlineImage(node: any, context: RenderContext): React.ReactNode {
@@ -1774,6 +1793,7 @@ function renderRoot(tree: any, context: RenderContext): React.ReactNode[] {
         key={'media-' + items[0].start}
         items={items}
         mediaItems={context.mediaItems}
+        renderMediaItem={context.renderMediaItem}
         settled={settled}
         revealTiming={nextRevealBlockTiming(context, settled)}
       />
@@ -2013,6 +2033,39 @@ const MARKDOWN_PROCESSOR = unified()
   .use(remarkMath)
   .freeze();
 
+function parseMarkdownTree(shown: string, streaming: boolean) {
+  const closed = streaming ? closeDangling(shown) : shown;
+  const normalized = normalizeLatexDelimiters(closed);
+  const parsed = MARKDOWN_PROCESSOR.parse(normalized.source) as any;
+  remapTreeOffsets(parsed, normalized.boundaries, shown.length);
+  return parsed;
+}
+
+/**
+ * Settled text parses to the same tree every time, and reopening a conversation (or
+ * StrictMode's second render) would otherwise parse every answer again. One tree can
+ * be shared by every render of that text only because nothing writes to a tree after
+ * `remapTreeOffsets`.
+ */
+const settledTrees = new Map<string, any>();
+const SETTLED_TREE_LIMIT = 48;
+
+function settledMarkdownTree(shown: string) {
+  const cached = settledTrees.get(shown);
+  if (cached) {
+    settledTrees.delete(shown);
+    settledTrees.set(shown, cached);
+    return cached;
+  }
+  const parsed = parseMarkdownTree(shown, false);
+  settledTrees.set(shown, parsed);
+  if (settledTrees.size > SETTLED_TREE_LIMIT) {
+    const oldest = settledTrees.keys().next().value;
+    if (oldest !== undefined) settledTrees.delete(oldest);
+  }
+  return parsed;
+}
+
 export interface StreamingMarkdownProps {
   text: string;
   isStreaming: boolean;
@@ -2029,6 +2082,12 @@ export interface StreamingMarkdownProps {
   onRevealComplete?: () => void;
   className?: string;
   mediaItems?: any[];
+  /**
+   * Draws the inside of each `media-id:` card in place of the built-in loading,
+   * failed and finished states; the card's ratio box and click-to-open stay. The
+   * item is undefined until it appears in `mediaItems`. Pass a stable function.
+   */
+  renderMediaItem?: (item: any | undefined) => React.ReactNode;
   onOpenResource?: (resource: RichResource) => void;
   /** Grounded web sources indexed against `text`, rendered as inline chips. */
   citations?: SourceCitations;
@@ -2044,6 +2103,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
     onRevealComplete,
     className = '',
     mediaItems,
+    renderMediaItem,
     onOpenResource,
     citations,
   }) {
@@ -2181,11 +2241,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
 
     const tree = useMemo(() => {
       try {
-        const closed = effectiveStreaming ? closeDangling(shown) : shown;
-        const normalized = normalizeLatexDelimiters(closed);
-        const parsed = MARKDOWN_PROCESSOR.parse(normalized.source) as any;
-        remapTreeOffsets(parsed, normalized.boundaries, shown.length);
-        return parsed;
+        return effectiveStreaming ? parseMarkdownTree(shown, true) : settledMarkdownTree(shown);
       } catch {
         return {
           type: 'root',
@@ -2216,6 +2272,7 @@ export const StreamingMarkdown: React.FC<StreamingMarkdownProps> = React.memo(
       source: shown,
       settledBefore,
       mediaItems,
+      renderMediaItem,
       onOpenResource,
       definitions,
       footnoteNumbers,

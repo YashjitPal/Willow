@@ -44,14 +44,15 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 
 > Scope note: current project registries use `willow_projects_list:v2:<scope>`
 > through `projectStorage.ts`; project deletion guards and code-session keys are
-> scoped by the same user/root/workspace id. Any unscoped key names shown later
+> scoped by the same user/root id. Any unscoped key names shown later
 > describe legacy migration inputs, not keys new code may write.
 
-- Chat metadata and bodies are scoped by authenticated user, stable selected-root
-  id, and workspace name. Legacy global chat records are claimed by one scope
+- Chat metadata and bodies are scoped by authenticated user and stable selected-root
+  id (`${uid}::${rootId}`, `signed-out::…` without an account; the workspace-name
+  level is gone). Legacy global chat records are claimed by one scope
   during migration and are never replayed into another account or folder.
 - Media records, covers, media indexes, Code-mode chat markers, and pinned chats
-  use that same user/root/workspace scope. Legacy media is assigned to one
+  use that same user/root scope. Legacy media is assigned to one
   authenticated scope; unowned marker/pin data is not copied across accounts.
 - Chat changes use monotonic revisions plus durable `dirty` and `tombstone`
   records. A failed disk write stays retryable; it is never converted into an
@@ -77,6 +78,7 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | `src/indexeddb/willow-db.ts` | `WillowDB` IndexedDB: chat message bodies (`chats`) and code editor sessions (`code_sessions`) with **content-addressed file-snapshot dedup** (`code_blobs`). Handles legacy-localStorage migration on read. |
 | `src/local-fs/LocalFSContext.tsx` | The brain. Owns the directory handle, the connect/restore/authorize flows, all `saveLocalFS*`/`deleteLocalFS*`/`renameLocalFS*` operations, the **disk↔registry reconciler** (`syncProjectsFromDisk`), and the **real-time polling watcher** (`pollDiskNow` + effect). Exposes everything via `useLocalFS()`. |
 | `src/local-fs/notebooks-disk.ts` | Every `Notebooks/` directory operation, in the shape of `media-disk.ts`: create a notebook folder with its manifest and two sub-folders, write/delete a source file, rename or delete the folder, and **move one chat file between two directories** (copy before remove). Pure disk — the notebook registry stays localStorage and every function returns a failure value rather than throwing. |
+| `src/local-fs/settings-file-disk.ts` | `settings.json` at the top of the folder: read (throws when it cannot, `null` only when there is none) and write. Attached by `LocalFSContext` to `@willow/core/settings-file`, which owns which copy wins and the sections Willow registers (`apps/studio/src/app/register-settings-file.ts`, `SettingsFileBridge.tsx`). |
 | `src/synced-folders.ts` | **The registry a feature plugs into.** A feature declares one top-level workspace folder (`Gems/`) plus how an item serializes; nothing here knows which features exist. Top-level sibling of `src/project-contributors.ts`, which covers sub-folders *inside* one project. See [§13](#13-how-to-extend-safely-recipes). |
 | `src/local-fs/folder-sync-engine.ts` | **The one reconcile algorithm**, shared by every registered folder. Pure: no React, no `FileSystemDirectoryHandle`, everything arrives through `FolderSyncPorts` — which is what makes the sync rules unit-testable instead of only reviewable. Owns revisions, tombstones, dirty flushes, conflict copies, and every delete-safety rule. |
 | `src/local-fs/synced-folder-driver.ts` | Adapter binding a registered folder to a real directory handle: supplies the engine with disk I/O, localStorage-backed sync records (`willow_synced_*` keys), and the per-item in-tab + cross-tab lock. |
@@ -107,10 +109,13 @@ bytes; Disk = truth.** When the disk is connected, it wins.
 | `willow_media_index:<scope>` / `willow_media_index_meta:<scope>` | lightweight media counts + revision metadata | mediaStorage |
 | `willow_code_chats:v2:<scope>` / `willow_code_chat_state:v2:<scope>:<chat>` | Code-mode markers and tombstones | codeChatStorage |
 | `modelConfig`, `selectedModelId` | non-secret UI settings | settings UI |
+| `willow:settings-file:synced` | `{ [folderId]: hash }` — the `settings.json` text this browser last wrote or read, per folder | `@willow/core/settings-file` |
 | `googleAccessToken`, `googleDriveAccessToken`, `isDriveConnected` | legacy OAuth keys; removed on startup | AuthContext |
 
-API keys/provider settings and Drive-scoped OAuth credentials are held only in
-UID-scoped `sessionStorage` for the current tab; the basic Google login token is
+API keys and endpoints are the device's: `willow:providerState:device` and
+`willow:apiKeys:device` (`platform/auth/src/device-keys.ts`), and with a folder
+connected `settings.json` in it (§6). Drive-scoped OAuth credentials are held only
+in UID-scoped `sessionStorage` for the current tab; the basic Google login token is
 never persisted by Willow. Legacy unscoped secret caches are deleted, not
 adopted by the next signed-in account.
 
@@ -177,18 +182,29 @@ type ChatSession = { id: string; messages: any[]; filesSnapshot?: Record<string,
 
 ### 5a. `useLocalFS()` (src/local-fs/LocalFSContext.tsx)
 State: `isSupported`, `isLocalFolderConnected`, `isLocalFolderAuthorized`,
-`localFolderName`, `isInitializingLocalFS`, `localChats: string[]`, `activeChatId`.
+`localFolderName`, `localFolderProblem`, `isInitializingLocalFS`, `localChats: string[]`, `activeChatId`.
 
 Connection:
-- `connectLocalFolder()` — opens the picker, stores handle, syncs chats + projects.
+- `connectLocalFolder()` — opens the picker, stores handle, syncs chats + projects. In the
+  desktop app the picker is the system's, and the app hands the folder over
+  (`openDesktopLocalFolder`); one that takes no test write is refused, with the reason in
+  `localFolderProblem`, and the folder in use stays.
 - `authorizeLocalFolder()` — interactive permission re-grant (called from App's Authorize modal); then syncs.
-- `disconnectLocalFolder()` — clears handle from `WillowLocalFS` and resets state.
+- `disconnectLocalFolder()` — clears handle from `WillowLocalFS` and resets state. Does
+  nothing in the desktop app, where saving is always on: on every start the restore takes the
+  app's folder (`<home>\Willow`, or the one picked), already able to write, when nothing is
+  stored or the stored handle is the same folder, and then moves the chats of the `browser`
+  scope (sent while it had no folder) into it, each once (`adoptBrowserScopeChats`).
 
 Saves (all write IndexedDB and/or disk; never heavy data to localStorage):
 - `saveLocalFSProject(projectName, files)` — writes `Code/<p>/Codebase/*` and registered Code contributors.
 - `saveLocalFSDesignProject(projectName, files)` — writes `Design/<p>/` design files.
-- `saveLocalFSChat(chatId, messages, oldChatId?)` — committed scoped body + durable dirty revision + disk file.
-- `saveLocalFSProjectChat(projectName, chatId, messages, oldChatId?)` — per-project chat under `Code/<p>/Chat sessions/`.
+- `saveLocalFSChat(chatId, messages, oldChatId?, files?)` — committed scoped body + durable dirty revision + disk file, and the attachments it points at in `<chatId>/` beside it (§6a). `files` are for a chat carrying bytes inline.
+- `loadLocalFSChatAttachment(id, { chatId, attachment }?)` — IndexedDB, then the chat's folder (every chat folder, for a file moved by hand), put back in IndexedDB.
+- `saveLocalFSProjectChat(projectName, chatId, messages, oldChatId?, files?)` — per-project chat under `Code/<p>/Chat sessions/`, its `files` in `<chat>/` beside it.
+- `saveLocalFSMediaAgentSession(projectName, session, files?)` / `deleteLocalFSMediaAgentSession` — `Media/<p>/Agent sessions/<id>.json` and `<id>/`.
+- `saveLocalFSScene(projectName, previousFsName, sceneName, text)` / `deleteLocalFSScene` / `listLocalFSScenes` — `Media/<p>/Scenes/<name>.json` (`scene-disk.ts`); what goes in them is Media's (`features/media/src/scenes/scene-files.ts`). Writes join the project queue.
+- `writeLocalFSConversationFiles(folder, stem, files)` / `readLocalFSConversationFile` / `deleteLocalFSConversationFolder` — a conversation's folder in a registered synced folder (Spark's tasks).
 - `saveLocalFSMedia(projectName, kind, fileName, blob)` — writes blob to `Media/<p>/Images|Videos/`, returns final filename (collision-suffixed).
 - `saveLocalFSCover(projectName, url)` — writes a cover file next to Images/Videos.
 
@@ -215,8 +231,8 @@ Reads / refresh:
 - `getChatTimestamp(chatId)`, `selectLocalFSInboxChat(chatId)`, `generateChatTitle(...)`.
 
 **Internal (not on the interface, but central):** `syncProjectsFromDisk`,
-`pollDiskNow`, `getActiveHandle`, `getSanitizedWorkspaceName`,
-`getProjectIdByName`, `ensureProjectManifest`. Refs include
+`pollDiskNow`, `getActiveHandle`, `getProjectIdByName`,
+`ensureProjectManifest`. Refs include
 `chatSyncRecordsRef`, `chatOperationQueuesRef`, `isPollingRef`,
 `pollPendingRef`, and `manifestIdCacheRef`.
 
@@ -252,49 +268,86 @@ both are cited here as escapes so this file stays greppable.)
 ## 6. On-disk layout
 
 ```
-<user-picked folder>/
-└── <Workspace Name>/                 // getSanitizedWorkspaceName():
-    │                                 //   userProfile.workspaceName
-    │                                 //   || "<FirstName>'s Willow" || "My Willow"
-    ├── Chats/
-    │   └── <chatId>.json             // UNFILED chats only (chatId = generated title)
-    ├── Notebooks/
-    │   └── <Notebook title>/         // ensureNotebookFolderName() — sanitized,
-    │       │                         //   de-duped, then FROZEN in Notebook.fsFolder
-    │       ├── .willow.json          // { id } — the notebook's uuid
-    │       ├── Sources/
-    │       │   ├── <upload>.pdf      // original bytes + extension
-    │       │   └── <title>.md        // kind 'text' | 'website' (URL on line 1)
-    │       └── Chats/
-    │           └── <chatId>.json     // this notebook's chats, moved out of Chats/
-    ├── Code/
-    │   └── <projectName>/
-    ├── Design/
-    │   └── <projectName>/
-    │       ├── .willow.json          // { id } — the stable project id
-    │       └── <design files>         // generated Design components and metadata
-    ├── Media/
-    │   └── <projectName>/
-    │       ├── .willow.json          // { id }
-    │       ├── Images/  (+ Characters/)
-    │       ├── Videos/
-    │       ├── Scenes/               // reserved (created, not yet written)
-    │       └── Music/                // reserved
-    ├── Skills/                        // shared by Chat and Spark
-    │   └── <skillId>.json
-    ├── Spark/                         // registered via registerSyncedFolder
-    │   ├── Tasks/
-    │   │   └── <taskId>.json
-    │   └── Schedules/
-    │       └── <scheduleId>.json
-    └── Gems/                          // registered via registerSyncedFolder
-        └── <gemId>.json               // gemId = sanitized gem name
+<user-picked folder>/             // no workspace-name level in between (see buildChatScopeId)
+├── Chats/
+│   ├── <chatId>.json             // UNFILED chats only (chatId = generated title)
+│   └── <chatId>/Attachments/     // its files: "<name> [<hash of id>].<ext>" (§6a)
+├── settings.json                 // settings + API keys, two-way (@willow/core/settings-file)
+├── Notebooks/
+│   └── <Notebook title>/         // ensureNotebookFolderName() — sanitized,
+│       │                         //   de-duped, then FROZEN in Notebook.fsFolder
+│       ├── .willow.json          // { id, title, …, sources } — the notebook's uuid and details;
+│       │                         //   a copy with no row for it rebuilds one (backfill step 0)
+│       ├── Sources/
+│       │   ├── <upload>.pdf      // original bytes + extension
+│       │   └── <title>.md        // kind 'text' | 'website' (URL on line 1)
+│       └── Chats/
+│           ├── <chatId>.json     // this notebook's chats, moved out of Chats/
+│           └── <chatId>/         // ... and their files, moved with them
+├── Code/
+│   └── <projectName>/
+│       └── Chat sessions/
+│           ├── <chat>.json       // bytes replaced by the name of their file
+│           └── <chat>/{Attachments,Screenshots}/
+├── Design/
+│   └── <projectName>/
+│       ├── .willow.json          // { id } — the stable project id
+│       └── <design files>         // generated Design components and metadata
+├── Media/
+│   ├── Tools/                    // registered via registerSyncedFolder; never a project (below)
+│   │   └── <tool name>.tool.json // a tool of your own, whole: versions, Tool Builder chat, its storage
+│   └── <projectName>/
+│       ├── .willow.json          // { id }
+│       ├── Images/  (+ Characters/)
+│       ├── Videos/
+│       ├── Scenes/               // reserved: <scene name>.json, clips point at videos by place (scene-disk.ts)
+│       ├── Music/                // reserved
+│       └── Agent sessions/       // reserved: never adopted as a collection
+│           ├── <sessionId>.json  // the Media agent chat (write-only mirror)
+│           └── <sessionId>/Attachments/   // what the user uploaded to it
+├── Personal/                     // created by the first write; reads never create it
+│   ├── saved-info.json           // Saved Info, what the user asked Willow to remember (saved-info-disk.ts)
+│   └── profile.json              // the inferred profile, with its evidence (personal-profile-disk.ts)
+├── Skills/                        // shared by Chat and Spark
+│   └── <skillId>.json
+├── Spark/                         // registered via registerSyncedFolder
+│   ├── Tasks/
+│   │   ├── <taskId>.json
+│   │   └── <taskId>/             // written by Spark, not by the synced-folder engine
+│   │       ├── Attachments/
+│   │       └── Browser/          // "001 <host>.jpg"… and steps.json
+│   ├── Schedules/
+│   │   └── <scheduleId>.json
+│   └── Dots/
+│       └── <dotId>.json          // the dot and its whole thread: items, notebook, episodes, runtime
+│                                 //   (features/spark/src/dots/dots-folder.ts)
+├── Gems/                          // registered via registerSyncedFolder
+│   └── <gemId>.json               // gemId = sanitized gem name
+├── Pets/                          // desktop app only, written by the app (pets.rs); never scanned here
+│   ├── <petId>/{pet.json, spritesheet.webp}
+│   └── .hatching/<run>/           // a creation and its working files
+├── Labs/
+│   └── Companion/history.json     // the Labs companion's conversation (apps/studio/src/waifu/register-companion-history.ts)
+├── Agents/                        // desktop app only (agents_backup.rs); never scanned here
+│   ├── README.txt
+│   ├── Backups/<YYYY-MM-DD>.sqlite // the agents' database, last 7 days; put back when app data has none
+│   └── Settings/{settings.json, keybindings.json} // T3's, secrets blanked
+└── Recycle Bin/                   // what the user deleted (invariant 21); never read
+    ├── README.txt
+    └── <YYYY-MM-DD>/<the path it had>/<its name>
 ```
+
+**A registered folder may sit inside a project area** (`Media/Tools`). `syncedFolderAt`
+names it, and the three places that take an area's folders for projects step around it:
+the project scan skips it, a project's rename leaves it (and refuses when a project of that
+name holds a manifest there), and a project's delete removes only the project's own entries
+from it, never the folder's files. A project that was there first, `.willow.json` and all,
+stays a project.
 
 `Chats/` and `Notebooks/` are hand-wired because they are not project areas.
 `Code/`, `Media/`, and feature-owned areas such as `Design/` are registered with
 `registerProjectArea`; discovery, bootstrap, rename, and deletion use that registry.
-`Gems/`, `Skills/`, `Spark/Tasks/` and `Spark/Schedules/` are driven by
+`Gems/`, `Skills/`, `Spark/Tasks/`, `Spark/Schedules/` and `Spark/Dots/` are driven by
 `registerSyncedFolder`; nested registered paths are created segment by segment.
 
 `kind` is decided by which registered parent the folder is under. Areas are
@@ -314,6 +367,55 @@ convenience, the id inside is the identity (invariant 6). A folder whose manifes
 names a *different* notebook is refused rather than written into, since a
 hand-renamed folder that collides with a derived name would otherwise collect
 another notebook's sources and chats.
+
+### 6a. A conversation's files live beside it
+
+Every conversation is one JSON file, and its files — what the user attached, what an
+agent captured — go in a folder with the same name next to it (`./src/local-fs/conversation-files.ts`).
+The JSON keeps a pointer to each file instead of its bytes, as ChatGPT's own export does.
+IndexedDB keeps its copy and is read first; the folder is what is read when that copy is
+gone (site data cleared, another browser on the same folder), and the bytes are put back.
+
+- **Nothing scans these folders as conversations.** The chat reconciler, the synced-folder
+  driver and Code's writer all list only the `.json` files beside them. Media's reconcile
+  walks every folder as a collection, so `Agent sessions` is in `RESERVED_PROJECT_FOLDERS`.
+- **Names are deterministic:** `conversationFileName(name, key)` is the file's own name
+  tagged with a hash of its id (or `contentKey` of bytes that came without one). A save
+  that runs on every message rewrites nothing, and two files of one name never collide.
+- **The folder follows the file.** Every chat rename (`saveLocalFSChat` temp id → title,
+  `renameLocalFSChat`), notebook filing (`moveLocalFSChatToNotebook`, and the reconciler
+  finishing one) carries it with `moveConversationFolder` — copy, then delete, through a
+  temporary folder for a case-only rename, as project renames do. A delete removes the
+  folder **before** the file, so a failure leaves the file the tombstone sweep retries.
+- **Project folders are written through `runInProjectQueue`.** A rename moves the folder
+  by copy-then-delete; a write landing in the middle is lost or resurrects the old name.
+- **`writeLocalFSConversationFiles` only writes into a folder a feature registered** with
+  `registerSyncedFolder` (Spark's `Spark/Tasks`).
+- **No folder without a file:** bytes that are not there (yet) leave no empty folder.
+- Chats saved before this get their attachments written by a one-time background pass
+  per scope (`willow_conversation_files_backfill:v1:<scope>`), one chat at a time inside
+  the chat's queue.
+- An attachment with no bytes anywhere renders as an "Unavailable" tile, never the
+  browser's broken-image icon (`GeminiAttachmentCard`, Spark's history card).
+
+### 6b. `settings.json`
+
+The settings every part of Willow keeps in this browser — API keys and endpoints, the model
+choice, theme and colour, Labs, voice, the rail, the pinned chats, the pet, Customize's skills,
+MCP servers — in one indented file a person can edit, so a new copy of Willow on the folder starts
+from them (`platform/core/src/settings-file.ts` has the whole contract). A part joins with
+`registerSettingsSection`; the stores stay the instant copy and work with no folder.
+
+- **Attach:** the file wins when it changed since this browser last synced it (a hash per folder
+  in `willow:settings-file:synced`), this browser wins when it did not. Meeting a folder for the
+  first time the file wins, except where a section merges: `apiKeys` keeps a key only this copy
+  has, `mcpServers` keeps servers only this copy has, `pinnedChats` keeps pins only this copy has.
+  `pinnedChats` is the folder's chat scope's list (`PinnedChatsSettingsSection`, inside
+  `LocalFSProvider`); a scope that never had one leaves the file's as it is.
+- **After:** a local change is written within half a second; the file is read every 3s while the
+  page is visible, and only the sections that changed in it are taken.
+- A file that does not parse is never written over; a deleted one is written again. Keys no
+  section owns are kept.
 
 ---
 
@@ -516,6 +618,13 @@ Chats use React state (`localChats` from context) directly — no event needed.
     `blob:` URL. If so, reuse that URL instead of creating a new one. Creating a
     new URL revokes the old one, which forces the browser to unload and reload
     the `<img>`, causing a masonry layout collapse and visible reflow.
+    **"Live" means still in `mediaBlobUrlsRef`**, not merely "starts with
+    `blob:`". Reusing a URL something already revoked — a superseded load, or
+    Fast Refresh re-running the unmount cleanup in dev — leaves every tile on a
+    dead URL that each later refresh reuses again: the whole gallery turns into
+    broken-image icons until a reload. For the same reason a load re-checks that
+    it is still the newest **after** its image preload (which can take seconds),
+    and only then revokes old URLs and commits.
 15. **`loadMedia` must be change-only (structural diff gate).** After hydration,
     compare the incoming items against `mediaItemsRef.current` by ID (order-
     independent). If every item's `id`, `url`, `status`, `fsName`, `kind`,
@@ -581,6 +690,23 @@ Invariants 18-20 are pinned by
 pass's four abstentions, the folder-name rules read out of the shipped source, and
 source assertions on the ordering each rule depends on).
 
+21. **What the user deletes goes to the Recycle Bin, never away.** Every deletion
+    Willow makes in the folder — a chat and its files, a project, a registered
+    folder's item (a Gem, a dot, a Spark task), a media file, a collection, a scene,
+    a notebook or its source, a Media agent's chat — is `moveToRecycleBin`
+    (`src/local-fs/recycle-bin.ts`): `Recycle Bin/<YYYY-MM-DD>/<the path it had>`,
+    moved in one step where the browser can, else copied and only then removed.
+    Renames, moves and the housekeeping that replaces a file (a project's cover) are
+    not deletions, and clearing Personal information erases it on purpose. Moving
+    something back is a restore: a tombstone keeps `removedAt`, set once its file has
+    left disk (moved to the bin, or found gone) and never before, and a file under it
+    no newer than that — files keep their time through the bin and back, while
+    anything a copy of Willow writes is newer — lifts it. Chats (their sync record)
+    and registered folders (`FolderSyncRecord`) do this in their tombstone sweeps;
+    projects through `releaseRestoredProject`, by their manifest's time. Pinned by
+    `recycle-bin.test.mjs`, the bin cases of `folder-sync-engine.test.mjs` and
+    `dots-disk.test.mjs`.
+
 ---
 
 ## 12. Known issues / tech debt
@@ -599,7 +725,10 @@ source assertions on the ordering each rule depends on).
 - **Disk layer is Chromium-only** and needs an authorized folder. After a browser
   restart Chromium may downgrade the grant to "prompt"; until the user
   re-authorizes (App's Authorize modal), the poller no-ops and
-  `autoDetectProjectKinds` is the interim tagger.
+  `autoDetectProjectKinds` is the interim tagger. The desktop app downgrades it on
+  every restart but grants it back without a prompt, so there `verifyPermission`
+  asks again on its own and the modal doesn't appear (`apps/desktop/AGENTS.md`,
+  *The local folder*).
 - **Covers are always still images** ([covers.ts](src/covers.ts)). A
   video source — the first generated item, a "Set as cover" on a video, a disk
   `cover.mp4`, or a `Videos/` file during hydration — is run through
@@ -639,7 +768,7 @@ export const gemsStore = atom<Gem[]>([]);
 import { registerSyncedFolder } from '@willow/storage/synced-folders';
 
 registerSyncedFolder('gems', {
-  folder: 'Gems',           // <workspace>/Gems/ — created on demand
+  folder: 'Gems',           // <chosen folder>/Gems/ — created on demand
   extension: '.json',       // other files in the folder are ignored
   async readLocal() {       // what the feature holds right now
     return gemsStore.get().map((g) => ({ id: g.id, contents: JSON.stringify(g, null, 2) }));
@@ -671,6 +800,7 @@ Then add one line to [`apps/studio/src/app/register-features.ts`](../../apps/stu
 | External edits preserved as `(Disk conflict <stamp>)` copies | `reconcileFolder` pass 1 |
 | Zero deletions on failed scan or paused folder | `reconcileFolder` / driver |
 | Change-only `applyRemote` (invariant 7) | driver |
+| Opt-in: a tombstone lifted for an id the feature still holds (`reviveLocal`) | driver |
 
 **Rules for your descriptor:**
 - **`id` is the file name stem.** It must survive a filesystem round trip — the
@@ -682,6 +812,31 @@ Then add one line to [`apps/studio/src/app/register-features.ts`](../../apps/stu
   must not take the rest of the folder down.
 - **`readLocal`/`applyRemote` must not throw.** Both are wrapped, but a thrown
   error means that pass does nothing.
+- **`readLocal` returns everything the feature has, or the pass deletes the rest.**
+  A pass runs on every page, from the moment a folder is connected — not only once
+  the feature's own page has loaded its state. Load it in `readLocal` itself (and in
+  `applyRemote`, before replacing it), as Gems' `hydrateGems()` does, or throw while
+  it cannot be read. An empty list read too early tombstoned every Gem.
+- **An id the engine holds a tombstone for is refused.** Tombstones are kept
+  forever, and a local item with a tombstoned id is dropped without a word: never
+  written, and missing from the next `applyRemote`, which a feature applying that
+  list then deletes. An id derived from a name (a deleted Gem's, a renamed tool's
+  old one) comes back exactly that way. Two ways out:
+  - `reviveLocal: true`, for a store that only ever holds what the user has (Gems:
+    one list every tab shares, which a deletion leaves at once). The driver lifts the
+    tombstone of every id `readLocal` returns and writes the item again.
+  - Step past the ids the records hold (`syncedFolderKeys(...).sync`), as
+    `features/media/src/tools/tools-disk.ts` does, and in `applyRemote` read an
+    item's absence as a deletion only when the last pass's records knew its file
+    alive.
+- **Ask for a pass after a local change** with `requestSyncedFolderPass()`, or it
+  waits for the next poll — 30s apart while the folder is observed.
+- **A store that can lose its own copy reads disk first.** `readLocal` gets
+  `ctx.readDisk(id)`: what disk holds for an item now. Browser storage can be cleared
+  under a page while the folder keeps everything; a store that reports what is left
+  hands the engine a change, and a changed local item is written over disk's. Bots
+  (`features/spark/src/dots/dots-folder.ts`) take a conversation disk carries further
+  back from disk before reporting it.
 - **Text only.** Heavy binary (images, video) does not belong here — it would go
   through localStorage-adjacent metadata and blow the budget. Follow the media
   path instead (`src/local-fs/media-disk.ts`), which streams bytes to disk and

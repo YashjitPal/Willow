@@ -19,8 +19,9 @@
  * Two requirements are pinned beyond equality because both are easy to lose in a
  * refactor and neither shows up in a spot check:
  *
- *   green must stay exactly what ships today, since it is the default and the
- *   requirement was that switching back to green restores the current screen
+ *   green's accents are held, since green is the default, and the desktop glow's
+ *   green is the held one carried across the step Gemini's own blue took when its
+ *   desktop glow changed, so it brightens with every other colour
  *
  *   temporary chat must keep its literal gray at every workspace colour — in
  *   Gemini `is-temporary-chat` replaces the accent stop outright
@@ -59,8 +60,11 @@ const {
   GLOW_ACCENT_TRANSFORM,
   GLOW_ACCENT_LIGHT_TRANSFORM,
   GLOW_ACCENT_MOBILE_TRANSFORM,
+  GLOW_ACCENT_DESKTOP_STEP,
+  DEFAULT_GLOW_ACCENT_DESKTOP,
   HOME_GLOW_ACCENT,
   HOME_GLOW_ACCENT_LIGHT,
+  HOME_GLOW_DESKTOP_ACCENT,
   HOME_GLOW_MOBILE_ACCENT,
   WORKSPACE_COLOR_HEX,
   deriveGlowAccent,
@@ -68,7 +72,9 @@ const {
   deriveGlowMobileAccent,
   homeGlowAccent,
   homeGlowAccentLight,
+  homeGlowDesktopAccent,
   homeGlowMobileAccent,
+  stepGlowAccentToDesktop,
 } = await importTs(glowModule);
 
 const asRgb = (hex) => {
@@ -195,21 +201,58 @@ it('falls back to green for a missing or unknown workspace colour', () => {
   assert.equal(homeGlowMobileAccent('green'), 'rgb(19, 67, 44)');
 });
 
+// ── The desktop accent ──────────────────────────────────────────────────────
+
+it('anchors the desktop step on Gemini\'s two measured blues', async () => {
+  const { hexToRgb, rgbToOklch } = await importTs(path.join(repoRoot, 'features', 'chat', 'src', 'voice-orb', 'orb-palette.ts'));
+  const [Lo, Co, ho] = rgbToOklch(hexToRgb(GEMINI_GLOW_ACCENT_HEX));
+  const [Ln, Cn, hn] = rgbToOklch(hexToRgb(GEMINI_GLOW_ACCENT_MOBILE_HEX));
+  const close = (a, b) => Math.abs(a - b) < 1e-9;
+  assert.ok(close(GLOW_ACCENT_DESKTOP_STEP.lightnessRatio, Ln / Lo), 'the lightness step is not #14204f -> #1f3b9b');
+  assert.ok(close(GLOW_ACCENT_DESKTOP_STEP.chromaRatio, Cn / Co), 'the chroma step is not #14204f -> #1f3b9b');
+  assert.ok(close(GLOW_ACCENT_DESKTOP_STEP.hueShiftDeg, ((hn - ho + 540) % 360) - 180), 'the hue step is not #14204f -> #1f3b9b');
+  assert.equal(stepGlowAccentToDesktop(asRgb(GEMINI_GLOW_ACCENT_HEX)), asRgb(GEMINI_GLOW_ACCENT_MOBILE_HEX),
+    'the step no longer carries Gemini\'s old blue onto its new one');
+});
+
+it('brightens every colour\'s desktop glow by the step Gemini\'s blue took', () => {
+  // The derived swatches took the step by construction; green, whose old accent was
+  // hand-picked, has to be carried across it, or it alone would dim while the rest brighten.
+  assert.equal(DEFAULT_GLOW_ACCENT_DESKTOP, stepGlowAccentToDesktop(DEFAULT_GLOW_ACCENT),
+    'the desktop green is not the shipped green carried across the step');
+  assert.equal(HOME_GLOW_DESKTOP_ACCENT.green, DEFAULT_GLOW_ACCENT_DESKTOP);
+  for (const name of Object.keys(HOME_GLOW_ACCENT)) {
+    const want = stepGlowAccentToDesktop(HOME_GLOW_ACCENT[name]).match(/\d+/g).map(Number);
+    const got = HOME_GLOW_DESKTOP_ACCENT[name].match(/\d+/g).map(Number);
+    assert.ok(got.every((c, i) => Math.abs(c - want[i]) <= 1),
+      `${name}'s desktop glow ${HOME_GLOW_DESKTOP_ACCENT[name]} is not its old ${HOME_GLOW_ACCENT[name]} brightened like blue (${want.join(', ')})`);
+    if (name !== 'green') {
+      assert.equal(HOME_GLOW_DESKTOP_ACCENT[name], HOME_GLOW_MOBILE_ACCENT[name],
+        `${name} differs between the desktop and mobile glows, which share Gemini's token`);
+    }
+  }
+  assert.deepEqual(Object.keys(HOME_GLOW_DESKTOP_ACCENT).sort(), Object.keys(WORKSPACE_COLOR_HEX).sort());
+  for (const value of [undefined, null, '', 'magenta']) {
+    assert.equal(homeGlowDesktopAccent(value), DEFAULT_GLOW_ACCENT_DESKTOP);
+  }
+  assert.equal(homeGlowDesktopAccent('blue'), 'rgb(31, 59, 155)');
+});
+
 // ── The CSS and the host ────────────────────────────────────────────────────
 
-it('drives the accent stop through a custom property, with green as the fallback', () => {
+it('drives the accent through custom properties, with green as the fallback', () => {
   const css = flat(INDEX_HTML());
 
   assert.match(
     css,
-    /\.willow-gemini-home-glow::before \{[^}]*background: radial-gradient\( ellipse 100% 100% at center 8%, rgb\(15, 15, 15\) 0, var\(--willow-home-glow-accent, rgb\(6, 78, 59\)\) 50% \);/,
-    'the glow no longer reads its accent from --willow-home-glow-accent with the green fallback',
+    /\.willow-gemini-home-glow > \.willow-home-glow-layer::before \{[^}]*background: var\(--willow-home-glow-desktop-accent, rgb\(0, 140, 103\)\);/,
+    'the desktop glow no longer reads its accent from --willow-home-glow-desktop-accent with the green fallback',
   );
 
   assert.match(
     css,
-    /:is\(\.light-theme, \[data-theme="light"\]\) \.willow-gemini-home-glow::before \{[^}]*background: radial-gradient\( ellipse 100% 100% at center 8%, var\(--studio-surface, #faf9f9\) 0, var\(--willow-home-glow-accent, rgb\(158, 174, 153\)\) 50% \);[^}]*filter: blur\(125px\);/,
-    'light theme glow does not match measured Gemini rule with #faf9f9 and blur(125px)',
+    /:is\(\.light-theme, \[data-theme="light"\]\) \.willow-gemini-home-glow > \.willow-home-glow-layer::before \{ background: var\(--willow-home-glow-accent, rgb\(158, 174, 153\)\); \}/,
+    'the light desktop glow no longer takes the light accent, Gemini\'s #9dd2ff for blue',
   );
 
   // The fallback is what paints before the profile loads. Without it the stop is
@@ -224,10 +267,17 @@ it('drives the accent stop through a custom property, with green as the fallback
 it('sets the accent on the glow host so ::before inherits it', () => {
   const source = codeOnly(MEDIA_HOME());
 
-  assert.match(source, /homeGlowAccent\(userProfile\?\.workspaceColor\)/,
+  assert.match(source, /homeGlowAccent\(workspaceColor\)/,
     'the glow accent is no longer derived from the workspace colour');
   assert.match(source, /'--willow-home-glow-accent': glowAccent/,
     'the accent custom property is not being set on the glow host');
+  assert.match(source, /homeGlowDesktopAccent\(workspaceColor\)/,
+    'the desktop accent is no longer derived from the workspace colour');
+  assert.match(source, /'--willow-home-glow-desktop-accent': glowAccentDesktop/,
+    'the desktop accent custom property is not being set on the glow host');
+  // Above 960px the glow paints on a layer inside the host, which inherits the accents from it.
+  assert.match(source, /\{initialMode === 'chat' && <div className="willow-home-glow-layer" aria-hidden="true" \/>\}/,
+    'the desktop glow layer is no longer rendered inside the glow host');
 
   // It has to be the same element that carries `willow-gemini-home-glow`:
   // a custom property on a parent would inherit, but one on a child would not
@@ -261,26 +311,29 @@ it('keeps temporary chat on its literal gray at every workspace colour', () => {
 
   // Gemini's `is-temporary-chat` replaces the accent stop outright, so the gray
   // must not reference the workspace accent.
-  const modifier = css.match(
+  for (const selector of [
+    /\.willow-gemini-home-glow\.willow-gemini-home-glow-gray > \.willow-home-glow-layer::before \{([^}]*)\}/,
     /\.willow-gemini-home-glow\.willow-gemini-home-glow-gray::before \{([^}]*)\}/,
-  );
-  assert.ok(modifier, 'could not locate the temporary-chat glow modifier rule');
-  assert.ok(
-    !/--willow-home-glow-accent/.test(modifier[1]),
-    'temporary chat now follows the workspace colour — Gemini keeps it neutral gray',
-  );
-  assert.match(modifier[1], /rgb\(68, 71, 70\)/,
-    'the temporary-chat gray drifted from Gemini\'s measured --gem-sys-color--outline-variant');
+  ]) {
+    const modifier = css.match(selector);
+    assert.ok(modifier, `could not locate the temporary-chat glow modifier ${selector}`);
+    assert.ok(
+      !/--willow-home-glow-(desktop-|mobile-)?accent/.test(modifier[1]),
+      'temporary chat now follows the workspace colour — Gemini keeps it neutral gray',
+    );
+    assert.match(modifier[1], /rgb\(68, 71, 70\)/,
+      'the temporary-chat gray drifted from Gemini\'s measured --gem-sys-color--outline-variant');
+  }
 });
 
-it('leaves no hardcoded green in the glow rule', () => {
+it('leaves no hardcoded green in the desktop glow rule', () => {
   const css = codeOnly(INDEX_HTML());
-  const base = css.match(/\.willow-gemini-home-glow::before \{([\s\S]*?)\}/);
-  assert.ok(base, 'could not locate the base glow rule');
-  // The only `rgb(6, 78, 59)` left in the rule must be the var() fallback.
-  const greens = base[1].match(/rgb\(6,\s*78,\s*59\)/g) || [];
+  const base = css.match(/\.willow-gemini-home-glow > \.willow-home-glow-layer::before \{([\s\S]*?)\}/);
+  assert.ok(base, 'could not locate the desktop glow rule');
+  // The only green left in the rule must be the var() fallback.
+  const greens = base[1].match(/rgb\(0,\s*140,\s*103\)/g) || [];
   assert.equal(greens.length, 1,
     'the glow rule mentions the green more than once — the accent is probably hardcoded again');
-  assert.match(base[1], /var\(--willow-home-glow-accent, rgb\(6, 78, 59\)\)/,
+  assert.match(base[1], /var\(--willow-home-glow-desktop-accent, rgb\(0, 140, 103\)\)/,
     'the remaining green is not the custom-property fallback');
 });

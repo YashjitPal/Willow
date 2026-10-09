@@ -1,0 +1,30 @@
+import { createIconComponent } from "./icon";
+import { defineIconAsset } from "./icon-asset";
+
+export const buildingLight16 = defineIconAsset({
+  name: "building-light-16",
+  canvas: {
+    width: 16,
+    height: 16,
+    viewBox: "0 0 16 16",
+    frame: { x: 0, y: 0, width: 16, height: 16 },
+    inkBounds: { x: 0.807861, y: 2.141602, width: 14.383789, height: 11.716797 },
+    visualBounds: { x: 0.807861, y: 2.141602, width: 14.383789, height: 11.716797 }
+  },
+  paint: { kind: "monochrome" },
+  optical: {
+    shape: "non-circular",
+    bounds: { x: 0.807861, y: 2.141602, width: 14.383789, height: 11.716797 },
+    center: { x: 7.999756, y: 8 },
+    insets: { top: 2.141602, right: 0.80835, bottom: 2.141601, left: 0.807861 },
+    anchors: {
+      frame: { x: 8, y: 8 },
+      ink: { x: 7.999756, y: 8 },
+      foreground: { x: 7.999756, y: 8 }
+    }
+  },
+  capabilities: ["icon"],
+  body: `<path d="M12.8079 6.66699C12.8079 6.22067 12.4465 5.85857 12.0002 5.8584H9.85864V12.8086H12.8079V6.66699ZM8.80786 4C8.80769 3.55383 8.44642 3.19256 8.00024 3.19238H4.00024C3.55392 3.19238 3.19183 3.55372 3.19165 4V12.8086H5.47485V11.334C5.47485 11.044 5.71029 10.8086 6.00024 10.8086C6.29004 10.8088 6.52466 11.0441 6.52466 11.334V12.8086H8.80786V4ZM9.85864 4.80859H12.0002C13.0264 4.80877 13.8586 5.64077 13.8586 6.66699V12.8086H14.6663C14.9562 12.8086 15.1917 13.044 15.1917 13.334C15.1915 13.6238 14.9561 13.8584 14.6663 13.8584H1.33325C1.04341 13.8584 0.808037 13.6238 0.807861 13.334C0.807861 13.044 1.0433 12.8086 1.33325 12.8086H2.14185V4C2.14202 2.97382 2.97402 2.1416 4.00024 2.1416H8.00024C9.02631 2.14178 9.85847 2.97393 9.85864 4V4.80859Z" fill="currentColor"/>`,
+});
+
+export const BuildingLight16Icon = createIconComponent(buildingLight16);

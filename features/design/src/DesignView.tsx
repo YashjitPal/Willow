@@ -17,7 +17,6 @@ export interface DesignViewProps {
   selectedModelId?: string;
   setSelectedModelId?: (id: string) => void;
   onAuthRequired?: () => void;
-  isAuthenticated?: boolean;
   onWorkspaceActive?: (active: boolean) => void;
 }
 
@@ -26,7 +25,6 @@ export const DesignView: React.FC<DesignViewProps> = ({
   selectedModelId: externalSelectedModelId,
   setSelectedModelId: externalSetSelectedModelId,
   onAuthRequired,
-  isAuthenticated,
   onWorkspaceActive,
 }) => {
   const experiments = useStore(experimentsStore);
@@ -117,17 +115,16 @@ export const DesignView: React.FC<DesignViewProps> = ({
             selectedModelId={selectedModelId}
             setSelectedModelId={setSelectedModelId}
             onAuthRequired={onAuthRequired}
-            isAuthenticated={isAuthenticated}
           />
         </div>
       </main>
     ),
-    [handleSubmit, isAuthenticated, modelConfig, onAuthRequired, selectedModelId, setSelectedModelId]
+    [handleSubmit, modelConfig, onAuthRequired, selectedModelId, setSelectedModelId]
   );
 
   if (isCanvasOpen) {
     return (
-      <div className="fixed inset-0 z-[180] flex h-screen w-screen flex-col overflow-hidden bg-[#171717] text-[#e3e3e3]">
+      <div className="willow-frame-fill fixed inset-0 z-[180] flex h-screen w-screen flex-col overflow-hidden bg-[#171717] text-[#e3e3e3]">
         {/* Stitch's editor toolbar floats over the canvas; the canvas texture
             continues uninterrupted beneath it with no header strip. */}
         <header className="absolute inset-x-0 top-0 z-40 flex h-[80px] items-center justify-between px-5">
@@ -184,7 +181,6 @@ export const DesignView: React.FC<DesignViewProps> = ({
                   selectedModelId={selectedModelId}
                   setSelectedModelId={setSelectedModelId}
                   onAuthRequired={onAuthRequired}
-                  isAuthenticated={isAuthenticated}
                   onSubmit={(prompt) => designChatRef.current?.submit(prompt)}
                 />
               </div>

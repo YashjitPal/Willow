@@ -1,657 +1,280 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useStore } from '@nanostores/react';
 import { useThemeMode } from '@willow/core/theme-mode';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
-import { CreateGemView } from './CreateGemView';
+import { Tooltip } from '@willow/ui/Tooltip';
+import { GeminiDialog, GeminiDialogPill } from '@willow/ui/GeminiDialog';
+import { showCopyToast } from '@willow/ui/copy-toast-store';
 
-interface GemCardProps {
-  title: string;
-  description: string;
-  icon: string;
-  iconColor: string;
-  iconBg: string;
-  isExperiment?: boolean;
+import './gems.css';
+import { GemEditor, type GemEditorProps } from './GemEditor';
+import { GemLogo, gemLogoSpec } from './GemLogo';
+import { GEM_MENU_TRIGGER, GemMenu, anchorOf, type GemAnchor, type GemMenuItem } from './GemMenu';
+import { GemTips } from './GemTips';
+import { PREMADE_GEMS, type PremadeGem } from './premade-gems';
+import { deleteGem, gemsStore, hydrateGems, type Gem } from './gems-store';
+
+/** Which Gems screen a path selects. `/gems` and Gemini's `/gems/view` are the manager. */
+export type GemsRoute = { kind: 'view' } | { kind: 'create' } | { kind: 'edit'; id: string };
+
+export const matchGemsRoute = (pathname: string): GemsRoute => {
+  if (pathname === '/gems/create') return { kind: 'create' };
+  const edit = /^\/gems\/edit\/(.+)$/.exec(pathname);
+  if (edit) return { kind: 'edit', id: decodeURIComponent(edit[1]) };
+  return { kind: 'view' };
+};
+
+export const gemPath = (id: string): string => `/gem/${encodeURIComponent(id)}`;
+export const gemEditPath = (id: string): string => `/gems/edit/${encodeURIComponent(id)}`;
+
+/** Router state for "Make a copy": the editor opens on a copy of this Gem. */
+export interface GemsCreateState {
+  copyFrom?: string;
 }
 
-interface MenuItem {
-  icon?: string;
-  label: string;
-}
+/**
+ * Share, locally: Willow has no link to hand out, so the Gem leaves as the same file the
+ * workspace's `Gems/` folder syncs — dropped into another workspace's folder, it appears
+ * there. The id is not part of the file; the receiving folder names it.
+ */
+const exportGem = (gem: Gem): void => {
+  const { id: _id, ...portable } = gem;
+  const blob = new Blob([JSON.stringify(portable, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${gem.name.replace(/[\\/:*?"<>|]/g, '').trim() || 'Gem'}.json`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showCopyToast('Gem saved as a file. Add it to a workspace’s Gems folder to share it.');
+};
 
-const MY_GEM_MENU_ITEMS: MenuItem[] = [
-  { icon: 'chat_bubble', label: 'New chat' },
-  { icon: 'content_copy', label: 'Make a copy' },
-  { icon: 'drive_search', label: 'Locate Gem in Drive' },
-  { icon: 'delete', label: 'Delete' },
-];
-
-const PREMADE_GEM_MENU_ITEMS: MenuItem[] = [
-  { icon: 'content_copy', label: 'Make a copy' }
-];
-
-const ActionButton: React.FC<{ icon: string; onClick?: () => void; title?: string }> = ({ icon, onClick, title }) => {
-  const { isLight } = useThemeMode();
-  const [isHovered, setIsHovered] = useState(false);
-  return (
-    <button
-      title={title}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onClick?.();
-      }}
-      className="transition-colors duration-200"
-      style={{
-        width: '40px',
-        height: '40px',
-        borderRadius: '50%',
-        backgroundColor: isHovered ? (isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgb(55, 57, 59)') : 'transparent',
-        border: 'none',
-        color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        padding: '8px',
-        margin: '0px'
-      }}
-    >
-      <MaterialSymbol name={icon} size={20} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400 }} />
+const PremadeCard: React.FC<{
+  gem: PremadeGem;
+  isLight: boolean;
+  isMenuOpen: boolean;
+  onOpen: () => void;
+  onMenu: (anchor: GemAnchor) => void;
+}> = ({ gem, isLight, isMenuOpen, onOpen, onMenu }) => (
+  <div className={`gems-card${isMenuOpen ? ' is-menu-open' : ''}`}>
+    <button type="button" className="gems-card-link" onClick={onOpen} aria-label={gem.name}>
+      <div className="gems-card-header">
+        <GemLogo spec={gemLogoSpec({ kind: 'premade', gem }, isLight)} size={28} />
+        {gem.experiment && <span className="gems-experiment-badge">Experiment</span>}
+      </div>
+      <div className="gems-card-name">{gem.name}</div>
+      <div className="gems-card-description">{gem.description}</div>
     </button>
+    <div className="gems-card-actions">
+      <button
+        type="button"
+        {...GEM_MENU_TRIGGER}
+        aria-label={`More options for "${gem.name}" Gem`}
+        aria-haspopup="menu"
+        aria-expanded={isMenuOpen}
+        className="gems-icon-button is-small"
+        onClick={(event) => onMenu(anchorOf(event.currentTarget))}
+      >
+        <MaterialSymbol name="more_vert" family="google-symbols" size={20} weight={400} />
+      </button>
+    </div>
+  </div>
+);
+
+const GemRow: React.FC<{
+  gem: Gem;
+  isLight: boolean;
+  isMenuOpen: boolean;
+  onOpen: () => void;
+  onShare: () => void;
+  onEdit: () => void;
+  onMenu: (anchor: GemAnchor) => void;
+}> = ({ gem, isLight, isMenuOpen, onOpen, onShare, onEdit, onMenu }) => {
+  // Gemini's second line is the description, or the instructions when there is none.
+  const subtitle = gem.description.trim() || gem.instructions.trim().split('\n').find(Boolean) || '';
+  return (
+    <div className={`gems-row${isMenuOpen ? ' is-menu-open' : ''}`}>
+      <button type="button" className="gems-row-link" onClick={onOpen}>
+        <GemLogo spec={gemLogoSpec({ kind: 'custom', gem }, isLight)} size={28} />
+        <span className="gems-row-info">
+          <span className="gems-row-title">{gem.name}</span>
+          {subtitle && <span className="gems-row-description">{subtitle}</span>}
+        </span>
+      </button>
+      <div className="gems-row-actions">
+        <Tooltip content="Share">
+          <button type="button" aria-label="Share" className="gems-icon-button" onClick={onShare}>
+            <MaterialSymbol name="share" family="google-symbols" size={20} weight={400} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Edit Gem">
+          <button type="button" aria-label="Edit Gem" className="gems-icon-button" onClick={onEdit}>
+            <MaterialSymbol name="edit" family="google-symbols" size={20} weight={400} />
+          </button>
+        </Tooltip>
+        <button
+          type="button"
+          {...GEM_MENU_TRIGGER}
+          aria-label={`More options for "${gem.name}" Gem`}
+          aria-haspopup="menu"
+          aria-expanded={isMenuOpen}
+          className="gems-icon-button gems-row-more"
+          onClick={(event) => onMenu(anchorOf(event.currentTarget))}
+        >
+          <MaterialSymbol name="more_vert" family="google-symbols" size={20} weight={400} />
+        </button>
+      </div>
+    </div>
   );
 };
 
-const OverflowMenuButton: React.FC<{ items: MenuItem[]; isPremade?: boolean }> = ({ items, isPremade = false }) => {
-  const { isLight } = useThemeMode();
-  const [isOpen, setIsOpen] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
+type OpenMenu = { kind: 'premade'; id: string; anchor: GemAnchor } | { kind: 'custom'; id: string; anchor: GemAnchor };
 
-  const closeMenu = () => {
-    setIsClosing(true);
-    setTimeout(() => {
-      setIsOpen(false);
-      setIsClosing(false);
-    }, 120); // Material menu exact exit duration (120ms)
+/**
+ * The Gem manager — Gemini's `all-bots` at `/gems/view`, from its "Gem manager" heading
+ * down. Premade Gems are a fixed list (`premade-gems.ts`); the user's own come from
+ * `gemsStore`, most recently changed first.
+ */
+const GemManager: React.FC = () => {
+  const { isLight } = useThemeMode();
+  const navigate = useNavigate();
+  const gems = useStore(gemsStore);
+  const [expanded, setExpanded] = useState(false);
+  const [menu, setMenu] = useState<OpenMenu | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Gem | null>(null);
+
+  const openCopy = (id: string) => navigate('/gems/create', { state: { copyFrom: id } satisfies GemsCreateState });
+
+  const menuItems = (): GemMenuItem[] => {
+    if (!menu) return [];
+    if (menu.kind === 'premade') {
+      return [{ label: 'Make a copy', icon: 'content_copy', onSelect: () => openCopy(menu.id) }];
+    }
+    const gem = gems.find((candidate) => candidate.id === menu.id);
+    if (!gem) return [];
+    return [
+      { label: 'New chat', icon: 'chat_bubble', onSelect: () => navigate(gemPath(gem.id)) },
+      { label: 'Make a copy', icon: 'content_copy', onSelect: () => openCopy(gem.id) },
+      { label: 'Delete', icon: 'delete', onSelect: () => setPendingDelete(gem) },
+    ];
   };
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node) && btnRef.current && !btnRef.current.contains(event.target as Node)) {
-        closeMenu();
-      }
-    };
-    if (isOpen && !isClosing) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen, isClosing]);
-
-  const buttonSize = isPremade ? '32px' : '40px';
-  const buttonPadding = isPremade ? '0px' : '8px';
-  const iconColor = isPremade
-    ? (isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)')
-    : (isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)');
-
-  const [isBtnHovered, setIsBtnHovered] = useState(false);
-  const [hoveredItemIndex, setHoveredItemIndex] = useState<number | null>(null);
-
   return (
-    <div style={{ position: 'relative', display: 'flex' }}>
-      <button
-        ref={btnRef}
-        onMouseEnter={() => setIsBtnHovered(true)}
-        onMouseLeave={() => setIsBtnHovered(false)}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (isOpen) {
-            closeMenu();
-          } else {
-            setIsOpen(true);
-          }
-        }}
-        className="transition-colors duration-200"
-        style={{
-          width: buttonSize,
-          height: buttonSize,
-          borderRadius: '50%',
-          backgroundColor: isBtnHovered ? (isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgb(55, 57, 59)') : 'transparent',
-          border: 'none',
-          color: iconColor,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          padding: buttonPadding,
-          margin: '0px'
-        }}
-      >
-        <MaterialSymbol name="more_vert" size={20} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400 }} />
-      </button>
-      {isOpen && items.length > 0 && (
-        <div
-          ref={menuRef}
-          className={`gem-menu-panel ${isClosing ? 'gem-menu-panel-exit' : ''}`}
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: '0',
-            zIndex: 100,
-            backgroundColor: isLight ? '#ffffff' : 'rgb(30, 31, 32)',
-            borderRadius: '8px',
-            padding: '0px',
-            boxShadow: isLight
-              ? '0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08)'
-              : 'rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px',
-            minWidth: '112px',
-            maxWidth: '280px',
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-            transformOrigin: 'left top'
-          }}
-        >
-          {items.map((item, index) => (
+    <div className={`gems-surface gems-page gemini-chat-scrollbar${isLight ? ' is-light' : ''}`}>
+      <div className="gems-inner">
+        <h1 className="gems-title">Gem manager</h1>
+
+        <section aria-label="Premade by Google">
+          <div className="gems-section-header">
+            <h2 className="gems-section-title">Premade by Google</h2>
             <button
-              key={index}
-              onMouseEnter={() => setHoveredItemIndex(index)}
-              onMouseLeave={() => setHoveredItemIndex(null)}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                closeMenu();
-              }}
-              className="transition-colors duration-200"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '0px 12px',
-                minHeight: '48px',
-                backgroundColor: hoveredItemIndex === index ? (isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(227, 227, 227, 0.08)') : 'transparent',
-                border: 'none',
-                width: '100%',
-                cursor: 'pointer',
-                textAlign: 'left',
-              }}
+              type="button"
+              className="gems-show-more"
+              aria-label={expanded ? 'Show fewer Gems premade by Google' : 'Show more Gems premade by Google'}
+              aria-expanded={expanded}
+              onClick={() => setExpanded((value) => !value)}
             >
-              {item.icon && (
-                <MaterialSymbol 
-                  name={item.icon} 
-                  size={24} 
-                  family="google-symbols" 
-                  variationSettings="normal" 
-                  style={{ fontWeight: 400, color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)', margin: '0px 12px 0px 0px' }} 
+              <span>{expanded ? 'Show less' : 'Show more'}</span>
+              <MaterialSymbol name={expanded ? 'collapse_all' : 'expand_all'} family="google-symbols" size={18} weight={400} />
+            </button>
+          </div>
+          <div className={`gems-premade-cards${expanded ? ' is-expanded' : ''}`}>
+            <div className="gems-premade-cards-inner">
+              {PREMADE_GEMS.map((gem) => (
+                <PremadeCard
+                  key={gem.id}
+                  gem={gem}
+                  isLight={isLight}
+                  isMenuOpen={menu?.kind === 'premade' && menu.id === gem.id}
+                  onOpen={() => navigate(gemPath(gem.id))}
+                  onMenu={(anchor) => setMenu((open) => (open?.id === gem.id ? null : { kind: 'premade', id: gem.id, anchor }))}
                 />
-              )}
-              <span
-                style={{
-                  color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
-                  fontSize: '14px',
-                  fontWeight: 400,
-                  fontFamily: '"Google Sans Flex", "Google Sans", Roboto, Arial, sans-serif',
-                  letterSpacing: '0.25px',
-                  whiteSpace: 'nowrap'
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section aria-label="My Gems">
+          <div className="gems-list-header">
+            <div className="gems-list-title">
+              <h2 className="gems-section-title">My Gems</h2>
+              <GemTips
+                label="Notice about where Gems are saved"
+                body="Your Gems are saved in this browser, and in the Gems folder of your workspace when one is connected."
+              />
+            </div>
+            <button type="button" className="gems-new-button" onClick={() => navigate('/gems/create')}>
+              <MaterialSymbol name="add" family="google-symbols" size={18} weight={400} />
+              <span>New Gem</span>
+            </button>
+          </div>
+          <div className="gems-list">
+            {gems.map((gem) => (
+              <GemRow
+                key={gem.id}
+                gem={gem}
+                isLight={isLight}
+                isMenuOpen={menu?.kind === 'custom' && menu.id === gem.id}
+                onOpen={() => navigate(gemPath(gem.id))}
+                onShare={() => exportGem(gem)}
+                onEdit={() => navigate(gemEditPath(gem.id))}
+                onMenu={(anchor) => setMenu((open) => (open?.id === gem.id ? null : { kind: 'custom', id: gem.id, anchor }))}
+              />
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {menu && (
+        <GemMenu
+          anchor={menu.anchor}
+          label="Gem actions"
+          items={menuItems()}
+          onClose={() => setMenu(null)}
+        />
+      )}
+
+      {pendingDelete && (
+        <GeminiDialog
+          headingAs="h1"
+          title="Delete Gem?"
+          width={512}
+          message
+          onDismiss={() => setPendingDelete(null)}
+          actions={(
+            <>
+              <GeminiDialogPill onClick={() => setPendingDelete(null)}>Cancel</GeminiDialogPill>
+              <GeminiDialogPill
+                onClick={() => {
+                  deleteGem(pendingDelete.id);
+                  setPendingDelete(null);
                 }}
               >
-                {item.label}
-              </span>
-            </button>
-          ))}
-        </div>
+                Delete
+              </GeminiDialogPill>
+            </>
+          )}
+        >
+          <p>
+            Deleting this Gem will delete its instructions and knowledge files. Chats you had with
+            it will remain.
+          </p>
+        </GeminiDialog>
       )}
     </div>
   );
 };
 
-const PREMADE_GEMS: GemCardProps[] = [
-  {
-    title: 'Chess champ',
-    description: 'Play chess with a language model. Make your first ',
-    icon: 'chess', // generic placeholder for chess icon if custom not available, but user wants material symbols
-    iconColor: 'rgb(216, 152, 0)',
-    iconBg: 'rgb(79, 53, 0)',
-    isExperiment: true,
-  },
-  {
-    title: 'Career guide',
-    description: 'Unlock your career potential. Get a detailed plan ',
-    icon: 'work',
-    iconColor: 'rgb(219, 141, 167)',
-    iconBg: 'rgb(96, 38, 61)',
-  },
-  {
-    title: 'Storybook',
-    description: 'Create a customized picture book, for either child',
-    icon: 'auto_stories',
-    iconColor: 'rgb(96, 169, 237)',
-    iconBg: 'rgb(0, 61, 100)',
-  },
-  {
-    title: 'Learning coach',
-    description: 'Here to help you learn and practice new concepts. ',
-    icon: 'school',
-    iconColor: 'rgb(236, 140, 76)',
-    iconBg: 'rgb(97, 43, 0)',
-  },
-  {
-    title: 'Brainstormer',
-    description: 'Find inspiration easily. Fresh ideas for parties, ',
-    icon: 'lightbulb',
-    iconColor: 'rgb(200, 142, 225)',
-    iconBg: 'rgb(85, 34, 110)',
-  },
-  {
-    title: 'Coding partner',
-    description: 'Level up your coding skills. Get the help you need',
-    icon: 'code',
-    iconColor: 'rgb(37, 178, 212)',
-    iconBg: 'rgb(0, 64, 78)',
-  },
-];
+export type GemsViewProps = Omit<GemEditorProps, 'route'>;
 
-const GemCard: React.FC<GemCardProps> = ({ title, description, icon, iconColor, iconBg, isExperiment }) => {
-  const { isLight } = useThemeMode();
-  return (
-    <div
-      style={{
-        position: 'relative',
-        width: '200px',
-        height: '176px',
-        backgroundColor: isLight ? 'rgb(240, 244, 249)' : 'rgb(30, 31, 32)',
-        borderRadius: '16px',
-        padding: '16px',
-        display: 'flex',
-        flexDirection: 'column',
-        boxSizing: 'border-box',
-        cursor: 'pointer',
-      }}
-    >
-      <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
-        <OverflowMenuButton items={PREMADE_GEM_MENU_ITEMS} isPremade={true} />
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'row', marginBottom: '16px', height: '28px', paddingRight: '24px' }}>
-        <div
-          style={{
-            width: '28px',
-            height: '28px',
-            borderRadius: '50%',
-            backgroundColor: iconBg,
-            color: iconColor,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <MaterialSymbol name={icon} fill={true} weight={500} style={{ fontSize: '15.75px' }} />
-        </div>
-        {isExperiment && (
-          <div style={{ paddingLeft: '8px', display: 'flex', alignItems: 'center' }}>
-            <span
-              style={{
-                display: 'inline-block',
-                padding: '1px 8px',
-                borderRadius: '34px',
-                fontSize: '15px',
-                fontWeight: 370,
-                fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                color: isLight ? 'rgb(68, 71, 70)' : 'rgb(227, 227, 227)',
-                backgroundColor: 'rgba(0, 0, 0, 0)',
-                border: isLight ? '1px solid rgb(196, 199, 197)' : '1px solid rgb(68, 71, 70)',
-                lineHeight: '20px'
-              }}
-            >
-              Experiment
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div
-        style={{
-          fontSize: '13px',
-          fontWeight: 400,
-          fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-          color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
-          marginBottom: '4px',
-        }}
-      >
-        {title}
-      </div>
-
-      <div
-        style={{
-          fontSize: '12px',
-          fontWeight: 400,
-          fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-          color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)',
-          display: 'flow-root',
-          lineHeight: '1.4',
-        }}
-      >
-        {description}
-      </div>
-    </div>
-  );
-};
-
-export const GemsView: React.FC = () => {
-  const { isLight } = useThemeMode();
-  const navigate = useNavigate();
+/** `/gems`, `/gems/view`, `/gems/create` and `/gems/edit/<id>`. */
+export const GemsView: React.FC<GemsViewProps> = (props) => {
   const location = useLocation();
-  const [premadeExpanded, setPremadeExpanded] = useState(false);
-  const [showSharedGemsInfo, setShowSharedGemsInfo] = useState(false);
-
-  if (location.pathname === '/gems/create') {
-    return <CreateGemView />;
-  }
-
-  return (
-    <>
-      <style>{`
-        @keyframes _mat-menu-enter {
-          0% { opacity: 0; transform: scale(0.8); }
-          100% { opacity: 1; transform: none; }
-        }
-        @keyframes _mat-menu-exit {
-          0% { opacity: 1; }
-          100% { opacity: 0; }
-        }
-        .gem-menu-panel {
-          animation: 0.12s cubic-bezier(0, 0, 0.2, 1) _mat-menu-enter;
-        }
-        .gem-menu-panel-exit {
-          animation: 0.12s linear _mat-menu-exit forwards;
-        }
-      `}</style>
-      <div className="h-full w-full overflow-y-auto" style={{ backgroundColor: isLight ? 'var(--studio-surface, #faf9f9)' : '#131314' }}>
-        <div
-          style={{
-            width: '878px',
-            padding: '24px',
-            margin: '0 auto',
-            boxSizing: 'border-box',
-            color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
-            fontFamily: '"Times New Roman"',
-          }}
-        >
-          <h1
-            style={{
-              fontSize: '24px',
-              fontWeight: 380,
-              fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-              margin: '16.08px 0px',
-              color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
-            }}
-          >
-            Gem manager
-          </h1>
-
-          <section style={{ width: '830px' }}>
-            <div 
-              className="group/premade-header"
-              style={{ 
-                display: 'flex', 
-                flexDirection: 'row', 
-                marginBottom: '4px', 
-                height: '45px',
-                alignItems: 'center',
-                cursor: 'pointer'
-              }}
-              onClick={() => setPremadeExpanded(!premadeExpanded)}
-            >
-              <h2
-                style={{
-                  fontSize: '15px',
-                  fontWeight: 500,
-                  fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                  margin: '12.45px 0px',
-                  color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                Premade by Google
-                <span
-                  className="luminous-symbols transition-opacity duration-200 opacity-0 group-hover/premade-header:opacity-100"
-                  style={{
-                    fontFamily: "'Luminous Symbols', sans-serif",
-                    fontWeight: 330,
-                    fontVariationSettings: '"FILL" 0, "wght" 330, "GRAD" 0, "opsz" 16, "ROND" 100',
-                    fontSize: '16px',
-                    color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)'
-                  }}
-                >
-                  {premadeExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
-                </span>
-              </h2>
-            </div>
-
-            <div 
-              style={{ 
-                display: 'flex', 
-                flexDirection: 'row', 
-                gap: '10px', 
-                flexWrap: 'wrap',
-                overflow: 'hidden',
-                maxHeight: premadeExpanded ? '362px' : '176px',
-                transition: 'max-height 300ms cubic-bezier(0.2, 0, 0, 1)'
-              }}
-            >
-              {PREMADE_GEMS.map((gem, index) => (
-                <GemCard key={index} {...gem} />
-              ))}
-            </div>
-          </section>
-
-          {/* My Gems Section */}
-          <section style={{ width: '830px', display: 'flex', flexDirection: 'column', marginBottom: '48px' }}>
-            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', height: '45px', margin: '16px 0px' }}>
-              <div style={{ display: 'flex', flexDirection: 'row', gap: '8px', alignItems: 'center', position: 'relative' }}>
-                <h2
-                  style={{
-                    fontSize: '15px',
-                    fontWeight: 500,
-                    fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                    margin: '12.45px 0px',
-                    color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)',
-                  }}
-                >
-                  My Gems
-                </h2>
-                <button
-                  className="transition-colors duration-200"
-                  onClick={() => setShowSharedGemsInfo(!showSharedGemsInfo)}
-                  title="Notice about shared Gems"
-                  style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '9999px',
-                    color: isLight ? 'rgb(68, 71, 70)' : 'rgb(196, 199, 197)',
-                    backgroundColor: 'transparent',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '8px'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.08)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  <MaterialSymbol name="info" size={20} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400 }} />
-                </button>
-
-                {/* Shared Gems Info Popup */}
-                <div 
-                  style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: '0px', 
-                    zIndex: 50,
-                    backgroundColor: isLight ? 'rgb(229, 238, 254)' : 'rgb(31, 55, 96)',
-                    color: isLight ? 'rgb(4, 30, 73)' : 'rgb(227, 227, 227)',
-                    fontFamily: '"Google Sans Flex", "Google Sans", Roboto, Arial, sans-serif',
-                    fontSize: '14px',
-                    fontWeight: 400,
-                    padding: '16px',
-                    borderRadius: '8px',
-                    width: '280px',
-                    boxShadow: isLight
-                      ? '0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08)'
-                      : 'rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px',
-                    opacity: showSharedGemsInfo ? 1 : 0,
-                    visibility: showSharedGemsInfo ? 'visible' : 'hidden',
-                    transform: showSharedGemsInfo ? 'translateY(0)' : 'translateY(-10px)',
-                    transition: 'opacity 150ms cubic-bezier(0.4, 0, 0.2, 1), transform 150ms cubic-bezier(0.4, 0, 0.2, 1), visibility 150ms'
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: '15px',
-                      fontWeight: 400,
-                      fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                      color: isLight ? 'rgb(4, 30, 73)' : 'rgb(227, 227, 227)'
-                    }}
-                  >
-                    Your shared Gems are saved in the Gemini Gems folder in Google Drive. They are protected by Drive permissions.
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-                    <button
-                      onClick={() => setShowSharedGemsInfo(false)}
-                      style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0)',
-                        color: isLight ? 'rgb(11, 87, 208)' : 'rgb(168, 199, 250)',
-                        fontFamily: '"Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        padding: '0px 12px',
-                        borderRadius: '9999px',
-                        height: '36px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isLight ? 'rgba(11, 87, 208, 0.08)' : 'rgba(168, 199, 250, 0.08)'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                    >
-                      Got it
-                    </button>
-                  </div>
-                </div>
-              </div>
-              
-              <button
-                onClick={() => navigate('/gems/create')}
-                style={{
-                  color: isLight ? '#ffffff' : 'rgb(6, 46, 111)',
-                  backgroundColor: isLight ? 'rgb(11, 87, 208)' : 'rgb(168, 199, 250)',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  fontFamily: '"Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif',
-                  padding: '0px 20px 0px 24px',
-                  borderRadius: '30px',
-                  display: 'inline-flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  border: 'none',
-                  height: '40px',
-                  cursor: 'pointer'
-                }}
-              >
-                <MaterialSymbol name="add" size={18} family="google-symbols" variationSettings="normal" style={{ fontWeight: 400, marginRight: '8px', marginLeft: '-8px' }} />
-                <span
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 400,
-                    fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif'
-                  }}
-                >
-                  New Gem
-                </span>
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {/* Custom Gem List Row */}
-              <div
-                style={{
-                  width: '830px',
-                  height: '72px',
-                  backgroundColor: isLight ? 'rgb(240, 244, 249)' : 'rgb(30, 31, 32)',
-                  borderRadius: '12px',
-                  padding: '0px 8px 0px 0px',
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  boxSizing: 'border-box',
-                  cursor: 'pointer'
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    gap: '12px',
-                    padding: '16px 0px 16px 16px',
-                    alignItems: 'center',
-                    flex: 1
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '50%',
-                      backgroundColor: 'rgb(0, 64, 78)',
-                      color: 'rgb(37, 178, 212)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '16px',
-                      fontWeight: 500,
-                      fontFamily: '"Google Sans", "Helvetica Neue", sans-serif'
-                    }}
-                  >
-                    V
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <div
-                      style={{
-                        fontSize: '16px',
-                        fontWeight: 500,
-                        fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-                        color: isLight ? 'rgb(31, 31, 31)' : 'rgb(227, 227, 227)'
-                      }}
-                    >
-                      Video Prompter v2
-                    </div>
-                  </div>
-                </div>
-                
-                <div style={{ padding: '8px', display: 'flex', flexDirection: 'row' }}>
-                  <ActionButton icon="share" title="Share" />
-                  <ActionButton icon="edit" title="Edit Gem" />
-                  <OverflowMenuButton items={MY_GEM_MENU_ITEMS} />
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* End of content */}
-        </div>
-      </div>
-    </>
-  );
+  const route = matchGemsRoute(location.pathname);
+  useEffect(() => { hydrateGems(); }, []);
+  if (route.kind === 'view') return <GemManager />;
+  return <GemEditor key={location.key} route={route} {...props} />;
 };
 
 export default GemsView;

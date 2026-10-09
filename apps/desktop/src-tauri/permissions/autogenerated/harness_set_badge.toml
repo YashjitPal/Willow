@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-harness-set-badge"
+description = "Enables the harness_set_badge command without any pre-configured scope."
+commands.allow = ["harness_set_badge"]
+
+[[permission]]
+identifier = "deny-harness-set-badge"
+description = "Denies the harness_set_badge command without any pre-configured scope."
+commands.deny = ["harness_set_badge"]

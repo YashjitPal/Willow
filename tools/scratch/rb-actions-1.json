@@ -1,0 +1,7 @@
+[
+  { "name": "navigate", "args": { "url": "https://html.duckduckgo.com/html/" } },
+  { "name": "type_text_at", "args": { "x": 498, "y": 487, "text": "Grace Hopper", "press_enter": true } },
+  { "name": "scroll_document", "args": { "direction": "down" } },
+  { "name": "go_back", "args": {} },
+  { "name": "go_forward", "args": {} }
+]

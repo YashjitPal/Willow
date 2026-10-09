@@ -1,0 +1,16 @@
+{
+  "name": "@willow/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Willow as a desktop app (Tauri v2): Willow's own server and the local companion as sidecars, a tray, native notifications and a folder picker.",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "stage": "node scripts/stage.mjs",
+    "tauri": "node scripts/run-tauri.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

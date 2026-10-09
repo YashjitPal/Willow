@@ -58,6 +58,8 @@ function projectTombstoneStateKey(projectName: string, scopeId = activeProjectSc
 interface ProjectDeletionState {
   deletedAt: number;
   projectId?: string;
+  /** When its folder left disk — moved to the Recycle Bin, or found gone. Unset until then. */
+  removedAt?: number;
 }
 
 function readProjectDeletion(projectName: string, scopeId = activeProjectScopeId): ProjectDeletionState | null {
@@ -225,17 +227,41 @@ export function writeProjectRegistry(projects: ProjectRegistryEntry[], scopeId =
   localStorage.setItem(getProjectRegistryStorageKey(scopeId), JSON.stringify(next));
 }
 
-export function markProjectDeleted(projectName: string, scopeId = activeProjectScopeId, projectId?: string): void {
+export function markProjectDeleted(projectName: string, scopeId = activeProjectScopeId, projectId?: string, removedAt?: number): void {
   if (!projectName || typeof window === 'undefined') return;
   localStorage.setItem(projectTombstoneStateKey(projectName, scopeId), JSON.stringify({
     deletedAt: Date.now(),
     ...(projectId ? { projectId } : {}),
+    ...(removedAt ? { removedAt } : {}),
   } satisfies ProjectDeletionState));
+}
+
+/** A deleted project's folder has left disk, moved to the Recycle Bin: noted on its tombstone (made
+ *  if the registry has not dropped the project yet), so the folder moved back can be told apart. */
+export function markProjectFolderRemoved(projectName: string, scopeId = activeProjectScopeId, projectId?: string): void {
+  if (!projectName || typeof window === 'undefined') return;
+  const deletion = readProjectDeletion(projectName, scopeId) ?? { deletedAt: Date.now(), ...(projectId ? { projectId } : {}) };
+  localStorage.setItem(projectTombstoneStateKey(projectName, scopeId), JSON.stringify({ ...deletion, removedAt: Date.now() } satisfies ProjectDeletionState));
 }
 
 export function isProjectSaveBlocked(projectName: string, scopeId = activeProjectScopeId): boolean {
   if (!projectName || typeof window === 'undefined') return false;
   return readProjectDeletion(projectName, scopeId) !== null;
+}
+
+/**
+ * A deleted project's folder moved back from the Recycle Bin (platform/storage local-fs/recycle-bin)
+ * after it left: its manifest is no newer than its removal — files keep their time through the bin
+ * and back — which a late save recreating the folder could not make it. Until the folder has left,
+ * the one still standing is the deleted one, not one moved back. Releases the tombstone so the
+ * project comes back, and answers whether it did.
+ */
+export function releaseRestoredProject(projectName: string, manifestMtime: number, scopeId = activeProjectScopeId): boolean {
+  if (!projectName || typeof window === 'undefined') return false;
+  const deletion = readProjectDeletion(projectName, scopeId);
+  if (!deletion?.removedAt || !(manifestMtime > 0) || manifestMtime > deletion.removedAt) return false;
+  clearProjectDeletion(projectName, scopeId);
+  return true;
 }
 
 export function ownsLegacyProjectRegistry(scopeId = activeProjectScopeId): boolean {

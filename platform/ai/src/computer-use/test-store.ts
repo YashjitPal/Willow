@@ -25,7 +25,8 @@ export interface TestMessage {
   isTestMessage?: boolean;
 }
 
-class TestStore {
+/** Code screens each make their own (`features/code` session); Spark's remote browser uses `testStore`. */
+export class TestStore {
   // Whether test mode is active
   isTestMode = atom<boolean>(false);
   
@@ -58,6 +59,9 @@ class TestStore {
   
   // AbortController for immediate request cancellation
   private _abortController: AbortController | null = null;
+
+  // Whoever is driving the preview, told when its Stop button is pressed
+  private _cancelHandler: (() => void) | null = null;
   
   // Reference to the preview iframe (set by MainPreview, used by Sidebar)
   private _iframeRef: HTMLIFrameElement | null = null;
@@ -75,6 +79,14 @@ class TestStore {
    */
   getAbortSignal(): AbortSignal | undefined {
     return this._abortController?.signal;
+  }
+
+  /**
+   * Who stops when the preview's Stop button is pressed: the Code harness
+   * registers its turn while it is using the preview.
+   */
+  setCancelHandler(handler: (() => void) | null) {
+    this._cancelHandler = handler;
   }
   
   /**
@@ -125,6 +137,10 @@ class TestStore {
       this._abortController.abort();
       this._abortController = null;
     }
+
+    const handler = this._cancelHandler;
+    this._cancelHandler = null;
+    handler?.();
     
     // Immediately hide visual elements
     this.cursorPosition.set(null);

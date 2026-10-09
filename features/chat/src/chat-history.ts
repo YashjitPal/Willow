@@ -13,6 +13,38 @@ export interface BuildAiHistoryInput {
 }
 
 /**
+ * A Deep Research plan or report lives on the message, not in its text ("I've completed your
+ * research…"), so the model is shown it here — or "change the plan" and "make a quiz from
+ * this" would have nothing to refer to.
+ */
+const researchContext = (message: ChatMsg): string => {
+  const research = message.role === 'assistant' ? message.research : undefined;
+  if (!research) return '';
+  if (research.status === 'plan') {
+    return `\n\n[Deep Research plan "${research.title}":\n${research.steps.map((step, i) => `(${i + 1}) ${step}`).join('\n')}]`;
+  }
+  if (research.status === 'done' && research.report) return `\n\n[Deep Research report "${research.title}"]\n${research.report}`;
+  return '';
+};
+
+const MEDIA_NOUN = { image: 'an image', video: 'a video', music: 'a music track' } as const;
+
+/**
+ * What a reply's media tools made sits on the message, not in its text (often there is none),
+ * so the model is told here — or "make it cuter" would have no "it", and an edit's prompt
+ * could not describe the whole new picture.
+ */
+export const mediaContext = (message: ChatMsg): string => {
+  if (message.role !== 'assistant' || !message.media?.length) return '';
+  return message.media.map((item) => {
+    const what = `${MEDIA_NOUN[item.kind]}${item.kind === 'music' && item.title ? ` titled "${item.title}"` : ''}`;
+    return item.status === 'done'
+      ? `\n\n[You made ${what} here, from the prompt: ${item.prompt}]`
+      : `\n\n[${what[0]!.toUpperCase()}${what.slice(1)} you started here did not finish.]`;
+  }).join('');
+};
+
+/**
  * Converts stored chat messages into the wire format the AI client expects,
  * inlining each attachment's bytes as text, base64, or a file reference.
  *
@@ -26,7 +58,7 @@ export const buildAiHistory = async ({
   loadAttachment,
 }: BuildAiHistoryInput): Promise<AiChatMessage[]> => {
   return await Promise.all(sourceMessages.map(async (message) => {
-    let content = message.content;
+    let content = message.content + researchContext(message) + mediaContext(message);
     if (!message.attachments?.length) return { role: message.role, content };
 
     const aiAttachments: NonNullable<AiChatMessage['attachments']> = [];

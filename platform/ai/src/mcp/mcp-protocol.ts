@@ -23,6 +23,10 @@
  * 2. **A Worker**, for servers that are plain JavaScript with no OS
  *    dependency. These run inside the tab with no network at all.
  *    `worker-transport.ts`.
+ * 3. **A program on this computer**, in the desktop app only: Willow's
+ *    companion starts the subprocess the page cannot, and carries its stdio
+ *    (`program-transport.ts`). The desktop app also fetches `http` servers
+ *    through the companion, so CORS does not apply there.
  *
  * The gap between "what MCP offers" and "what these two reach" is written down
  * in [`HELPER-APP.md`](../../../../../HELPER-APP.md) at the repo root, together
@@ -224,6 +228,10 @@ export interface McpTransport {
   send: (message: JsonRpcMessage) => Promise<void>;
   onMessage: (handler: (message: JsonRpcMessage) => void) => void;
   close: () => Promise<void>;
+  /** For a transport whose server can end on its own (a program that exits): why, once, to every handler. */
+  onFailure?: (handler: (error: McpError) => void) => void;
+  /** How long the handshake may take, where it can take longer than a call: a program's first start downloads it. */
+  handshakeTimeoutMs?: number;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -240,13 +248,17 @@ export interface McpTransport {
  */
 export type McpFailureKind =
   | 'blocked-by-server'
+  /** 401: the server wants a signed-in user, or a sign-in that has ended. */
+  | 'needs-sign-in'
   | 'unreachable'
   | 'insecure'
   | 'not-mcp'
   | 'protocol'
   | 'timeout'
   | 'tool-failed'
-  | 'worker-failed';
+  | 'worker-failed'
+  /** A program on this computer that could not start, or stopped. */
+  | 'program-failed';
 
 export class McpError extends Error {
   constructor(

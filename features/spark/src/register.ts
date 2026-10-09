@@ -5,8 +5,12 @@
  */
 import { registerSyncedFolder } from '@willow/storage/local-sync';
 import { registerSkillHydrator } from '@willow/core/skill-library';
+import { registerSparkLibraryWriter } from '@willow/core/spark-library';
 import {
   applySparkSyncedCollection,
+  createSparkSchedule,
+  createSparkSkill,
+  deleteSparkSchedule,
   hydrateSparkState,
   parseSparkSchedule,
   parseSparkSkill,
@@ -14,10 +18,19 @@ import {
   loadSparkTaskRecordsForSync,
   sparkState,
   isSparkStateHydratedForScope,
+  toLibrarySchedule,
+  updateSparkSchedule,
   type SparkSchedule,
   type SparkSkill,
   type SparkTask,
 } from './spark-store';
+import { SPARK_TASKS_FOLDER } from './spark-disk';
+import { getNextScheduleRunAt } from './spark-schedule-time';
+// Bots' own folder, Spark/Dots: each bot with its whole conversation.
+import './dots/dots-folder';
+// MCP through the desktop app's companion — servers that send no CORS headers, and programs on this computer — for
+// every surface that connects servers, the Code tab included.
+import './mcp-relay';
 
 const descriptor = <T extends { id: string }>(
   id: string,
@@ -52,7 +65,7 @@ const descriptor = <T extends { id: string }>(
   });
 };
 
-descriptor<SparkTask>('spark-tasks', 'Spark/Tasks', 'tasks', (state) => state.tasks, parseSparkTask);
+descriptor<SparkTask>('spark-tasks', SPARK_TASKS_FOLDER, 'tasks', (state) => state.tasks, parseSparkTask);
 descriptor<SparkSchedule>('spark-schedules', 'Spark/Schedules', 'schedules', (state) => state.schedules, parseSparkSchedule);
 descriptor<SparkSkill>('skills', 'Skills', 'skills', (state) => state.skills, parseSparkSkill);
 
@@ -72,4 +85,38 @@ descriptor<SparkSkill>('skills', 'Skills', 'skills', (state) => state.skills, pa
  */
 registerSkillHydrator((scopeId) => {
   if (!isSparkStateHydratedForScope(scopeId)) hydrateSparkState(scopeId);
+});
+
+/*
+ * How Chat's `create_schedule` and `create_skill` tools reach Spark's store. A write
+ * hydrates first: one into an unread state would publish over the user's saved schedules.
+ */
+const ensureHydrated = (scopeId: string) => {
+  if (!isSparkStateHydratedForScope(scopeId)) hydrateSparkState(scopeId);
+};
+
+registerSparkLibraryWriter({
+  hydrate: ensureHydrated,
+  createSchedule(scopeId, input) {
+    ensureHydrated(scopeId);
+    const schedule = createSparkSchedule({ ...input, enabled: true, nextRunAt: getNextScheduleRunAt(input) });
+    return schedule ? toLibrarySchedule(schedule) : null;
+  },
+  setScheduleEnabled(scopeId, scheduleId, enabled) {
+    ensureHydrated(scopeId);
+    const existing = sparkState.get().schedules.find((schedule) => schedule.id === scheduleId);
+    if (!existing) return null;
+    // Switched back on, it waits for its next slot rather than catching up on the missed ones.
+    const schedule = updateSparkSchedule(scheduleId, enabled ? { enabled, nextRunAt: getNextScheduleRunAt(existing) } : { enabled });
+    return schedule ? toLibrarySchedule(schedule) : null;
+  },
+  deleteSchedule(scopeId, scheduleId) {
+    ensureHydrated(scopeId);
+    return deleteSparkSchedule(scheduleId);
+  },
+  createSkill(scopeId, input) {
+    ensureHydrated(scopeId);
+    const skill = createSparkSkill({ ...input, source: 'gemini', enabled: true });
+    return skill ? { id: skill.id, name: skill.name, description: skill.description, instructions: skill.instructions } : null;
+  },
 });

@@ -1,0 +1,299 @@
+/*
+ * A created file in Spark's side panel, cloned from what Gemini puts there: the Google
+ * Docs embed, filling the card edge to edge under its 28px corners. Every value is
+ * read off Gemini at 1536×826, inside the Docs frame
+ * (`tools/ui-research/captures/spark/136-file-open/desktop/f-frame-top.json`): a 55px
+ * white app bar, a 40px #f0f4f9 toolbar pill 6px under it, and the page 8.8px lower.
+ * Docs draws its text on a canvas, so the page's metrics were measured off the pixels
+ * (`tools/scratch/ink-lines.cjs`).
+ */
+.spark-file-viewer {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-family: "Google Sans", "Google Sans Flex", Roboto, Arial, sans-serif;
+  font-variation-settings: normal;
+  transition: opacity 120ms linear;
+}
+
+@starting-style {
+  .spark-file-viewer {
+    opacity: 0;
+  }
+}
+
+.spark-file-viewer button {
+  font-family: inherit;
+  font-variation-settings: normal;
+}
+
+.spark-file-viewer button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+/* `docs-hub-appbar`: the logo at 25px, the title's text at 60px, the buttons 12px from the right. */
+.spark-file-viewer__appbar {
+  display: flex;
+  height: 55px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0 12px 0 25px;
+  box-sizing: border-box;
+}
+
+.spark-file-viewer__icon {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 15px;
+  color: #4285f4;
+}
+
+.spark-file-viewer__icon.is-generic {
+  color: #444746;
+}
+
+.spark-file-viewer__title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #1f1f1f;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-file-viewer__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 16px;
+}
+
+/* Where Docs has Share: its 36px tonal pill, #c2e7ff with #004a77 type. */
+.spark-file-viewer__primary {
+  height: 36px;
+  margin-right: 14px;
+  padding: 8px 24px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 9999px;
+  background: #c2e7ff;
+  color: #004a77;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1), box-shadow 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.spark-file-viewer__primary:not(:disabled):hover {
+  background: color-mix(in srgb, #c2e7ff 92%, #004a77);
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+}
+
+.spark-file-viewer__icon-button {
+  display: flex;
+  width: 37.6px;
+  height: 37.6px;
+  flex: 0 0 37.6px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #444444;
+  cursor: pointer;
+}
+
+.spark-file-viewer__icon-button + .spark-file-viewer__icon-button {
+  margin-left: 2px;
+}
+
+.spark-file-viewer__icon-button:not(:disabled):hover {
+  background: rgba(68, 71, 70, 0.08);
+}
+
+/* `docs-main-toolbars`: 16px in from each side; the first control 27px from the card's edge. */
+.spark-file-viewer__toolbar {
+  position: relative;
+  display: flex;
+  height: 40px;
+  flex: 0 0 auto;
+  align-items: center;
+  margin: 6px 16px 8.8px;
+  padding: 0 8px 0 11px;
+  box-sizing: border-box;
+  border-radius: 28px;
+  background: #f0f4f9;
+}
+
+.spark-file-viewer__tool {
+  display: flex;
+  width: 29.6px;
+  height: 29.6px;
+  flex: 0 0 29.6px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #444746;
+  cursor: pointer;
+}
+
+.spark-file-viewer__tool:not(:disabled):hover,
+.spark-file-viewer__zoom:hover,
+.spark-file-viewer__zoom[aria-expanded="true"] {
+  background: rgba(68, 71, 70, 0.08);
+}
+
+.spark-file-viewer__zoom-root {
+  position: relative;
+  margin-left: 2px;
+}
+
+/* `docs-toolbar-zoom-combobox`: 74.6×27.6, "100%" in a 48px field, then an 18px arrow. */
+.spark-file-viewer__zoom {
+  display: flex;
+  width: 74.6px;
+  height: 27.6px;
+  align-items: center;
+  padding: 0 0 0 2.8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #444746;
+  cursor: pointer;
+}
+
+.spark-file-viewer__zoom-value {
+  width: 48px;
+  padding-left: 4px;
+  box-sizing: border-box;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 28px;
+  text-align: left;
+}
+
+.spark-file-viewer__zoom > .material-symbols-rounded {
+  margin-left: 2px;
+}
+
+.spark-file-viewer__zoom-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 3;
+  display: flex;
+  min-width: 112px;
+  flex-direction: column;
+  padding: 6px 0;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 2px 6px 2px rgba(60, 64, 67, 0.15), 0 1px 2px rgba(60, 64, 67, 0.3);
+}
+
+.spark-file-viewer__zoom-option {
+  position: relative;
+  display: flex;
+  height: 32px;
+  align-items: center;
+  padding: 0 24px 0 40px;
+  border: 0;
+  background: transparent;
+  color: #1f1f1f;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.spark-file-viewer__zoom-option:hover {
+  background: rgba(31, 31, 31, 0.08);
+}
+
+.spark-file-viewer__zoom-check {
+  position: absolute;
+  left: 12px;
+}
+
+.spark-file-viewer__scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  background: #ffffff;
+  outline: none;
+  scrollbar-color: #c4c7c5 transparent;
+  scrollbar-width: thin;
+}
+
+/*
+ * Docs' page at 100%: Arial 11pt on a 20px pitch, the first line 49px down and every
+ * line 80px in from the card, wrapping by 760px.
+ */
+.spark-file-viewer__page {
+  max-width: 840px;
+  padding: 49px 80px 96px;
+  box-sizing: border-box;
+  color: #000000;
+  font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
+  font-size: 14.6667px;
+  line-height: 20px;
+}
+
+/* Code reads in a monospace face: Docs has none of Willow's code files to show. */
+.spark-file-viewer__page.is-code {
+  font-family: "Roboto Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13.3333px;
+}
+
+.spark-file-viewer__text {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 4;
+}
+
+.spark-file-viewer__missing {
+  margin: 0;
+  color: #444746;
+  font-family: "Google Sans", "Google Sans Flex", Roboto, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/*
+ * Gemini's phone and tablet embed: no app bar or toolbar, the text single-spaced
+ * (16.8px) about 101px down, 11.6px in from the card's edge on a phone and 14px on a
+ * tablet.
+ */
+.spark-file-viewer.is-compact .spark-file-viewer__page {
+  max-width: none;
+  padding: 101px calc(9.3px + 0.585vw) 48px;
+  line-height: 16.8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spark-file-viewer {
+    transition: none;
+  }
+}

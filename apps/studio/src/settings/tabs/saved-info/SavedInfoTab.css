@@ -64,7 +64,7 @@
 }
 
 .saved-info-container .intro-text a {
-  color: #a8c7fa;
+  color: var(--sync-a8c7fa, #a8c7fa);
   text-decoration: none;
   font-weight: 370;
 }
@@ -97,8 +97,8 @@
 
 /* Create button styles matching MD3 unelevated button */
 .saved-info-container .create-memory-button {
-  background-color: #a8c7fa;
-  color: #062e6f;
+  background-color: var(--sync-a8c7fa, #a8c7fa);
+  color: var(--sync-062e6f, #062e6f);
   border: none;
   padding: 10px 24px;
   border-radius: 100px;
@@ -118,13 +118,13 @@
 }
 
 .saved-info-container .create-memory-button:hover {
-  background-color: #c3ddff;
+  background-color: var(--sync-c3ddff, #c3ddff);
 }
 
 /* Outlined Delete all button */
 .saved-info-container .delete-all-memories-button {
   background-color: transparent;
-  color: #a8c7fa;
+  color: var(--sync-a8c7fa, #a8c7fa);
   border: 0.8px solid #8e918f;
   padding: 10px 24px;
   border-radius: 100px;
@@ -145,8 +145,8 @@
 }
 
 .saved-info-container .delete-all-memories-button:hover {
-  background-color: rgba(168, 199, 250, 0.08);
-  border-color: #a8c7fa;
+  background-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
+  border-color: var(--sync-a8c7fa, #a8c7fa);
 }
 
 /* Memories Group Stack styling */
@@ -272,8 +272,8 @@
 }
 
 .saved-info-container .mdc-switch--selected .mdc-switch__track {
-  background-color: #a8c7fa;
-  border-color: #a8c7fa;
+  background-color: var(--sync-a8c7fa, #a8c7fa);
+  border-color: var(--sync-a8c7fa, #a8c7fa);
 }
 
 .saved-info-container .mdc-switch__handle-track {
@@ -301,7 +301,7 @@
 
 .saved-info-container .mdc-switch--selected .mdc-switch__handle {
   transform: translateX(20px);
-  background-color: #062e6f;
+  background-color: var(--sync-062e6f, #062e6f);
   height: 24px;
   width: 24px;
   top: 4px;
@@ -319,7 +319,7 @@
 
 .saved-info-container .mdc-switch__icon {
   position: absolute;
-  fill: #a8c7fa;
+  fill: var(--sync-a8c7fa, #a8c7fa);
   width: 16px;
   height: 16px;
   opacity: 0;
@@ -331,7 +331,7 @@
 }
 
 .saved-info-container .mdc-switch__icon--on {
-  fill: #062e6f;
+  fill: var(--sync-062e6f, #062e6f);
 }
 
 .saved-info-container .mdc-switch__icon--off {
@@ -444,7 +444,7 @@
 }
 
 .saved-info-container .edit-memory-field-wrapper:focus-within {
-  border: 2px solid #a8c7fa;
+  border: 2px solid var(--sync-a8c7fa, #a8c7fa);
   padding: 15px; /* Subtract 1px to offset 2px border width change jitter */
 }
 
@@ -491,23 +491,23 @@
 
 .saved-info-container .mat-mdc-dialog-actions button.cancel-btn {
   background-color: transparent;
-  color: #a8c7fa;
+  color: var(--sync-a8c7fa, #a8c7fa);
   padding: 10px 12px;
 }
 
 .saved-info-container .mat-mdc-dialog-actions button.cancel-btn:hover {
-  background-color: rgba(168, 199, 250, 0.08);
+  background-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
 }
 
 .saved-info-container .mat-mdc-dialog-actions button.submit-btn {
-  background-color: #a8c7fa;
-  color: #062e6f;
+  background-color: var(--sync-a8c7fa, #a8c7fa);
+  color: var(--sync-062e6f, #062e6f);
   padding: 10px 24px;
   margin-left: 8px;
 }
 
 .saved-info-container .mat-mdc-dialog-actions button.submit-btn:hover {
-  background-color: #c3ddff;
+  background-color: var(--sync-c3ddff, #c3ddff);
 }
 
 .saved-info-container .mat-mdc-dialog-actions button.submit-btn:disabled {
@@ -531,11 +531,11 @@
 }
 
 .saved-info-container .create-memory-button .mat-icon {
-  color: #062e6f !important;
+  color: var(--sync-062e6f, #062e6f) !important;
 }
 
 .saved-info-container .delete-all-memories-button .mat-icon {
-  color: #a8c7fa !important;
+  color: var(--sync-a8c7fa, #a8c7fa) !important;
 }
 
 /* Light Theme overrides matching Gemini 1:1 */
@@ -554,16 +554,16 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .intro-text a {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .create-memory-button {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .create-memory-button:hover {
-  background-color: #0842a0;
+  background-color: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .create-memory-button .mat-icon {
@@ -572,16 +572,16 @@
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .delete-all-memories-button {
   border-color: #747775;
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .delete-all-memories-button:hover {
-  background-color: rgba(11, 87, 208, 0.08);
-  border-color: #0b57d0;
+  background-color: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .delete-all-memories-button .mat-icon {
-  color: #0b57d0 !important;
+  color: var(--sync-0b57d0, #0b57d0) !important;
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .memory {
@@ -643,7 +643,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .edit-memory-field-wrapper:focus-within {
-  border: 2px solid #0b57d0;
+  border: 2px solid var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .edit-memory-input {
@@ -655,24 +655,132 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.cancel-btn {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.cancel-btn:hover {
-  background-color: rgba(11, 87, 208, 0.08);
+  background-color: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.submit-btn {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.submit-btn:hover {
-  background-color: #0842a0;
+  background-color: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .saved-info-container .mat-mdc-dialog-actions button.submit-btn:disabled {
   background-color: rgba(31, 31, 31, 0.12) !important;
   color: rgba(31, 31, 31, 0.38) !important;
+}
+
+/*
+ * At 960px and below, measured off /saved-info at 390x844 and 800x1280. The desktop's fixed
+ * 650px + 52px grid gives way to a fluid one: the title and the switch share the first row
+ * (switch centred on the title), the intro and the buttons span both columns, 14px apart.
+ * The buttons sit on an `auto 1fr auto` grid with Delete all at the end of the middle track.
+ * The page scrolls in a region that starts under the 68px top bar, on Gemini's black
+ * surface. The content margin is spelled out because the desktop shorthand leans on a
+ * variable this container never defines, which voids it.
+ */
+@media (max-width: 960px) {
+  .saved-info-container {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+
+  .dark-theme div.saved-info-container {
+    background-color: #000000;
+  }
+
+  .saved-info-container .page-content {
+    margin: 0 auto;
+  }
+
+  .saved-info-container .header.desktop {
+    grid-template-areas:
+      "title toggle"
+      "intro intro"
+      "buttons buttons";
+    grid-template-columns: minmax(0, 1fr) 52px;
+    grid-template-rows: auto;
+    align-items: center;
+    gap: 14px;
+    margin-top: 0;
+  }
+
+  .saved-info-container .page-title {
+    display: flex;
+    gap: 8px;
+  }
+
+  .saved-info-container .page-title h2 {
+    font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
+  }
+
+  .saved-info-container .toggle-container {
+    align-self: auto;
+    margin-top: 0;
+  }
+
+  /* Without a line box around it the inline-flex switch no longer sits 1.6px low. */
+  .saved-info-container .toggle-container .mat-mdc-slide-toggle {
+    display: flex;
+  }
+
+  .saved-info-container .intro-text,
+  .saved-info-container .memory-text {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .saved-info-container .intro-text a {
+    color: #e0e0e0;
+    font-weight: 400;
+    text-decoration: underline;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .saved-info-container .intro-text ul {
+    margin: 17px 0;
+    padding-left: 40px;
+  }
+
+  .saved-info-container .intro-text li {
+    padding-bottom: 0;
+  }
+
+  .saved-info-container .action-buttons-container {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    margin-top: 0;
+  }
+
+  .saved-info-container .create-memory-button,
+  .saved-info-container .delete-all-memories-button {
+    line-height: normal;
+  }
+
+  .saved-info-container .delete-all-memories-button {
+    justify-self: end;
+    margin-left: 0;
+  }
+
+  .saved-info-container .memory {
+    min-height: 0;
+  }
+
+  .saved-info-container .memory-actions-button {
+    margin-right: 0;
+  }
+
+  .saved-info-container .memory-actions-button .mat-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 24px;
+    line-height: 24px;
+  }
 }
 

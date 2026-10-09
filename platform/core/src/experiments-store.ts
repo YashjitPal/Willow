@@ -18,7 +18,8 @@ export type ExperimentId =
   | 'agents-surface'
   | 'projects-panel'
   | 'waifu-tab'
-  | 'ring';
+  | 'ring'
+  | 'mac-window-buttons';
 
 export type ExperimentFlags = Record<ExperimentId, boolean>;
 
@@ -31,6 +32,7 @@ export const EXPERIMENT_DEFAULTS: ExperimentFlags = {
   'projects-panel': false,
   'waifu-tab': false,
   'ring': false,
+  'mac-window-buttons': false,
 };
 
 /**

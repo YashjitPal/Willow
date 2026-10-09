@@ -22,8 +22,8 @@
   --mem-on-surface: #e3e3e3;
   --mem-on-surface-variant: #c4c7c5;
   --mem-outline: #8e918f;
-  --mem-primary: #a8c7fa;
-  --mem-primary-container: #062e6f;
+  --mem-primary: var(--sync-a8c7fa, #a8c7fa);
+  --mem-primary-container: var(--sync-062e6f, #062e6f);
   --mem-danger: #ff8a80;
 
   --mem-content-max-width: 880px;
@@ -217,7 +217,7 @@
 }
 
 .mem-container .mem-button-filled:hover {
-  background-color: #c3ddff;
+  background-color: var(--sync-c3ddff, #c3ddff);
 }
 
 .mem-container .mem-button-outlined {
@@ -227,7 +227,7 @@
 }
 
 .mem-container .mem-button-outlined:hover {
-  background-color: rgba(168, 199, 250, 0.08);
+  background-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
   border-color: var(--mem-primary);
 }
 
@@ -629,7 +629,7 @@
 }
 
 .mem-container .mem-dialog-cancel:hover {
-  background-color: rgba(168, 199, 250, 0.08);
+  background-color: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
 }
 
 .mem-container .mem-dialog-submit {
@@ -639,7 +639,7 @@
 }
 
 .mem-container .mem-dialog-submit:hover {
-  background-color: #c3ddff;
+  background-color: var(--sync-c3ddff, #c3ddff);
 }
 
 .mem-container .mem-dialog-submit:disabled {
@@ -647,6 +647,46 @@
   color: rgba(227, 227, 227, 0.38) !important;
   cursor: default;
   pointer-events: none;
+}
+
+/*
+ * Below 961px, in the narrow language of the Gemini-matched settings pages (see "Settings
+ * pages at 960px and below" in apps/studio/AGENTS.md): the page starts under the 68px top
+ * bar on black, the headings take Gemini's narrow type axes, and the action pills keep
+ * their labels on one line, wrapping as a row instead. A row's actions open a bottom
+ * sheet there (MemoryList), as Saved Info's do.
+ */
+@media (max-width: 960px) {
+  .mem-container {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+
+  .dark-theme .mem-container {
+    background: #000000;
+  }
+
+  .mem-container .mem-window {
+    margin-top: 0;
+    padding: 12px 24px 40px;
+  }
+
+  .mem-container .mem-display-s {
+    font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
+  }
+
+  .mem-container .mem-title-l {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  .mem-container .mem-actions {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+
+  .mem-container .mem-button {
+    white-space: nowrap;
+  }
 }
 
 /* Light Theme overrides matching Gemini 1:1 */
@@ -659,18 +699,18 @@
   --mem-on-surface: #1f1f1f;
   --mem-on-surface-variant: #444746;
   --mem-outline: #747775;
-  --mem-primary: #0b57d0;
+  --mem-primary: var(--sync-0b57d0, #0b57d0);
   --mem-primary-container: #ffffff;
   --mem-danger: #b3261e;
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-button-filled {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-button-filled:hover {
-  background-color: #0842a0;
+  background-color: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-button-filled .mat-icon {
@@ -679,16 +719,16 @@
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-button-outlined {
   border-color: #747775;
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-button-outlined:hover {
-  background-color: rgba(11, 87, 208, 0.08);
-  border-color: #0b57d0;
+  background-color: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-button-outlined .mat-icon {
-  color: #0b57d0 !important;
+  color: var(--sync-0b57d0, #0b57d0) !important;
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-button-outlined:disabled {
@@ -756,7 +796,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-field:focus-within {
-  border: 2px solid #0b57d0;
+  border: 2px solid var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-input {
@@ -776,24 +816,24 @@
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-select:focus,
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-date:focus {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-cancel {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-cancel:hover {
-  background-color: rgba(11, 87, 208, 0.08);
+  background-color: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-submit {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-submit:hover {
-  background-color: #0842a0;
+  background-color: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .mem-container .mem-dialog-submit:disabled {

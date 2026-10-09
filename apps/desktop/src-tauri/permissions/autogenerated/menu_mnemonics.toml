@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-menu-mnemonics"
+description = "Enables the menu_mnemonics command without any pre-configured scope."
+commands.allow = ["menu_mnemonics"]
+
+[[permission]]
+identifier = "deny-menu-mnemonics"
+description = "Denies the menu_mnemonics command without any pre-configured scope."
+commands.deny = ["menu_mnemonics"]

@@ -1,0 +1,723 @@
+/*
+ * Flow's image editor (flow.google.com/project/…/edit/<imageId>): flow-editor-page around
+ * flow-image-editor, flow-image-cropper, flow-edit-image-prompt-box, flow-editor-history-panel
+ * and flow-editor-history-step-image, plus the overlays it opens (flow-info-panel, the download
+ * menu, flow-share-dialog, flow-feedback-dialog). Transcribed from the component stylesheets and
+ * computed styles captured by tools/ui-research/scrapers/flow/media/02-image-editor.cjs.
+ *
+ * The header, rail, history steps, hotbar and prompt box are the Scenebuilder's (scene-builder.css,
+ * scene-tile.css), which are the same Flow components; only what differs lives here.
+ */
+
+/* ---------------- page ---------------- */
+
+/* The image editor's Hide history is Flow's transparent text button (16px sides, 123.2px wide);
+ * the Scenebuilder's is the filled one (12px sides, 115.2px). */
+.sb-btn.ie-history-btn { padding: 0 16px; background-color: transparent; backdrop-filter: none; }
+
+/* flow-editor-page: header, then content padded by --page-padding (16px) on three sides. */
+.ie-content {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 40px;
+  min-height: 0;
+  padding: 0 16px 16px;
+  overflow: hidden;
+}
+
+.ie-editor-container {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ie-image-editor { display: flex; flex: 1 1 0%; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
+
+.ie-options-and-image { display: flex; flex: 1 1 0%; align-items: center; gap: 16px; min-height: 0; }
+
+.ie-options {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding-inline: 4px 16px;
+}
+
+/* The crop button is Flow's 40px icon button with a 24px glyph. */
+.ie-options .sb-icon-btn { width: 40px; height: 40px; font-size: 24px; }
+.ie-options .sb-icon-btn.is-selected { background-color: var(--sb-fg-15); }
+
+.ie-image-and-crop {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ie-image-container {
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+  container-type: size;
+}
+
+/* Rounded as the pending tile in its place is, so an edit's reveal keeps its shape. The Oct 2
+ * captures of Flow show this image square; it is rounded here because Flow's is now, by the
+ * user's report. Crop mode keeps square corners for its handles. */
+.ie-read-only-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 16px;
+  -webkit-user-drag: none;
+}
+
+/* flow-pending-tile.editor-pending-tile: the generating liquid at the image's aspect ratio. */
+.ie-pending-main {
+  position: relative;
+  display: block;
+  width: min(100cqw, 100cqh * var(--pending-tile-aspect-ratio, 1));
+  height: min(100cqh, 100cqw / var(--pending-tile-aspect-ratio, 1));
+  overflow: hidden;
+  border-radius: 16px;
+  background-color: var(--sb-bg-100);
+}
+
+.ie-prompt-slot { width: 100%; max-width: 600px; padding-bottom: 20px; flex-shrink: 0; }
+.ie-prompt-slot .sb-prompt-wrapper { max-width: none; }
+
+/* flow-edit-image-prompt-box's settings trigger: the model and the aspect glyph. */
+.ie-settings-trigger {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 15px;
+  background-color: var(--sb-fg-05);
+  color: var(--sb-fg-75);
+  font-family: var(--sb-font);
+  font-size: 0.688rem;
+  font-weight: 500;
+  line-height: 24px;
+  white-space: nowrap;
+  cursor: default;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.ie-settings-trigger:hover,
+.ie-settings-trigger[aria-expanded='true'] { background-color: var(--sb-fg-10); }
+.ie-settings-summary { display: flex; align-items: center; gap: 4px; }
+
+/* flow-prompt-box-settings: 296px, 8px in, 12.4px above the trigger and right-aligned with it. */
+.ie-settings {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: 296px;
+  padding: 8px;
+  border-radius: 18px;
+  background-color: var(--sb-bg-90);
+  box-shadow: var(--sb-glass-shadow);
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+}
+
+.ie-settings__content { display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 20px; }
+.ie-settings__divider { height: 0; border-top: 0.8px solid var(--sb-fg-15); }
+
+.ie-toggles {
+  display: flex;
+  height: 42px;
+  border-radius: 12px;
+  background-color: var(--sb-fg-05);
+  backdrop-filter: blur(40px);
+}
+
+.ie-toggle {
+  position: relative;
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.ie-toggle:hover:not(.is-checked) { background-color: var(--sb-fg-05); }
+.ie-toggle.is-checked { background-color: var(--sb-fg-15); }
+.ie-toggle__label { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 34px; }
+
+.ie-model-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 280px;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background-color: var(--sb-fg-10);
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.ie-model-select:hover { background-color: var(--sb-fg-15); }
+.ie-model-select__content { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+
+/* ---------------- crop ---------------- */
+
+/* The shape menu: Flow's own .menu-overlay, not a mat-menu. */
+.ie-crop-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 18px;
+  background-color: var(--sb-bg-90);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+}
+
+.ie-crop-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 8px 16px 8px 12px;
+  border: 0;
+  border-radius: 16px;
+  background-color: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: normal;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.ie-crop-menu__item:hover { background-color: var(--sb-fg-10); }
+.ie-crop-menu__item.is-selected { background-color: var(--sb-fg-15); }
+
+.ie-crop-actions { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 4px; flex-shrink: 0; }
+
+/* .crop-action-button: Material outlined / tonal, fully round, 40px tall, padding 16px then 20px. */
+.ie-crop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 20px 0 16px;
+  border-radius: 9999px;
+  font-family: var(--sb-font);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: normal;
+  cursor: default;
+}
+
+.ie-crop-btn__icon { height: 24px; line-height: 24px; }
+.ie-crop-btn--outlined { border: 0.8px solid var(--sb-fg-90); background: transparent; color: var(--sb-fg-000); backdrop-filter: none; }
+.ie-crop-btn--tonal { border: 0; background: var(--sb-fg-000); color: #000; backdrop-filter: blur(40px); }
+.ie-crop-btn::before { border-radius: inherit; }
+
+/* flow-image-cropper over Cropper.js's stylesheet, with Flow's overrides applied. */
+.ie-cropper { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 5px; box-sizing: border-box; }
+.ie-cropper__box { position: relative; display: inline-block; max-width: 100%; max-height: 100%; }
+.ie-cropper__ghost { display: block; visibility: hidden; max-width: 100%; max-height: 100%; }
+.ie-cropper__layer { position: absolute; inset: 0; direction: ltr; font-size: 0; line-height: 0; touch-action: none; user-select: none; }
+.ie-cropper__canvas { position: absolute; inset: 0; overflow: hidden; }
+.ie-cropper__canvas img,
+.ie-cropper__view img { display: block; width: 100%; height: 100%; max-width: none; max-height: none; -webkit-user-drag: none; }
+.ie-cropper__modal { position: absolute; inset: 0; background-color: #000; opacity: 0.5; }
+.ie-cropper__crop { position: absolute; }
+.ie-cropper__view { display: block; width: 100%; height: 100%; overflow: hidden; outline: 2px solid var(--sb-fg-000); }
+.ie-cropper__view img { position: absolute; }
+.ie-cropper__dashed { position: absolute; display: block; border: 0 dashed var(--sb-fg-000); opacity: 0.5; }
+.ie-cropper__dashed--h { top: 33.3333%; left: 0; width: 100%; height: 33.3333%; border-top-width: 1px; border-bottom-width: 1px; box-sizing: border-box; }
+.ie-cropper__dashed--v { top: 0; left: 33.3333%; width: 33.3333%; height: 100%; border-left-width: 1px; border-right-width: 1px; box-sizing: border-box; }
+.ie-cropper__center { position: absolute; top: 50%; left: 50%; display: block; width: 0; height: 0; opacity: 0.75; }
+.ie-cropper__center::before,
+.ie-cropper__center::after { content: ' '; position: absolute; display: block; background-color: #eee; }
+.ie-cropper__center::before { top: 0; left: -3px; width: 7px; height: 1px; }
+.ie-cropper__center::after { top: -3px; left: 0; width: 1px; height: 7px; }
+.ie-cropper__face { position: absolute; inset: 0; background-color: transparent; cursor: move; }
+.ie-cropper__line { position: absolute; display: block; background-color: transparent; }
+.ie-cropper__line--e { top: 0; right: -3px; width: 5px; height: 100%; cursor: ew-resize; }
+.ie-cropper__line--w { top: 0; left: -3px; width: 5px; height: 100%; cursor: ew-resize; }
+.ie-cropper__line--n { top: -3px; left: 0; width: 100%; height: 5px; cursor: ns-resize; }
+.ie-cropper__line--s { bottom: -3px; left: 0; width: 100%; height: 5px; cursor: ns-resize; }
+.ie-cropper__point {
+  position: absolute;
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--sb-fg-000);
+  border-radius: 4px;
+  background-color: transparent;
+}
+.ie-cropper__point--nw { top: 0; left: 0; transform: translate(-50%, -50%); cursor: nwse-resize; }
+.ie-cropper__point--ne { top: 0; right: 0; transform: translate(50%, -50%); cursor: nesw-resize; }
+.ie-cropper__point--sw { bottom: 0; left: 0; transform: translate(-50%, 50%); cursor: nesw-resize; }
+.ie-cropper__point--se { bottom: 0; right: 0; transform: translate(50%, 50%); cursor: nwse-resize; }
+.ie-cropper__point--n { top: 0; left: 50%; transform: translate(-50%, -50%); cursor: ns-resize; }
+.ie-cropper__point--s { bottom: 0; left: 50%; transform: translate(-50%, 50%); cursor: ns-resize; }
+.ie-cropper__point--e { top: 50%; right: 0; transform: translate(50%, -50%); cursor: ew-resize; }
+.ie-cropper__point--w { top: 50%; left: 0; transform: translate(-50%, -50%); cursor: ew-resize; }
+
+/* ---------------- history ---------------- */
+
+/* flow-editor-history-panel in the image editor: 16.8rem, at most 80lvh, and hidden by animating
+ * its width to 0 while the list slides out — both 0.35s ease-in-out. */
+.ie-history {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: 268.8px;
+  max-height: 80lvh;
+  overflow: hidden;
+  transition: width 0.35s ease-in-out;
+}
+
+.ie-history.is-hidden { width: 0; }
+
+.ie-history__scroll {
+  display: flex;
+  flex-direction: column;
+  width: 268.8px;
+  height: 100%;
+  overflow: hidden auto;
+  transform: translateX(0);
+  transition: transform 0.35s ease-in-out;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-fg-15) transparent;
+}
+
+.ie-history__scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+.ie-history__scroll::-webkit-scrollbar-track { background: transparent; }
+.ie-history__scroll::-webkit-scrollbar-thumb { background: var(--sb-fg-15); border-radius: 999px; }
+.ie-history__scroll::before { content: ''; flex: 1 1 0%; }
+.ie-history.is-hidden .ie-history__scroll { transform: translateX(100%); }
+
+.ie-history__fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 32px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.ie-history__fade--top { top: 0; background: linear-gradient(180deg, var(--sb-bg-000) 0, transparent 100%); }
+.ie-history__fade--bottom { bottom: 0; background: linear-gradient(0deg, var(--sb-bg-000) 0, transparent 100%); }
+.ie-history__fade.is-visible { opacity: 1; }
+
+.ie-step__image { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 16px; -webkit-user-drag: none; cursor: pointer; }
+
+/* .ingredients-list: 40px chips, 4px apart, inset 4px like the prompt. */
+.ie-ingredients { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-left: 4px; }
+
+.ie-chip {
+  position: relative;
+  display: block;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--sb-fg-15);
+  cursor: pointer;
+}
+
+.ie-chip img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+
+.ie-chip__hover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background-color: var(--sb-bg-50);
+  color: var(--sb-fg-000);
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.ie-chip:hover .ie-chip__hover,
+.ie-chip:focus-visible .ie-chip__hover { opacity: 1; }
+
+/* A crop's description is only Flow's 24px crop glyph, inset like the prompt. */
+.ie-crop-step { display: block; box-sizing: border-box; width: 28px; height: 24px; padding-left: 4px; overflow: hidden; line-height: 24px; color: var(--sb-fg-000); }
+
+/* flow-pending-tile: #202124 under the liquid, a 12px inset header (type glyph, percentage)
+ * and a footer (prompt, Reuse) that fades in on hover. */
+.ie-pending {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  background-color: var(--sb-bg-100);
+}
+
+.ie-pending__inner {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  padding: 12px;
+  color: var(--sb-fg-50);
+  pointer-events: none;
+}
+
+.ie-pending__header { display: flex; align-items: center; justify-content: space-between; height: 24px; }
+.ie-pending__pct { font-size: 16px; line-height: 24px; }
+
+.ie-pending__footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  height: 34px;
+  color: var(--sb-fg-90);
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+  pointer-events: auto;
+}
+
+.sb-step__container:hover .ie-pending__footer { opacity: 1; }
+
+.ie-pending__subtitle {
+  overflow: hidden;
+  font-size: 0.688rem;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ie-pending__reuse.sb-icon-btn { background-color: var(--sb-bg-50); color: var(--sb-fg-100); }
+
+/* flow-error-tile. */
+.ie-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 16px;
+  overflow: hidden;
+  border-radius: 16px;
+  background-image: linear-gradient(rgba(28, 28, 28, 0.8), rgba(45, 45, 45, 0.8));
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-90);
+  cursor: default;
+}
+
+.ie-error__message {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  scrollbar-width: none;
+}
+
+.ie-error__title { font-size: 14px; font-weight: 500; line-height: 20px; padding-top: 4px; }
+.ie-error__subtitle { display: flex; flex-direction: column; gap: 4px; }
+.ie-error__buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.ie-error__buttons .sb-icon-btn { background-color: var(--sb-fg-10); }
+
+/* ---------------- overlays ---------------- */
+
+/* flow-info-panel in its overlay. */
+.ie-info {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  max-width: 400px;
+  padding: 10px 12px 14px;
+  border-radius: 18px;
+  background-color: var(--sb-bg-90);
+  box-shadow: var(--sb-glass-shadow);
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  animation: ie-fade-in 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.ie-info__container { display: flex; flex-direction: column; gap: 8px; }
+.ie-info__title { font-size: 0.688rem; font-weight: 500; line-height: 16px; }
+.ie-info__meta { display: flex; flex-direction: column; gap: 2px; color: var(--sb-fg-50); font-size: 12px; line-height: 16px; }
+.ie-info__row { display: flex; align-items: center; gap: 4px; }
+
+@keyframes ie-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* The download menu's two-line rows: 52px, a 14px label over an 11px caption. */
+/* Flow's panel takes its width from the 4K row's Upgrade button (row 159.3px); Willow has no
+ * Upgrade, so the rows keep that width themselves. A locked size row is 44px, the others 52px. */
+.sb-menu-item.ie-menu-two-line { min-width: 159.3px; min-height: 52px; box-sizing: border-box; }
+.sb-menu-item.ie-menu-two-line.is-disabled { min-height: 44px; padding-block: 4px; }
+.ie-two-line { display: flex; flex-direction: column; }
+.ie-two-line__label { font-size: 14px; font-weight: 500; line-height: 20px; }
+.ie-two-line__caption { color: var(--sb-fg-75); font-size: 0.688rem; font-weight: 500; line-height: 16px; }
+.sb-menu-item.is-disabled .ie-two-line__caption { color: inherit; }
+
+/* Dialogs: CDK's blurred backdrop and a Material dialog surface. */
+.ie-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background-color: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(8px);
+  animation: ie-backdrop-in 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@keyframes ie-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+
+.ie-dialog-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.ie-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: 24px;
+  background-color: var(--sb-bg-90);
+  box-shadow: var(--sb-glass-shadow);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  pointer-events: auto;
+  animation: ie-dialog-in 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+@keyframes ie-dialog-in { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: none; } }
+
+/* flow-feedback-dialog. */
+.ie-flag { width: 280.3px; min-width: 280px; }
+/* Title 66.2px, a 1px gap, the radios (136px), then the actions with Material's 0.8px top border:
+ * 270px in all, as measured. */
+.ie-flag__title { margin: 0; padding: 24px 24px 18.2px; font-size: 16px; font-weight: 400; line-height: 24px; }
+.ie-flag__options { display: flex; flex-direction: column; gap: 8px; margin-top: 1px; padding: 0 24px; color: #e3e3e3; font-size: 14px; line-height: 20px; }
+.ie-flag__actions { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px; border-top: 0.8px solid transparent; }
+
+.ie-radio { display: inline-flex; align-items: center; height: 40px; cursor: pointer; }
+.ie-radio__control { position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
+.ie-radio__control input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.ie-radio__outer {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 1.6px solid #c4c7c5;
+  border-radius: 50%;
+  transition: border-color 0.12s;
+}
+.ie-radio__outer::after {
+  content: '';
+  position: absolute;
+  inset: 3.4px;
+  border-radius: 50%;
+  background-color: #e3e3e3;
+  transform: scale(0);
+  transition: transform 0.12s;
+}
+.ie-radio input:checked + .ie-radio__outer { border-color: #e3e3e3; }
+.ie-radio input:checked + .ie-radio__outer::after { transform: scale(1); }
+.ie-radio input:focus-visible + .ie-radio__outer,
+.ie-flag.is-initial-focus .ie-radio input:focus + .ie-radio__outer { box-shadow: 0 0 0 2px #000, 0 0 0 4px #7cacf8; }
+.ie-radio__label { padding-left: 0; color: #e3e3e3; }
+
+.ie-dialog-btn {
+  min-width: 64px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 24px;
+  backdrop-filter: blur(40px);
+  cursor: default;
+}
+.ie-dialog-btn--tonal { background-color: var(--sb-fg-000); color: #000; }
+.ie-dialog-btn--primary { margin-left: 8px; background-color: var(--sb-fg-10); color: var(--sb-fg-000); letter-spacing: 0.096px; }
+
+/* flow-confirmation-dialog: 560px at most, sized by its message. The title keeps Material's 40px
+ * baseline strut, which is what makes it 66.2px tall around one 24px line. */
+.ie-confirm { min-width: 280px; max-width: 560px; }
+.ie-confirm__title { margin: 0 0 1px; padding: 6px 24px 13px; font-size: 16px; font-weight: 400; line-height: 24px; }
+.ie-confirm__title::before { content: ''; display: inline-block; width: 0; height: 40px; }
+.ie-confirm__content { padding: 0 24px; color: #c4c7c5; font-size: 14px; line-height: 20px; }
+.ie-confirm__message { margin: 0; white-space: pre-line; }
+.ie-confirm__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; min-height: 52px; padding: 16px 24px; border-top: 0.8px solid transparent; }
+.ie-confirm__action { display: flex; align-items: center; gap: 8px; }
+/* Without a title (New collection from a selection): a 20px glyph, the message centered at 16px
+ * sides, and the two buttons sharing the width 8px apart. */
+.ie-confirm__icon { display: flex; justify-content: center; padding: 16px 0 12px; line-height: 20px; }
+.ie-confirm--icon .ie-confirm__content { padding: 0 16px; text-align: center; }
+.ie-confirm--icon .ie-confirm__actions { flex-wrap: nowrap; gap: 8px; min-height: 0; padding: 16px; border-top: 0; }
+.ie-confirm--icon .ie-dialog-btn { flex: 1 1 0; margin-left: 0; letter-spacing: 0.096px; }
+.ie-dialog-btn--flat { background-color: transparent; color: var(--sb-fg-000); }
+.ie-dialog-btn--flat:disabled { color: var(--sb-fg-50); }
+
+/* flow-share-dialog. */
+.ie-share { width: 348px; padding-bottom: 20px; }
+.ie-share__header { display: flex; align-items: center; justify-content: space-between; height: 40px; margin: 13.3px 0 0; padding: 0 20px; font-size: 16px; font-weight: 400; line-height: 24px; }
+.ie-share__content { display: flex; flex-direction: column; gap: 4px; padding: 13.3px 20px 0; color: #c4c7c5; font-size: 14px; line-height: 20px; }
+.ie-share__card { display: flex; flex-direction: column; padding: 2px; border-radius: 20px; background-color: var(--sb-fg-05); }
+.ie-share__preview { position: relative; display: block; width: 304px; height: 171px; overflow: hidden; border-radius: 16px; }
+/* The video tile's status glyph, top left, as in the gallery. */
+.ie-share__badge { position: absolute; top: 0; left: 0; display: flex; padding: 12px; color: var(--sb-fg-100); filter: drop-shadow(rgba(0, 0, 0, 0.25) 0 1px 4px); }
+.ie-share__preview img,
+.ie-share__preview video { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 16px; }
+.ie-share__info { display: flex; flex-direction: column; gap: 2px; padding: 16px 16px 16px; }
+.ie-share__model { font-size: 0.688rem; font-weight: 500; line-height: 16px; }
+.ie-share__inputs { display: flex; flex-direction: column; gap: 10px; padding: 12px 8px 4px; }
+.ie-share__toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 34px; }
+.ie-share__prompt { position: relative; box-sizing: border-box; height: 36px; padding: 10px 8px 10px 24px; border-radius: 12px; background-color: var(--sb-fg-05); color: #bdc1c6; font-size: 0.688rem; font-weight: 500; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ie-share__ingredients { display: flex; gap: 8px; }
+.ie-share__ingredient { position: relative; width: 40px; height: 40px; }
+.ie-share__ingredient img { display: block; width: 40px; height: 40px; border-radius: 12px; object-fit: cover; }
+.ie-share__divider { padding: 8px 0; }
+.ie-share__divider hr { margin: 0; border: 0; border-top: 0.8px solid var(--sb-fg-15); }
+.ie-share__link { display: flex; flex-direction: column; gap: 8px; }
+.ie-share__copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 308px;
+  height: 32px;
+  box-sizing: border-box;
+  border: 0.8px solid var(--sb-fg-90);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 0.688rem;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: default;
+}
+.ie-share__note { display: flex; align-items: center; gap: 4px; padding-left: 4px; color: var(--sb-fg-75); font-size: 0.688rem; font-weight: 500; line-height: 16px; }
+
+/* Material's slide toggle, selected: a white track with a dark handle on the right. */
+.ie-switch { display: inline-flex; align-items: center; gap: 4px; color: var(--sb-fg-000); font-size: 0.688rem; font-weight: 500; line-height: 16px; cursor: pointer; }
+.ie-switch__track {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 100px;
+  background-color: var(--sb-fg-25);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.ie-switch__track[aria-checked='true'] { background-color: var(--sb-fg-000); }
+.ie-switch__handle {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 24px;
+  background-color: var(--sb-fg-000);
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s;
+}
+.ie-switch__track[aria-checked='true'] .ie-switch__handle { transform: translateX(16px); background-color: #202124; }
+
+/* flow-overlay-checkbox: an 18px Material checkbox hung off the item's top-left corner. */
+.ie-overlay-check {
+  position: absolute;
+  top: -5.2px;
+  left: -5.2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.ie-overlay-check__box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 1.6px solid #e3e3e3;
+  border-radius: 8px;
+  background-color: transparent;
+  color: #000;
+}
+.ie-overlay-check[aria-checked='true'] .ie-overlay-check__box { border-color: var(--sb-fg-000); background-color: var(--sb-fg-000); }

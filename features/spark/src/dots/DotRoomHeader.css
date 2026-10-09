@@ -1,0 +1,196 @@
+/*
+ * Codex's room header, measured from room-header.tsx in the extraction: the character, 56px, 6px below the top
+ * of the conversation, and under it a pill with the bot's name (16/20 medium) and, while it works, what it is
+ * doing (14/20, up to two lines). The pill sits on the panel's surface with a 0.5px hairline; a soft disc of the
+ * surface behind the character keeps the messages that scroll under it out of its outline. Codex's surface,
+ * border and text tokens are the open bot's own (SparkTaskDetail.css).
+ */
+.spark-dots-room-header {
+  --dot-room-header-surface: var(--spark-panel-surface, #1f1f1f);
+  --dot-room-header-surface-hover: color-mix(in srgb, var(--dot-room-header-surface) 92%, #fff 8%);
+  --dot-room-header-border: rgba(255, 255, 255, 0.12);
+  --dot-room-header-ring: rgba(255, 255, 255, 0.25);
+  --dot-room-header-text: #e6e6e6;
+  --dot-room-header-muted: rgba(255, 255, 255, 0.55);
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 9;
+  transform-origin: top;
+  pointer-events: none;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-room-header {
+  --dot-room-header-surface-hover: color-mix(in srgb, var(--dot-room-header-surface) 94%, #000 6%);
+  --dot-room-header-border: rgba(0, 0, 0, 0.08);
+  --dot-room-header-ring: rgba(0, 0, 0, 0.25);
+  --dot-room-header-text: #1f1f1f;
+  --dot-room-header-muted: rgba(0, 0, 0, 0.55);
+}
+
+.spark-dots-room-header__row {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 6px 16px 0;
+}
+
+.spark-dots-room-header__profile {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  pointer-events: auto;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .spark-dots-room-header__profile.can-press:active {
+    scale: 0.95;
+  }
+}
+
+.spark-dots-room-header__button {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  touch-action: none;
+}
+
+.spark-dots-room-header__stack {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.spark-dots-room-header__character {
+  position: relative;
+  z-index: 10;
+  width: 56px;
+  height: 56px;
+  margin-bottom: -2px;
+}
+
+.spark-dots-room-header__character::before {
+  position: absolute;
+  z-index: -10;
+  inset: -8px;
+  background: var(--dot-room-header-surface);
+  content: "";
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(currentColor 42%, #0000 76%);
+  mask-image: radial-gradient(currentColor 42%, #0000 76%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+}
+
+.spark-dots-room-header__pill {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  justify-content: center;
+  isolation: isolate;
+}
+
+/* Sized frame by frame to what it holds; the content is clipped to it, so a new line is revealed as it grows. */
+.spark-dots-room-header__pill-surface {
+  position: absolute;
+  z-index: -10;
+  top: 0;
+  left: 50%;
+  border-radius: 14px;
+  background: var(--dot-room-header-surface);
+  box-shadow: 0 0 0 0.5px var(--dot-room-header-border);
+  pointer-events: none;
+  translate: -50% 0;
+}
+
+.spark-dots-room-header__profile:hover .spark-dots-room-header__pill-surface {
+  background: var(--dot-room-header-surface-hover);
+}
+
+.spark-dots-room-header__profile:has(:focus-visible) .spark-dots-room-header__pill-surface {
+  box-shadow: 0 0 0 2px var(--dot-room-header-ring), 0 0 0 0.5px var(--dot-room-header-border);
+}
+
+.spark-dots-room-header__pill-content {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 10px;
+  color: var(--dot-room-header-muted);
+  font-size: 16px;
+  line-height: 20px;
+}
+
+.spark-dots-room-header__name {
+  position: relative;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--dot-room-header-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spark-dots-room-header__status {
+  display: contents;
+}
+
+.spark-dots-room-header__activity {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.spark-dots-room-header__activity > svg {
+  flex: none;
+}
+
+.spark-dots-room-header__activity-label {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-align: center;
+  text-wrap: balance;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/*
+ * Codex keeps 112px above the first message for the header; here the panel's own 52px header row is part of
+ * that, so the conversation's top padding makes up the rest. It stays while the profile is open, so the
+ * messages hold still as the character steps back and returns.
+ */
+.spark-dots-detail .spark-task-detail__conversation-scroll {
+  padding-top: 60px;
+}
+
+/* The back chevron, the character and the header's actions share the top on the narrowest phones. */
+@media (max-width: 400px) {
+  .spark-dots-detail .spark-task-detail__header .spark-dots-detail__beta-pill {
+    display: none;
+  }
+}

@@ -7,6 +7,8 @@ import { experimentsStore } from '@willow/core/experiments-store';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { AppearanceTab, PeopleTab, PrivacyTab, LabsTab, AccountTab, ConnectorsTab, ModelsTab, GovernanceTab, PersonalIntelligenceTab } from './tabs/index';
 import { type ProviderId } from '@willow/ai/providers/endpoints';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { GEMINI_MODELS } from './provider-models';
 import { useProviderSettings } from './use-provider-settings';
 
@@ -90,13 +92,13 @@ const SettingsDropdownMenu: React.FC<{
             onClose();
           }}
           className={`w-full flex items-center justify-between px-3 h-[36px] text-[13.5px] font-medium tracking-tight transition-colors
-            ${current === opt.id ? 'bg-[#1e2b48] text-[#58a1ff]' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+            ${current === opt.id ? 'bg-[color:var(--sync-1e2b48,#1e2b48)] text-[color:var(--sync-58a1ff,#58a1ff)]' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
         >
           <div className="flex items-center gap-3">
-            <opt.icon size={16} strokeWidth={2} className={current === opt.id ? 'text-[#58a1ff]' : 'text-zinc-500'} />
+            <opt.icon size={16} strokeWidth={2} className={current === opt.id ? 'text-[color:var(--sync-58a1ff,#58a1ff)]' : 'text-zinc-500'} />
             <span>{opt.label}</span>
           </div>
-          {current === opt.id && <Check size={14} className="text-[#58a1ff]" />}
+          {current === opt.id && <Check size={14} className="text-[color:var(--sync-58a1ff,#58a1ff)]" />}
         </button>
       ))}
     </div>
@@ -109,10 +111,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
     isSupported: isLocalFSSupported,
     isLocalFolderConnected,
     localFolderName,
+    localFolderProblem,
     connectLocalFolder,
     disconnectLocalFolder
   } = useLocalFS();
   const isAgentsEnabled = useStore(experimentsStore)['agents-surface'];
+  const isCompact = useCompactViewport();
+  /*
+   * Below 961px the dialog is a full-screen settings screen in two levels: the tab list,
+   * then one tab with a back arrow. Opening on a particular tab goes straight to it.
+   */
+  const [compactPane, setCompactPane] = useState<'list' | 'content'>(initialTab ? 'content' : 'list');
   const [profileName, setProfileName] = useState('');
   const [shouldRender, setShouldRender] = React.useState(isOpen);
   const [isClosing, setIsClosing] = React.useState(false);
@@ -192,6 +201,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
       setActiveConnector(initialConnector);
     }
   }, [isOpen, initialTab, initialConnector]);
+
+  useEffect(() => {
+    if (isOpen) setCompactPane(initialTab ? 'content' : 'list');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const selectTab = (tab: SectionType) => {
+    setActiveTab(tab);
+    setCompactPane('content');
+  };
   
   // Custom dropdown states
   const geminiRef = useRef<HTMLDivElement>(null);
@@ -365,44 +384,65 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
   if (!shouldRender) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+    <div className={`fixed inset-0 z-[100] flex items-center justify-center ${isCompact ? '' : 'px-4'}`}>
       {/* Backdrop */}
       <div 
         className={`absolute inset-0 bg-black/60 ${isClosing ? 'backdrop-fade-out' : 'backdrop-fade-in'}`}
         onClick={onClose}
       />
       
-      <div className={`settings-modal-dialog relative w-[calc(100vw_-_12vh)] h-[88vh] bg-[#1c1c1c] rounded-[10px] shadow-2xl border border-white/10 flex overflow-hidden z-10 ${isClosing ? 'settings-fade-out' : 'settings-fade-in'}`}>
+      <div className={`settings-modal-dialog relative bg-[#1c1c1c] flex overflow-hidden z-10 ${
+        isCompact
+          ? 'is-compact w-full h-full flex-col'
+          : 'w-[calc(100vw_-_12vh)] h-[88vh] rounded-[10px] shadow-2xl border border-white/10'
+      } ${isClosing ? 'settings-fade-out' : 'settings-fade-in'}`}>
         
-        {/* Close Button */}
-        <button 
-            onClick={onClose}
-            className="settings-modal-close absolute top-4 right-4 text-zinc-400 hover:text-white z-50 p-1"
-        >
-            <X size={20} />
-        </button>
+        {isCompact ? (
+          <header className="settings-modal-compact-header">
+            {compactPane === 'content' && (
+              <button type="button" aria-label="Back to settings" className="settings-modal-compact-icon" onClick={() => setCompactPane('list')}>
+                <MaterialSymbol name="arrow_back" family="google-symbols" size={24} weight={400} />
+              </button>
+            )}
+            <button type="button" aria-label="Close settings" className="settings-modal-compact-icon settings-modal-compact-close" onClick={onClose}>
+              <MaterialSymbol name="close" family="google-symbols" size={24} weight={400} />
+            </button>
+          </header>
+        ) : (
+          /* Close Button */
+          <button 
+              onClick={onClose}
+              className="settings-modal-close absolute top-4 right-4 text-zinc-400 hover:text-white z-50 p-1"
+          >
+              <X size={20} />
+          </button>
+        )}
 
         {/* Sidebar */}
-        <div className="settings-modal-sidebar w-[250px] bg-[#1c1c1c] border-r border-white/5 flex flex-col py-2 px-3 shrink-0">
+        {(!isCompact || compactPane === 'list') && (
+        <div className={`settings-modal-sidebar bg-[#1c1c1c] flex flex-col ${
+          isCompact ? 'settings-modal-compact-list' : 'w-[250px] border-r border-white/5 py-2 px-3 shrink-0'
+        }`}>
+             {isCompact && <h1 className="settings-modal-compact-heading">Settings</h1>}
              
              <SettingsSectionTitle title="Appearance" />
              <SettingsSidebarItem 
                 icon={Palette}
                 label="Appearance" 
                 active={activeTab === 'appearance' || activeTab === 'workspace'} 
-                onClick={() => setActiveTab('appearance')} 
+                onClick={() => selectTab('appearance')} 
              />
-             <SettingsSidebarItem icon={CreditCard} label="Models & API" active={activeTab === 'models'} onClick={() => setActiveTab('models')} />
+             <SettingsSidebarItem icon={CreditCard} label="Models & API" active={activeTab === 'models'} onClick={() => selectTab('models')} />
              {/* Agents ships opt-in, so its governance tab hides with it. */}
              {isAgentsEnabled && (
-               <SettingsSidebarItem icon={Shield} label="Agent Builder governance" active={activeTab === 'governance'} onClick={() => setActiveTab('governance')} />
+               <SettingsSidebarItem icon={Shield} label="Agent Builder governance" active={activeTab === 'governance'} onClick={() => selectTab('governance')} />
              )}
 
              <SettingsSectionTitle title="Account" />
-             <SettingsSidebarItem icon={User} label="Your account" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
+             <SettingsSidebarItem icon={User} label="Your account" active={activeTab === 'account'} onClick={() => selectTab('account')} />
               <div 
-                onClick={() => setActiveTab('labs')}
-                className={`px-3 py-1.5 cursor-pointer flex items-center gap-3 text-[14px] font-medium rounded-lg transition-colors ${activeTab === 'labs' ? 'bg-[#1f1f1f] text-white settings-sidebar-item-active' : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white settings-sidebar-item-inactive'}`}
+                onClick={() => selectTab('labs')}
+                className={`settings-modal-labs-item px-3 py-1.5 cursor-pointer flex items-center gap-3 text-[14px] font-medium rounded-lg transition-colors ${activeTab === 'labs' ? 'bg-[#1f1f1f] text-white settings-sidebar-item-active' : 'text-zinc-400 hover:bg-[#1f1f1f] hover:text-white settings-sidebar-item-inactive'}`}
               >
                 <div className="w-5 h-5 flex items-center justify-center">
                     <FlaskConical size={18} />
@@ -411,12 +451,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
               </div>
 
              <SettingsSectionTitle title="Connectors" />
-             <SettingsSidebarItem icon={Link} label="Connectors" active={activeTab === 'connectors'} onClick={() => setActiveTab('connectors')} />
-             <SettingsSidebarItem icon={Github} label="GitHub" active={activeTab === 'github'} onClick={() => setActiveTab('github')} />
+             <SettingsSidebarItem icon={Link} label="Connectors" active={activeTab === 'connectors'} onClick={() => selectTab('connectors')} />
+             <SettingsSidebarItem icon={Github} label="GitHub" active={activeTab === 'github'} onClick={() => selectTab('github')} />
 
         </div>
+        )}
 
         {/* Content */}
+        {(!isCompact || compactPane === 'content') && (
         <div className="settings-modal-content flex-1 bg-[#1c1c1c] w-full overflow-hidden relative">
             {(activeTab === 'appearance' || activeTab === 'workspace') && (
                 <AppearanceTab />
@@ -526,6 +568,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                   isLocalFSSupported={isLocalFSSupported}
                   isLocalFolderConnected={isLocalFolderConnected}
                   localFolderName={localFolderName}
+                  localFolderProblem={localFolderProblem}
                   connectLocalFolder={connectLocalFolder}
                   disconnectLocalFolder={disconnectLocalFolder}
                   isDriveConnected={isDriveConnected}
@@ -540,6 +583,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, m
                 </div>
             )}
         </div>
+        )}
       </div>
     </div>
   );

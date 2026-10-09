@@ -1,0 +1,82 @@
+/*
+ * An agent tab inside the rounded page: the agents' page fills it; until that page is up, a
+ * cover in Willow's studio surface names the agent and says why it is waiting.
+ */
+.willow-harness {
+  position: absolute;
+  inset: 0;
+  background-color: #0f0f0f;
+  color: #e3e3e3;
+}
+
+.willow-harness--light {
+  background-color: #faf9f9;
+  color: #1f1f1f;
+}
+
+.willow-harness__frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.willow-harness__cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", -apple-system, sans-serif;
+  text-align: center;
+}
+
+.willow-harness__cover-title {
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 28px;
+}
+
+.willow-harness__cover-text {
+  max-width: 420px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: #9aa0a6;
+}
+
+.willow-harness--light .willow-harness__cover-text {
+  color: #5f6368;
+}
+
+.willow-harness__retry {
+  height: 40px;
+  margin-top: 8px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 999px;
+  background-color: #a8c7fa;
+  color: #062e6f;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.willow-harness__retry:hover {
+  background-color: #b6d0fb;
+}
+
+.willow-harness--light .willow-harness__retry {
+  background-color: #0b57d0;
+  color: #ffffff;
+}
+
+.willow-harness--light .willow-harness__retry:hover {
+  background-color: #1a62d4;
+}

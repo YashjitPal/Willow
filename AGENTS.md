@@ -11,11 +11,15 @@ touch. Every package has one.
 ## Layout
 
 ```
-apps/studio/        The host shell. Routing, sidebar, settings. The only app.
+apps/studio/        The host shell. Routing, sidebar, settings.
+apps/desktop/       The desktop app (Tauri v2): Studio, its server and the companion in one install.
 features/<name>/    One sub-app each. Self-contained; owns its own UI + state.
 platform/<name>/    Shared libraries. Used by many features, depends on none.
 services/<name>/    Node backends. Separate npm packages, ship independently.
 assets/             Images, video, cursors, animations, prompt suggestions.
+api/                Vercel functions. `_`-prefixed files are not deployed: shared
+                    helpers, and what runs locally only — Spark's remote-browser
+                    proxy and `/llm-proxy`, both mounted by `bin/willow.js`.
 tools/              Scripts, prototypes, research captures. Not shipped.
 backup.cmd          Git checkpoint script: commit + pull --rebase + push.
 ```
@@ -31,7 +35,8 @@ local ↔ Drive toggle is a matter of picking an adapter, not rewriting callers.
 | Package | Alias | What it is |
 | --- | --- | --- |
 | [`apps/studio`](apps/studio/AGENTS.md) | — | The host shell: routing, sidebar, settings, Vite config |
-| [`features/code`](features/code/AGENTS.md) | `@willow/code` | The Workbench — Sandpack sandbox, visual editing, and the Agent tool's Codex harness |
+| [`apps/desktop`](apps/desktop/AGENTS.md) | — | Willow as a desktop app (Tauri v2): Studio from its own server, the companion, tray, notifications, the desktop pet's window. Own package |
+| [`features/code`](features/code/AGENTS.md) | `@willow/code` | The Workbench — in-browser sandbox, visual editing, and the Code harness every message runs on |
 | [`features/chat`](features/chat/AGENTS.md) | `@willow/chat` | Standalone chat surface |
 | [`features/media`](features/media/AGENTS.md) | `@willow/media` | AI image and video generation |
 | [`features/agent-builder`](features/agent-builder/AGENTS.md) | `@willow/agent-builder` | React-Flow workflow canvas (frontend of the Agents app) |
@@ -49,7 +54,7 @@ local ↔ Drive toggle is a matter of picking an adapter, not rewriting callers.
 | [`platform/ui`](platform/ui/AGENTS.md) | `@willow/ui` | Shared components |
 | [`platform/core`](platform/core/AGENTS.md) | `@willow/core` | Utilities, types, constants |
 | [`services/agent-builder`](services/agent-builder/AGENTS.md) | `@agentbuilder` | Workflow-engine backend. Own package, own `node_modules` |
-| [`services/local-companion`](services/local-companion/AGENTS.md) | — | Optional loopback daemon: real browser + shell for Spark |
+| [`services/local-companion`](services/local-companion/AGENTS.md) | — | Optional loopback daemon: real browser + shell for Spark; dots' own computers (WSL 2) in the desktop app |
 | [`assets`](assets/README.md) | `@willow/assets/*` | Static files, bundled into the app |
 | [`tools`](tools/README.md) | — | Scripts, prototypes, research. Not shipped |
 
@@ -124,6 +129,7 @@ Scripts that belong to the shell's own build (rather than the repo) go in
 | --- | --- | --- |
 | Backend | `services/agent-builder/test/*.test.ts` | `npm run agent-builder:test` |
 | Companion smoke | `services/local-companion/test/smoke.mjs` | `npm run companion:test` |
+| Dots' computers smoke (Windows, WSL 2) | `services/local-companion/test/computers-smoke.mjs` | `npm run companion:computers` |
 | Studio smoke | `apps/studio/test/` | `npm test` |
 
 All of it is the **built-in `node --test` runner** — there is no vitest or jest in
@@ -217,12 +223,14 @@ keep `@willow/project-browser` above `@willow/projects`.
 | `npm run dev` | Studio on :3000, with the Agent Builder API mounted same-origin |
 | `npm run build` | Production build |
 | `npm run typecheck` | Type-checks all browser-side code in one pass |
-| `npm run codex:check` | Verifies the Agent harness's vendored Codex files, and reports newer releases |
-| `npm run codex:update` | Moves the Codex pin. See [the harness docs](features/code/src/agent/harness/AGENTS.md) |
+| `npm run codex:check` | Verifies Spark's vendored Codex files, and reports newer releases |
+| `npm run codex:update` | Moves the Codex pin. See [Spark's harness docs](features/spark/src/harness/AGENTS.md) |
 | `npm test` | Studio tests |
 | `npm run agent-builder:test` | Backend suite (542 tests) |
 | `npm run agent-builder:typecheck` | Backend types (separate tsconfig, Node target) |
 | `npm run companion:test` | Companion smoke test |
+| `npm run desktop:dev` | The desktop app against a Vite dev server on :3417 (needs Rust) |
+| `npm run desktop:build` | Builds the desktop app and its installer for this OS (needs Rust) |
 
 One `package.json` and one `node_modules` at the repo root cover `apps/`,
 `features/`, and `platform/`. Each `services/*` package maintains its own

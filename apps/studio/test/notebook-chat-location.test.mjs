@@ -649,7 +649,7 @@ it('protects locationDirty exactly as it protects dirty, in the shipped source',
 
   // And the flush must go to the WANTED folder, creating it — otherwise the
   // rescue writes the body back into the folder the chat is leaving.
-  assert.match(block, /resolveChatDir\(workspaceDir, wanted, \{ create: true \}\)/,
+  assert.match(block, /resolveChatDir\(\w+, wanted, \{ create: true \}\)/,
     'the rescue flush no longer targets the wanted folder');
 });
 
@@ -672,7 +672,7 @@ it('runs the backfill after the chat reconcile, never before it', () => {
   const body = source.slice(poll, poll + 1200);
 
   const reconcile = body.indexOf('await refreshLocalChats();');
-  const backfill = body.indexOf('await backfillNotebooksToDisk(workspaceDir);');
+  const backfill = body.search(/await backfillNotebooksToDisk\(\w+\);/);
   assert.notEqual(reconcile, -1, 'the poll no longer reconciles chats');
   assert.notEqual(backfill, -1, 'the poll no longer runs the notebook backfill');
   assert.ok(reconcile < backfill,
@@ -773,7 +773,8 @@ it('never deletes a notebook folder that still holds chats', () => {
   const del = disk.match(/export const deleteNotebookFolder = async \([\s\S]*?\n\};/);
   assert.ok(del, 'could not locate deleteNotebookFolder');
   const chatsProbe = del[0].indexOf('NOTEBOOK_CHATS_DIR_NAME');
-  const remove = del[0].indexOf('removeEntry(folderName');
+  // Removed into the Recycle Bin, not erased.
+  const remove = del[0].indexOf('moveToRecycleBin(');
   assert.notEqual(chatsProbe, -1,
     'deleteNotebookFolder no longer checks Chats/ — deleting a notebook will delete conversations');
   assert.ok(chatsProbe < remove,

@@ -1,0 +1,67 @@
+/*
+ * Material 3's system tokens for the bot surfaces, set to the Gemini palette Spark uses (see dots-theme.css):
+ * #a8c7fa / #062e6f primary, #0842a0 / #d3e3fd primary container, #004a77 / #c2e7ff secondary container,
+ * #1e1f20 → #333537 surface containers, #e3e3e3 / #c4c7c5 text, #8e918f / #444746 outlines — then the light
+ * theme's. The blues read `--sync-*`, so inside an element wearing `useDotTint` they take the bot's colour.
+ */
+
+.dot-m3 {
+  --md-ref-typeface-brand: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  --md-ref-typeface-plain: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+
+  --md-sys-color-primary: var(--sync-a8c7fa, #a8c7fa);
+  --md-sys-color-on-primary: var(--sync-062e6f, #062e6f);
+  --md-sys-color-primary-container: var(--sync-0842a0, #0842a0);
+  --md-sys-color-on-primary-container: var(--sync-d3e3fd, #d3e3fd);
+  --md-sys-color-secondary: var(--sync-a8c7fa, #a8c7fa);
+  --md-sys-color-on-secondary: var(--sync-062e6f, #062e6f);
+  --md-sys-color-secondary-container: var(--sync-004a77, #004a77);
+  --md-sys-color-on-secondary-container: var(--sync-c2e7ff, #c2e7ff);
+  --md-sys-color-surface: #131314;
+  --md-sys-color-surface-dim: #131314;
+  --md-sys-color-surface-bright: #37393b;
+  --md-sys-color-surface-container-lowest: #0e0e0e;
+  --md-sys-color-surface-container-low: #1b1b1b;
+  --md-sys-color-surface-container: #1e1f20;
+  --md-sys-color-surface-container-high: #282a2c;
+  --md-sys-color-surface-container-highest: #333537;
+  --md-sys-color-on-surface: #e3e3e3;
+  --md-sys-color-on-surface-variant: #c4c7c5;
+  --md-sys-color-outline: #8e918f;
+  --md-sys-color-outline-variant: #444746;
+  --md-sys-color-inverse-surface: #e3e3e3;
+  --md-sys-color-inverse-on-surface: #303030;
+  --md-sys-color-inverse-primary: var(--sync-0b57d0, #0b57d0);
+  --md-sys-color-error: #f2b8b5;
+  --md-sys-color-on-error: #601410;
+  --md-sys-color-shadow: #000000;
+  --md-sys-color-scrim: #000000;
+}
+
+:is(.light-theme, [data-theme="light"]) .dot-m3 {
+  --md-sys-color-primary: var(--sync-0b57d0, #0b57d0);
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: var(--sync-d3e3fd, #d3e3fd);
+  --md-sys-color-on-primary-container: var(--sync-041e49, #041e49);
+  --md-sys-color-secondary: var(--sync-0b57d0, #0b57d0);
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: var(--sync-c2e7ff, #c2e7ff);
+  --md-sys-color-on-secondary-container: var(--sync-001d35, #001d35);
+  --md-sys-color-surface: #ffffff;
+  --md-sys-color-surface-dim: #dadce0;
+  --md-sys-color-surface-bright: #ffffff;
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container-low: #f8fafd;
+  --md-sys-color-surface-container: #f0f4f9;
+  --md-sys-color-surface-container-high: #e9eef6;
+  --md-sys-color-surface-container-highest: #dde3ea;
+  --md-sys-color-on-surface: #1f1f1f;
+  --md-sys-color-on-surface-variant: #444746;
+  --md-sys-color-outline: #747775;
+  --md-sys-color-outline-variant: #c4c7c5;
+  --md-sys-color-inverse-surface: #303030;
+  --md-sys-color-inverse-on-surface: #f2f2f2;
+  --md-sys-color-inverse-primary: var(--sync-a8c7fa, #a8c7fa);
+  --md-sys-color-error: #b3261e;
+  --md-sys-color-on-error: #ffffff;
+}

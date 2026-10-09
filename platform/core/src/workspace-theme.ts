@@ -7,7 +7,8 @@
  * Adding a new workspace color in the future only requires adding one entry to
  * `WORKSPACE_COLOR_DEFINITIONS`. All derivative assets — background glow accents,
  * send/live buttons, top loading bars, creamy card icons, text selection highlights,
- * and logo filters — are computed automatically from mathematical formulas.
+ * logo filters and the desktop frame's shell — are computed automatically from
+ * mathematical formulas.
  */
 
 export interface WorkspaceColorDefinition {
@@ -146,6 +147,22 @@ export const GLOW_TO_CHIP_TRANSFORM = {
   hueShiftDeg: -0.6335269870383513,
 } as const;
 
+/**
+ * The desktop frame's shell — the rail and the margin around Willow's page — in the
+ * swatch's own hue, as dark as Codex's shell measured behind its rail on Windows
+ * (#1a2227) and tinted 2.2 times as strongly: at Codex's own strength Willow Green
+ * reads as plain grey, since a dark green tint shows far less than Codex's blue one.
+ * The light theme sits at Codex's light shell (#f3f3f3) with half the tint, which
+ * reads stronger against white. On Windows 11 the desktop lays it over Mica, as
+ * Codex's shell is (AppRail.css).
+ */
+export const FRAME_SHELL_TRANSFORM = {
+  darkLightness: 0.24633996877858594,
+  lightLightness: 0.9641534938583236,
+  darkChroma: 0.03290122127913435,
+  lightChroma: 0.016450610639567174,
+} as const;
+
 export const FILE_DROP_TRANSFORM = {
   border: {
     lightnessRatio: 0.6366,
@@ -241,6 +258,11 @@ export interface WorkspaceComputedTheme {
   accentButton: {
     bg: string;
     hover: string;
+  };
+  /** The desktop frame's shell, behind the rail and around Willow's page. */
+  frameShell: {
+    dark: string;
+    light: string;
   };
 }
 
@@ -506,6 +528,13 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
     accentBtnHover = 'rgb(42, 75, 190)';
   }
 
+  // 10. The desktop frame's shell, in the swatch's hue (FRAME_SHELL_TRANSFORM)
+  const [, , swatchHue] = rgbToOklch(hexToRgb(def.hex));
+  const frameShell = {
+    dark: rgbToHex(oklchToRgb([FRAME_SHELL_TRANSFORM.darkLightness, FRAME_SHELL_TRANSFORM.darkChroma, swatchHue])),
+    light: rgbToHex(oklchToRgb([FRAME_SHELL_TRANSFORM.lightLightness, FRAME_SHELL_TRANSFORM.lightChroma, swatchHue])),
+  };
+
   const computed: WorkspaceComputedTheme = {
     id: def.id,
     label: def.label,
@@ -547,6 +576,7 @@ export function computeWorkspaceTheme(def: WorkspaceColorDefinition): WorkspaceC
       track: toggleTrack,
       thumb: toggleThumb,
     },
+    frameShell,
   };
 
   themeCache.set(def.id, computed);

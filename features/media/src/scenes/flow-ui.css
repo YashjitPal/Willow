@@ -1,0 +1,570 @@
+/*
+ * Flow's current (Angular Material) design primitives, as the Scenebuilder uses them.
+ *
+ * Transcribed from flow.google.com's own stylesheets, captured per component while each
+ * surface was mounted — see tools/ui-research/scrapers/flow/scenebuilder/ (10-component-css.cjs
+ * splits a capture into one file per component, css.cjs queries one). Values are the authored
+ * ones with their custom properties resolved, not tasted: `rgba(218,220,224,α)` is Flow's
+ * foreground state colour, `rgba(22,23,24,α)` its background state colour.
+ *
+ * This is NOT `flow-menu.css`. That file is the older React-era Flow (34px rows, 200ms
+ * translateY entry); the menus here are Material's: 40px rows, 120ms scale entry.
+ */
+
+:root {
+  --sb-font: 'Google Sans Text', 'Google Sans', sans-serif;
+  --sb-fg-000: #fff;
+  --sb-fg-100: #f1f3f4;
+  --sb-fg-300: #dadce0;
+  --sb-fg-400: #bdc1c6;
+  --sb-on-surface: #e3e3e3;
+  --sb-danger: #fe6e6e;
+  --sb-fg-05: rgba(218, 220, 224, 0.05);
+  --sb-fg-08: rgba(218, 220, 224, 0.08);
+  --sb-fg-10: rgba(218, 220, 224, 0.1);
+  --sb-fg-15: rgba(218, 220, 224, 0.15);
+  --sb-fg-25: rgba(218, 220, 224, 0.25);
+  --sb-fg-50: rgba(218, 220, 224, 0.5);
+  --sb-fg-75: rgba(218, 220, 224, 0.75);
+  --sb-fg-90: rgba(218, 220, 224, 0.9);
+  --sb-bg-000: #000;
+  --sb-bg-100: #202124;
+  --sb-bg-200: #3c4043;
+  --sb-bg-300: #5f6368;
+  --sb-bg-10: rgba(22, 23, 24, 0.1);
+  --sb-bg-15: rgba(22, 23, 24, 0.15);
+  --sb-bg-25: rgba(22, 23, 24, 0.25);
+  --sb-bg-50: rgba(22, 23, 24, 0.5);
+  --sb-bg-75: rgba(22, 23, 24, 0.75);
+  --sb-bg-90: rgba(22, 23, 24, 0.9);
+  --sb-white-05: rgba(255, 255, 255, 0.05);
+  --sb-white-50: rgba(255, 255, 255, 0.5);
+  --sb-white-75: rgba(255, 255, 255, 0.75);
+  --sb-shadow: rgba(0, 0, 0, 0.5);
+  --sb-glass-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.4);
+  --sb-press-shadow: rgba(0, 0, 0, 0.2) 0 4px 32px -8px;
+  --sb-accent: #989aff;
+}
+
+/* ------------------------------------------------------------------ *
+ * Buttons
+ *
+ * Material paints hover and press as a state layer: a pseudo-element in the state colour at a
+ * per-variant opacity, with no transition of its own — it snaps. The button itself carries
+ * Flow's `transition: background-color, filter, box-shadow, 0.1s ease-in-out`, which resolves
+ * to `all 0.1s`, so the press blur and shadow ease in and out over 100ms.
+ * ------------------------------------------------------------------ */
+
+.sb-icon-btn,
+.sb-btn {
+  --sb-layer: var(--sb-fg-300);
+  --sb-layer-hover: 0.1;
+  --sb-layer-press: 0.25;
+  position: relative;
+  z-index: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border: 0;
+  margin: 0;
+  border-radius: 12px;
+  background-color: transparent;
+  color: var(--sb-fg-000);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.1s ease-in-out;
+  font-family: var(--sb-font);
+}
+
+.sb-icon-btn::before,
+.sb-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: var(--sb-layer);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sb-icon-btn:hover:not(:disabled)::before,
+.sb-btn:hover:not(:disabled)::before { opacity: var(--sb-layer-hover); }
+
+.sb-icon-btn:active:not(:disabled)::before,
+.sb-btn:active:not(:disabled)::before { opacity: var(--sb-layer-press); }
+
+.sb-icon-btn:not(:disabled):active,
+.sb-btn:not(:disabled):active {
+  box-shadow: var(--sb-press-shadow);
+  filter: blur(1.5px);
+  backdrop-filter: blur(25px);
+}
+
+.sb-icon-btn > *,
+.sb-btn > * { position: relative; z-index: 1; }
+
+.sb-icon-btn:focus-visible,
+.sb-btn:focus-visible { outline: 2px solid var(--sb-fg-000); outline-offset: 2px; }
+
+/* flow-icon-button-transparent flow-button-small: 34px, 18px glyph. */
+.sb-icon-btn { width: 34px; height: 34px; padding: 8px; font-size: 18px; line-height: normal; }
+/* flow-button-large: 40px, 24px glyph at weight 300 — the back arrow. */
+.sb-icon-btn--lg { width: 40px; height: 40px; font-size: 24px; }
+/* The playback row's own size. */
+.sb-icon-btn--30 { width: 30px; height: 30px; padding: 0; }
+
+.sb-icon-btn:disabled { color: var(--sb-fg-50); cursor: not-allowed; }
+
+/* Flow's disabled buttons take no pointer events, so they never raise a tooltip. */
+.sb-icon-btn:disabled,
+.sb-btn:disabled { pointer-events: none; }
+
+/* flow-icon-button-primary: a tinted container, brighter layer. */
+.sb-icon-btn--primary { background-color: var(--sb-fg-10); backdrop-filter: blur(40px); --sb-layer-hover: 0.15; }
+
+/* flow-icon-button-secondary: white container, black glyph; the layer at 0.9 is what greys it. */
+.sb-icon-btn--secondary {
+  background-color: var(--sb-fg-000);
+  color: var(--sb-bg-000);
+  backdrop-filter: blur(40px);
+  --sb-layer-hover: 0.9;
+  --sb-layer-press: 1;
+}
+
+/* `.selected` on any flow icon button — the loop toggle while looping. */
+.sb-icon-btn--selected { background-color: var(--sb-fg-15); backdrop-filter: blur(40px); }
+.sb-icon-btn--selected:not(:disabled):hover { background-color: var(--sb-fg-25); }
+
+/* flow-button-medium (filled): 34px, 12px label at weight 500. */
+/* Material buttons hold a 64px minimum; Done is 64px around a 30px label. */
+.sb-btn {
+  height: 34px;
+  min-width: 64px;
+  /* Flow's text and filled buttons keep the arrow; only icon buttons take the hand. */
+  cursor: default;
+  padding: 0 12px;
+  background-color: var(--sb-fg-10);
+  backdrop-filter: blur(40px);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: 0.096px;
+  white-space: nowrap;
+  --sb-layer-hover: 0.15;
+}
+
+.sb-btn .sb-btn__icon { margin-right: 4px; }
+
+/* Tonal: the white Done / Add media pill. Its layer runs at 0.9, which reads as light grey. */
+.sb-btn--tonal {
+  background-color: var(--sb-fg-000);
+  color: var(--sb-bg-000);
+  --sb-layer-hover: 0.9;
+  --sb-layer-press: 1;
+}
+
+.sb-btn--tonal:disabled { background-color: var(--sb-fg-25); color: var(--sb-bg-000); cursor: default; }
+
+/* Text: the snackbar's actions. The layer takes the label's own colour. */
+.sb-btn--text {
+  background-color: transparent;
+  backdrop-filter: none;
+  --sb-layer: currentColor;
+  --sb-layer-hover: 0.1;
+  --sb-layer-press: 0.25;
+}
+
+/* ------------------------------------------------------------------ *
+ * Menus (mat-menu + flow-menu-item)
+ * ------------------------------------------------------------------ */
+
+@keyframes sb-menu-enter {
+  0% { opacity: 0; transform: scale(0.8); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes sb-menu-exit {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ---- flow-editable-text ---- */
+
+.sb-editable { display: flex; align-items: center; min-width: 0; }
+
+.sb-editable__input {
+  box-sizing: content-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 500px;
+  padding: 1px 2px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  caret-color: transparent;
+}
+
+.sb-editable__input.is-editing { caret-color: auto; cursor: text; }
+.sb-editable__input:not(.is-editing) { cursor: text; }
+
+.sb-edit-buttons { display: flex; align-items: center; gap: 8px; }
+
+/* ---- rename-tile-overlay, on cdk-overlay-dark-backdrop ---- */
+
+.sb-rename-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background-color: rgba(0, 0, 0, 0.32);
+  animation: sb-rename-backdrop-in 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes sb-rename-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.sb-rename {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  padding: 10px;
+  border-radius: 16px;
+  background-color: rgb(40, 42, 44);
+  box-shadow: 0 4px 32px -8px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(10px);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+/* cdk-overlay-transparent-backdrop: under the panel, over everything else. */
+.sb-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sb-menu {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  min-width: 112px;
+  max-width: 280px;
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 0 8px;
+  border-radius: 24px;
+  background-color: var(--sb-bg-90);
+  box-shadow: var(--sb-glass-shadow);
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  outline: 0;
+  animation: sb-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+  will-change: transform, opacity;
+  scrollbar-width: none;
+}
+
+.sb-menu--closing {
+  animation: sb-menu-exit 100ms linear 25ms forwards;
+  pointer-events: none;
+}
+
+.sb-menu__content {
+  padding: 8px 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+/* The Add clip popover: Flow's `flow-extend-menu` panel, not a mat-menu — 18px corners, a 4px
+ * gap between rows, and rows that inherit the overlay's 16px/400 body type. */
+.sb-popover {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 192px;
+  padding: 8px;
+  border-radius: 18px;
+  background-color: var(--sb-bg-90);
+  box-shadow: var(--sb-glass-shadow);
+  backdrop-filter: blur(40px);
+  color: var(--sb-fg-000);
+  font-family: var(--sb-font);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  animation: sb-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.sb-popover.sb-menu--closing { animation: sb-menu-exit 100ms linear 25ms forwards; }
+
+.sb-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 16px;
+  background-color: transparent;
+  color: var(--sb-fg-000);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.sb-menu-item--icon { padding-left: 12px; }
+.sb-menu-item--thumb { padding-top: 4px; padding-bottom: 4px; padding-left: 4px; }
+
+.sb-menu-item:not(.is-disabled):hover,
+.sb-menu-item.is-highlighted { background-color: var(--sb-fg-10); }
+.sb-menu-item:not(.is-disabled):active { background-color: var(--sb-fg-15); }
+
+.sb-menu-item__inner {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sb-menu-item:not(.is-disabled):active .sb-menu-item__inner {
+  box-shadow: var(--sb-press-shadow);
+  filter: blur(1.5px);
+  backdrop-filter: blur(25px);
+}
+
+.sb-menu-item__left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+.sb-menu-item__label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Material dims a disabled item to 0.38, and Flow tints its text and glyph on top of that. */
+.sb-menu-item.is-disabled { cursor: default; }
+.sb-menu-item.is-disabled .sb-menu-item__inner { opacity: 0.38; color: var(--sb-fg-50); }
+
+.sb-menu-item--danger { color: var(--sb-danger); }
+
+.sb-menu-item__submenu {
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 24px;
+  height: 10px;
+  padding-left: 12px;
+  box-sizing: content-box;
+  fill: currentColor;
+}
+
+.sb-menu-divider {
+  height: 0;
+  margin: 8px 0;
+  border-top: 1px solid var(--sb-fg-15);
+}
+
+/* ------------------------------------------------------------------ *
+ * Tooltip — Flow's `flow-tooltip` surface over Willow's tooltip mechanics
+ * (same 150ms/75ms scale animation and 8px gap; only the paint differs from Gemini's).
+ * ------------------------------------------------------------------ */
+
+.willow-tooltip-surface.sb-tooltip {
+  padding: 4px 8px;
+  border-radius: 8px;
+  background-color: rgb(48, 48, 49);
+  color: var(--sb-fg-000);
+  box-shadow: inset 0 0 0 1px var(--sb-fg-10);
+  backdrop-filter: blur(40px);
+  font-family: var(--sb-font);
+  font-size: 12px;
+  font-weight: 400;
+  font-variation-settings: normal;
+  line-height: 16px;
+  letter-spacing: 0.096px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * Progress spinner (mat-spinner, indeterminate)
+ * ------------------------------------------------------------------ */
+
+.sb-spinner {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  overflow: hidden;
+  line-height: 0;
+  direction: ltr;
+  color: var(--sb-accent);
+}
+
+.sb-spinner__container,
+.sb-spinner__layer,
+.sb-spinner__graphic {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
+
+.sb-spinner__container {
+  font-size: 0;
+  white-space: nowrap;
+  animation: mdc-circular-progress-container-rotate 1568.2352941176ms linear infinite;
+}
+
+.sb-spinner__layer { animation: mdc-circular-progress-spinner-layer-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both; }
+
+.sb-spinner__clipper {
+  display: inline-flex;
+  position: relative;
+  width: 50%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sb-spinner__clipper .sb-spinner__graphic { width: 200%; }
+.sb-spinner__clipper--right .sb-spinner__graphic { left: -100%; }
+.sb-spinner__clipper--left .sb-spinner__graphic { animation: mdc-circular-progress-left-spin 1333ms cubic-bezier(0.4, 0, 0.2, 1) infinite both; }
+.sb-spinner__clipper--right .sb-spinner__graphic { animation: mdc-circular-progress-right-spin 1333ms cubic-bezier(0.4, 0, 0.2, 1) infinite both; }
+
+.sb-spinner__gap {
+  position: absolute;
+  top: 0;
+  left: 47.5%;
+  box-sizing: border-box;
+  width: 5%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sb-spinner__gap .sb-spinner__graphic { left: -900%; width: 2000%; transform: rotate(180deg); }
+
+.sb-spinner circle { fill: transparent; stroke: currentColor; stroke-dasharray: 18.8496px; stroke-dashoffset: 9.42478px; stroke-width: 10%; }
+
+@keyframes mdc-circular-progress-container-rotate { 100% { transform: rotate(360deg); } }
+@keyframes mdc-circular-progress-spinner-layer-rotate {
+  12.5% { transform: rotate(135deg); }
+  25% { transform: rotate(270deg); }
+  37.5% { transform: rotate(405deg); }
+  50% { transform: rotate(540deg); }
+  62.5% { transform: rotate(675deg); }
+  75% { transform: rotate(810deg); }
+  87.5% { transform: rotate(945deg); }
+  100% { transform: rotate(1080deg); }
+}
+@keyframes mdc-circular-progress-left-spin {
+  0% { transform: rotate(265deg); }
+  50% { transform: rotate(130deg); }
+  100% { transform: rotate(265deg); }
+}
+@keyframes mdc-circular-progress-right-spin {
+  0% { transform: rotate(-265deg); }
+  50% { transform: rotate(-130deg); }
+  100% { transform: rotate(-265deg); }
+}
+
+/* `progress_activity` on the download button while a scene exports. */
+@keyframes sb-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(1turn); } }
+.sb-spin { animation: sb-spin 1s linear infinite; }
+
+/* ------------------------------------------------------------------ *
+ * Snackbar (mat-snack-bar + flow-snackbar)
+ *
+ * Top right, under the 80px header, 8px off the window edge. Enter 150ms decelerate from 0.8;
+ * exit 75ms accelerate, opacity only. Flow gives these no timeout: "Added to scene" sat on
+ * screen for half an hour until it was dismissed.
+ * ------------------------------------------------------------------ */
+
+@keyframes sb-snack-enter {
+  0% { opacity: 0; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes sb-snack-exit {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.sb-snackbar {
+  position: fixed;
+  top: 80px;
+  right: 8px;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: 356px;
+  max-width: calc(100vw - 32px);
+  border: 1px solid var(--sb-fg-05);
+  border-radius: 8px;
+  box-shadow: var(--sb-glass-shadow);
+  backdrop-filter: blur(80px);
+  font-family: var(--sb-font);
+  animation: sb-snack-enter 150ms cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+.sb-snackbar--closing { animation: sb-snack-exit 75ms cubic-bezier(0.4, 0, 1, 1) forwards; pointer-events: none; }
+
+.sb-snackbar__surface {
+  border-radius: 8px;
+  background-color: var(--sb-bg-75);
+  box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2), 0 6px 10px 0 rgba(0, 0, 0, 0.14), 0 1px 18px 0 rgba(0, 0, 0, 0.12);
+  color: var(--sb-white-75);
+  --sb-snack-accent: var(--sb-accent);
+}
+
+.sb-snackbar--error .sb-snackbar__surface { --sb-snack-accent: #fe6e6e; }
+.sb-snackbar--warning .sb-snackbar__surface { --sb-snack-accent: #f6c024; }
+
+.sb-snackbar__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 8px 8px 16px;
+}
+
+.sb-snackbar__label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-right: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: pre-line;
+}
+
+.sb-snackbar__icon { flex-shrink: 0; color: var(--sb-snack-accent); }
+.sb-snackbar .sb-spinner { color: var(--sb-snack-accent); }
+
+.sb-snackbar__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.sb-snackbar__actions .sb-btn { color: var(--sb-snack-accent); line-height: 24px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-menu,
+  .sb-popover,
+  .sb-snackbar { animation-duration: 1ms; }
+}

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 
 import './notebooks.css';
 import type { Notebook } from './notebook-types';
@@ -370,6 +371,7 @@ export const RenameNotebookDialog: React.FC<{
   const [pickerAnchor, setPickerAnchor] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { renameNotebookWithFolder } = useNotebookDisk();
+  const isCompact = useCompactViewport();
   /*
    * Held open for the length of the exit fade — see `.nb-sheet-exit`. The parent
    * owns the mount, so a bare `onClose()` deletes the tree in the same frame and
@@ -394,6 +396,15 @@ export const RenameNotebookDialog: React.FC<{
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   }, []);
+
+  // Escape closes the dialog as Gemini's does — unless the emoji picker is up, which
+  // takes that press for itself.
+  useEffect(() => {
+    if (pickerAnchor) return undefined;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') requestClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [pickerAnchor, requestClose]);
 
   const trimmed = title.trim();
   const canSave = trimmed.length > 0 && (trimmed !== notebook.title || emoji !== notebook.emoji);
@@ -420,7 +431,8 @@ export const RenameNotebookDialog: React.FC<{
         <div className="nb-ren-header">
           <h2 className="nb-ren-title">Rename notebook</h2>
           <button type="button" aria-label="Close" onClick={requestClose} className="nb-ren-close">
-            <MaterialSymbol name="close" family="google-symbols" size={24} />
+            {/* Weight 400 below 961px, measured. */}
+            <MaterialSymbol name="close" family="google-symbols" size={24} weight={isCompact ? 400 : undefined} />
           </button>
         </div>
 

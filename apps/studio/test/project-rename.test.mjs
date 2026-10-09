@@ -136,12 +136,17 @@ it('treats an absent project folder as nothing to move, not as a failure', () =>
   assert.ok(start > 0, 'renameLocalFSProjectInner was renamed or moved');
   const body = source.slice(start, source.indexOf('const saveLocalFSMedia', start));
 
-  // Both "nothing on disk" exits. Either one flipped back to `false` puts the
+  // Both "nothing on disk" cases: no folder for the project in any area, and no
+  // area folder at all yet. Either one flipped back to `false` puts the
   // reverting rename back for every browser-only project.
   assert.match(body, /if \(sourceParents\.length === 0\) return true;/,
     'a project with no folder in any area reports a failed disk rename again');
-  assert.match(body, /if \(!workspaceDir\) return true;/,
-    'a root with no workspace folder yet reports a failed disk rename again');
+  // Each area is looked up (not created) directly on the chosen folder, and a
+  // missing area or project folder is skipped instead of failing the rename.
+  assert.match(body, /rootHandle\.getDirectoryHandle\(parentName\);/,
+    'project areas are no longer looked up, without creating them, on the chosen folder');
+  assert.match(body, /if \(error\?\.name !== 'NotFoundError'\) return false;/,
+    'a root with no project area folder yet reports a failed disk rename again');
 
   // The genuine failure must still be a failure, or a folder that could not be
   // moved would commit a registry name the disk-authoritative reconciler then

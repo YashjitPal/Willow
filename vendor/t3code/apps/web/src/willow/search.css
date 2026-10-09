@@ -1,0 +1,221 @@
+/*
+ * Willow's Search chats page (apps/studio's SearchChats.css), for an agent tab's threads: the
+ * page's surface, a 64px pill 610px wide 100px down, "Recent" in 17px at 55% under it, and 48px
+ * rows of a 17px title and a 15px day on 12px corners, under a soft fill when pointed at.
+ */
+
+.willow-search-page {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  padding-top: 100px;
+  background: #faf9f9;
+  color: #1f1f1f;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+}
+
+.dark .willow-search-page {
+  background: #0f0f0f;
+  color: #e3e3e3;
+}
+
+.willow-search-bar {
+  display: flex;
+  width: min(610px, calc(100% - 32px));
+  height: 64px;
+  flex: 0 0 64px;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  padding: 12px;
+  border-radius: 9999px;
+  background: #f0f4f9;
+}
+
+.dark .willow-search-bar {
+  background: #1f1f1f;
+}
+
+.willow-search-bar__icon {
+  display: flex;
+  width: 36px;
+  height: 24px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  color: #444746;
+}
+
+.dark .willow-search-bar__icon {
+  color: #e6e6e6;
+}
+
+.willow-search-bar__icon .willow-glyph {
+  width: 24px;
+  height: 24px;
+  font-size: 24px;
+  line-height: 24px;
+  font-variation-settings: "FILL" 0, "GRAD" 0, "opsz" 24, "wght" 320;
+}
+
+.willow-search-bar__input {
+  height: 24px;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #1f1f1f;
+  font: 400 16px/24px "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+}
+
+.dark .willow-search-bar__input {
+  color: #ffffff;
+}
+
+.willow-search-bar__input::placeholder {
+  color: #747775;
+}
+
+.dark .willow-search-bar__input::placeholder {
+  color: rgb(255 255 255 / 55%);
+}
+
+.willow-search-bar__clear {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #444746;
+  cursor: pointer;
+}
+
+.dark .willow-search-bar__clear {
+  color: #e3e3e3;
+}
+
+.willow-search-bar__clear:hover {
+  background: rgb(0 0 0 / 6%);
+}
+
+.dark .willow-search-bar__clear:hover {
+  background: rgb(230 230 230 / 8%);
+}
+
+.willow-search-bar__clear svg {
+  width: 20px;
+  height: 20px;
+}
+
+.willow-search-results {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding-top: 16px;
+}
+
+.willow-search-results__header {
+  width: 100%;
+  flex: 0 0 auto;
+  scrollbar-gutter: stable;
+}
+
+.willow-search-results__heading {
+  display: flex;
+  width: min(610px, calc(100% - 32px));
+  height: 48px;
+  align-items: center;
+  margin: 0 auto;
+  padding: 8px 6px;
+  color: #444746;
+  font: 400 17px/24px "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+}
+
+.dark .willow-search-results__heading {
+  color: rgb(255 255 255 / 55%);
+}
+
+.willow-search-results__list {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.willow-search-results__inner {
+  width: min(610px, calc(100% - 32px));
+  margin: 0 auto;
+  padding-bottom: 28px;
+}
+
+.willow-search-result {
+  display: flex;
+  width: 100%;
+  height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #1f1f1f;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dark .willow-search-result {
+  color: #e3e3e3;
+}
+
+.willow-search-result:is(:hover, :focus-visible) {
+  background: #e5ebf3;
+  outline: 0;
+}
+
+.dark .willow-search-result:is(:hover, :focus-visible) {
+  background: rgb(230 230 230 / 8%);
+}
+
+.willow-search-result__title {
+  min-width: 0;
+  overflow: hidden;
+  font: 400 17px/22px "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-search-result__date {
+  flex: 0 0 auto;
+  color: #747775;
+  font: 400 15px/18px "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+}
+
+.dark .willow-search-result__date {
+  color: rgb(255 255 255 / 55%);
+}
+
+.willow-search-empty {
+  padding: 12px 8px;
+  color: #747775;
+  font-size: 15px;
+}
+
+.dark .willow-search-empty {
+  color: rgb(255 255 255 / 55%);
+}

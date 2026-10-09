@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-harness-set-tailscale-serve"
+description = "Enables the harness_set_tailscale_serve command without any pre-configured scope."
+commands.allow = ["harness_set_tailscale_serve"]
+
+[[permission]]
+identifier = "deny-harness-set-tailscale-serve"
+description = "Denies the harness_set_tailscale_serve command without any pre-configured scope."
+commands.deny = ["harness_set_tailscale_serve"]

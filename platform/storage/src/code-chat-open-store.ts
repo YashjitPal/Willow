@@ -12,11 +12,11 @@ import { atom } from 'nanostores';
  * row now switches to `'develop'` and leaves the chat id here for the Code
  * surface to pick up.
  *
- * It has to be a buffer rather than an event: `CodeWorkspace` is lazy and is not
- * mounted at all while the user is in chat mode, so the request is published
- * before anything is listening. The consumer clears it, which is what stops a
- * later, unrelated return to the Code tab from reopening a chat the user did not
- * ask for.
+ * The shell (`apps/studio` App.tsx) consumes it: it picks the Code home that
+ * opens the chat — one that already has it open, a new one beside a Code home
+ * still working, or the one on show — and hands that one the request until it
+ * has opened the chat. Clearing it here is what stops a later, unrelated return
+ * to the Code tab from reopening a chat the user did not ask for.
  *
  * A module-level atom rather than a field on LocalFSContext, for the same reason
  * as `local-fs/chat-selection-store`: exactly one component reads it, and that

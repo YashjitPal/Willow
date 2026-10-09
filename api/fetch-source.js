@@ -32,38 +32,13 @@
 // adding arbitrary sources, so a host list would defeat the feature.
 // ──────────────────────────────────────────────────────────────────────────────
 
+import { isPrivateHost } from './_private-host.js';
+
 /** HTML beyond this is a document dump, not an article. */
 const MAX_BYTES = 5 * 1024 * 1024;
 /** Extracted text cap. Well under the per-source storage bound in the client. */
 const MAX_TEXT_CHARS = 400_000;
 const TIMEOUT_MS = 15_000;
-
-/**
- * Hostnames and address literals that must never be fetched.
- *
- * This is the SSRF guard. Even on a local machine it matters: a page cannot be
- * allowed to use this endpoint to reach the user's router, NAS or a service bound
- * to loopback. Cloud metadata endpoints (169.254.169.254) are the classic target
- * and are covered by the link-local range.
- */
-const isPrivateHost = (hostname) => {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
-  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
-  // IPv6 unique-local (fc00::/7) and link-local (fe80::/10).
-  if (/^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host)) return true;
-
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!v4) return false;
-  const [a, b] = v4.slice(1).map(Number);
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  // Carrier-grade NAT, and 100.100.x is a metadata endpoint on some clouds.
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  return false;
-};
 
 const ENTITIES = {
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'", '#x27': "'",

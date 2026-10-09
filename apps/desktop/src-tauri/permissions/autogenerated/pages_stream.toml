@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pages-stream"
+description = "Enables the pages_stream command without any pre-configured scope."
+commands.allow = ["pages_stream"]
+
+[[permission]]
+identifier = "deny-pages-stream"
+description = "Denies the pages_stream command without any pre-configured scope."
+commands.deny = ["pages_stream"]

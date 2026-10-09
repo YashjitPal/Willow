@@ -4,7 +4,13 @@ import { AUTO_MODEL, resolveAutoModel } from '@willow/ai/models/auto-select';
 import { type ProviderId } from '@willow/ai/providers/endpoints';
 import { DEFAULT_PROFILE_IDS, defaultApiFormatForProvider, defaultToolPolicyForProvider } from '@willow/ai/providers/profiles';
 import { collectSavedModelsInCatalogOrder, getModelCatalogKey, getModelCategory, getNormalizedModelOrder } from '@willow/core/model-catalog';
-import { CHROME_NATIVE_TRANSCRIPTION_MODEL, CHROME_NATIVE_TRANSCRIPTION_NAME, isLiveOnlyTranscriptionModel } from '@willow/ai/transcription';
+import {
+  CHROME_NATIVE_TRANSCRIPTION_MODEL,
+  CHROME_NATIVE_TRANSCRIPTION_NAME,
+  ON_DEVICE_TRANSCRIPTION_MODEL,
+  ON_DEVICE_TRANSCRIPTION_NAME,
+  canTranscribeAudio,
+} from '@willow/ai/transcription';
 /*
  * The catalogue and the pricing table are shared with the standalone
  * `/models-settings` page: a model added on either surface has to be the same
@@ -254,11 +260,10 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
     [allSystemDefaultModels, providerState],
   );
 
-  // Dictation sends a finished recording, so the live-only transcribe SKU is not
-  // a choice this row can honour.
+  // Only models that can hear a finished recording (see `canTranscribeAudio`).
   const selectableTranscriptionModels = React.useMemo(
     () => configuredSystemDefaultModels.filter(
-      (model: any) => !isLiveOnlyTranscriptionModel(model.modelId || model.id),
+      (model: any) => canTranscribeAudio(model.provider, model.modelId || model.id),
     ),
     [configuredSystemDefaultModels],
   );
@@ -306,6 +311,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
     (model: any) => model.modelId === modelConfig.systemDefaults?.transcription,
   )?.name || (modelConfig.systemDefaults?.transcription === CHROME_NATIVE_TRANSCRIPTION_MODEL
     ? CHROME_NATIVE_TRANSCRIPTION_NAME
+    : modelConfig.systemDefaults?.transcription === ON_DEVICE_TRANSCRIPTION_MODEL
+    ? ON_DEVICE_TRANSCRIPTION_NAME
     : modelConfig.systemDefaults?.transcription === 'gemini-3.5-transcribe'
     ? 'Gemini 3.5 Transcribe'
     : modelConfig.systemDefaults?.transcription === 'gemini-3.5-transcribe-live'
@@ -1648,15 +1655,13 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                       ...modelConfig.openai.savedModels,
                       ...modelConfig.anthropic.savedModels
                     ].find(m => m.modelId === modelConfig.systemDefaults?.chatRenaming)?.name
-                      || (modelConfig.systemDefaults?.chatRenaming === 'gemini-3.7-flash'
-                        ? 'Gemini 3.7 Flash'
+                      || (modelConfig.systemDefaults?.chatRenaming === 'gemini-3.8-flash'
+                        ? 'Gemini 3.8 Flash'
                         : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.1-flash-lite'
                           ? 'Gemini 3.1 Flash Lite'
                           : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.5-flash-lite'
                             ? 'Gemini 3.5 Flash Lite'
-                            : modelConfig.systemDefaults?.chatRenaming === 'gemini-3.6-flash'
-                              ? 'Gemini 3.6 Flash'
-                              : modelConfig.systemDefaults?.chatRenaming)
+                            : modelConfig.systemDefaults?.chatRenaming)
                       || 'Select model'}
                   </span>
                   <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-200 ${geminiDropdownOpen ? 'rotate-180' : ''}`} />
@@ -2023,9 +2028,32 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({
                       >
                         <span className="flex flex-col">
                           <span className="font-medium">{CHROME_NATIVE_TRANSCRIPTION_NAME}</span>
-                          <span className="text-[11px] text-zinc-500">No API key · on-device when available</span>
+                          <span className="text-[11px] text-zinc-500">No API key · where the browser has none, a keyed model or this device takes over</span>
                         </span>
                         {modelConfig.systemDefaults?.transcription === CHROME_NATIVE_TRANSCRIPTION_MODEL && (
+                          <Check size={14} className="text-white" />
+                        )}
+                      </button>
+                      <button
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setModelConfig((previous: any) => ({
+                            ...previous,
+                            systemDefaults: {
+                              ...previous.systemDefaults,
+                              transcription: ON_DEVICE_TRANSCRIPTION_MODEL,
+                            },
+                          }));
+                          setTranscriptionDropdownOpen(false);
+                        }}
+                        className={`w-full px-4 py-2.5 text-left transition-all flex items-center justify-between group ${modelConfig.systemDefaults?.transcription === ON_DEVICE_TRANSCRIPTION_MODEL ? 'bg-white/10 text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                      >
+                        <span className="flex flex-col">
+                          <span className="font-medium">{ON_DEVICE_TRANSCRIPTION_NAME}</span>
+                          <span className="text-[11px] text-zinc-500">No API key · audio never leaves this device · 39 MB download once</span>
+                        </span>
+                        {modelConfig.systemDefaults?.transcription === ON_DEVICE_TRANSCRIPTION_MODEL && (
                           <Check size={14} className="text-white" />
                         )}
                       </button>

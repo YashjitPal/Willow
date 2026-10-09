@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-menu-keys"
+description = "Enables the menu_keys command without any pre-configured scope."
+commands.allow = ["menu_keys"]
+
+[[permission]]
+identifier = "deny-menu-keys"
+description = "Denies the menu_keys command without any pre-configured scope."
+commands.deny = ["menu_keys"]

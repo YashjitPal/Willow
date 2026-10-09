@@ -1,0 +1,459 @@
+/*
+ * Gemini Spark's `remy-confirmation-card`, measured at 1536×826 (dark theme):
+ * tools/ui-research/captures/spark/134-remote-browser/dump/card-*.json.
+ *
+ * The card is a 708px block 24px under the response, on the response's own left
+ * edge; the surface inside is #171717 at 28px corners with 24px padding.
+ */
+.spark-browser-card {
+  display: flex;
+  flex-direction: column;
+  margin: 24px 8px 0;
+  color: #e3e3e3;
+  font-size: 17px;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.spark-browser-card__surface {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  border-radius: 28px;
+  background: #171717;
+}
+
+.spark-browser-card :is(p, ul) {
+  margin: 0;
+}
+
+/* `.card-header` → `.header-text.gds-body-l`: 17px/24px #e6e6e6. */
+.spark-browser-card__header {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 8px;
+}
+
+.spark-browser-card__title {
+  color: #e6e6e6;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+/* `.body-text.gds-body-s`: 13px/17px in rgba(255,255,255,.55), 8px under the header. */
+.spark-browser-card__body {
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.spark-browser-card__body > p:first-child {
+  margin-bottom: 8px;
+}
+
+.spark-browser-card__body ul {
+  margin: 8px 0 16px;
+  padding-left: 27px;
+  list-style: disc;
+}
+
+.spark-browser-card__body li {
+  margin: 8px 0;
+  padding-left: 4px;
+}
+
+.spark-browser-card__body a {
+  color: #e6e6e6;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.spark-browser-card__plan-heading {
+  margin-bottom: 12.5px !important;
+}
+
+/*
+ * `.detail-container.expandable`: rgba(19,19,20,.5) at 24px corners, the plan
+ * clamped to three 17px lines beside a 36px chevron that sits 11.5px proud of the
+ * padding. Hovering anywhere on an expandable plan lights the chevron's state layer.
+ */
+.spark-browser-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spark-browser-card__detail {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 15.5px 16px;
+  border-radius: 24px;
+  background: rgba(19, 19, 20, 0.5);
+}
+
+.spark-browser-card__detail.is-expandable {
+  cursor: pointer;
+}
+
+.spark-browser-card__plan {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.spark-browser-card__plan.is-collapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.spark-browser-card__chevron {
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  margin: -11.5px 0;
+  padding: 6px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #e6e6e6;
+  cursor: pointer;
+}
+
+.spark-browser-card__chevron::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #c4c7c5;
+  content: "";
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.spark-browser-card__detail.is-expandable:hover .spark-browser-card__chevron::before,
+.spark-browser-card__chevron:focus-visible::before {
+  opacity: 0.08;
+}
+
+/* `.button-row`: 16px under the plan, the target select on the left and the two answers on the right. */
+.spark-browser-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.spark-browser-card__select-anchor {
+  position: relative;
+}
+
+/* `mat-select.action-choice-select`: 183×48 pill, `padding: 0 12px 0 16px`, gap 8px. */
+.spark-browser-card__select {
+  display: inline-flex;
+  width: 183px;
+  height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #e6e6e6;
+  cursor: pointer;
+}
+
+.spark-browser-card__select:hover:not(:disabled),
+.spark-browser-card__select.is-open {
+  background: rgba(230, 230, 230, 0.08);
+}
+
+.spark-browser-card__select:disabled {
+  cursor: default;
+}
+
+.spark-browser-card__select-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Material's 10×5 select arrow. */
+.spark-browser-card__select-arrow {
+  position: relative;
+  display: flex;
+  width: 10px;
+  height: 24px;
+  flex: 0 0 10px;
+  align-items: center;
+}
+
+.spark-browser-card__select-arrow svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  fill: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+/*
+ * The select's panel: 280px, 4px under the select, #1f1f1f at 20px corners with
+ * Gemini's level-1 shadow, holding one 52px option.
+ */
+.spark-browser-card__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  width: 280px;
+  padding: 8px;
+  border-radius: 20px;
+  background: #1f1f1f;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.28);
+}
+
+.spark-browser-card__option {
+  position: relative;
+  display: flex;
+  height: 52px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.spark-browser-card__option::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #e6e6e6;
+  content: "";
+  opacity: 0;
+}
+
+.spark-browser-card__option:hover::before,
+.spark-browser-card__option:focus-visible::before {
+  opacity: 0.08;
+}
+
+.spark-browser-card__option-icon {
+  display: flex;
+  width: 36px;
+  height: 20px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  color: #e6e6e6;
+}
+
+.spark-browser-card__option-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.spark-browser-card__option-label {
+  color: #e6e6e6;
+}
+
+.spark-browser-card__option-description {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* `mat-pseudo-checkbox-minimal`, checked: a 14×6 tick drawn from two borders and turned -45°. */
+.spark-browser-card__option-check {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+
+.spark-browser-card__option-check::after {
+  position: absolute;
+  top: 5px;
+  left: 3px;
+  width: 14px;
+  height: 6px;
+  box-sizing: border-box;
+  border-bottom: 2px solid #e6e6e6;
+  border-left: 2px solid #e6e6e6;
+  content: "";
+  transform: rotate(-45deg);
+}
+
+.spark-browser-card__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/*
+ * `gem-button-type-bright`: #1f1f1f pills, 48px tall, `padding: 0 16px`, label gds-body-m 15px/20px.
+ * Doubled up to outrank `.spark-task-detail button { font: inherit }`, which would
+ * otherwise hand the label the card's 17px.
+ */
+.spark-browser-card .spark-browser-card__button {
+  position: relative;
+  display: inline-flex;
+  height: 48px;
+  min-width: 72px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: #1f1f1f;
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.spark-browser-card__button > span {
+  position: relative;
+}
+
+.spark-browser-card__button::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #e6e6e6;
+  content: "";
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+.spark-browser-card__button:hover:not(:disabled)::before,
+.spark-browser-card__button:focus-visible::before {
+  opacity: 0.08;
+}
+
+/* Answered: no fill, the label at 38% — Gemini's disabled bright button. */
+.spark-browser-card__button:disabled {
+  background: transparent;
+  color: rgba(230, 230, 230, 0.38);
+  cursor: default;
+}
+
+.spark-browser-card :is(button, a, [role="option"]):focus-visible {
+  outline: 2px solid #e3e3e3;
+  outline-offset: 2px;
+}
+
+@media (max-width: 960px) {
+  .spark-browser-card {
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  .spark-browser-card__surface {
+    padding: 20px;
+  }
+}
+
+/* Light theme: the confirmation card's established light surface, with Spark's light text and pills. */
+:is(.light-theme, [data-theme="light"]) .spark-browser-card {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__surface {
+  border: 1px solid #e0e2e0;
+  background: #f0f4f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__title,
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__body a,
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__chevron,
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__select,
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__option-label,
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__option-icon {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__body,
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__plan {
+  color: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__option-description {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__detail {
+  background: #ffffff;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__chevron::before {
+  background: #444746;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__select:hover:not(:disabled),
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__select.is-open {
+  background: rgba(31, 31, 31, 0.08);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__menu {
+  background: #ffffff;
+  box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__option::before,
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__button::before {
+  background: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__option-check::after {
+  border-color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__button {
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card__button:disabled {
+  background: transparent;
+  color: rgba(31, 31, 31, 0.38);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-browser-card :is(button, a, [role="option"]):focus-visible {
+  outline-color: #1f1f1f;
+}

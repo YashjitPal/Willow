@@ -1,0 +1,20 @@
+/*
+ * Willow TV on a tablet (768-960px). Flow TV switches to its desktop remote at 768px, and at that
+ * width the remote's row (controls, the prompt, the view toggle, the channel, share) runs past the
+ * window. The prompt is the one part that can give: it keeps its scrolling box, just narrower. The
+ * share button hangs off the remote's right end, so the remote keeps room for it in its margin and
+ * the two centre together. Phones keep Flow TV's own layout, below 768px.
+ *
+ * Every rule sits in a max-width block. Pinned by apps/studio/test/media-responsive.test.mjs.
+ */
+
+@media (min-width: 768px) and (max-width: 960px) {
+  .wtv-root .wtv-video-data__promptContainer {
+    max-width: max(96px, calc(100vw - 680px));
+  }
+
+  .wtv-root .wtv-tv-remote__outerContainer {
+    max-width: calc(100vw - 66px);
+    margin-right: calc(var(--gutter-outer) + 50px);
+  }
+}

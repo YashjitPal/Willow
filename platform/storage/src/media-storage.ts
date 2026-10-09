@@ -5,6 +5,10 @@
  */
 
 import { renameCodeSessions } from './indexeddb/willow-db';
+import { deleteAgentSessionsForProject } from './media-agent-sessions';
+import { deleteScenesForProject } from './media-scenes';
+import { deleteCharactersForProject } from './media-characters';
+import { deleteCollectionsForProject } from './media-collections';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 
 const DB_NAME = 'WillowMediaDB';
@@ -156,7 +160,9 @@ async function saveProjectMediaInner(projectId: string, mediaItems: any[], scope
     // on disk. But we keep a small per-project record here (counts + timestamp)
     // so media presence is visible & synced in localStorage in realtime, and so
     // the UI can tell which projects have media without touching IndexedDB.
-    const toStore = items.map((m: any) => {
+    // A failed generation is shown only in the session that saw it fail. Never
+    // persisting it is what makes it disappear on reload or on reopening the project.
+    const toStore = items.filter((m: any) => m?.status !== 'failed').map((m: any) => {
       if (!m) return m;
       let out = (m.isSavedToFS && m.fsName) ? { ...m, url: '' } : m;
       // blob: object URLs are session-scoped (hydrated from disk files) — they
@@ -488,6 +494,18 @@ export async function deleteProjectData(projectId: string, scopeId = activeMedia
   await updateMediaIndex(projectId, [], scopeId);
   if (ownsLegacyMedia(scopeId)) localStorage.removeItem(`willow_project_media_${projectId}`);
   if (activeMediaScopeId === scopeId) notifyProjectCoversUpdated();
+  await deleteAgentSessionsForProject(projectId, scopeId).catch((error) => {
+    console.warn('[MediaStorage] Project deleted, but its Media agent chats could not be removed:', error);
+  });
+  await deleteScenesForProject(projectId, scopeId).catch((error) => {
+    console.warn('[MediaStorage] Project deleted, but its Media scenes could not be removed:', error);
+  });
+  await deleteCharactersForProject(projectId, scopeId).catch((error) => {
+    console.warn('[MediaStorage] Project deleted, but its Media characters could not be removed:', error);
+  });
+  await deleteCollectionsForProject(projectId, scopeId).catch((error) => {
+    console.warn('[MediaStorage] Project deleted, but its Media collections could not be removed:', error);
+  });
 }
 
 /**

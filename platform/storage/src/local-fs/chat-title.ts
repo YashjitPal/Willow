@@ -9,6 +9,8 @@
  * same way; both are constants here so the three branches cannot drift apart.
  */
 
+import { liveModelId } from '@willow/core/model-catalog';
+
 /**
  * Shape of the provider-keyed API key map this needs.
  *
@@ -68,7 +70,7 @@ const generateNamingTextWith = async (
   kind: 'title' | 'description' = 'title',
 ): Promise<string> => {
   // 1. Resolve which model the user has selected for Chat Naming
-  const chatNamingSelectionId = modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite';
+  const chatNamingSelectionId = liveModelId(modelConfig?.systemDefaults?.chatRenaming || 'gemini-3.1-flash-lite');
   
   // 2. Look it up across all providers to get the provider + API key
   const allModels = [
@@ -90,12 +92,9 @@ const generateNamingTextWith = async (
   } else if (chatNamingSelectionId === 'gemini-3.5-flash-lite') {
     targetProvider = 'gemini';
     targetModelId = 'gemini-3.5-flash-lite';
-  } else if (chatNamingSelectionId === 'gemini-3.7-flash') {
+  } else if (chatNamingSelectionId === 'gemini-3.8-flash') {
     targetProvider = 'gemini';
-    targetModelId = 'gemini-3.7-flash';
-  } else if (chatNamingSelectionId === 'gemini-3.6-flash') {
-    targetProvider = 'gemini';
-    targetModelId = 'gemini-3.6-flash';
+    targetModelId = 'gemini-3.8-flash';
   } else if (chatNamingSelectionId === 'claude-sonnet-4.5') {
       targetProvider = 'anthropic';
       targetModelId = 'claude-sonnet-4.5';

@@ -785,7 +785,7 @@
 
 .spark-upload-dialog__progress-track { background: #444746; }
 .spark-upload-dialog__progress-bar {
-  background: #a8c7fa;
+  background: var(--sync-a8c7fa, #a8c7fa);
   transform-origin: left center;
 }
 
@@ -834,8 +834,8 @@
 }
 
 .spark-upload-dialog__dropzone.is-dragging {
-  border-color: #3186ff;
-  background: #192967;
+  border-color: var(--sync-3186ff, #3186ff);
+  background: var(--sync-192967, #192967);
 }
 
 .spark-upload-dialog__drop-content {
@@ -1063,7 +1063,7 @@
   border: 0;
   border-radius: 20px;
   background: transparent;
-  color: #a8c7fa;
+  color: var(--sync-a8c7fa, #a8c7fa);
   font: inherit;
   font-size: 14px;
   font-weight: 560;
@@ -1071,7 +1071,7 @@
 }
 
 .spark-customise-delete-dialog__actions button:hover {
-  background: rgba(168, 199, 250, 0.08);
+  background: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.08);
 }
 
 /* Neutral pill, matching Gemini's delete confirmation. */
@@ -1519,7 +1519,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #a8c7fa;
+  color: var(--sync-a8c7fa, #a8c7fa);
   font: inherit;
   font-size: 17px;
   font-weight: 370;
@@ -1834,8 +1834,8 @@
 }
 
 .spark-custom-app-card__row input:focus {
-  border-color: #a8c7fa;
-  box-shadow: inset 0 0 0 1px #a8c7fa;
+  border-color: var(--sync-a8c7fa, #a8c7fa);
+  box-shadow: inset 0 0 0 1px var(--sync-a8c7fa, #a8c7fa);
 }
 
 .spark-custom-app-card__row button {
@@ -1848,8 +1848,8 @@
   padding: 0 16px;
   border: 0;
   border-radius: 9999px;
-  background: #a8c7fa;
-  color: #062e6f;
+  background: var(--sync-a8c7fa, #a8c7fa);
+  color: var(--sync-062e6f, #062e6f);
   font: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -1908,7 +1908,7 @@
 .spark-premium-content a {
   display: inline-block;
   margin-top: 16px;
-  color: #d3e3fd;
+  color: var(--sync-d3e3fd, #d3e3fd);
   font-size: 15px;
   font-weight: 370;
   line-height: 20px;
@@ -1922,7 +1922,7 @@
 }
 
 .spark-apps-privacy-note p {
-  color: #d3e3fd;
+  color: var(--sync-d3e3fd, #d3e3fd);
   font-size: 17px;
   font-weight: 400;
   line-height: 24px;
@@ -1948,7 +1948,7 @@
 .spark-custom-app-card__row button:focus-visible,
 .spark-premium-content a:focus-visible,
 .spark-apps-privacy-note a:focus-visible {
-  outline: 2px solid #a8c7fa;
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
 
@@ -2185,6 +2185,247 @@
   }
 }
 
+/*
+ * At 960px and below, measured on Gemini's /spark/schedules at 800x1280: the narrow theme
+ * (#e0e0e0 on-surface, #1c1c1c surface-bright) and Spark's 92% width on the body text;
+ * the create buttons at gds-body-m (15px weight 400); and each schedule as a plain
+ * three-line card — `.schedules-list-item`, `padding: 16px`, title / frequency / last run
+ * stacked 2px apart, no leading icon, and `schedule-row-actions { display: none }`.
+ */
+@media (max-width: 960px) {
+  /* The page keeps its desktop geometry all the way down — 56px from the top, a 676px
+   * column that simply fills the screen below that, the headline at 28px/36px and the two
+   * create buttons on one line — so the narrower rules above are undone here. */
+  .spark-customise-page {
+    padding-top: 56px;
+  }
+
+  .spark-customise-page--narrow .spark-customise-page__narrow-inner {
+    width: min(676px, 100%);
+  }
+
+  .spark-customise-header h1 {
+    padding: 4px 8px 4px 16px;
+    font-size: 28px;
+    line-height: 36px;
+  }
+
+  .spark-customise-header p {
+    padding: 0 16px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  /* `.page-header-actions` wraps, pads only its left edge and runs 8px past the right
+   * one — so at 390 both create buttons share a row and Skills' upload button wraps. */
+  .spark-page-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 28px;
+    margin-right: -8px;
+    padding: 0 0 0 8px;
+  }
+
+  .spark-page-action {
+    width: auto;
+    height: 48px;
+    padding: 0 24px 0 12px;
+    background: #141414;
+    color: #e0e0e0;
+    font-size: 15px;
+    font-weight: 400;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-schedules-section {
+    margin-top: 16px;
+  }
+
+  /* Skills: the same full-width column, and its three create buttons wrap — the 48px
+   * upload button drops to a second row, its glyph the 28px weight-260 `lm-icon-xl`. */
+  .spark-customise-page--skills .spark-customise-page__narrow-inner,
+  .spark-recommended-skills,
+  .spark-skills-library {
+    width: min(676px, 100%);
+  }
+
+  .spark-page-actions.spark-skills-actions {
+    flex-wrap: wrap;
+    padding: 0 0 0 8px;
+  }
+
+  .spark-skills-actions .spark-page-action:not(.spark-page-action--icon-only) {
+    width: auto;
+    padding: 0 24px 0 12px;
+  }
+
+  .spark-skills-actions .spark-page-action--icon-only .luminous-symbols {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 28px !important;
+    font-weight: 260 !important;
+    font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 28, "wght" 260 !important;
+  }
+
+  /* `.empty-state` keeps its desktop box — 136px of padding above and below, 28px
+   * corners — even though at 390 that makes it 440px wide and wider than the screen. */
+  .spark-skills-empty {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    margin: 48px 0 0 -25px;
+    padding: 136px 24px;
+    border-color: #141414;
+    border-radius: 28px;
+  }
+
+  .spark-recommended-skill {
+    background: #141414;
+  }
+
+  .spark-recommended-skill__title {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+  }
+
+  .spark-recommended-skill__description {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  /*
+   * Connected apps keeps its 24px insets at every width (`extension-window-header-container`
+   * `padding: 56px 24px 24px`, `.category-header` and `.grid-container` `24px 24px 0`), so
+   * the 16px versions above are undone. The chip row is `padding: 16px 24px 0` around chips
+   * with a 4px block margin; the single-column grid gaps rows by 20px.
+   */
+  .spark-connected-header {
+    height: auto;
+    min-height: 0;
+    padding: 56px 24px 24px;
+  }
+
+  .spark-connected-header p {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-connected-header a {
+    color: #e0e0e0;
+  }
+
+  /* `safe`, because Willow has more categories than Gemini's two: when they overflow the
+   * row they start at its edge and scroll, rather than spilling off both sides. */
+  .spark-app-categories {
+    width: max-content;
+    max-width: 100%;
+    height: auto;
+    justify-content: safe center;
+    padding: 20px 24px 4px;
+  }
+
+  .spark-workspace-product h4,
+  .spark-show-more {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-workspace-product a,
+  .spark-connected-app-card__learn-more {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  }
+
+  .spark-connected-app-section__header,
+  .spark-connected-app-grid {
+    width: min(880px, 100%);
+    padding: 24px 24px 0;
+  }
+
+  .spark-connected-app-grid {
+    row-gap: 20px;
+    column-gap: 24px;
+  }
+
+  .spark-photos-notice,
+  .spark-connected-app-section--custom,
+  .spark-premium-content,
+  .spark-apps-privacy-note {
+    width: calc(100% - 48px);
+  }
+
+  .spark-schedules-section > h2,
+  .spark-recommended-skills > h2,
+  .spark-skills-library > h2 {
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+  }
+
+  /* `section.schedules-section` is a column with `gap: 8px` under its label. */
+  .spark-schedules-section > h2 {
+    margin-bottom: 8px;
+  }
+
+  .spark-schedule-card {
+    display: grid;
+    height: auto;
+    min-height: 0;
+    gap: 2px;
+    padding: 16px;
+    background: #1c1c1c;
+    transition: background-color 200ms ease;
+  }
+
+  .spark-schedule-row:hover .spark-schedule-card,
+  .spark-schedule-row:focus-within .spark-schedule-card {
+    background: color-mix(in srgb, #e3e3e3 8%, #1c1c1c);
+  }
+
+  .spark-schedule-card__icon,
+  .spark-schedule-row__actions,
+  .spark-schedule-row:hover .spark-schedule-row__actions,
+  .spark-schedule-row:focus-within .spark-schedule-row__actions {
+    display: none;
+  }
+
+  .spark-schedule-card__copy {
+    gap: 2px;
+  }
+
+  .spark-schedule-card__title {
+    font-weight: 400;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-schedule-card__detail,
+  .spark-schedule-card__last-run {
+    display: block;
+    color: #c4c7c5;
+    line-height: 17px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  }
+
+  .spark-schedule-card__paused {
+    justify-self: start;
+  }
+}
+
+/* The Workspace card on a tablet: `.child-tools-container` holds two 246px tools and
+ * `.parent-card-title` takes what is left, keeping its 60px right margin. */
+@media (min-width: 769px) and (max-width: 960px) {
+  .spark-workspace-card__summary {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .spark-workspace-card__products {
+    flex: 0 0 auto;
+    grid-template-columns: repeat(2, 246px);
+  }
+}
+
+/* On a phone the title stacks over the tools but keeps the 60px margin, 12px above them. */
+@media (max-width: 768px) {
+  .spark-workspace-card__summary {
+    margin: 0 60px 12px 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .spark-page-action,
   .spark-schedule-card,
@@ -2321,6 +2562,10 @@
 
 :is(.light-theme, [data-theme="light"]) .spark-schedules-empty__icon,
 :is(.light-theme, [data-theme="light"]) .spark-skills-active-empty__icon,
+:is(.light-theme, [data-theme="light"]) .spark-custom-app-empty {
+  background: #f0f4f9;
+}
+
 :is(.light-theme, [data-theme="light"]) .spark-custom-app-empty__icon {
   background: #f2f0f0;
   color: #444746;
@@ -2465,7 +2710,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-upload-dialog__dropzone.is-dragging {
-  border-color: #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
   background: #e8f0fe;
 }
 
@@ -2474,7 +2719,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-upload-dialog__link {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-upload-dialog__formats {
@@ -2486,7 +2731,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-upload-dialog__progress-bar {
-  background: #0b57d0;
+  background: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog {
@@ -2504,11 +2749,11 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog__actions button {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog__actions button:hover {
-  background: rgba(11, 87, 208, 0.08);
+  background: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-customise-delete-dialog__actions .is-danger {
@@ -2568,7 +2813,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-workspace-product a {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-connected-app-card {
@@ -2603,7 +2848,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-connected-app-card__learn-more {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-app-toggle {
@@ -2640,12 +2885,12 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-custom-app-card__row input:focus {
-  border-color: #0b57d0;
-  box-shadow: inset 0 0 0 1px #0b57d0;
+  border-color: var(--sync-0b57d0, #0b57d0);
+  box-shadow: inset 0 0 0 1px var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-custom-app-card__row button {
-  background: #0b57d0;
+  background: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
@@ -2690,7 +2935,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-premium-content a {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-apps-privacy-note {
@@ -2704,13 +2949,13 @@
 
 :is(.light-theme, [data-theme="light"]) .spark-photos-notice {
   background: #e8f0fe;
-  color: #041e49;
+  color: var(--sync-041e49, #041e49);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-photos-notice__icon {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-photos-notice__copy button {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }

@@ -1578,9 +1578,13 @@ it('computes a switch’s disabled reason in the hook, and only reads it in the 
   assert.equal(/Getting ready/.test(tab), false, 'the tab restated a reason the hook owns');
   assert.equal(/configured\s*===/.test(tab), false, 'the tab is deciding setup state again');
 
-  // One hint per provider, named by the variable that fixes it. A user sent to set
-  // the wrong client id goes looking for a problem that is not there.
-  assert.match(tab, /setupHints\.map\(/, 'the tab stopped showing the per-provider setup hints');
+  // One setup card per provider, each driven by that provider's own state. A user
+  // sent to set the wrong client id goes looking for a problem that is not there.
+  assert.match(tab, /<OAuthClientSetup setup=\{setup\} \/>/, 'the tab stopped showing the per-provider setup');
+  const clientSetup = codeOnly(settingsTab('connected-apps', 'OAuthClientSetup.tsx'));
+  assert.match(clientSetup, /provider="google" configured=\{setup\.google\b/, 'Google lost its own setup card');
+  assert.match(clientSetup, /provider="spotify" configured=\{setup\.spotify\b/, 'Spotify lost its own setup card');
+  // The hook's per-provider hints still name the variable a deployment sets.
   assert.match(hook, /VITE_GOOGLE_OAUTH_CLIENT_ID/);
   assert.match(hook, /VITE_SPOTIFY_CLIENT_ID/);
 });

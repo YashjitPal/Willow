@@ -290,7 +290,7 @@
 }
 
 .spark-dialog-confirm-button {
-  background: rgb(31, 59, 155);
+  background: var(--sync-1f3b9b, rgb(31, 59, 155));
   border: none;
   border-radius: 9999px;
   height: 36px;
@@ -305,7 +305,7 @@
 }
 
 .spark-dialog-confirm-button:hover {
-  background: rgb(40, 70, 180);
+  background: var(--sync-2846b4, rgb(40, 70, 180));
 }
 
 /* Light theme overrides matching Google Gemini 1:1 */
@@ -337,11 +337,11 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-card-link {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-card-link:hover {
-  color: #0842a0;
+  color: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-action-button,
@@ -374,19 +374,83 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-dialog-cancel-button {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-dialog-cancel-button:hover {
-  background: rgba(11, 87, 208, 0.08);
+  background: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-dialog-confirm-button {
-  background: #0b57d0;
+  background: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-dialog-confirm-button:hover {
-  background: #0842a0;
+  background: var(--sync-0842a0, #0842a0);
+}
+
+/*
+ * At 960px and below, measured off /gemini-spark at 390x844 and 800x1280. The page scrolls
+ * in a region under the 68px top bar, painted #1c1c1c; the fixed 924/880/840px column gives
+ * way to the page width; cards sit on #141414 and their buttons on #1c1c1c. The headings
+ * carry Gemini's real ROND axis — the desktop rules spell it "RNDS", which the font ignores.
+ */
+@media (max-width: 960px) {
+  .spark-settings-root {
+    height: calc(100% - 68px);
+    min-height: 0;
+    margin-top: 68px;
+    background: rgb(28, 28, 28);
+  }
+
+  .spark-settings-container,
+  .spark-settings-header,
+  .spark-settings-options,
+  .spark-settings-card,
+  .spark-card-description,
+  .spark-card-actions {
+    width: auto;
+  }
+
+  .spark-settings-container {
+    max-width: 924px;
+  }
+
+  .spark-settings-card {
+    align-self: stretch;
+    background: rgb(20, 20, 20);
+  }
+
+  .spark-card-actions {
+    align-self: stretch;
+  }
+
+  .spark-action-button,
+  .spark-delete-button {
+    background: rgb(28, 28, 28);
+  }
+
+  .spark-action-button,
+  .spark-delete-button,
+  .spark-delete-icon,
+  .spark-card-link {
+    color: rgb(224, 224, 224);
+  }
+
+  .spark-settings-title {
+    font-variation-settings: "ROND" 100, "slnt" 0, "wdth" 100, "wght" 360;
+  }
+
+  .spark-card-title {
+    font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  }
+
+  /* Unmeasured: Gemini's confirmations act on the account, so they were not opened. The
+   * 512px surface is capped to the padded backdrop rather than overflowing a phone. */
+  .spark-dialog-surface {
+    width: auto;
+    max-width: min(512px, 100%);
+  }
 }
 

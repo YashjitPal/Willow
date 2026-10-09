@@ -177,7 +177,7 @@ const YouTubeResourceCard: React.FC<{
       </div>
       <button
         type="button"
-        className="absolute inset-0 z-10 cursor-pointer rounded-[4px] bg-transparent text-left outline-none before:absolute before:inset-0 before:bg-[#e3e3e3] before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-[0.08] focus-visible:ring-2 focus-visible:ring-[#a8c7fa]/80"
+        className="absolute inset-0 z-10 cursor-pointer rounded-[4px] bg-transparent text-left outline-none before:absolute before:inset-0 before:bg-[#e3e3e3] before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-[0.08] focus-visible:ring-2 focus-visible:ring-[color:var(--sync-a8c7fa,#a8c7fa)]/80"
         aria-label={`Play ${resolved.title}`}
         onClick={() => onOpen(resolved)}
       />
@@ -192,7 +192,7 @@ const DocumentResourceCard: React.FC<{
   <button
     type="button"
     onClick={() => onOpen(resource)}
-    className="relative flex min-h-[112px] w-full items-center gap-4 overflow-hidden rounded-[4px] bg-[#1e1f20] p-4 text-left outline-none before:absolute before:inset-0 before:bg-[#e3e3e3] before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-[0.08] focus-visible:ring-2 focus-visible:ring-[#a8c7fa]/80"
+    className="relative flex min-h-[112px] w-full items-center gap-4 overflow-hidden rounded-[4px] bg-[#1e1f20] p-4 text-left outline-none before:absolute before:inset-0 before:bg-[#e3e3e3] before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-[0.08] focus-visible:ring-2 focus-visible:ring-[color:var(--sync-a8c7fa,#a8c7fa)]/80"
   >
     <span className="relative z-[1] flex h-20 w-28 shrink-0 items-center justify-center rounded-[4px] bg-[#28292a] text-[#c4c7c5]">
       <MaterialSymbol family="luminous" name={resource.kind === 'pdf' ? 'picture_as_pdf' : 'draft'} size={36} weight={300} roundness={100} />

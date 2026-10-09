@@ -140,7 +140,7 @@ it('scopes every Labs page rule so it cannot repaint another settings page', () 
 
 it('takes its accent from the workspace colour rather than a fixed hue', () => {
   const page = read(...SOURCE.page);
-  assert.match(page, /getWorkspaceTheme\(userProfile\?\.workspaceColor\)/,
+  assert.match(page, /getWorkspaceTheme\(workspaceColor\)/,
     'the page no longer resolves the workspace theme');
   assert.match(page, /'--lp-switch-on-track': theme\.creamy\.hex/,
     'the switched-on track is not the workspace pastel');
@@ -162,7 +162,7 @@ it('wires /labs everywhere a settings route has to be wired', () => {
     ["commitView('labs')", 'the pathname sync'],
     ["currentView === 'labs'", 'the render branch and the fall-back-to-home list'],
     ["tabId === 'labs'", 'the sidebar gear handler'],
-    ['<Route path="/labs" element={mainAppShell} />', 'the route'],
+    ['<Route path="/labs" element={null} />', 'the route (the shell itself renders above the routes)'],
   ];
   for (const [snippet, what] of required) {
     assert.ok(app.includes(snippet), `App.tsx is missing ${what}: ${snippet}`);

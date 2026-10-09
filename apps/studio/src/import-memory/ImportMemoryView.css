@@ -207,8 +207,8 @@
 }
 
 .import-copy-button.copied {
-  color: rgb(168, 199, 250);
-  border-color: rgb(168, 199, 250);
+  color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  border-color: var(--sync-a8c7fa, rgb(168, 199, 250));
 }
 
 .import-btn-icon-24 {
@@ -238,7 +238,7 @@
 
 .import-paste-card.has-content,
 .import-paste-card:focus-within {
-  border: 1.6px solid rgb(168, 199, 250);
+  border: 1.6px solid var(--sync-a8c7fa, rgb(168, 199, 250));
   width: 764.8px;
   padding: 12px 16px;
 }
@@ -304,13 +304,13 @@
 }
 
 .import-send-button:not(:disabled) {
-  background-color: rgb(168, 199, 250);
-  color: rgb(6, 46, 111);
+  background-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  color: var(--sync-062e6f, rgb(6, 46, 111));
   cursor: pointer;
 }
 
 .import-send-button:not(:disabled):hover {
-  background-color: #90b7f8;
+  background-color: var(--sync-90b7f8, #90b7f8);
 }
 
 /* ── Section 2: Import Chats ── */
@@ -352,7 +352,7 @@
 }
 
 .import-link {
-  color: rgb(168, 199, 250);
+  color: var(--sync-a8c7fa, rgb(168, 199, 250));
   text-decoration: underline 1.2px dotted;
   text-underline-offset: 2px;
   cursor: pointer;
@@ -360,7 +360,7 @@
 }
 
 .import-link:hover {
-  color: #c2d7fc;
+  color: var(--sync-c2d7fc, #c2d7fc);
 }
 
 .import-chats-add-button {
@@ -374,8 +374,8 @@
   padding: 0px 16px;
   box-sizing: border-box;
   border-radius: 9999px;
-  background-color: rgb(168, 199, 250);
-  color: rgb(6, 46, 111);
+  background-color: var(--sync-a8c7fa, rgb(168, 199, 250));
+  color: var(--sync-062e6f, rgb(6, 46, 111));
   font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
   font-size: 14px;
   line-height: normal;
@@ -388,7 +388,7 @@
 }
 
 .import-chats-add-button:hover {
-  background-color: #90b7f8;
+  background-color: var(--sync-90b7f8, #90b7f8);
 }
 
 .import-chats-add-icon {
@@ -559,8 +559,8 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .import-copy-button.copied {
-  color: #0b57d0;
-  border-color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
+  border-color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .import-paste-card {
@@ -570,7 +570,7 @@
 
 :is(.light-theme, [data-theme="light"]) .import-paste-card.has-content,
 :is(.light-theme, [data-theme="light"]) .import-paste-card:focus-within {
-  border: 1.6px solid #0b57d0;
+  border: 1.6px solid var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .import-paste-textarea {
@@ -587,12 +587,12 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .import-send-button:not(:disabled) {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
 :is(.light-theme, [data-theme="light"]) .import-send-button:not(:disabled):hover {
-  background-color: #0842a0;
+  background-color: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .import-chats-subtitle,
@@ -601,20 +601,20 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .import-link {
-  color: #0b57d0;
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .import-link:hover {
-  color: #0842a0;
+  color: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .import-chats-add-button {
-  background-color: #0b57d0;
+  background-color: var(--sync-0b57d0, #0b57d0);
   color: #ffffff;
 }
 
 :is(.light-theme, [data-theme="light"]) .import-chats-add-button:hover {
-  background-color: #0842a0;
+  background-color: var(--sync-0842a0, #0842a0);
 }
 
 :is(.light-theme, [data-theme="light"]) .import-record-item {
@@ -639,7 +639,80 @@
   color: #b3261e;
 }
 
-:is(.light-theme, [data-theme="light"]) .import-record-item svg.text-\[\#a8c7fa\] {
-  color: #0b57d0;
+:is(.light-theme, [data-theme="light"]) .import-record-item svg.text-\[\var(--sync-a8c7fa, #a8c7fa)\] {
+  color: var(--sync-0b57d0, #0b57d0);
+}
+
+/*
+ * At 960px and below, measured off /import at 390x844 and 800x1280. Gemini's
+ * `.window-container` starts under the 68px top bar with percentage padding (3% 2.5% of the
+ * page width: 11.7px 9.75px on a phone) and every block below it takes the column's width,
+ * so the desktop's fixed 800px (and 766.4px card) sizes all give way. Heights that only
+ * fitted one line at the desktop width are released for the wrapped copy.
+ */
+@media (max-width: 960px) {
+  /* The page scrolls in a region that starts under the 68px top bar, on Gemini's black,
+   * and only `flex-window-container` — as tall as its content — paints #131314. */
+  .import-hub-root {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+    align-items: stretch;
+  }
+
+  .dark-theme .import-hub-root {
+    background-color: #000000;
+  }
+
+  .import-hub-window {
+    width: auto;
+    margin: 0;
+    padding: 3% 2.5%;
+    box-sizing: border-box;
+  }
+
+  .dark-theme .import-hub-window {
+    background-color: #131314;
+  }
+
+  .import-hub-content {
+    width: 100%;
+  }
+
+  .import-page-header,
+  .import-page-title,
+  .import-memory-section,
+  .import-step,
+  .import-step-indicator,
+  .import-chats-section,
+  .import-record-list,
+  .import-disclaimer {
+    width: auto;
+  }
+
+  .import-page-title,
+  .import-step-indicator,
+  .import-section-title,
+  .import-chats-subtitle,
+  .import-disclaimer {
+    height: auto;
+  }
+
+  .import-section-title {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .import-prompt-card,
+  .import-prompt-text,
+  .import-paste-card,
+  .import-paste-card.has-content,
+  .import-paste-card:focus-within,
+  .import-paste-actions {
+    width: auto;
+  }
+
+  .import-paste-textarea {
+    width: calc(100% - 4px);
+  }
 }
 

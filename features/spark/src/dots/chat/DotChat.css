@@ -1,0 +1,607 @@
+/*
+ * A bot's conversation as a messenger, in Material 3 (m3.css): body-large text (16/24) in 20px bubbles whose joined
+ * corners drop to 6px within a burst; the user's in the secondary container (the bot's colour, through its tint), the
+ * bot's on surface-container-high; label-small (12/16, on-surface-variant) for days, times and receipts. A reaction is
+ * an emoji in a round notch cut out of its bubble's inner bottom corner, the same both ways.
+ */
+
+.dot-chat {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8px;
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-ref-typeface-plain);
+}
+
+/* ── Days ─────────────────────────────────────────────────────────────── */
+
+.dot-chat__day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 8px 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.dot-chat__day:first-child {
+  margin-top: 4px;
+}
+
+.dot-chat__day md-divider {
+  flex: 1;
+  --md-divider-color: var(--md-sys-color-outline-variant);
+}
+
+/* ── Marks: a line of the conversation's own, centred and sized like a day ─ */
+
+.dot-chat__mark {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.dot-chat__mark-logo {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  object-fit: contain;
+}
+
+.dot-chat__mark-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+/* While it lasts the words shimmer, as the bot's "Now" line does. */
+.dot-chat__mark.is-live .dot-chat__mark-text {
+  background: linear-gradient(100deg, var(--md-sys-color-on-surface-variant) 0%, var(--md-sys-color-on-surface-variant) 40%, var(--md-sys-color-on-surface) 50%, var(--md-sys-color-on-surface-variant) 60%, var(--md-sys-color-on-surface-variant) 100%) 0 0 / 250% 100%;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: dot-chat-mark-shimmer 2.4s linear infinite;
+}
+
+@keyframes dot-chat-mark-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+
+.dot-chat__mark-action {
+  padding: 2px 10px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  cursor: pointer;
+  font: inherit;
+}
+
+.dot-chat__mark-action:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+}
+
+.dot-chat__mark-action:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-chat__mark.is-live .dot-chat__mark-text {
+    animation: none;
+    background: none;
+    color: var(--md-sys-color-on-surface);
+  }
+}
+
+/* ── Rows and bubbles ─────────────────────────────────────────────────── */
+
+.dot-chat__row {
+  display: flex;
+  margin-top: 14px;
+}
+
+.dot-chat__row.is-joined-above {
+  margin-top: 2px;
+}
+
+.dot-chat__row.is-user {
+  justify-content: flex-end;
+}
+
+.dot-chat__stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.is-user .dot-chat__stack {
+  max-width: min(520px, 80%);
+  align-items: flex-end;
+}
+
+.is-dot .dot-chat__stack {
+  width: 100%;
+  align-items: flex-start;
+}
+
+.dot-chat__bubble-wrap {
+  position: relative;
+  display: flex;
+  max-width: 100%;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.dot-chat__bubble {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  padding: 10px 16px;
+  border-radius: 20px;
+  font-size: 16px;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+.is-user .dot-chat__bubble {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  white-space: pre-wrap;
+}
+
+.is-dot .dot-chat__bubble {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+}
+
+/*
+ * The room beside the bot's bubble is for its hover actions. It is measured against the bot's column, not the row
+ * the bubble shrinks to fit: a percentage of that would cap a short message below its own width.
+ */
+.is-dot .dot-chat__stack {
+  container-type: inline-size;
+}
+
+.is-dot .dot-chat__bubble-frame {
+  max-width: min(600px, calc(100cqw - 84px));
+}
+
+.is-user.is-joined-above .dot-chat__bubble {
+  border-top-right-radius: 6px;
+}
+
+.is-user.is-joined-below .dot-chat__bubble {
+  border-bottom-right-radius: 6px;
+}
+
+.is-dot.is-joined-above .dot-chat__bubble {
+  border-top-left-radius: 6px;
+}
+
+.is-dot.is-joined-below .dot-chat__bubble {
+  border-bottom-left-radius: 6px;
+}
+
+.dot-chat__bubble md-focus-ring {
+  --md-focus-ring-shape: 20px;
+}
+
+/* Markdown inside a bubble: its own margins stop at the bubble's padding. */
+.dot-chat__bubble .smd-root > :first-child {
+  margin-top: 0;
+}
+
+.dot-chat__bubble .smd-root > :last-child {
+  margin-bottom: 0;
+}
+
+/* StreamingMarkdown sets Spark's reply type (17px, #e3e3e3, 16px between blocks); a bubble keeps its own. */
+.dot-chat__bubble .smd-root {
+  gap: 10px;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.dot-chat__bubble .smd-root p {
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.dot-chat__bubble .smd-list > li {
+  padding-left: 22px;
+}
+
+.dot-chat__bubble .smd-list > li + li {
+  margin-top: 4px;
+}
+
+.dot-chat__bubble .smd-list-content > .smd-list {
+  margin-top: 4px;
+}
+
+/* Tables keep Spark's lines, in the bubble's own colours and a chat's sizes. */
+.dot-chat__bubble .smd-table-content {
+  padding: 4px 0;
+}
+
+.dot-chat__bubble .smd-table th,
+.dot-chat__bubble .smd-table td {
+  width: auto;
+  min-width: 96px;
+  color: inherit;
+}
+
+.dot-chat__bubble .smd-table tr > th {
+  padding: 6px 12px 8px;
+  font-weight: 500;
+}
+
+.dot-chat__bubble .smd-table tr > td {
+  padding: 8px 12px;
+}
+
+.dot-chat__bubble .smd-table tr > :first-child {
+  padding-left: 0;
+}
+
+.dot-chat__bubble .smd-table tr > :last-child {
+  padding-right: 0;
+}
+
+.dot-chat__bubble .smd-table thead th::after,
+.dot-chat__bubble .smd-table tbody tr:not(:last-child) > td::after {
+  background: var(--md-sys-color-outline-variant);
+}
+
+.dot-chat__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  white-space: normal;
+}
+
+.dot-chat__bubble > .dot-chat__attachments:first-child {
+  margin-top: 0;
+}
+
+/* Pictures the user sent: themselves, rounded as a bubble is, above any words — no bubble round them. */
+.dot-chat__pictures {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.dot-chat__pictures + .dot-chat__bubble {
+  margin-top: 4px;
+}
+
+.dot-chat__picture {
+  display: block;
+  max-width: min(280px, 100%);
+  max-height: 320px;
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container-high);
+  object-fit: cover;
+}
+
+.dot-chat__picture.is-loading {
+  width: 200px;
+  height: 150px;
+}
+
+.dot-chat__pictures.is-several .dot-chat__picture {
+  width: 136px;
+  height: 136px;
+}
+
+.dot-chat__attachment {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  padding: 2px 10px 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 12%, transparent);
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Hover actions ────────────────────────────────────────────────────── */
+
+.dot-chat__actions {
+  display: flex;
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  --md-icon-button-icon-size: 20px;
+  --md-icon-button-state-layer-width: 36px;
+  --md-icon-button-state-layer-height: 36px;
+  --md-icon-button-icon-color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-chat__actions md-icon-button {
+  width: 36px;
+  height: 36px;
+}
+
+.dot-chat__row:hover .dot-chat__actions,
+.dot-chat__bubble-wrap:focus-within .dot-chat__actions,
+.dot-chat__bubble-wrap.is-picking .dot-chat__actions {
+  opacity: 1;
+}
+
+/* ── Reactions ────────────────────────────────────────────────────────── */
+
+/* A bubble and the reaction pill that hangs off it; room is kept below for the pill. */
+.dot-chat__bubble-frame {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-direction: column;
+}
+
+.dot-chat__bubble-frame.has-reaction {
+  margin-bottom: 15px;
+}
+
+/*
+ * A messenger's reaction: each emoji in a 30px round notch the colour of the conversation, cut out of the bubble's
+ * inner bottom corner — towards the middle of the conversation — with a hairline edge where it meets the page.
+ * Several overlap. No fill and no shadow, so the emoji is all that shows; the same whoever reacted.
+ */
+.dot-chat__reaction-pill {
+  position: absolute;
+  z-index: 1;
+  bottom: -15px;
+  display: flex;
+  padding: 0;
+  border: 0;
+  border-radius: 15px;
+  background: none;
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  line-height: 1;
+  user-select: none;
+  --md-focus-ring-shape: 15px;
+  animation: dot-chat-pop 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.is-dot .dot-chat__reaction-pill {
+  right: 10px;
+}
+
+.is-user .dot-chat__reaction-pill {
+  left: 10px;
+}
+
+button.dot-chat__reaction-pill {
+  cursor: pointer;
+  outline: none;
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+button.dot-chat__reaction-pill:hover {
+  transform: scale(1.08);
+}
+
+.dot-chat__reaction-emoji {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--spark-panel-surface, var(--md-sys-color-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent);
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.dot-chat__reaction-emoji + .dot-chat__reaction-emoji {
+  margin-inline-start: -7px;
+}
+
+@keyframes dot-chat-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+/* ── Times, receipts and work in progress ─────────────────────────────── */
+
+.dot-chat__meta {
+  margin: 4px 12px 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  letter-spacing: 0.1px;
+  line-height: 16px;
+}
+
+.dot-chat__typing {
+  display: inline-flex;
+  height: 44px;
+  align-items: center;
+  padding: 0 18px;
+}
+
+.dot-chat__typing-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.dot-chat__typing-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--md-sys-color-on-surface-variant);
+  opacity: 0.45;
+  animation: dot-chat-typing 1.2s infinite ease-in-out;
+}
+
+.dot-chat__typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.dot-chat__typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes dot-chat-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+
+/* ── The reaction picker ──────────────────────────────────────────────── */
+
+/* Placed by DotChat.tsx from measurements: above the bubble when it fits, inside the visible conversation always. */
+.dot-chat__picker {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: 24px;
+  background: var(--md-sys-color-surface-container-high);
+  --md-elevation-level: 3;
+  --md-icon-button-icon-size: 24px;
+  --md-icon-button-icon-color: var(--md-sys-color-on-surface-variant);
+  animation: dot-chat-picker-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  transform-origin: bottom left;
+}
+
+.dot-chat__picker.is-unplaced {
+  visibility: hidden;
+}
+
+.dot-chat__picker.is-below {
+  transform-origin: top left;
+}
+
+.dot-chat__picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 40px);
+}
+
+.dot-chat__picker.is-expanded .dot-chat__picker-grid {
+  grid-template-columns: repeat(6, 40px);
+}
+
+.dot-chat__picker md-icon-button.is-selected {
+  border-radius: 50%;
+  background: var(--md-sys-color-secondary-container);
+}
+
+.dot-chat__picker-emoji {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 22px;
+  line-height: 24px;
+}
+
+.dot-chat__picker md-divider {
+  margin: 4px 8px;
+  --md-divider-color: var(--md-sys-color-outline-variant);
+}
+
+.dot-chat__picker-actions {
+  display: flex;
+  --md-text-button-container-height: 32px;
+  --md-text-button-label-text-color: var(--md-sys-color-on-surface);
+  --md-text-button-icon-color: var(--md-sys-color-on-surface-variant);
+}
+
+.dot-chat__button-icon {
+  display: inline-flex;
+}
+
+@keyframes dot-chat-picker-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+/* ── Cards between the bubbles ────────────────────────────────────────── */
+
+.dot-chat__card {
+  margin-top: 14px;
+}
+
+.dot-chat__card > :first-child {
+  margin-top: 0;
+}
+
+/* ── Touch, phones, motion ────────────────────────────────────────────── */
+
+/* No hover: the picker opens from a long press, and the bubble may use the room the actions held. */
+@media (hover: none) {
+  .dot-chat__actions {
+    display: none;
+  }
+
+  .is-dot .dot-chat__bubble-frame {
+    max-width: min(600px, 100cqw);
+  }
+
+  .dot-chat__bubble {
+    -webkit-touch-callout: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .is-user .dot-chat__stack {
+    max-width: 86%;
+  }
+
+  .dot-chat__bubble {
+    padding: 9px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-chat__typing-dots i,
+  .dot-chat__reaction-pill,
+  .dot-chat__picker {
+    animation: none;
+  }
+}

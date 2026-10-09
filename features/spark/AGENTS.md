@@ -7,30 +7,115 @@ at 9am, check my inbox and summarise") and Spark executes them on a schedule.
 
 | Path | Role |
 | --- | --- |
-| `src/SparkWorkspace.tsx` | Entry workspace (1308 lines). Task dashboard. |
+| `src/SparkWorkspace.tsx` | Entry workspace (1308 lines). Task dashboard. Bots is a tab of its own beside the rest of Spark (`withBots`): once opened its page stays mounted, hidden while another Spark page is on show, and behind it the workspace keeps to the page Spark last showed, hidden — one workspace, since it runs the schedules and turns. |
 | `src/SparkHome.tsx` | The launch / suggested-tasks grid. |
 | `src/SparkTaskCard.tsx` · `.css` | Gemini's `.goal-card` row + its `⋮` action menu. Shared row for every task list. |
 | `src/SparkTaskDialogs.tsx` · `.css` | Rename / Delete confirmations, with Gemini's copy. |
 | `src/SparkTaskDetail.tsx` | Task detail/edit view (2196 lines). |
 | `src/SparkComposer.tsx` · `.css` | The prompt box: a thin wrapper over Chat's `InputBar`. See below. |
+| `src/composer/` | The prompt box's "@" app menu and "/" skill menu, laid over `InputBar`. See *Skills and connected apps*. |
+| `src/spark-connectors.ts` | What a run can reach beyond its workspace: connectors and MCP servers as tools, and the timeline row each call puts down. |
+| `src/spark-recommended-skills.ts` | Gemini's five recommended skills, verbatim, used to prefill the skill editor. |
 | `src/spark-composer-chips.tsx` | Chip rows and tool labels for the task-detail composers, plus the file-merge helper. |
 | `src/SparkAllTasks.tsx` | Full task list. |
 | `src/SparkScheduleEditor.tsx` | Cron/time picker widget. |
 | `src/SparkSkillEditor.tsx` | User-defined skill editor (LLM prompt templates). |
 | `src/SparkCustomisePages.tsx` | Task customisation (1150 lines). |
-| `src/SparkComputerUsePanel.tsx` | Browser-context panel for computer-use mode. |
+| `src/remote-browser/` | The remote browser: permission card, pane, frames, driver. See *The remote browser*. |
 | `src/SparkDictationWaveform.tsx` · `src/useSparkDictation.ts` | Voice-activation UI. |
 | `src/useSparkNow.ts` | The "run now" hook. |
 | `src/spark-store.ts` | Nanostore (1478 lines). Task state, scheduling, globals. |
 | `src/spark-types.ts` | Shared types (`SparkTask`, `SparkSchedule`, `SparkSkill`, …). |
+| `src/spark-routes.ts` | Each Spark page's address, both ways: Gemini's six. |
+| `src/SparkFileViewer.tsx` · `.css` | A file a run created, as Gemini's side panel shows a Doc. See *Created files*. |
+| `src/spark-open-file.ts` | Which created file each task's side panel shows. |
+| `src/spark-create-with.ts` | What "Create with Gemini" opens on, on the Schedules and Skills pages: Gemini's texts. |
+| `src/spark-task-layout.ts` | A task to open with its list collapsed and Progress showing. |
+| `src/spark-schedule-time.ts` | When a schedule next runs. |
 | `src/attachment-storage.ts` | File attachment persistence. |
+| `src/spark-disk.ts` · `src/spark-task-files.ts` | Each task's files beside `Spark/Tasks/<task>.json` in the user's folder: its attachments, and the remote browser's screenshots. See *The history is kept for good*. |
 | `src/browser-tabs-bridge.ts` | Connects the Spark agent to `chrome.tabs` / `browser.tabs`. |
+| `src/spark-task-host.ts` | The seam that lets code outside the Spark page start, follow up and stop tasks through the mounted workspace's own runner. Bots use it. |
+| `src/dots/` | Bots (the feature's code keeps the name `bots`; everything users and models read says "bot"): Codex's characters and onboarding, the bots directory and conversation. `dots-light.css` is the light theme for every Bots style that names one of Gemini's dark colours directly. |
+| `src/dots/chat/` | A bot's conversation as a messenger, in Material 3 for the web (`@material/web`): bubbles grouped into bursts, day separators, read receipts, a typing bubble, and reactions both ways — the bot's labelled chips under the user's bubbles, the user's own under the bot's, picked from a hover button, the keyboard or a long press. |
+| `src/dots/m3/` | The Material 3 components the bot UI uses (`m3.ts` registers them and types them for React), their system tokens set to Gemini's palette and tinted by the bot (`m3.css`), and a controlled `M3Switch`. |
+| `src/dots/triggers/`, `src/dots/profile/` | The profile's Scheduled list and the conversation's trigger cards; Instructions, quiet hours and background research, and Skills and apps. |
+| `src/dots/computer/` | A bot's own computer in the desktop app: its pane (Spark's remote browser, filled with the machine's whole desktop), its cards and its profile row. |
+| `src/dots/dots-folder.ts`, `src/dots/dots-folder-plan.ts` | Each bot and its whole thread as `Spark/Dots/<bot id>.json` in the user's folder, so bots outlive browser storage and reach every copy of Willow on the folder. The rules are in the harness [AGENTS.md](src/dots/harness/AGENTS.md#persistence). |
+| `src/dots/harness/` | The bot harness: an always-on fork of Spark's harness with its own memory and runtime. Has its own [AGENTS.md](src/dots/harness/AGENTS.md). |
+| `src/pets/` | The desktop pet and its Customise page (`/spark/pets`), in the desktop app only. See *Pets*. |
+
+## Pets (desktop app only)
+
+BetterGravity's Pets plugin, ported: Codex's desktop pet, standing on the
+desktop in a transparent always-on-top window, with an indicator and a stack of
+cards for every Spark task that is running, needs input, is blocked, or finished
+while you were away. Under Customise, **Pets** chooses the companion, previews
+each animation, renames it, opens the library folder, creates one with the Hatch
+Pet skill, and holds the plugin's settings. The desktop strip's paw shows and hides it.
+Neither the page nor the sidebar item exists in a browser (`isDesktopApp()`), and
+nothing of it loads there: `SparkPetsHost` and `PetsPage` are lazy chunks.
+
+| File | Role |
+|---|---|
+| `surface/surface.js` · `pet.css` · `hud.css` | The pet itself: the plugin's `petSurface`, verbatim, and its styles. Self-contained on purpose — it is sent as source to the overlay window — so keep it that way, and keep it in step with the plugin rather than editing it here. |
+| `pet-sensor.ts` | Spark's tasks as activity entries: the plugin's levels, priority, expiries, dismissal, greeting and sort, with Spark read in place of Antigravity's sidebar. Pure; tested. |
+| `pets-controller.ts` | The keeper. One tab at a time (Web Lock `willow-pets`) reads the sensor, runs the surface — the desktop overlay, or inside its own page — and does what the pet asks. |
+| `SparkPetsHost.tsx` | Mounted in every desktop tab by `App.tsx`: a turn at keeping the pet, and opening what it asked for in the tab in front. |
+| `pet-store.ts` | Settings and state (localStorage, `willow:pets:*`), shared by every tab. |
+| `pet-library.ts` · `PetsPage.tsx` · `.css` | The library and its page, on the Skills page's frame. |
+| `pet-create.ts` · `pet-skill.ts` · `hatch-pet/` | Create with Gemini: the Hatch Pet skill as a Spark skill, and Spark's home with the request prefilled. |
+| `pet-image-tool.ts` | `app:generate_pet_image`, the skill's image tool (Spark has none of its own). |
+
+- **One keeper.** Every tab is a page of its own, so the pet is kept by whichever
+  tab holds the lock; when it closes, another takes over and restores what the
+  sensor knew (`willow:pets:memory`, if under a minute old). Inside Willow's window
+  the pet must be on screen, so there the tab in front keeps it.
+- **What is news** is the plugin's rule: running, needs-input and failed tasks
+  always; anything else only once it has changed while the pet watched. An unread
+  reply that was already there is the baseline. Cards expire (failed 1 h, waiting
+  1 day, ready 1 week); a dismissed card stays away until its task does something new.
+- **What the pet asks** goes through the task host (`spark-task-host.ts`): a reply
+  is `followUp`, the chat pill is `startTask`, stop is `stop`. Opening a task, and
+  the pet's poke, raise Willow and are carried out by the tab in front
+  (`showInDesktopTab`).
+- **Creating a pet** needs Python 3 with Pillow on the computer (the skill installs
+  Pillow when missing, not Python) and a Gemini image model in Settings → Models.
+  `app:generate_pet_image` is offered only in the desktop app and only while the
+  user has the hatch-pet skill; the app lets it read and write only inside the
+  library's `.hatching` runs. Runs and finished pets appear on the page by
+  themselves (the app watches the library).
+- Tests: `apps/studio/test/pets-sensor.test.mjs`.
 
 ## Architecture
 
 Spark is nearly stateless-to-the-user: the store (`spark-store.ts`) is the action
 hub, and the UI components dispatch through it. The backend agent (in
 `@willow/ai/computer-use/session.ts`) is the runner; Spark is the scheduler.
+
+## Runs outlive their tab
+
+Runs already outlive the screen: `sparkRunControllers` and `sparkState` are
+module-level, so leaving Spark does not stop a task. The background-only
+`SparkWorkspace` sits **above the routes** in `App.tsx`, so schedules, the disk
+mirror and takeovers keep going in the Media editor too.
+
+Every run is also a `spark-run` background job (`platform/core` AGENTS.md):
+`beginSparkRun` starts it under `sparkRunJobId(scope, task)` with the follow-up's
+`turnId` when there is one, and `finishSparkRun` finishes it on every exit
+(complete, stop, failure, missing key, waiting for input). When the tab running
+it closes, whichever `SparkWorkspace` another tab has mounted takes it over and
+calls `retryTurn` or `retryTask`, so the run starts again from the top there.
+
+**"Interrupted" means no tab is still running it.** `normalizeTask` used to turn
+any task saved as running into "Run interrupted". Every tab reads every task file
+back from disk, so any second open tab rewrote a task as interrupted *while its
+run was still going*, the two versions diverged on disk, and the folder engine
+forked `<id> (Disk conflict …)` copies (the cascades in `Spark/Tasks/` were this).
+Now the recovery applies only when `readLiveBackgroundJob` finds no live job, and
+never to a file read back from disk (`parseSparkTask`): disk lags the store, so a
+run that has just finished can still read as running there, and recovering it
+replaced the finished answer with the interrupted notice.
 
 ## The prompt box is Chat's, not a second copy of it
 
@@ -80,10 +165,9 @@ Two things the conversion needed beyond the props above:
 
 - **`disabled` on `InputBar`**, covering the textarea, the plus menu, the mic, the send slot
   and the fullscreen toggle, with the guard repeated in the submit path so Enter cannot
-  bypass it. It is now reserved for `followUpLocked` — an approval the task is waiting on,
-  where there is nothing to stop and the thing to do is answer the prompt above the box.
-  A task that is merely *working* uses `isGenerating` instead, which keeps the box live and
-  turns send into stop. See below.
+  bypass it. It now only covers a follow-up that is mid-submit: a working task uses
+  `isGenerating` instead, which keeps the box live and turns send into stop, and a
+  permission card leaves it open. See below.
 - **`onSubmitFiles`**, an alternative to `onSubmitTask` that hands over the raw files. The
   follow-up path is keyed to a specific task and aborts if the user navigates away
   mid-upload, and it reads a boolean back from the store to decide whether the turn was
@@ -92,14 +176,16 @@ Two things the conversion needed beyond the props above:
 
 ### A working task takes a draft, and send becomes stop
 
-Gemini locks its whole follow-up box while a task runs, and Willow used to as well
-(`disabled={followUpBlocked}`). It no longer does — **this is a deliberate deviation,
-asked for by name**, and it mirrors Chat: you can write the next message while Spark
-finishes, and the send slot is a stop control until it does.
+Willow used to lock the whole follow-up box while a task ran
+(`disabled={followUpBlocked}`). It no longer does, and neither does Gemini's now — its box
+reads "Ask a follow-up" over a stop control while the task works. It mirrors Chat: you can
+write the next message while Spark finishes, and the send slot is a stop control until it
+does.
 
-`followUpBlocked` still means what it always did and still drives the placeholder, the
-status chrome and `aria-busy`. What narrowed is the composer's hard lock, now
-`followUpLocked` — approval states only.
+`followUpBlocked` is a running task, and refuses the send. There is no hard lock left: a
+permission card leaves the box open, as Gemini's does, and writing instead of answering
+turns the request down (`submitFollowUp` in `SparkWorkspace`). The placeholder is
+Gemini's "Ask a follow-up" in every state and at every width.
 
 **Sending is still refused until the run ends,** by three guards, none of which is the
 textarea's `disabled`: `SparkComposer.submit`, `InputBar`'s submit path (which is what
@@ -251,8 +337,12 @@ task detail. Searching Gemini's bundle for "spark" finds almost nothing; search
 for `remy`.
 
 Its six routes are `/spark`, `/spark/tasks`, `/spark/schedules`, `/spark/skills`,
-`/spark/apps` and `/spark/chat/<id>`. Willow reaches the same six through
-`sparkLocation` in the store rather than the URL.
+`/spark/apps` and `/spark/chat/<id>`, and Willow's are the same six
+(`src/spark-routes.ts`). The page itself lives in `sparkLocation` in the store and
+in each history entry's state; the shell writes the address from it and opens the
+page an address names (`apps/studio/AGENTS.md`, *Every shell surface has an
+address*). The two editors have no address of their own and sit on the list they
+edit, `/spark/schedules` and `/spark/skills`, as Gemini's do.
 
 Captures, the scraper harness and the Gemini↔Willow diffs live in
 `tools/ui-research/{captures,scrapers}/spark/`.
@@ -264,7 +354,9 @@ node tools/ui-research/scrapers/spark/verify-all.cjs
 ```
 
 Runs every fidelity check and prints one pass/fail. Needs `npm run dev` on :3000 and
-Chrome on :9222 (`lib.cjs` connects over CDP with `puppeteer-core`). The fourteen checks:
+Chrome on :9222 (`lib.cjs` connects over CDP with `puppeteer-core`). If every check fails
+to connect with an HTTP 404, another Chrome holds `127.0.0.1:9222`; point the harness at
+the debugging one with `SPARK_CDP_URL=http://[::1]:9222`. The checks:
 
 | Script | Checks |
 | --- | --- |
@@ -667,6 +759,19 @@ Each maps to the token that already plays that role elsewhere in the app, so a
 green workspace gets Spark's buttons in the same green as the composer's send
 button rather than an independently invented green.
 
+Every other Gemini blue in Spark's stylesheets (the `#a8c7fa` / `#062e6f` pills, focus
+rings, state layers, the light theme's `#0b57d0` family, Bots, Spaces and Pets) reads
+through the app-wide `var(--sync-<hex>, <blue>)` from `@willow/core/workspace-sync`; see
+`platform/core/AGENTS.md`. A new blue goes in the same way, or
+`apps/studio/test/workspace-sync.test.mjs` fails on it.
+
+A bot's profile wears the bot's colour instead (`dots/dot-tint.ts`): its pet's when it has one
+(sampled from each bundled spritesheet's idle frame), else its character's body colour, custom or
+preset, through the orbit catalog's tints. `DotProfile` sets the matching `--sync-*` on a
+`display: contents` wrapper, so its selected category and its computer's wallpaper follow the bot.
+Blue bots, grey rings and near-monochrome pets get Gemini's blues. The Bots page declares
+`useSparkAccentVars()` like every other Spark page, so "New bot" follows the workspace.
+
 Two things to know before touching this:
 
 - **Every stylesheet reads them as `var(--spark-accent, #1f3b9b)`**, keeping
@@ -767,9 +872,9 @@ background and padding entirely and renders a 6px `.pulse-dot` instead, running
 ```
 
 `accent-fixed` is #3186ff. `.pulse-dot.complete` stops the animation and goes solid
-#3186ff. Under `@media (hover:hover)` the host becomes a 36×36 box so the dot sits
+#3186ff. Under `@media (hover:hover)` the host becomes a 36×36 box so the bot sits
 where the action menu would. There is also a `.status-pill.dot` variant whose label
-collapses to `max-width: 0` and reveals on hover, with the dot pinned at
+collapses to `max-width: 0` and reveals on hover, with the bot pinned at
 `inset-inline-end: 8px`.
 
 ## The task detail route
@@ -841,7 +946,8 @@ filled blue primary was left alone rather than changed on a guess. They are Mate
 
 Gemini also has a `mat-mdc-select.action-choice-select` reading "Remote browser"
 (183×48, pill, `padding: 0 12px 0 16px`, gap 8px) that picks the action target.
-Willow has no equivalent.
+`SparkBrowserPermissionCard` has it too. The card and what follows from it are under
+*The remote browser*.
 
 ### The remote-browser pane is a second pane, not a thread block
 
@@ -854,9 +960,9 @@ That ratio is measured: Gemini's split view is 285.1 and 567.1 against an 868px 
 i.e. the chat takes 33.5%. Willow measures 264.4 / 527.1 — 33.4%. Both cards are
 #1f1f1f at 28px corners with a 1px #171717 border. Below 980px they stack instead.
 
-The header's `monitor` glyph toggles the pane, and the pane only exists when
-`SparkWorkspace` supplies `computerUse`, which needs
-`task.approval.kind === 'browser'` and `approvalDecision === 'allowed'`.
+The header's `monitor` button opens a one-item menu, "View remote browser". It appears
+once the task's browser has opened (`hasOpenedRemoteBrowser`) and hides while the pane
+shows. At 960px and below the pane opens full-screen instead — see *The remote browser*.
 
 ### `/spark/tasks` scrolls the list, not the page
 
@@ -983,18 +1089,13 @@ out of flow until the pointer arrives. Before that it was the odd surface out, a
 with a 10% white outline and a #252525 hover that appears nowhere in Gemini. If a schedule
 ever shows up in the reference account, measure it and replace the inference.
 
-### Still to do on this route
+### Measured components on this route
 
-- The thread body. Gemini opens with `remy-processing-state`: a collapsible row
-  (`button.processing-state-container-button`, 373.4×32, pill, `padding: 0 8px`,
-  label gds-body-s 13px/17px in rgba(255,255,255,.55), chevron `expand_more` at 20px
-  weight 320) that expands into `.thought-details` and `.tool-block` rows — the
-  latter carrying a `monitor` glyph and the label "Computer". Willow renders a user
-  bubble and its own turn layout instead.
-- Gemini's header carries a `monitor` glyph (16px, weight 330, #c4c7c5) that toggles
-  the side panel. Willow's header has no such control.
-- `remy-side-panel` chrome: 972×810 at #1f1f1f, radius 28px, `padding: 0 8px 0 0`
-  on the host, with a `.scroll-container` inside.
+The processing row (`SparkProcessingState`), the header's `monitor` button and the side
+panel are built. **Gemini's processing header names the phase, not the work**:
+"Thinking it through…" while the turn runs and "Thoughts" once it has finished, with the
+work in the rows beneath. Older Gemini turns still show the titles it used to put there
+(that is what a 373px-wide trigger was measured on), but every new turn reads "Thoughts".
 
 | Component | Sheet in `27-detail/css/` | Measured at 1536×826 |
 | --- | --- | --- |
@@ -1010,15 +1111,9 @@ The sidebar collapses to a rail on this route (Willow already does this via
 ### The Remote browser pane diverges on purpose
 
 Gemini's right pane is `computer-use-panel` > **`vnc-viewer`**: a VNC surface onto a
-cloud VM, so it can drive any site. Willow deliberately does **not** copy that.
-`SparkComputerUsePanel.tsx` renders an **iframe** instead, with the local-companion
-daemon's streamed frames (`companionFrame.dataUrl`, an `<img>`) as an optional
-upgrade when `services/local-companion` is running.
-
-The trade-off is accepted and known: any site sending `X-Frame-Options` or a
-restrictive `frame-ancestors` will not embed, and the panel says so rather than
-failing silently — "This page is cross-origin or blocks embedding. It can be viewed
-here, but a frontend-only iframe cannot expose it to the local agent."
+cloud VM. Willow deliberately does **not** copy that: the pane shows an **iframe**,
+served through a local proxy that gives every site its own origin, so the browser
+agent can drive any site that loads. See *The remote browser*.
 
 **Match Gemini's chrome around this pane, not its transport.** Do not replace the
 iframe with a VNC client in the name of fidelity.
@@ -1027,17 +1122,25 @@ Note that Angular loads per-route sheets lazily: this route yields 98 stylesheet
 against the home route's 80, so re-run the dump on the route you are working on
 rather than reusing `03-css/`.
 
-### "Create with Gemini" diverges on purpose
+### "Create with Gemini"
 
-On both the Schedules and Skills pages, Gemini's **"Create with Gemini" leaves Spark
-entirely** — it mounts a plain `chat-window` zero-state and the sidebar switches to the
-Chat experience (New chat, Gems, Notebooks). The schedule is then created
-conversationally.
+Re-recorded on 2026-10-06 by using both buttons in Gemini, in Spark and in a chat
+(`tools/ui-research/captures/spark/137-create-with-gemini/`). An earlier note here said
+both buttons leave Spark; they do different things, and Willow now does what each does.
+The texts are in `spark-create-with.ts`.
 
-Willow's stays inside Spark and creates a Spark task ("Creating a schedule → Working on
-your task"). That is kept deliberately: crossing into Chat would couple two
-intentionally separate surfaces, and Willow's flow already reaches the same result. The
-**"Create manually"** editors on both pages are matched to Gemini exactly — see above.
+- **Schedules** opens a Spark task titled "Creating a schedule": the user's "Help me
+  schedule a task." and, at once, Gemini asking what to schedule. The reply is fixed, not
+  a model's (`createSeededTask` streams it in over about two seconds and then waits), and
+  the task opens with the list collapsed and Progress showing (`spark-task-layout.ts`).
+  The user's answer is the task's first real turn, and its `create_schedule` call saves
+  the schedule (see *What a run saves*). Gemini's reply also offers to "react to specific
+  updates"; Willow's schedules run on time only, so that half is left out.
+- **Skills** leaves Spark for a new chat holding "Create a skill" and Gemini's question
+  back, played without a model as Gemini's appears (`requestSeededChat`, carried out by
+  the shell). The chat's `create_skill` saves the skill into the same library.
+
+The **"Create manually"** editors on both pages are matched to Gemini exactly — see above.
 
 ### Known remaining differences
 
@@ -1102,6 +1205,453 @@ That migration was deliberately not attempted alongside the visual work:
 delete, and filter state, and `SparkTaskDetail` is 2200+ lines. Matching the visuals in
 place carried none of that risk. `59-verify-dialogs.cjs` pins the All-Tasks dialogs
 against the measured surface so a future migration can be checked against it.
+
+## Phones and tablets (960px and below)
+
+Gemini switches to its narrow layout below 959.98px, and several of its rules split
+again at 768px. Spark follows it in `(max-width: 960px)`, `(max-width: 768px)` and
+`(min-width: 769px) and (max-width: 960px)` blocks placed at the end of each route's
+stylesheet, so they win over the older desktop-first breakpoints above them. The desktop
+layout was matched separately and nothing here applies above 960px. React-side
+differences key on `useCompactViewport()` from `@willow/chat/use-compact-viewport`.
+
+Measured at 390×844 and 800×1280, below 961px:
+
+| Where | What changes |
+| --- | --- |
+| Every page | `#1c1c1c` / `#141414` surfaces, `#e0e0e0` text, `"wdth" 92` body type. Schedules, Skills and Connected apps gain the `.spark-top-controls` Beta badge |
+| All tasks | A "Put Willow Spark to work for you" heading, the "Describe task" placeholder, unread / running bots and a scroll fade. The filter opens in `GeminiBottomSheet` from `@willow/ui`, and rename / delete use `SparkTaskDialogs` (the desktop keeps its own copies) |
+| Task view | The drawer button is hidden in favour of the task's `chevron_left` back button (`body:has(.spark-task-detail)` in `apps/studio/src/shell/sidebar/Sidebar.css`). The follow-up placeholder is Gemini's "Ask a follow-up", as on the desktop (it read "What's next?" when first measured). The processing pill reaches 17px left of the column and pads its label back in, and from 757px to 960px a reply's top-level lists sit 1.675px left of its paragraphs. Links turn `#e0e0e0` — that rule lives in `@willow/ui`'s streaming-markdown styles, so Chat gets it too |
+| Reply actions | `actions-container-v2.mobile`: a 48px row 4px under the reply, 36px buttons 12px apart carrying 24px weight-300 glyphs; on a tablet the row shifts 6px left. Its `more_horiz` menu is `gem-menu`: content-sized from `min(225px, 100%)`, `#1c1c1c` on 20px corners, 40px rows with 17px labels, left-aligned to the button and pulled back inside the viewport |
+| Task menu | The header `⋮` menu drops flush from its 24px trigger with the right edges aligned, on `#1c1c1c`: 20px glyphs centred in 24px boxes, 13px labels 48px into the row, and a 0.8px `rgb(68, 71, 70)` divider |
+| Progress pane | The status pill opens Gemini's `mobile-side-panel-overlay` instead of the desktop popover: the side panel's sections full-screen on black under a 48px close bar, with the task's schedule (`formatSparkScheduleTrigger`, "Daily around 8:00 AM") listed between Progress and Files. Neither edge animates, as in Gemini. A list-pane collapse carried over from a wider window cannot leave the desktop side panel open here |
+| Follow-up composer | Phone: full width with a faint light glow, and the disclaimer moves to the end of the thread. Tablet: a 660px column, 32px corners, the disclaimer under the composer |
+| Schedules | Times read "8:00 AM" (`formatSparkScheduleTime(time, true)`); the editor's selects use Gemini's filled triangle |
+| The two editors | The skill editor drops its 1060px column for Gemini's full-viewport layout: a 60px header, then one edge-to-edge card whose instructions box fills the rest. Its placeholders become Gemini's long worked examples, which set the field heights. The Beta badge shows over the schedule editor but not the skill editor, whose header covers it in Gemini |
+| Connected apps | The Workspace card has two 246px tool columns on a tablet. On a phone it stacks, with the title keeping its 60px right margin |
+| Composer menus | The "@" panel turns `#1c1c1c` and its labels and 8% highlight follow `#e0e0e0`; "/" keeps `#1e1f20`. Touch drops the 12px scrollbar, so the panel is its rows plus 16px. A skill tooltip with no room on the right goes above the row (see *Skills and connected apps*) |
+| Timeline | On a phone the processing state starts on the column edge but runs 16px past its right one, to 8px short of the screen; on a tablet it is 8px wider on each side. Node masks and the collapsed fades use `--spark-panel-surface`, which is `#1c1c1c` here |
+| Created files | The card spans the 24px column, as the reply does, on `#141414` with `#e0e0e0` type. Open puts the file in the overlay the remote browser uses, the page alone (see *Created files*) |
+| Bots | An open bot is laid out as a task: the list goes, the header leads with the task's `chevron_left` back (to the bots list) and carries the Beta pill among its actions, and the page's `.spark-top-controls` badge gives way while a bot is open (`body:has(.spark-dots-detail)`), since it would sit on those actions and take their taps. The profile and the bot's computer open in the overlay the remote browser uses; the computer pane's title and Take over's "Go back to <name>" truncate, and on a phone a reset's question takes the title's place on up to two lines. List rows clamp the name and the preview to a line each, as task rows do, and on a phone drop the category label. Chat bubbles widen to 86% of the column on a phone; without hover the reaction picker opens from a long press, and the bubble takes the room the hover actions held. The picker places itself inside the visible conversation, above the bubble when it fits |
+
+**The category chips use `justify-content: safe center`.** Willow has four categories to
+Gemini's two, which overflow a phone; plain `center` spills them off both edges where
+they cannot be scrolled back.
+
+`apps/studio/test/spark-responsive.test.mjs` pins these, including that none of them leak
+into the desktop cascade. To compare a page against Gemini at these sizes,
+`tools/scratch/device-emulator.cjs` serves `/mobile`, `/tablet` and `/desktop` to switch
+both tabs at once. `tools/scratch/page-inventory.cjs` records every element's geometry and
+type on one page, and `tools/scratch/inventory-diff.cjs --rename="Gemini=Willow"` prints
+what differs.
+
+## Skills and connected apps
+
+A run reaches the user's skills, connected apps and MCP servers through tools that
+`harness/spark-tools.ts` registers per run, from what `SparkWorkspace` passes on both run
+paths. Gemini's reference runs (a skill applied with "/", Drive and Dropbox picked with
+"@"), with their recordings and DOM dumps, are in
+`tools/ui-research/captures/spark/135-skills-connectors/`; the scripts that took them are in
+`tools/ui-research/scrapers/spark/135-skills-connectors/`.
+
+### Skills
+
+- `use_skill` takes `{"skill": name}`, strips a leading `/`, matches case-insensitively and
+  returns the instructions. It also emits a `skill` call, which the timeline shows as
+  Gemini does: "Check resources for <name> skill" beside the Google Symbols `build` glyph.
+- The prompt's catalogue carries each skill's description, which is what the model chooses
+  by; the body stays out until the skill is called. A message naming a skill with a leading
+  slash means the user applied it, and the prompt says to call `use_skill` for it first.
+- The Skills page's Recommended section shows the first four of Gemini's five not yet added,
+  and "Show more" only while more than four remain. Opening one prefills the editor with
+  Gemini's own name, description and instructions (`spark-recommended-skills.ts`).
+
+### Connected apps and MCP servers
+
+- **Connectors** are Willow's (`@willow/personal`), the same reads and actions Chat runs.
+  `sparkConnectorTools` offers only products that are connected *and* hold a token now
+  (`usableConnectors`), and drops the Google ones while Spark's Google Workspace switch is
+  off. Each tool is called as `app:<name>` and its row carries the app's logo.
+- **MCP servers** are the app-level list in `@willow/ai/mcp/mcp-store`, shared with Code.
+  Enabled servers are connected before the run; each tool is `mcp:<qualified name>`, its row
+  carries the `extension` glyph, and the prompt marks results as data, not instructions.
+- **A row says what the call does** ("Listing recently modified files in Drive"), not which
+  tool ran. The model supplies that as `_title` among the call's arguments; `splitStepTitle`
+  removes it before the tool runs, since a tool may have a `title` argument of its own. With
+  none, the row names the app or server.
+- `timelineRowForCall` turns a call into its `activityLog` row: `skill:<name>`, `app:<app>`
+  or `mcp:<server>`, with the step title as the row's `label`.
+- Apps with no adapter (Contacts, OpenTable, YouTube Music, custom apps) are not offered to
+  the model. Shown an app it cannot reach, a model calls it anyway and apologises.
+- The rows match Gemini's at 1536×826, 800×1280 and 390×844: 24px rows on a 40px rhythm, a
+  20px glyph or logo in a 24px box, and labels and glyphs at `rgba(255, 255, 255, 0.55)`.
+
+### The "@" and "/" menus
+
+"@" lists connected apps, then enabled MCP servers, then apps not connected (at 0.38, as
+Gemini's `not-consented-dimmed`). "/" lists skills, a switched-off one at 0.63. Picking one
+writes `@Label ` or `/name ` into the draft. `useSparkMentionOptions` builds the options,
+`spark-mentions.ts` holds the logic and `SparkMentions.tsx` the overlay; the measured
+values are in `spark-mentions.css`.
+
+- **The composer is still Chat's textarea.** The menu hears its keys first (capture phase)
+  and writes the draft through the native value setter plus an `input` event, so `InputBar`
+  keeps owning it. A mirror of the textarea places the pane at the trigger character's
+  left, 4px under its line, and it flips above when it would overflow the screen.
+- **Mentions read bold at their own width.** Gemini writes `<strong>` into a
+  contenteditable. A textarea cannot hold that, so a transparent copy of the text over it
+  traces the mentions with a 0.45px stroke, leaving every glyph where the caret expects it.
+- **Keys:** the first row is highlighted on open and the first Down stays on it, Up wraps,
+  Enter or Tab picks, Escape closes and keeps the character, and Backspace takes a
+  mention's trailing space, then the whole mention.
+- **The skill tooltip** waits 750ms, fades in over 200ms and is anchored to the row's
+  content box: right of it with tops aligned, else above it from its centre with its bottom
+  4px in, narrowed to the space left (150–250px). Between two positions that fit only
+  narrowed, the one with more room wins, as CDK decides.
+- **Gemini's "/" panel is plain Material because of a Gemini bug.** Its `lmMenuTheme`
+  directive adds `lm-menu-theme` once at init, and the menu's class binding drops it when it
+  switches to `slash-menu`. After "/" has been used once, the same overwrite leaves "@" plain
+  too (`#1e1f20`, no padding) until the composer remounts. Willow keeps "@" themed. Note
+  that navigating a tab to the URL it is already on is a fragment jump, not a reload, so a
+  capture can land on the overwritten state unnoticed; `09-fresh-at.cjs` reloads first.
+
+### Capturing and checking
+
+- `w-willow.cjs pickers|timeline <w> <h> [touch]` measures Willow headless on a seeded task,
+  in the same shape as the Gemini scripts. It never calls a model.
+- The Gemini scripts drive a probe window of the debug Chrome. Live runs create tasks in the
+  account, and Gemini keeps composer drafts, so every script that types empties the
+  composer when it is done; `clear-draft.cjs` does only that.
+- `apps/studio/test/spark-skills-connectors.test.mjs` pins the menu logic, the tooltip
+  placement against Gemini's phone capture, the calls the tools put on the timeline, the
+  prompt's rules, the recommended skills and the measured CSS.
+
+Light theme was not measured; its menu values are estimates.
+
+## The remote browser
+
+Gemini Spark's `computer` tool, rebuilt on an iframe: the main agent asks once per
+thread, a background browser agent drives the page, and a pane shows it working.
+Gemini captures, recon scripts and the side-by-side comparisons are in
+`tools/ui-research/captures/spark/134-remote-browser/` (`narrow/` for phone and tablet).
+
+### How a browser call runs
+
+| Step | Where |
+| --- | --- |
+| The model calls `computer` with a `task`, a row `title` and maybe a `url` | `harness/spark-tools.ts` |
+| Not yet allowed in this thread: the call goes on the timeline, and the turn ends with Gemini's sentence and the permission card | `BROWSER_PERMISSION_RESPONSE`, `SparkBrowserPermissionCard` |
+| Allow / Don't allow is the user's next message, a turn of its own; Allow allows the thread | `respondToBrowserRequest` in `SparkWorkspace.tsx` |
+| Writing a follow-up instead of answering turns the request down | `submitFollowUp` |
+| Allowed: Willow's computer-use loop runs against the task's frame, and the main agent answers from its report | `remote-browser/run-remote-browser.ts` |
+
+### The frame, the proxy and the bridge
+
+- **One iframe per task, owned outside React** (`remote-browser-frames.ts`). It outlives
+  the pane: with no pane mounted it is parked full-size in a hidden layer under the app
+  (a throttled off-screen frame stops loading), and it moves with `moveBefore`, which
+  keeps the page alive.
+- **Every site gets its own origin.** `https://www.example.com` is served as
+  `http://<base32 origin>.wb.localhost:<port>` by `api/_browse-proxy.js`, which the dev
+  server and `bin/willow.js` mount. The page keeps its relative URLs, cookies and
+  history, and Willow stays cross-origin to it on purpose. `browse-url.ts` is the
+  client half of the mapping and has to stay byte-compatible; a test pins the two.
+- **The proxy refuses private hosts** before every request and after every redirect
+  (`api/_private-host.js`), drops frame-blocking headers and CSP, and **answers a
+  POSTed page with a 303 to a tokened GET**. A POST entry in the frame's history sends
+  "back" to Chrome's resubmit page, which has no bridge. The bridge and `fromBrowseUrl`
+  strip the token from every address they report.
+- **On an https site it adds `upgrade-insecure-requests`.** A scheme-less
+  `//host/a.png` otherwise takes the proxy's `http:` and goes to the real host in the
+  clear, which hangs on Wikimedia's image hosts — broken images, and a screenshot that
+  waits for them. `*.localhost` is a secure origin, so the proxy's own requests are
+  left alone.
+- **The bridge** (`api/_browse-bridge.js`, the first script in `<head>`) answers the
+  parent over postMessage — screenshot, click, type, scroll, key, drag, navigate,
+  back/forward/reload — and reports `ready`, `state`, `navigating` and `unload`.
+  `loading` is Chrome's throbber, until `load`; `parsed` is when the page can be read.
+  The driver waits for `parsed` and then gives `load` 3s: Wikipedia through the proxy
+  can take over 20s to fire it.
+
+### Pages the bridge cannot reach
+
+A `load` with no `ready` before it is a document the bridge never ran in: Chrome's error
+page, its PDF or image viewer. The frame marks it **unbridged**, labelled with where the
+navigation was headed; requests to it fail at once with `UNBRIDGED_PAGE_ERROR`; and
+
+- the driver's screenshot is a stand-in drawn like Chrome's error page
+  (`unreachablePageShot`), never a throw — a throw would end the whole task;
+- back replaces the dead page with the last bridged one (`location.replace`, so it
+  drops out of history) and reload loads its address again. Both go through
+  `stepRemoteFrame`, which the take-over toolbar uses as well.
+
+### Screenshots
+
+The bridge captures with html2canvas. Three things about it are not what you would
+assume:
+
+- **The root's overflow belongs to the viewport.** html2canvas clips `<html>` (or
+  `<body>`) to its own box, so a page styled `html { height: 100%; overflow-y: auto }`
+  captured blank below its first screen once scrolled. The clone gets the browser's
+  reading (`releaseViewportOverflow`).
+- **Off-screen content is left out of the clone** (`planCapture`). html2canvas copies the
+  whole document and reads every element's styles, about ten seconds a screenshot on a
+  long article. What paints into the viewport, its ancestors, and anything fixed or
+  sticky stay whole. A block-flow subtree below the viewport is dropped with its
+  parent's height pinned. Any other off-screen box stays as an empty box at its live
+  size, but only where emptying it cannot move anything: a plain block passes its
+  children's margins through its edges (`sealsMargins`), so those are opened up
+  instead. After pinning, the clone is scrolled back to the live position (html2canvas
+  scrolled it while it was still short) and checked against an on-screen anchor.
+  Wikipedia went from about 10s to 0.5s — and the capture now matches the live page,
+  which the full clone did not: it laid the article out afresh, at different heights.
+- **srcset images and masked icons.** A 2x file reports its size in CSS pixels, so
+  html2canvas drew its top-left quarter; the clone is pointed at the file it chose, at
+  its current box size. html2canvas has no masks and painted masked icons as solid
+  squares; they are drawn from their mask image instead.
+
+The `data-willow-capture-*` markers the clone reads are on the live page only for the
+synchronous copy inside the `html2canvas()` call.
+
+### The history is kept for good
+
+Gemini's screenshots live with its VM on Google's servers and are gone after a while;
+then its pane draws the browser's broken-image icon and "Screenshot of the virtual
+machine" in Times. Willow keeps every one (`remote-browser-shots.ts`), with no cap:
+
+- a JPEG in IndexedDB (`willow-spark-browser`, a database of its own), and, with a
+  folder connected, a file beside the task: `Spark/Tasks/<task>/Browser/001 example.com.jpg`,
+  listed with its address, title and time in `Browser/steps.json`;
+- the session holds only where each one is (`RemoteBrowserShot.file`); the viewer loads
+  the step on screen — this session's bytes, then IndexedDB, then the folder, which is
+  put back in IndexedDB — and keeps the previous image up until the next is ready;
+- a session restores its task's history when it is made, and a new screenshot is
+  numbered after it (`pushRemoteBrowserShot` waits for that), so a run after a reload
+  continues the history instead of overwriting its first steps; with no history in the
+  browser, the folder's `steps.json` stands in;
+- the bots show at most 15, around the step on screen;
+- a step whose image is gone anywhere draws `RemoteBrowserShotUnavailable` over the page
+  only — the frame's bar still names the step — and makes way for "View Live" when the
+  scrim shows. `hide_image` is a Luminous glyph; Willow's Google Symbols subset lacks it.
+
+A task's attachments go beside it too (`spark-task-files.ts`, `Attachments/`), and
+deleting the task removes its screenshots and that whole folder. `spark-disk.ts` is how
+these reach `useLocalFS`: `SparkWorkspace` attaches it while a folder is connected and
+authorized, and attaching writes what was saved while it was not.
+
+### The pane
+
+Gemini's chrome around the iframe (`SparkRemoteBrowserPane.tsx`): a Chrome frame cloned
+from the stream at 1:1 with the page below it, scaled into the 5:4 viewer; "Preparing
+your computer…" while the first page loads; the scrim with previous/next and "Take over
+task"; the history ("View Live", bots); and the take-over view. On the desktop it is the
+second card beside the chat.
+
+### Phones and tablets (960px and below)
+
+Recorded off Gemini at 390×844 and 800×1280 in October 2026 with its VM up, which is when
+Gemini shows this layout. Its own component CSS is in
+`tools/ui-research/captures/spark/134-remote-browser/narrow-takeover/css/`, read out of its
+bundle with `tools/scratch/bundle-styles.cjs`. Gemini changed this layout after the first
+clone; a task whose VM has shut down still gets the old tap-to-reveal scrim there.
+
+- **The pane fills the screen** (`fullscreen` on the session; Gemini's
+  `computer-use-panel.fullscreen-panel`), on #030303: a 72px header ("Remote computer", a 20px
+  `monitor`, the 40px "Close panel"), the viewer, the buttons, the disclaimer, 24px free at
+  the bottom. Opening the pane, or a run opening it, sets `fullscreen`.
+- **Handing a take-over back drops it into the card** in `mobile-side-panel-overlay`, the
+  frame the status pill's Progress panel uses: #1c1c1c, 28px corners, a 0.8px #141414 edge
+  (`.spark-task-detail__browser-overlay-panel`), "Remote browser" under the overlay's own
+  close bar. That is Gemini's behaviour, not a bug; the next open fills the screen again.
+- **The buttons sit under the viewer** (`RemoteBrowserActions`, Gemini's `bottom-container`):
+  "Take over task" and, once there is a history, "View history"; on a step of the history,
+  "View Live". 48px pills up to 320px wide, 12px apart: stacked on a phone, side by side on
+  a tablet. The scrim keeps only previous, next and the dots, and only on a step of the
+  history. **A finger has no hover**, so the first tap still only reveals it
+  (`touchRevealed`).
+- **Taken over** (`RemoteBrowserNarrowTakeover`), the header is just its title (52px), and a
+  bar under the viewer holds the keyboard and click switches and "Go back to Willow": the
+  lowest surface (#0e0e0e), 16px in, as wide as 390px inside that, top corners only below
+  423px. The two switches are one toggle, as in Gemini: either opens the keyboard bar. The
+  portal sits outside Spark's pages, so it declares `useSparkAccentVars()` itself. Its classes
+  (`is-narrow`) are its own: the bot computer's take-over shares `is-compact` and keeps its
+  layout.
+- **The keyboard bar** (Gemini's `keyboard-input-bar`) slides up over 0.3s on #f0f0f0, which
+  Gemini keeps in the dark theme too. It types for the page: typing in it takes the focus out
+  of the page, so the bridge's `keyboard` op writes to the field the page last had focused, at
+  that field's caret, and backspace deletes there. Gemini pastes into its VM instead.
+- Its glyphs are Google Symbols on the face's own axes (`NarrowGlyph`); `keyboard`,
+  `keyboard_hide`, `backspace`, `web_traffic`, `chevron_left` and `youtube_live` were added to
+  the subset in `apps/studio/index.html` for it.
+
+The monitor menu keeps Gemini's narrow row, 14px/20px weight 500 with the label 56px in.
+
+```
+node tools/scratch/rb-window.cjs open gemini|willow           # windows of their own
+node tools/scratch/rb-emulator.cjs mobile                     # holds emulation on just those, :9341
+node tools/ui-research/scrapers/spark/135-rb-narrow.cjs <phase>  # RB_APP=willow for the twin
+node tools/scratch/rb-focus-check.cjs; node tools/scratch/rb-keyboard-send.cjs   # the keyboard bar, end to end
+```
+
+### Opening and closing on the desktop
+
+Recorded from Gemini at 1536×826, frame by frame from the real click
+(`rb-motion-frames.cjs gemini|willow`, results in `motion/frames-*.json`):
+
+- One 450ms `cubic-bezier(0.2, 0, 0, 1)` clock. With the task list showing, the card
+  does **not** grow out of the edge: in the first frame it already has its two thirds of
+  what is right of the list (570px, the chat 282px), transparent, and it fades in while
+  the list collapses — so the chat and the card widen together as the list goes. Only
+  `opacity` has a starting style; the width movement is all the list's.
+- The monitor button leaves at once and comes back over 300ms (opacity, scale 0.9). Its
+  menu fades for 100ms after 25ms, Material's `_mat-menu-exit`, held where it opened
+  while the header slides away under it.
+- The viewer joins about 265ms in, with the card nearly full width (`viewerDelayMs`); the
+  header and disclaimer are there from the start. So the page never zooms with the card.
+- Gemini's browser and Progress are one side panel. Closing hands the card to Progress,
+  which shrinks from the browser's width to 300px, opaque throughout; opening over
+  Progress grows from 300px (`sidePanelHandoff`, `is-taking-over`).
+- At 960px and below nothing animates, as in Gemini.
+
+**Flex transitions run on the main thread**, so any work during those 450ms is a stall,
+and work in the click delays the first frame. What keeps both out:
+
+- the page subscribes to whether the pane is open, not to the session
+  (`useRemoteBrowserPane`), and the menu keeps its own state (`SparkRemoteBrowserMenu`);
+- no state is set while rendering — that runs the whole component a second time in the
+  click — so the handoff reads the panel of the last commit from a ref, and the clicks
+  that open and close the pane set the list's collapse with the change itself;
+- the task list's rows are memoised (`libraryRows`), and its fade is not re-read as it
+  collapses;
+- the anchored reply's floor follows the resizing panel on the element itself, the
+  state catching up 200ms after the resizing stops (a state update per frame redrew the
+  task every frame of the motion);
+- a browser the page has not loaded yet starts loading 480ms after the pane opens: the
+  frame shares the main thread, and its page loading mid-motion dropped frames. It stays
+  transparent until it has loaded, so the viewer shows its own surface, not white;
+- the browser frame around the page is memoised, since the viewer redraws per scale step.
+
+Measured in the dev build: opening over Progress and closing start 32–45ms after the
+click and track Gemini's curve within a frame; the first open after a page load starts
+40–75ms later than Gemini's, then follows the same curve. `willow-open-trace.cjs` and
+`willow-open-components.cjs` show what a stall was.
+
+### Testing it without a model
+
+```
+# WILLOW_URL is required: :3000 is the user's own data, so seed a test origin (:3101)
+$env:WILLOW_URL = 'http://localhost:3101'
+node tools/scratch/spark-rb-seed.cjs open-spark | answered | pending | pane <url> | shots 3 | takeover on | clear
+node tools/scratch/rb-driver-test.cjs <out-dir> tools/scratch/rb-actions-2.json
+node tools/scratch/willow-narrow-shot.cjs phone <out-prefix> --run="answered" --run="pane https://example.com/" --shot=overlay
+```
+
+`rb-driver-test.cjs` runs the real driver in the Willow tab — the calls the browser agent
+makes — with no model, and saves what the agent would see. The session lives in memory,
+and the dev server reloads the Willow tab whenever any session edits a module without an
+HMR boundary, so re-seed before each run. Unit tests:
+`apps/studio/test/remote-browser.test.mjs`.
+
+### Where Willow still differs
+
+- The header pill shows the status ("Needs input", "Complete"); on a browser task Gemini's
+  reads "Plan steps".
+- Gemini's narrow monitor menu opens pinned to the top-left corner of the screen, over
+  the back button. Willow's stays under its button.
+- "Take over task" is always offered, because Willow's page is local and stays live;
+  Gemini drops it once the VM behind a finished task has shut down. For the same reason
+  the narrow pane always has its buttons under the viewer, which Gemini shows only while
+  its VM is up.
+- Gemini renders menu labels in Google Sans Text, which Willow does not load, so its
+  narrow menu label runs about 9% wider.
+- Taken over on a phone, a tap goes straight into Willow's page, and a field in it can
+  bring up the phone's own keyboard; Gemini's VNC stream needs its keyboard bar for any
+  text. The bar works in Willow as well.
+- The narrow pieces' light theme is unmeasured (Gemini's account is dark); it follows the
+  light surfaces the pane already uses.
+
+## Created files
+
+A run's `apply_patch` that adds a file reports it (`generated-file`), and the turn shows
+Gemini's `remy-output-artifact-card`: the file's icon, name and "Created <date>", and an
+"Open" pill. Gemini's card is an `<a>` whose pill (`open-button-visual`) is only a picture
+of a button, so here the whole card is the button. Captures, the recon scripts' output and
+the side-by-side checks are in `tools/ui-research/captures/spark/136-file-open/`.
+
+**Open puts the file in the remote browser's side panel** (`remy-side-panel.showing-embedded-doc`):
+the task list collapses, the chat takes a third and the file two, and closing hands the
+card to Progress at 300px. `spark-open-file.ts` holds each task's open file. The browser
+and a file are one panel, so opening either closes the other; when a run opens the
+browser over a file, the browser wins. Progress's Files rows (docked, in the popover and
+in the narrow overlay) open their file the same way, where Gemini's link to Drive.
+
+**The motion is the browser's clock with one difference**, recorded frame by frame from
+Gemini (`tools/scratch/gemini-file-open.cjs`): the card starts at `flex: 0 0 0%` and grows
+as it fades, where the browser's starts at its share. Over Progress it grows from 300px
+(`is-taking-over`); in the browser's place it swaps at full width (`is-replacing`). The
+page joins after the 450ms (`revealDelayMs`, none under reduced motion): Gemini's card is
+empty while the Docs embed loads, and the text is not laid out again at every width.
+
+**What fills the card is a clone of the Google Docs embed** (`SparkFileViewer.tsx`, read
+from inside Gemini's frame by `gemini-file-frame.cjs`): a 55px white app bar (Docs' blue
+page glyph, the name, a `#c2e7ff` pill, Open in new tab, Close with Shift+Esc), the 40px
+`#f0f4f9` toolbar 6px under it, then the page. Docs draws its page on a canvas, so the page
+was measured off the pixels (`tools/scratch/ink-lines.cjs`): Arial 11pt on a 20px pitch,
+80px in and 49px down, wrapping by 760px. Willow's lines break where Gemini's do.
+
+**Willow's files are not Docs**, and this is where it diverges on purpose:
+
+- They are plain text in the run's OPFS workspace (`willow-spark/<scope>/workspace`, read
+  back by `readSparkWorkspaceFile`), so the page is read-only and shows the text as
+  written, as Gemini's Doc shows the Markdown its run put in it.
+- The pill is Download where Docs has Share, the toolbar keeps the two controls a reader
+  has (Print, and Zoom from 50% to 200%), and the "Saved to Drive" badge is gone.
+- Code reads in a monospace face. Open in new tab opens an HTML file as its page, inside a
+  sandboxed frame with no origin of its own (its scripts run, Willow's storage is out of
+  reach), and anything else as its text.
+- A file a task made in another browser is not in this one's OPFS. The page says so, and
+  Download and Print are disabled.
+
+**At 960px and below** it opens in the overlay the remote browser uses (the 48px close bar
+over a `#1c1c1c` card), and the card holds the page alone, as Gemini's phone and tablet
+embed does: single-spaced (16.8px), about 101px down, 11.6px in on a phone and 14px on a
+tablet (`calc(9.3px + 0.585vw)`). Escape closes it.
+
+`node tools/scratch/spark-file-open.cjs [phone|tablet]` seeds a task with three files in a
+browser context of its own and walks every path; the unit tests are
+`apps/studio/test/spark-file-open.test.mjs`.
+
+## What a run saves: schedules and skills
+
+A run saves what the user asks it to with `create_schedule` and `create_skill`, called
+like any other tool (`harness/spark-tools.ts`), with the step's `_title` as the row Gemini
+shows under Thoughts: "Created weekly science fact schedule", beside the `build` glyph
+(`created:<label>` in `activityLog`). Both are mutating, so Plan mode refuses them, and
+`tool-policy.ts` points the names models guess (`set_reminder`, `save_skill`, …) at them.
+
+- **The arguments are read by `@willow/core/spark-library`** (`scheduleInputFrom`,
+  `skillInputFrom`), the same rules Chat's tools use: "7 PM" is 19:00, weekly with no days
+  or all seven is daily, a skill's name is kebab-case and may not repeat one the library
+  has. A call repeated within a run gets its first answer, not a second copy.
+- **A schedule belongs to the task that made it** (`taskId`), as Gemini's does, and is on
+  with its next run worked out (`spark-schedule-time.ts`). A skill is `source: 'gemini'`.
+- **The turn keeps what it saved** (`createdItems` on the task or turn, persisted with it),
+  and shows each as Gemini's `remy-confirmation-card.draft-approval`: `ConfirmationCard`
+  from `@willow/ui`, with the name as a 28px title, a five-line body with See more / See
+  less, and for a schedule "When to run:" / "What to do:" and a disclaimer. The card reads
+  the schedule or skill live (`librarySchedules`, `skillLibrary`), so an edit shows.
+- **Gemini's disclaimer is about usage limits; Willow's says when schedules run** — while
+  Willow is open, and one that came due while it was closed runs on the next open.
+- **The "Create skill" chip is real**: the run is told to save the request as a skill.
+- **Chat saves through Spark too.** `register.ts` registers the writer Chat's tools use
+  (`registerSparkLibraryWriter`), and `spark-store.ts` publishes the schedule mirror, so
+  a chat card shows its schedule as it is now. Each write hydrates Spark's state first:
+  one into an unread state would publish over the user's saved schedules.
+
+`node tools/scratch/create-with-verify.cjs [desktop|phone|tablet]` walks both "Create with
+Gemini" buttons, a Spark task's schedule and a chat's schedule and skill end to end, in a
+browser context of its own with a folder in its own OPFS and Gemini's API answered by the
+script. The unit tests are `apps/studio/test/create-with-gemini.test.mjs`.
 
 ## Splits
 

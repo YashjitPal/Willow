@@ -1,0 +1,1208 @@
+/*
+ * T3's UI primitives (components/ui) in Willow's components, by their data-slot names. Menus,
+ * popovers and tooltips are menus.css.
+ */
+
+/* ── Fields: Willow's settings fields (its ModelsApiPage.css) ───────────────
+   #282a2c / #ffffff on an 8px corner, a #444746 / #c4c7c5 hairline that turns #747775 under the
+   pointer and Gemini blue with focus. */
+
+:root {
+  --willow-field: #ffffff;
+  --willow-field-border: #c4c7c5;
+  --willow-field-hover: #747775;
+  --willow-field-focus: #0b57d0;
+}
+
+:root.dark {
+  --willow-field: #282a2c;
+  --willow-field-border: #444746;
+  --willow-field-hover: #8e918f;
+  --willow-field-focus: #a8c7fa;
+}
+
+/* T3 draws an Input's and a Textarea's frame on the wrapping span (`*-control` with its `border`)
+   and leaves the element inside it bare; an unstyled one has no frame to draw. */
+:is(
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="input-control"]:where(.border),
+  [data-slot="textarea-control"]:where(.border),
+  [data-slot="select-trigger"],
+  [data-slot="number-field-group"],
+  [data-slot="input-group"]
+) {
+  border-color: var(--willow-field-border);
+  border-radius: 8px;
+  background: var(--willow-field);
+  box-shadow: none;
+  color: var(--foreground);
+}
+
+:is([data-slot="input-control"]:where(.border), [data-slot="textarea-control"]:where(.border))
+  > :is([data-slot="input"], [data-slot="textarea"]) {
+  border-radius: inherit;
+  background: transparent;
+}
+
+:is(
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="input-control"]:where(.border),
+  [data-slot="textarea-control"]:where(.border),
+  [data-slot="select-trigger"],
+  [data-slot="number-field-group"],
+  [data-slot="input-group"]
+)::before {
+  display: none;
+}
+
+:is(
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="input-control"]:where(.border),
+  [data-slot="textarea-control"]:where(.border),
+  [data-slot="select-trigger"],
+  [data-slot="number-field-group"],
+  [data-slot="input-group"]
+):hover {
+  border-color: var(--willow-field-hover);
+}
+
+:is(
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="input-control"]:where(.border),
+  [data-slot="textarea-control"]:where(.border),
+  [data-slot="number-field-group"],
+  [data-slot="input-group"]
+):focus-within,
+[data-slot="select-trigger"]:focus-visible,
+[data-slot="select-trigger"][data-popup-open] {
+  border-color: var(--willow-field-focus);
+  box-shadow: none;
+}
+
+:is([data-slot="input"], [data-slot="textarea"])::placeholder {
+  color: var(--willow-muted-text);
+}
+
+/* ── Switches: Material's, as Willow's settings draw them (its LabsPage.css) ─
+   52x32 with a 2px outline off; the workspace colour's track and accent handle on. */
+
+:root {
+  --willow-switch-off-track: #e3e3e3;
+  --willow-switch-off-outline: #747775;
+  --willow-switch-off-handle: #747775;
+}
+
+:root.dark {
+  --willow-switch-off-track: #353636;
+  --willow-switch-off-outline: #8e918f;
+  --willow-switch-off-handle: #c4c7c5;
+}
+
+[data-slot="switch"] {
+  width: 52px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 2px solid var(--willow-switch-off-outline);
+  border-radius: 16px;
+  background: var(--willow-switch-off-track);
+  transition:
+    background-color 75ms,
+    border-color 75ms;
+}
+
+[data-slot="switch"][data-checked] {
+  border-color: var(--willow-toggle-track);
+  background: var(--willow-toggle-track);
+}
+
+[data-slot="switch"][data-mixed] {
+  background: var(--willow-switch-off-track);
+}
+
+[data-slot="switch-thumb"] {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--willow-switch-off-handle);
+  box-shadow: none;
+  translate: 6px 0;
+  transition:
+    translate 75ms cubic-bezier(0.4, 0, 0.2, 1),
+    width 75ms,
+    height 75ms,
+    background-color 75ms;
+}
+
+[data-slot="switch-thumb"][data-checked] {
+  width: 24px;
+  height: 24px;
+  background: var(--willow-accent);
+  translate: 22px 0;
+}
+
+/* The checked handle carries Material's check in the track's colour, 16px in the 24px handle. */
+[data-slot="switch-thumb"] {
+  position: relative;
+}
+
+[data-slot="switch-thumb"]::after {
+  position: absolute;
+  inset: 4px;
+  background: var(--willow-toggle-track);
+  content: "";
+  opacity: 0;
+  transition: opacity 75ms;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19.69 5.23 8.96 15.96l-4.23-4.23-1.77 1.77 6 6L21.46 7z'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19.69 5.23 8.96 15.96l-4.23-4.23-1.77 1.77 6 6L21.46 7z'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+}
+
+[data-slot="switch-thumb"][data-checked]::after {
+  opacity: 1;
+}
+
+[data-slot="switch"][data-size="sm"] [data-slot="switch-thumb"]::after {
+  inset: 3px;
+}
+
+[data-slot="switch"][data-mixed] [data-slot="switch-thumb"] {
+  translate: 16px 0;
+}
+
+[data-slot="switch"][data-size="sm"] {
+  width: 40px;
+  height: 24px;
+  border-radius: 12px;
+}
+
+[data-slot="switch"][data-size="sm"] [data-slot="switch-thumb"] {
+  width: 12px;
+  height: 12px;
+  translate: 4px 0;
+}
+
+[data-slot="switch"][data-size="sm"] [data-slot="switch-thumb"][data-checked] {
+  width: 16px;
+  height: 16px;
+  translate: 18px 0;
+}
+
+/* ── Checkboxes and radios ───────────────────────────────────────────────── */
+
+[data-slot="checkbox"] {
+  border: 2px solid var(--willow-switch-off-handle);
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-slot="checkbox"][data-checked],
+[data-slot="checkbox"][data-indeterminate] {
+  border-color: var(--willow-accent);
+  background: var(--willow-accent);
+  color: #ffffff;
+}
+
+[data-slot="radio"] {
+  border: 2px solid var(--willow-switch-off-handle);
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-slot="radio"][data-checked] {
+  border-color: var(--willow-accent);
+  color: var(--willow-accent);
+}
+
+/* ── Keyboard hints: Willow's shortcut text, not keycaps ─────────────────── */
+
+[data-slot="kbd"] {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--willow-muted-text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* ── Dialogs: Gemini's dialog (platform/ui GeminiDialog.css) ─────────────────
+   #1f1f1f / #ffffff on 32px corners, a 32% backdrop without blur, 20px/24px titles at the
+   wordmark's axes, 15px/20px bodies, and 36px tonal pills in the actions. */
+
+.dialog-backdrop,
+[data-slot="dialog-backdrop"],
+[data-slot="alert-dialog-backdrop"],
+[data-slot="sheet-backdrop"] {
+  background: rgb(0 0 0 / 32%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"]):not(.dialog-media) {
+  border: 0;
+  border-radius: 32px;
+  background: #ffffff;
+  box-shadow:
+    rgb(0 0 0 / 20%) 0 11px 15px -7px,
+    rgb(0 0 0 / 14%) 0 24px 38px 3px,
+    rgb(0 0 0 / 12%) 0 9px 46px 8px;
+  color: #1f1f1f;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.dark :is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"]):not(.dialog-media) {
+  background: #1f1f1f;
+  box-shadow: rgb(0 0 0 / 28%) 0 0 20px 0;
+  color: #e3e3e3;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])::before {
+  display: none;
+}
+
+:is([data-slot="dialog-title"], [data-slot="alert-dialog-title"]) {
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings:
+    var(--willow-title-axes),
+    "wght" 470;
+  letter-spacing: normal;
+}
+
+.willow-wizard-title {
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings:
+    var(--willow-title-axes),
+    "wght" 470;
+}
+
+:is([data-slot="dialog-description"], [data-slot="alert-dialog-description"]) {
+  color: #444746;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.dark :is([data-slot="dialog-description"], [data-slot="alert-dialog-description"]) {
+  color: #e6e6e6;
+}
+
+:is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"], [data-slot="dialog-actions"]) {
+  gap: 8px;
+  border-top: 0;
+  background: transparent;
+}
+
+:is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"], [data-slot="dialog-actions"])
+  :is(button, a)[data-variant][data-size] {
+  height: 36px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+:is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"], [data-slot="dialog-actions"])
+  :is(button, a)[data-size]:is(
+    [data-variant="default"],
+    [data-variant="destructive"],
+    [data-variant="secondary"]
+  ) {
+  background: #f2f0f0;
+  box-shadow: none;
+  color: #1f1f1f;
+}
+
+.dark
+  :is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"], [data-slot="dialog-actions"])
+  :is(button, a)[data-size]:is(
+    [data-variant="default"],
+    [data-variant="destructive"],
+    [data-variant="secondary"]
+  ) {
+  background: #171717;
+  color: #e6e6e6;
+}
+
+:is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"], [data-slot="dialog-actions"])
+  :is(button, a)[data-size]:is(
+    [data-variant="default"],
+    [data-variant="destructive"],
+    [data-variant="secondary"]
+  )::before {
+  display: block;
+}
+
+:is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"], [data-slot="dialog-actions"])
+  :is(button, a)[data-size]:is([data-variant="outline"], [data-variant="ghost"]) {
+  border-color: transparent;
+  background: transparent;
+  color: #444746;
+}
+
+.dark
+  :is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"], [data-slot="dialog-actions"])
+  :is(button, a)[data-size]:is([data-variant="outline"], [data-variant="ghost"]) {
+  color: #e6e6e6;
+}
+
+/* A dialog's text field is Gemini's outlined field (GeminiDialog.css, from Rename): 56px with 16px
+   inside, a 4px box in a 0.8px outline that firms under the pointer and doubles on focus without
+   moving the text, 16px/24px type. */
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="input-control"], [data-slot="textarea-control"], [data-slot="input-group"]):where(
+    .border
+  ) {
+  border: 0.8px solid #747775;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.dark
+  :is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="input-control"], [data-slot="textarea-control"], [data-slot="input-group"]):where(
+    .border
+  ) {
+  border-color: rgb(142 145 143);
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="input-control"], [data-slot="textarea-control"], [data-slot="input-group"]):where(
+    .border
+  ):hover {
+  border-color: #1f1f1f;
+}
+
+.dark
+  :is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="input-control"], [data-slot="textarea-control"], [data-slot="input-group"]):where(
+    .border
+  ):hover {
+  border-color: #e6e6e6;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="input-control"], [data-slot="textarea-control"], [data-slot="input-group"]):where(
+    .border
+  ):focus-within {
+  border-color: #0b57d0;
+  box-shadow: inset 0 0 0 0.8px #0b57d0;
+}
+
+.dark
+  :is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="input-control"], [data-slot="textarea-control"], [data-slot="input-group"]):where(
+    .border
+  ):focus-within {
+  border-color: #e6e6e6;
+  box-shadow: inset 0 0 0 0.8px #e6e6e6;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="input-control"], [data-slot="textarea-control"], [data-slot="input-group"]):where(
+    .border
+  )::before {
+  display: none;
+}
+
+/* Its selects and pickers take the same box, as Material's outlined select does. */
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="select-trigger"], [data-slot="combobox-trigger"]:not([data-size^="icon"])) {
+  min-height: 56px;
+  padding: 0 15.2px;
+  border: 0.8px solid #747775;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  [data-slot="combobox-trigger"]:not([data-size^="icon"])::before {
+  display: none;
+}
+
+.dark
+  :is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="select-trigger"], [data-slot="combobox-trigger"]:not([data-size^="icon"])) {
+  border-color: rgb(142 145 143);
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="select-trigger"], [data-slot="combobox-trigger"]:not([data-size^="icon"])):is(
+    :hover,
+    [data-popup-open]
+  ) {
+  border-color: #1f1f1f;
+  background: transparent;
+}
+
+.dark
+  :is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="select-trigger"], [data-slot="combobox-trigger"]:not([data-size^="icon"])):is(
+    :hover,
+    [data-popup-open]
+  ) {
+  border-color: #e6e6e6;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="select-trigger"], [data-slot="combobox-trigger"]:not([data-size^="icon"])):is(
+    :focus-visible,
+    [data-popup-open]
+  ) {
+  border-color: #0b57d0;
+  box-shadow: inset 0 0 0 0.8px #0b57d0;
+}
+
+.dark
+  :is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  :is([data-slot="select-trigger"], [data-slot="combobox-trigger"]:not([data-size^="icon"])):is(
+    :focus-visible,
+    [data-popup-open]
+  ) {
+  border-color: #e6e6e6;
+  box-shadow: inset 0 0 0 0.8px #e6e6e6;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  [data-slot="select-trigger"]
+  [data-slot="select-value"] {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  [data-slot="select-trigger"]
+  [data-slot="select-icon"] {
+  width: 20px;
+  justify-content: center;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  [data-slot="select-trigger"]
+  [data-slot="select-icon"]
+  svg {
+  width: 20px;
+  height: 20px;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  [data-slot="input-control"]:where(.border)
+  > [data-slot="input"] {
+  height: calc(56px - 1.6px);
+  padding: 0 15.2px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  [data-slot="input-group"]:where(.border)
+  [data-slot="input"] {
+  height: calc(56px - 1.6px);
+  background: transparent;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  [data-slot="input-group"]:where(.border)
+  > [data-slot="input-group-addon"][data-align="inline-start"] {
+  padding-inline-start: 15.2px;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  [data-slot="input-group"]:where(.border)
+  > [data-slot="input-group-addon"]
+  svg {
+  width: 20px;
+  height: 20px;
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])
+  [data-slot="textarea-control"]:where(.border)
+  > [data-slot="textarea"] {
+  padding: 15.2px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+/* Its close is Willow's 40px round close (SearchChats.css), 12px from the corner. */
+[data-slot="dialog-popup"] > button[aria-label="Close"] {
+  top: 12px;
+  inset-inline-end: 12px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: #444746;
+}
+
+.dark [data-slot="dialog-popup"] > button[aria-label="Close"] {
+  color: #e3e3e3;
+}
+
+[data-slot="dialog-popup"] > button[aria-label="Close"]:hover {
+  background: rgb(0 0 0 / 6%);
+}
+
+.dark [data-slot="dialog-popup"] > button[aria-label="Close"]:hover {
+  background: rgb(230 230 230 / 8%);
+}
+
+[data-slot="dialog-popup"] > button[aria-label="Close"]::before {
+  display: none;
+}
+
+[data-slot="dialog-popup"] > button[aria-label="Close"] svg {
+  width: 24px;
+  height: 24px;
+}
+
+[data-slot="dialog-popup"]:has(> button[aria-label="Close"]) [data-slot="dialog-header"] {
+  padding-inline-end: 64px;
+}
+
+/*
+ * Its motion (GeminiDialog.css): the surface grows from 80% over 150ms cubic-bezier(0, 0, 0.2, 1)
+ * without fading, the backdrop fades in over 400ms cubic-bezier(0.25, 0.8, 0.25, 1), and both
+ * leave as Willow's menus do, a 100ms linear fade after 25ms.
+ */
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"]) {
+  transition: scale 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+:is([data-slot="dialog-popup"], [data-slot="alert-dialog-popup"])[data-starting-style] {
+  opacity: 1;
+  scale: 0.8;
+}
+
+:is(.dialog-backdrop, [data-slot="dialog-backdrop"], [data-slot="alert-dialog-backdrop"]) {
+  transition: opacity 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+:is(
+  [data-slot="dialog-popup"],
+  [data-slot="alert-dialog-popup"],
+  .dialog-backdrop,
+  [data-slot="dialog-backdrop"],
+  [data-slot="alert-dialog-backdrop"]
+)[data-ending-style] {
+  opacity: 1;
+  scale: 1;
+  transition: none;
+  animation: willow-mat-menu-exit 100ms linear 25ms forwards;
+}
+
+[data-slot="sheet-popup"] {
+  border-color: transparent;
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+.dark [data-slot="sheet-popup"] {
+  background: #1f1f1f;
+  color: #e3e3e3;
+}
+
+/*
+ * Sheets move as Willow's drawer does (its sidebar at <=960px, Sidebar.css): the whole panel
+ * slides in and out from its edge over 300ms cubic-bezier(0.2, 0, 0, 1) without fading, over a
+ * 45% scrim that fades in over 150ms ease-out and is gone as soon as the drawer starts to close.
+ * A sheet the panel-motion setting turns off stays instant (sheet.tsx `transition-none!`).
+ */
+[data-slot="sheet-backdrop"] {
+  background: rgb(0 0 0 / 45%);
+  transition: opacity 150ms ease-out;
+}
+
+[data-slot="sheet-backdrop"][data-ending-style] {
+  transition: none;
+}
+
+[data-slot="sheet-popup"] {
+  transition-property: translate;
+  transition-duration: 300ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-slot="sheet-popup"]:is([data-starting-style], [data-ending-style]) {
+  opacity: 1;
+}
+
+[data-slot="sheet-popup"][data-side="right"]:is([data-starting-style], [data-ending-style]) {
+  translate: 100% 0;
+}
+
+[data-slot="sheet-popup"][data-side="left"]:is([data-starting-style], [data-ending-style]) {
+  translate: -100% 0;
+}
+
+[data-slot="sheet-popup"][data-side="top"]:is([data-starting-style], [data-ending-style]) {
+  translate: 0 -100%;
+}
+
+[data-slot="sheet-popup"][data-side="bottom"]:is([data-starting-style], [data-ending-style]) {
+  translate: 0 100%;
+}
+
+/* ── Toasts: Willow's snackbar (platform/ui CopyToast.css) ────────────────── */
+
+[data-slot="toast-popup"] {
+  border: 0;
+  border-radius: 16px;
+  background: #1f1f1f;
+  box-shadow: rgb(0 0 0 / 28%) 0 0 20px 0;
+  color: #e6e6e6;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+[data-slot="toast-popup"]::before {
+  display: none;
+}
+
+[data-slot="toast-title"] {
+  color: #e6e6e6;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+[data-slot="toast-description"] {
+  color: rgb(230 230 230 / 72%);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+[data-slot="toast-popup"] [data-slot="button"] {
+  height: 36px;
+  border-color: transparent;
+  background: transparent;
+  color: #a8c7fa;
+}
+
+[data-slot="toast-popup"] [data-slot="button"][data-variant="default"] {
+  background: transparent;
+  box-shadow: none;
+  color: #a8c7fa;
+}
+
+[data-slot="toast-close"] {
+  color: #e6e6e6;
+}
+
+/* A notice floating over the timeline (T3's glass alerts) is the same snackbar: only its leading
+   glyph carries the error or warning colour, and its dismiss is the 36px round close. The glass
+   utility paints through these variables, so they are what turns it opaque. */
+[data-slot="alert"].alert-glass {
+  --alert-glass-tint: transparent;
+  --glass-opacity: 100%;
+  --background: #1f1f1f;
+  padding: 14px 12px 14px 20px;
+  border: 0;
+  border-radius: 16px;
+  box-shadow: rgb(0 0 0 / 28%) 0 0 20px 0;
+  color: #e6e6e6;
+  font-size: 15px;
+  line-height: 20px;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+[data-slot="alert"].alert-glass :is([data-slot="alert-title"], [data-slot="alert-description"]) {
+  color: #e6e6e6;
+}
+
+[data-slot="alert"].alert-glass svg {
+  color: #e6e6e6;
+}
+
+[data-slot="alert"].alert-glass[data-variant="error"] svg {
+  color: #f2b8b5;
+}
+
+[data-slot="alert"].alert-glass[data-variant="warning"] svg {
+  color: var(--warning);
+}
+
+[data-slot="alert"].alert-glass [data-slot="alert-action"] {
+  margin-block: -8px;
+}
+
+[data-slot="alert"].alert-glass [data-slot="alert-action"] :is(button, a)[data-size^="icon"] {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #e6e6e6;
+}
+
+[data-slot="alert"].alert-glass [data-slot="alert-action"] :is(button, a)[data-size^="icon"]:hover {
+  background: rgb(230 230 230 / 8%);
+}
+
+[data-slot="alert"].alert-glass
+  [data-slot="alert-action"]
+  :is(button, a)[data-size^="icon"]::before {
+  display: none;
+}
+
+[data-slot="alert"].alert-glass [data-slot="alert-action"] :is(button, a)[data-size^="icon"] svg {
+  width: 20px;
+  height: 20px;
+  color: #e6e6e6;
+}
+
+/*
+ * Where and how it moves (CopyToast.css): at the window's bottom left, 24px in; in from 80% while
+ * fading over 150ms cubic-bezier(0, 0, 0.2, 1), out as a 75ms fade on cubic-bezier(0.4, 0, 1, 1)
+ * that stays put. The newest toast is the front of T3's stack, so it lands where it rests; one
+ * swiped away still follows the finger.
+ */
+[data-slot="toast-viewport"] {
+  --toast-inset: 24px;
+}
+
+[data-slot="toast-popup"] {
+  animation: willow-toast-enter 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+[data-slot="toast-popup"][data-starting-style] {
+  opacity: 1;
+  scale: 1;
+  transform: none;
+}
+
+[data-slot="toast-popup"][data-ending-style]:not([data-swipe-direction]) {
+  scale: 1;
+  transition: opacity 75ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+[data-slot="toast-popup"][data-position*="bottom"][data-ending-style]:not([data-swipe-direction]) {
+  transform: translateX(var(--toast-swipe-movement-x))
+    translateY(
+      calc(
+        var(--toast-swipe-movement-y) - (var(--toast-index) * var(--toast-peek)) -
+          (var(--toast-shrink) * var(--toast-calc-height))
+      )
+    )
+    scale(var(--toast-scale));
+}
+
+[data-slot="toast-popup"][data-position*="top"][data-ending-style]:not([data-swipe-direction]) {
+  transform: translateX(var(--toast-swipe-movement-x))
+    translateY(
+      calc(
+        var(--toast-swipe-movement-y) + (var(--toast-index) * var(--toast-peek)) +
+          (var(--toast-shrink) * var(--toast-calc-height))
+      )
+    )
+    scale(var(--toast-scale));
+}
+
+[data-slot="toast-popup"][data-position][data-expanded][data-ending-style]:not(
+    [data-swipe-direction]
+  ) {
+  transform: translateX(var(--toast-swipe-movement-x)) translateY(var(--toast-calc-offset-y));
+}
+
+@keyframes willow-toast-enter {
+  0% {
+    opacity: 0;
+    scale: 0.8;
+    transform-origin: center;
+  }
+
+  100% {
+    opacity: 1;
+    scale: 1;
+    transform-origin: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="toast-popup"] {
+    animation-duration: 1ms;
+  }
+}
+
+/* ── The command palette: Willow's search dialog (SearchChats.css, compact) ──
+   680px on 24px corners past a hairline, a 64px search bar (tinted #f0f4f9 in light), 40px
+   headings in 13px muted type, 44px rows of 14px text on 12px corners. */
+
+[data-slot="command-dialog-popup"] {
+  width: min(680px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(620px, calc(100vh - 64px));
+  overflow: hidden;
+  border: 1px solid rgb(0 0 0 / 10%);
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 16%);
+  color: #1f1f1f;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.dark [data-slot="command-dialog-popup"] {
+  border-color: rgb(255 255 255 / 8%);
+  background: #1f1f1f;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 48%);
+  color: #e3e3e3;
+}
+
+[data-slot="command-input-bar"] {
+  border-radius: 24px 24px 0 0;
+  background: #f0f4f9;
+}
+
+.dark [data-slot="command-input-bar"] {
+  background: #1f1f1f;
+}
+
+[data-slot="command-input-bar"] input {
+  color: #1f1f1f;
+}
+
+.dark [data-slot="command-input-bar"] input {
+  color: #ffffff;
+}
+
+[data-slot="command-input-bar"] input::placeholder {
+  color: #747775;
+}
+
+.dark [data-slot="command-input-bar"] input::placeholder {
+  color: rgb(255 255 255 / 55%);
+}
+
+[data-slot="command-dialog-popup"] [data-slot="command-group-label"] {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  padding: 8px 6px;
+  color: #444746;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.dark [data-slot="command-dialog-popup"] [data-slot="command-group-label"] {
+  color: rgb(255 255 255 / 55%);
+}
+
+[data-slot="command-dialog-popup"] [data-slot="command-item"] {
+  min-height: 44px;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+[data-slot="command-dialog-popup"]
+  [data-slot="command-item"]:is([data-highlighted], [data-active]) {
+  background: #e5ebf3;
+}
+
+.dark
+  [data-slot="command-dialog-popup"]
+  [data-slot="command-item"]:is([data-highlighted], [data-active]) {
+  background: rgb(230 230 230 / 8%);
+}
+
+[data-slot="command-dialog-popup"] [data-slot="command-shortcut"] {
+  color: #747775;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.dark [data-slot="command-dialog-popup"] [data-slot="command-shortcut"] {
+  color: rgb(255 255 255 / 55%);
+}
+
+[data-slot="command-dialog-popup"]::before {
+  display: none;
+}
+
+[data-slot="command-dialog-backdrop"] {
+  background: rgb(0 0 0 / 32%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Willow's search opens and closes at once. */
+:is([data-slot="command-dialog-popup"], [data-slot="command-dialog-backdrop"]) {
+  transition: none;
+  animation: none;
+}
+
+[data-slot="command-item"] {
+  min-height: 40px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+[data-slot="command-item"]:is([data-highlighted], [data-selected="true"]) {
+  background: var(--willow-menu-highlight);
+}
+
+[data-slot="command-group-label"] {
+  color: var(--willow-muted-text);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+[data-slot="command-footer"] {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--willow-muted-text);
+}
+
+/* ── Page headers: Spark's task header (SparkTaskDetail.css) ────────────────
+   A 13px/17px title in the text colour, the project before it muted, and 32px round controls with
+   an 8% layer under the pointer. */
+
+nav ol:has(> li [data-slot="workspace-breadcrumb-text"]) {
+  font-size: 13px;
+  line-height: 17px;
+}
+
+[data-slot="workspace-breadcrumb-text"] {
+  font-weight: 400;
+}
+
+[data-chat-header] h2 {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+/* A thread's header leads with its title, its project after it in the tertiary ink (Codex's
+   ThreadHeader). The project still starts a thread in it and the title still opens its menu. */
+nav[aria-label="Thread breadcrumb"] > ol {
+  align-items: baseline;
+  gap: 8px;
+}
+
+nav[aria-label="Thread breadcrumb"] > ol > li {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+nav[aria-label="Thread breadcrumb"] > ol > li[aria-current="page"] {
+  order: -1;
+}
+
+nav[aria-label="Thread breadcrumb"] > ol > li[aria-hidden="true"],
+nav[aria-label="Thread breadcrumb"] > ol > li:not([aria-current]) button > [aria-hidden="true"] {
+  display: none;
+}
+
+[data-chat-header] nav[aria-label="Thread breadcrumb"] h2 {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+nav[aria-label="Thread breadcrumb"] > ol > li:not([aria-current]) button {
+  color: var(--codex-ink-tertiary);
+}
+
+nav[aria-label="Thread breadcrumb"] > ol > li:not([aria-current]) button:hover {
+  color: var(--codex-ink-secondary);
+}
+
+:is([data-chat-header], [data-panel-layout-controls], [data-workspace-titlebar-controls])
+  :is([data-slot="toggle"], [data-slot="button"][data-variant^="ghost"]) {
+  border-radius: 9999px;
+}
+
+/* The icon controls at their top right are Willow's header icon buttons (StudioLayout's New
+   chat): 36px round, the glyph 24px at weight 300 in #1f1f1f / #e0e0e0, 6% / 8% of it under the
+   pointer and while its panel is open. */
+:is(
+    [data-panel-layout-controls] button,
+    [data-chat-header] [data-slot="button"][data-size^="icon"],
+    [data-willow-header-control]
+  ) {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 9999px;
+  color: #1f1f1f;
+}
+
+.dark
+  :is(
+    [data-panel-layout-controls] button,
+    [data-chat-header] [data-slot="button"][data-size^="icon"],
+    [data-willow-header-control]
+  ) {
+  color: #e0e0e0;
+}
+
+:is(
+    [data-panel-layout-controls] button,
+    [data-chat-header] [data-slot="button"][data-size^="icon"],
+    [data-willow-header-control]
+  ):is(:hover, [data-pressed]) {
+  background: rgb(0 0 0 / 6%);
+}
+
+.dark
+  :is(
+    [data-panel-layout-controls] button,
+    [data-chat-header] [data-slot="button"][data-size^="icon"],
+    [data-willow-header-control]
+  ):is(:hover, [data-pressed]) {
+  background: rgb(227 227 227 / 8%);
+}
+
+:is(
+    [data-panel-layout-controls] button,
+    [data-chat-header] [data-slot="button"][data-size^="icon"],
+    [data-willow-header-control]
+  )
+  svg {
+  width: 24px;
+  height: 24px;
+  opacity: 1;
+}
+
+:is(
+    [data-panel-layout-controls] button,
+    [data-chat-header] [data-slot="button"][data-size^="icon"],
+    [data-willow-header-control]
+  )
+  .willow-icon-glyph {
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+}
+
+/* Willow's own glyphs as its canvas draws them in a 36px button (canvas-view.tsx CanvasIconButton). */
+:is(
+    [data-panel-layout-controls] button,
+    [data-chat-header] [data-slot="button"][data-size^="icon"],
+    [data-willow-header-control]
+  )
+  .willow-icon-glyph--luminous {
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "ROND" 100, "opsz" 24;
+}
+
+/* Toggles are pills; a toggle group is Willow's Chat/Spark switch: a tonal track, the pressed
+   option on a raised pill. */
+[data-slot="toggle"] {
+  border-radius: 9999px;
+}
+
+[data-slot="toggle"]::before {
+  border-radius: inherit;
+}
+
+[data-slot="toggle-group"] {
+  gap: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 9999px;
+  background: #f2f0f0;
+}
+
+.dark [data-slot="toggle-group"] {
+  background: #171717;
+}
+
+[data-slot="toggle-group"] [data-slot="toggle"] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-slot="toggle-group"] [data-slot="toggle"][data-pressed] {
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.dark [data-slot="toggle-group"] [data-slot="toggle"][data-pressed] {
+  background: #2e2e2e;
+  box-shadow: none;
+}
+
+/* ── Separators and scrollbars ───────────────────────────────────────────── */
+
+[data-slot="separator"] {
+  background: var(--border);
+}
+
+[data-slot="scroll-area-thumb"] {
+  background: var(--app-scrollbar-thumb);
+}
+
+/* The composer is composer.css. Banners and the strips docked to it still read its surface. */
+[data-slot="composer-shell"] {
+  --chat-composer-glass-surface: #ffffff;
+  --chat-composer-outline: transparent;
+  --chat-composer-highlight: transparent;
+  --glass-opacity: 100%;
+}
+
+.dark [data-slot="composer-shell"] {
+  --chat-composer-glass-surface: #1e1f21;
+}
+
+/* ── Panels and folds ─────────────────────────────────────────────────────── */
+
+/*
+ * T3's sidebar, side panels and composer drawers slide for as long as its panel-motion setting
+ * says (Willow's bridge starts it at Willow's 300ms), easing as Willow's sidebar and side panel
+ * do (Sidebar.tsx GEMINI_SIDEBAR_*_MOTION, ChatView's context panel). Folding sections ease as
+ * Willow's sidebar sections fold.
+ */
+[class*="--panel-animation-duration"],
+[data-slot="collapsible-panel"] {
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="switch"],
+  [data-slot="switch-thumb"],
+  [data-slot="sheet-popup"],
+  [data-slot="sheet-backdrop"] {
+    transition: none;
+  }
+
+  :is(
+    [data-slot="dialog-popup"],
+    [data-slot="alert-dialog-popup"],
+    .dialog-backdrop,
+    [data-slot="dialog-backdrop"],
+    [data-slot="alert-dialog-backdrop"]
+  ) {
+    transition-duration: 1ms;
+  }
+
+  :is(
+    [data-slot="dialog-popup"],
+    [data-slot="alert-dialog-popup"],
+    .dialog-backdrop,
+    [data-slot="dialog-backdrop"],
+    [data-slot="alert-dialog-backdrop"]
+  )[data-ending-style] {
+    animation: none;
+  }
+}

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { flushSync } from 'react-dom';
 import { useStore } from '@nanostores/react';
 import { PlusDropdownMenu } from './PlusDropdownMenu';
@@ -8,7 +8,7 @@ import { GithubImportDialog } from '@willow/ui/github/GithubImportDialog';
 import './Composer.css';
 import { useThemeMode } from '@willow/core/theme-mode';
 import { ComposerAttachment, createComposerAttachment } from '@willow/core/attachments';
-import { getWorkspaceTheme } from '@willow/core/workspace-theme';
+import { getWorkspaceTheme, type WorkspaceComputedTheme } from '@willow/core/workspace-theme';
 import {
   Plus,
   FileText,
@@ -40,6 +40,9 @@ import {
 } from './composer-options';
 import { ModesMenu } from './ModesMenu';
 import { ThemesMenu } from './ThemesMenu';
+import { ComposerCompanion, defaultToolOptions, hasCompanion, toolPlaceholder } from './ComposerCompanion';
+import type { MediaToolOptions } from '../media/media-tools';
+import { isGalleryTool, type MediaTemplate } from '../media/media-templates';
 import { ModelsMenu } from '@willow/ui/models/ModelsMenu';
 import { MicMutedSlash } from './MicMutedSlash';
 import { playMicToggleEarcon } from './mic-earcon';
@@ -66,6 +69,10 @@ export const STOP_BUTTON_ICON = {
   size: 24,
   variationSettings: '"FILL" 1, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300',
 } as const;
+
+/** Gemini's labels for the composer mic, its shortcut included: Ctrl+Shift+D toggles it here too. */
+export const DICTATION_START_LABEL = 'Dictate (^⇧D)';
+export const DICTATION_STOP_LABEL = 'Stop dictation (^⇧D)';
 
 /**
  * The attached-tool chip's two typography readings, taken off Gemini's live chip.
@@ -132,6 +139,12 @@ export const getChatTranscribingBg = (color?: string, isLight?: boolean) => {
 export interface ComposerHandle {
   setPrompt: (text: string) => void;
   focus: () => void;
+  /** Picks a plus-menu tool, or clears it: the sidebar's Images and Videos pages, and Images
+   *  again once an image lands, which is where Gemini leaves the box for a follow-up edit. */
+  selectTool: (tool: ToolId | null) => void;
+  /** Fills the box and sends it through the ordinary submit path, with the tool picked. The
+   *  /images page's template dialog does this once a photo is chosen. */
+  sendWith: (text: string, files: File[]) => void;
 }
 
 export const InputBar: React.FC<{
@@ -139,12 +152,16 @@ export const InputBar: React.FC<{
   onModeChange: (mode: Mode) => void;
   /** `tool` is whichever chip was attached from the plus menu, or null. Chat ignores
    *  it — it reads the tool off its own state — but Spark stores it on the task. */
-  onSubmit?: (prompt: string, mode: Mode, attachments?: Attachment[], tool?: ToolId | null) => void;
+  /** `toolOptions` carries what the creation tool's companion row was set to. */
+  onSubmit?: (prompt: string, mode: Mode, attachments?: Attachment[], tool?: ToolId | null, toolOptions?: MediaToolOptions) => void;
+  /** A gallery template picked for the creation tool: a tile in the box, its own placeholder. */
+  template?: Pick<MediaTemplate, 'id' | 'name' | 'image' | 'placeholder' | 'prompt'> | null;
+  onTemplateClear?: () => void;
+  onSelectedToolChange?: (tool: ToolId | null) => void;
   modelConfig: any;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
   onAuthRequired?: () => void;
-  isAuthenticated?: boolean;
   /** When true, hides the Ship/Chat/Design/Proto mode selector and forces submissions
    *  to use mode="chat". Used by the standalone studio chat view. */
   chatVariant?: boolean;
@@ -154,8 +171,15 @@ export const InputBar: React.FC<{
   sparkToolsEnabled?: boolean;
   /** Shows the AI disclaimer beneath the bottom-docked composer after a chat starts. */
   showDisclaimer?: boolean;
+  /** A conversation is on screen. At <=960px Gemini shrinks the placeholder then. */
+  docked?: boolean;
+  /** A conversation is on screen, rather than a zero state or a creation gallery (both of which
+   *  can dock the box too). Gemini drops the video and Deep research companion rows then. */
+  conversation?: boolean;
   /** Workspace swatch color to style the send / live button. */
   workspaceColor?: string;
+  /** A whole theme in place of the workspace colour's, for a page that wears a colour of its own: a bot's. */
+  theme?: WorkspaceComputedTheme;
   /** Chat live-voice session wiring. When `liveActive`, the empty-state send
    *  button becomes a stop control; otherwise it starts the session. Only
    *  consulted in `chatVariant` — Develop / Workbench input is untouched. */
@@ -193,10 +217,21 @@ export const InputBar: React.FC<{
   extraEfforts?: React.ComponentProps<typeof ModelsMenu>['extraEfforts'];
   /** Product modes such as Ultra replace the numeric effort segment in the pill. */
   effortDisplayOverride?: string;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, isAuthenticated, chatVariant = false, sparkMode = false, sparkToolsEnabled = false, showDisclaimer = false, workspaceColor, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef, extraEfforts, effortDisplayOverride }) => {
-  const { userProfile } = useAuth();
-  const effectiveWorkspaceColor = workspaceColor || userProfile?.workspaceColor || 'green';
-  const workspaceTheme = useMemo(() => getWorkspaceTheme(effectiveWorkspaceColor), [effectiveWorkspaceColor]);
+  /**
+   * A tool to select as the composer appears — a Gem's default tool. `undefined` leaves
+   * the selection alone; a change re-selects, so it follows the Gem a chat starts with.
+   */
+  defaultTool?: ToolId | null;
+  /**
+   * A chip beside the plus, where a picked tool's chip goes, laid out exactly as one:
+   * Spark's desktop app shows the folder a task works in this way. Its presence opens
+   * the box to two rows, as a tool chip does.
+   */
+  leadingChip?: React.ReactNode;
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, chatVariant = false, sparkMode = false, sparkToolsEnabled = false, showDisclaimer = false, docked = false, conversation = false, workspaceColor, theme, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef, extraEfforts, effortDisplayOverride, defaultTool, template = null, onTemplateClear, onSelectedToolChange, leadingChip }) => {
+  const { workspaceColor: currentWorkspaceColor } = useAuth();
+  const effectiveWorkspaceColor = workspaceColor || currentWorkspaceColor;
+  const workspaceTheme = useMemo(() => theme ?? getWorkspaceTheme(effectiveWorkspaceColor), [theme, effectiveWorkspaceColor]);
   const { isLight } = useThemeMode();
   const [isSubmitHovered, setIsSubmitHovered] = useState(false);
   const [isThemesOpen, setIsThemesOpen] = useState(false);
@@ -237,12 +272,14 @@ export const InputBar: React.FC<{
   const {
     dictationStream,
     dictationPlaceholder,
+    dictationStatus,
     isMicRippling,
     isDictating,
     isTranscribingDictation,
     isDictationActive,
     isExitingDictation,
     handleToggleDictation,
+    stopDictationThen,
   } = useComposerDictation({
     promptText,
     setPromptText,
@@ -268,20 +305,36 @@ export const InputBar: React.FC<{
    */
   const { enabled: personalIntelligence } = useStore(profileStore);
   const [isGithubImportOpen, setIsGithubImportOpen] = useState(false);
-  const [selectedTool, setSelectedTool] = useState<ToolId | null>(null);
+  const [selectedTool, setSelectedTool] = useState<ToolId | null>(defaultTool ?? null);
+  const [toolOptions, setToolOptions] = useState<MediaToolOptions>(() => defaultToolOptions(defaultTool ?? null));
+  useEffect(() => { setToolOptions(defaultToolOptions(selectedTool)); }, [selectedTool]);
+  useEffect(() => { onSelectedToolChange?.(selectedTool); }, [selectedTool, onSelectedToolChange]);
+  useEffect(() => {
+    if (defaultTool !== undefined) setSelectedTool(defaultTool);
+  }, [defaultTool]);
   const solidPlusRef = useRef<HTMLButtonElement>(null);
   const normalPlusRef = useRef<HTMLButtonElement>(null);
   
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const attachmentsRef = useRef<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const hasActiveAttachments = attachments.length > 0;
+  const hasActiveAttachments = attachments.length > 0 || !!template;
+  // A creation tool alone is not a message — Gemini keeps the mic until there is text or a template.
+  const toolSendable = !!selectedTool && !isGalleryTool(selectedTool);
+  /*
+   * With a template tile Gemini's box is a row-gapped grid (measured at 294 tall): the tile
+   * 20px down, the text 12px under it, the controls 8px higher above the companion than
+   * without one. Desktop only; the narrower layouts keep their own measured padding.
+   */
+  const templateLayout = chatVariant && !!template;
 
   const addFilesAsAttachments = useCallback((files: File[]) => {
     if (files.length === 0) return;
     const newAttachments = files.map(createComposerAttachment);
     setAttachments(prev => [...prev, ...newAttachments]);
   }, []);
+  // Set by `sendWith`; the submit runs a render later, once the text and files are state.
+  const [pendingSend, setPendingSend] = useState(false);
 
   const [isWindowDraggingFile, setIsWindowDraggingFile] = useState(false);
   const [isPromptBoxHovered, setIsPromptBoxHovered] = useState(false);
@@ -315,6 +368,9 @@ export const InputBar: React.FC<{
       if (!types) return false;
       return Array.from(types).includes('Files');
     };
+    // Kept mounted behind another tab (`inert`), a composer leaves the files to the one on show; it
+    // still takes the drop, so the page is not swapped for the file.
+    const isBehindAnotherTab = () => (chatComposerBoxRef.current ?? devComposerBoxRef.current)?.closest('[inert]') != null;
 
     const resetDrag = () => {
       dragCounterRef.current = 0;
@@ -324,7 +380,7 @@ export const InputBar: React.FC<{
     };
 
     const handleWindowDragEnter = (e: DragEvent) => {
-      if (!hasFiles(e)) return;
+      if (!hasFiles(e) || isBehindAnotherTab()) return;
       dragCounterRef.current += 1;
       isDraggingRef.current = true;
       setIsWindowDraggingFile(true);
@@ -336,7 +392,7 @@ export const InputBar: React.FC<{
     };
 
     const handleWindowDragLeave = (e: DragEvent) => {
-      if (!hasFiles(e)) return;
+      if (!hasFiles(e) || isBehindAnotherTab()) return;
       dragCounterRef.current -= 1;
       if (
         dragCounterRef.current <= 0 ||
@@ -352,7 +408,7 @@ export const InputBar: React.FC<{
 
     const handleWindowDrop = (e: DragEvent) => {
       e.preventDefault();
-      const hadFiles = hasFiles(e);
+      const hadFiles = hasFiles(e) && !isBehindAnotherTab();
       const droppedFiles = e.dataTransfer?.files;
       resetDrag();
       setShowDropIndicator(false);
@@ -402,6 +458,12 @@ export const InputBar: React.FC<{
         window.requestAnimationFrame(() => textareaRef.current?.focus());
       },
       focus: () => textareaRef.current?.focus(),
+      selectTool: (tool) => setSelectedTool(tool),
+      sendWith: (text, files) => {
+        setPromptText(text);
+        addFilesAsAttachments(files);
+        setPendingSend(true);
+      },
     };
     return () => {
       composerRef.current = null;
@@ -442,8 +504,6 @@ export const InputBar: React.FC<{
   
   // Get background type for conditional styling
   const { background } = useBackground();
-  // Non-auth users always see 'lines' background, so styling should match
-  const effectiveBackground = isAuthenticated ? background : 'lines';
   
   // Model resolution and the pill labels live in ./use-composer-models.
   const {
@@ -513,6 +573,41 @@ export const InputBar: React.FC<{
   const micButtonRef = useRef<HTMLButtonElement>(null);
   const rightControlsRef = useRef<HTMLDivElement>(null);
   const composerShellRef = useRef<HTMLDivElement>(null);
+  const leadingActionsRef = useRef<HTMLDivElement>(null);
+
+  // Above 960px a picked tool's chip sits beside the plus, and while dictating the waveform
+  // starts 8px past it, as it starts 8px past the plus alone.
+  const [dictationWaveLeft, setDictationWaveLeft] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const leading = leadingActionsRef.current;
+    if (!chatVariant || !isDictationActive || !(selectedTool || leadingChip) || !leading) {
+      setDictationWaveLeft(null);
+      return;
+    }
+    setDictationWaveLeft(leading.offsetLeft + leading.offsetWidth + 8);
+  }, [chatVariant, isDictationActive, selectedTool, leadingChip]);
+
+  // Gemini's Ctrl+Shift+D, from anywhere inside this composer (not during Live, where the
+  // mic button mutes instead).
+  const dictationShortcutRef = useRef<() => void>(() => {});
+  dictationShortcutRef.current = isMicMuteToggle ? () => {} : handleToggleDictation;
+  useEffect(() => {
+    const shell = composerShellRef.current;
+    if (!shell || !chatVariant) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey || event.code !== 'KeyD') return;
+      event.preventDefault();
+      dictationShortcutRef.current();
+    };
+    shell.addEventListener('keydown', onKeyDown);
+    return () => shell.removeEventListener('keydown', onKeyDown);
+  }, [chatVariant]);
+
+  // Gemini moves focus to the stop button as a take starts; at 960px and below that focus
+  // draws its ring (`.willow-dictation-stop:focus`).
+  useEffect(() => {
+    if (isDictating && chatVariant) micButtonRef.current?.focus({ preventScroll: true });
+  }, [isDictating, chatVariant]);
 
   const toggleComposerMaximized = () => {
     const textarea = textareaRef.current;
@@ -546,6 +641,8 @@ export const InputBar: React.FC<{
     if (!isComposerMaximized) return;
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || isModelsOpen || isPlusMenuOpen) return;
+      // Behind another tab (`inert`), the Escape is that tab's.
+      if ((chatComposerBoxRef.current ?? devComposerBoxRef.current)?.closest('[inert]')) return;
       event.preventDefault();
       toggleComposerMaximized();
     };
@@ -563,7 +660,7 @@ export const InputBar: React.FC<{
     if (isGenerating) return;
     if (isResponseRevealing) return;
     if (disabled) return;
-    if (promptText.trim() || attachments.length > 0 || selectedTool) {
+    if (promptText.trim() || attachments.length > 0 || template || toolSendable) {
       // Leave fullscreen in its OWN commit, before submitting.
       //
       // The composer is now a single persistent node, so nothing unmounts here
@@ -587,7 +684,16 @@ export const InputBar: React.FC<{
         });
       }
       const submittedAttachments = attachments;
-      onSubmit?.(promptText.trim(), chatVariant ? 'chat' : currentMode, submittedAttachments, selectedTool);
+      onSubmit?.(
+        promptText.trim(),
+        chatVariant ? 'chat' : currentMode,
+        submittedAttachments,
+        selectedTool,
+        hasCompanion(selectedTool) || template
+          ? { ...toolOptions, ...(template ? { template: { name: template.name, prompt: template.prompt } } : {}) }
+          : undefined,
+      );
+      if (template) onTemplateClear?.();
       setPromptText("");
       setAttachments([]);
       attachmentsRef.current = [];
@@ -615,6 +721,13 @@ export const InputBar: React.FC<{
       setCanMaximizeComposer(false);
     }
   };
+
+  useEffect(() => {
+    if (!pendingSend) return;
+    setPendingSend(false);
+    handleSubmit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSend]);
 
   /**
    * Gemini's attached-tool chip, measured off the live app rather than styled by eye.
@@ -779,9 +892,11 @@ export const InputBar: React.FC<{
     textareaRef,
     promptText,
     selectedTool,
-    hasAttachments: hasActiveAttachments,
+    // A leading chip opens the box the way a tool chip or an attachment does.
+    hasAttachments: hasActiveAttachments || !!leadingChip,
     chatVariant,
-    effectiveBackground,
+    sparkMode,
+    effectiveBackground: background,
     isComposerMaximized,
     collapsedChatPaddingRight,
     isDictationActive,
@@ -790,11 +905,11 @@ export const InputBar: React.FC<{
   });
 
   // Conditional background class: full opacity for 'waves' and 'solid', semi-transparent for 'lines'
-  const promptBoxBg = effectiveBackground === 'lines' 
+  const promptBoxBg = background === 'lines' 
     ? 'bg-[#1e1f21]/70' 
     : 'bg-[#1e1f21]';
   
-  const hasContent = promptText.trim() || hasActiveAttachments || selectedTool;
+  const hasContent = promptText.trim() || hasActiveAttachments || toolSendable;
   const responseControlActive = isGenerating || isResponseRevealing;
 
   // Gemini mounts its send button only when there is something to send. With an
@@ -810,11 +925,13 @@ export const InputBar: React.FC<{
   // In Gemini, the send button only mounts when there is a draft to send (hasContent),
   // or during active generation (stop button), live mode, or transcribing dictation.
   // When the prompt box is empty in chat mode, the send button is hidden across all viewports.
+  // Dictating mounts it too: Gemini's "Submit" sits beside the stop button for the whole take,
+  // and sends what was said once it is transcribed.
   const isSubmitControlHidden = chatVariant
     && !hasContent
     && !liveActive
     && !responseControlActive
-    && !isTranscribingDictation
+    && !isDictationActive
     && !liveAvailable;
 
   // True when this slot is the one that mounts and unmounts with the draft, so
@@ -829,12 +946,34 @@ export const InputBar: React.FC<{
   // RAF sets them next frame and the collapsed→multiline padding transition
   // still plays without disturbing the attachment-row expansion.
   const isMultilinePrompt = promptText.includes('\n');
+  const hasChip = !!selectedTool || !!leadingChip;
   const solidExpanded = isDictationActive
     ? false
-    : isSolidExpanded || isMultilinePrompt || !!selectedTool || hasActiveAttachments || (chatVariant && isComposerMaximized);
+    : isSolidExpanded || isMultilinePrompt || hasChip || hasActiveAttachments || (chatVariant && isComposerMaximized);
   const composerPaddingExpanded = isDictationActive
     ? false
-    : isSolidExpanded || isMultilinePrompt || !!selectedTool || hasActiveAttachments || (chatVariant && isComposerMaximized);
+    : isSolidExpanded || isMultilinePrompt || hasChip || hasActiveAttachments || (chatVariant && isComposerMaximized);
+  /*
+   * The plus and trailing buttons at <=960px, measured at 390 and 800 in Chat and Spark.
+   * The plus sits 20px in on phones and 24px on tablets (the icon button's extra
+   * `is-mobile-or-tablet` inset); past one line a tablet loses the 2px
+   * `simplified-input-area` margin, as desktop does. Spark's composer then also moves:
+   * 16px in and 18px off the bottom on phones, 12px off the bottom on tablets, with the
+   * trailing buttons 18.5px up — where Chat keeps its one-line offsets. Both drop the
+   * tablet trailing buttons to 12.5px off the bottom.
+   */
+  const leadingTouchOffset = !chatVariant
+    ? ''
+    : !solidExpanded
+      ? 'max-[768px]:!left-[6px] max-[768px]:!bottom-[20px] min-[769px]:max-[960px]:!left-[10px] min-[769px]:max-[960px]:!bottom-[16px]'
+      : sparkMode
+        ? 'max-[768px]:!left-[2px] max-[768px]:!bottom-[18px] min-[769px]:max-[960px]:!left-[8px] min-[769px]:max-[960px]:!bottom-[12px]'
+        : 'max-[768px]:!left-[6px] max-[768px]:!bottom-[20px] min-[769px]:max-[960px]:!left-[8px] min-[769px]:max-[960px]:!bottom-[16px]';
+  const trailingTouchOffset = !chatVariant || !solidExpanded
+    ? ''
+    : sparkMode
+      ? 'max-[768px]:!bottom-[18.5px] min-[769px]:max-[960px]:!bottom-[12.5px]'
+      : 'min-[769px]:max-[960px]:!bottom-[12.5px]';
   const showComposerMaximizeToggle = chatVariant
     && !isDictationActive
     && !disabled
@@ -881,7 +1020,7 @@ export const InputBar: React.FC<{
       ? 'file-drop-indicator-height'
       : '';
 
-  if (chatVariant || effectiveBackground === 'solid') {
+  if (chatVariant || background === 'solid') {
     return (
       <div
         ref={composerShellRef}
@@ -893,6 +1032,7 @@ export const InputBar: React.FC<{
         {githubImportDialog}
         <div
           ref={chatComposerBoxRef}
+          data-docked={chatVariant && docked ? '' : undefined}
           className={`relative w-full flex flex-col ${chatVariant ? `willow-gemini-composer ${dropHeightClass} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} ${isComposerMaximized ? 'willow-gemini-composer--fullscreen min-h-0 justify-start' : hasDropHeight ? 'justify-end pb-0' : 'justify-center'}` : `${dropHeightClass} ${hasDropHeight ? 'justify-end pb-0' : 'justify-center'} ${isPromptBoxHovered && !isIndicatorExiting ? 'is-prompt-box-hovered' : ''} transition-all duration-200`} ${chatVariant ? (isLight ? 'bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21] shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]') + ' rounded-[32px] min-[769px]:max-[960px]:rounded-[36px] max-[768px]:rounded-[40px] pl-[14px] pr-[15px]' : (isLight ? 'bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.16)]' : 'bg-[#1e1f21]') + ' rounded-[28px] pl-4 pr-3'}`}
         >
           
@@ -925,6 +1065,19 @@ export const InputBar: React.FC<{
             */}
           {hasActiveAttachments && (
             <div className="-ml-[14px] -mr-[15px] flex max-h-[168px] gap-2 overflow-x-auto pb-2 px-3 pt-3 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent_0,#000_12px,#000_calc(100%_-_12px),transparent_100%)] [&::-webkit-scrollbar]:hidden">
+              {template && (
+                <div className="wc-template-tile" title={template.name}>
+                  <img src={template.image} alt={template.name} draggable={false} />
+                  <button
+                    type="button"
+                    className="wc-template-tile__close"
+                    aria-label={`close ${template.name}`}
+                    onClick={() => onTemplateClear?.()}
+                  >
+                    <MaterialSymbol family="luminous" name="close" size={16} weight={300} roundness={100} opticalSize={20} />
+                  </button>
+                </div>
+              )}
               {attachments.map((att) => (
                 <div key={att.id} className="group relative flex-shrink-0">
                   <GeminiAttachmentCard
@@ -962,8 +1115,13 @@ export const InputBar: React.FC<{
             * are opacity/transform only (send button, mic, placeholder,
             * fullscreen control) plus `box-shadow 0.1s` on `input-area-v2` and
             * `padding-inline 0.2s` on `input-container`; none of those is size.
+            *
+            * Past one line, Spark's composer keeps an EMPTY 8px
+            * `attachment-preview-wrapper` row above the text, so its text starts 36px
+            * down (12 + 8 + 8 + 8) where Chat's starts 24px down on a phone and 16px on
+            * a tablet. Measured at 390 and 800.
             */}
-          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? 'pt-4 pb-[62px] max-[960px]:pt-6 min-[769px]:max-[960px]:pb-[68px] max-[768px]:pb-[72px]' : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-[769px]:max-[960px]:py-[24px] max-[768px]:py-[28px] min-h-[64px] min-[769px]:max-[960px]:min-h-[72px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'}`}>
+          <div className={`textarea-wrapper flex flex-col w-full relative ${chatVariant ? '' : 'transition-all duration-200'} ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0 pt-4 pb-[62px]' : composerPaddingExpanded ? chatVariant ? `pt-4 pb-[62px] max-[768px]:pt-6 min-[769px]:max-[960px]:pb-[68px] max-[768px]:pb-[72px]${sparkMode ? ' max-[960px]:!pt-9 max-[768px]:!pb-[69px] min-[769px]:max-[960px]:!pb-[65px]' : ''}` : 'pt-4 pb-[52px]' : chatVariant ? 'py-[20px] min-[769px]:max-[960px]:py-[24px] max-[768px]:py-[28px] min-h-[64px] min-[769px]:max-[960px]:min-h-[72px] max-[768px]:min-h-[80px]' : 'py-[16px] min-h-[56px]'} ${templateLayout && !isComposerMaximized ? 'min-[961px]:!pt-1 min-[961px]:!pb-[78px]' : ''}`}>
             {chatVariant && !isDictationActive && (
               <button
                 type="button"
@@ -985,9 +1143,15 @@ export const InputBar: React.FC<{
               </button>
             )}
             {/* Tablet & Mobile (<= 960px): Gemini renders selected tool chips in a dedicated top container above the textarea */}
-            {chatVariant && selectedTool && (
+            {chatVariant && selectedTool && !leadingChip && (
               <div className="min-[961px]:hidden flex items-center mb-4 pl-1">
                 <MobileToolChip toolId={selectedTool} onRemove={() => setSelectedTool(null)} />
+              </div>
+            )}
+            {chatVariant && leadingChip && (
+              <div className="min-[961px]:hidden flex items-center gap-2 mb-4 pl-1">
+                {selectedTool && <MobileToolChip toolId={selectedTool} onRemove={() => setSelectedTool(null)} />}
+                {leadingChip}
               </div>
             )}
             {/*
@@ -1023,7 +1187,7 @@ export const InputBar: React.FC<{
                   setAttachments(prev => [...prev, ...newAttachments]);
                 }
               }}
-              placeholder={dictationPlaceholder || placeholder || (chatVariant ? "Ask Willow" : "Ask anything")}
+              placeholder={dictationPlaceholder || placeholder || (chatVariant ? template?.placeholder ?? toolPlaceholder(selectedTool) ?? "Ask Willow" : "Ask anything")}
               style={{
                 height: '24px',
                 minHeight: '24px',
@@ -1037,12 +1201,26 @@ export const InputBar: React.FC<{
                * so the prompt box scrolls with nothing visible in the gutter. Hiding the
                * bar reproduces what is on screen; the default black strip did not.
                */
-              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775] max-[960px]:placeholder-black/55" : "placeholder-[#bdc1c6] max-[960px]:placeholder-white/55") + " placeholder:text-[17px] max-[960px]:placeholder:text-[20px] max-[960px]:placeholder:font-[375] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`} ${composerPaddingExpanded && chatVariant ? 'max-[960px]:!pl-[12px]' : ''} ${!composerPaddingExpanded && !isComposerMaximized && chatVariant ? 'min-[769px]:max-[960px]:!pl-[56px] max-[768px]:!pl-[58px]' : ''}`}
+              className={`willow-dictation-textarea w-full bg-transparent ${isLight ? 'text-[#1f1f1f]' : chatVariant ? 'text-[#e3e3e3]' : 'text-white'} outline-none font-normal resize-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isComposerMaximized && chatVariant ? 'flex-1 min-h-0' : ''} ${chatVariant ? "text-[17px] leading-6 " + (isLight ? "placeholder-[#747775] max-[960px]:placeholder-black/55" : "placeholder-[#bdc1c6] max-[960px]:placeholder-white/55") + " placeholder:text-[17px] max-[960px]:placeholder:text-[20px] max-[960px]:placeholder:font-[375] font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]" : isLight ? 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#747775]' : 'transition-[padding,opacity] duration-200 text-[15.5px] placeholder-[#8e8e8e]'} ${chatVariant && isDictationActive ? 'dictation-hidden' : chatVariant && isExitingDictation ? 'exiting-dictation' : ''} ${isComposerMaximized && chatVariant ? 'pl-[10px] pr-[24px]' : composerPaddingExpanded ? chatVariant ? 'pl-[10px] pr-[24px]' : 'pl-[0px] pr-[0px]' : `${chatVariant ? 'pl-[46px] pr-[var(--chat-collapsed-right-padding)]' : 'pl-[40px] pr-[76px]'}`} ${composerPaddingExpanded && chatVariant ? `max-[960px]:!pl-[12px] ${sparkMode ? 'max-[768px]:!pr-[1px] min-[769px]:max-[960px]:!pr-0' : 'max-[960px]:!pr-[57px]'}` : ''} ${!composerPaddingExpanded && !isComposerMaximized && chatVariant ? 'min-[769px]:max-[960px]:!pl-[60px] max-[768px]:!pl-[56px]' : ''}`}
             />
 
+            {/* Listening, Gemini folds the box to its one-line format, however many lines the
+                draft had: this line stands in for the text, so attachments and the tool row
+                above it keep their places and the box is one line taller than they are. */}
+            {chatVariant && isDictationActive && <div aria-hidden="true" className="h-6 shrink-0" />}
+
+            {/* Gemini's `butterfly-wave-view` runs from where the text starts to 20px short of
+                the stop button (28px on a tablet): 642→1132 at 1536, 142→608 at 800, 84→248 at
+                390, with the stop button where the mic sits beside Submit. It sits on that one
+                line, level with the buttons, whatever is stacked above. */}
             {chatVariant && isDictationActive && (
-              <div className="absolute left-[46px] right-[86px] top-1/2 -translate-y-1/2 min-[769px]:max-[960px]:left-[56px] max-[768px]:left-[58px]">
-                <DictationWaveform stream={dictationStream} />
+              <div
+                className={`absolute left-[var(--willow-wave-left,46px)] right-[95px] bottom-[20px] min-[769px]:max-[960px]:left-[58px] min-[769px]:max-[960px]:right-[107px] min-[769px]:max-[960px]:bottom-[24px] max-[768px]:left-[54px] max-[768px]:right-[111px] max-[768px]:bottom-[28px] ${templateLayout && !isComposerMaximized ? 'min-[961px]:!bottom-[28px]' : ''}`}
+                style={dictationWaveLeft === null ? undefined : { '--willow-wave-left': `${dictationWaveLeft}px` } as React.CSSProperties}
+              >
+                {dictationStatus
+                  ? <div className="willow-dictation-status" role="status">{dictationStatus}</div>
+                  : <DictationWaveform stream={dictationStream} />}
               </div>
             )}
 
@@ -1078,7 +1256,7 @@ export const InputBar: React.FC<{
               * never actually rests at, which looks like "no horizontal movement".
               * Type a line at a time and let it settle, or don't trust the number.
               */}
-            <div className={`absolute shrink-0 flex items-center gap-2 z-[60] willow-composer-leading-actions ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] ${chatVariant ? 'left-[6px]' : 'left-[0px]'}`} ${chatVariant ? 'min-[769px]:max-[960px]:!bottom-[16px] max-[768px]:!bottom-[20px] max-[960px]:!left-[6px]' : ''} `}>
+            <div ref={leadingActionsRef} className={`absolute shrink-0 flex items-center gap-2 z-[60] willow-composer-leading-actions ${solidExpanded && chatVariant ? 'bottom-[5px] left-[4px]' : solidExpanded ? 'bottom-[6px] left-[0px]' : `bottom-[16px] ${chatVariant ? 'left-[6px]' : 'left-[0px]'}`} ${templateLayout && !isComposerMaximized ? 'min-[961px]:!bottom-[13px]' : ''} ${leadingTouchOffset} `}>
               <div className={`${chatVariant ? 'w-8 max-[960px]:w-10' : 'w-[30px]'} flex items-center justify-center ${solidExpanded ? 'min-[961px]:py-2.5' : ''}`}>
                 <button 
                   ref={solidPlusRef}
@@ -1086,7 +1264,7 @@ export const InputBar: React.FC<{
                   disabled={disabled}
                   aria-label="Upload & tools"
                   aria-expanded={isPlusMenuOpen}
-                  className={`${chatVariant ? `w-8 h-8 max-[960px]:w-10 max-[960px]:h-10 rounded-full ${isLight ? 'text-[#000000] hover:bg-black/[0.08]' : 'text-[#e6e6e6] hover:bg-[#333537]'}` : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
+                  className={`${chatVariant ? `willow-composer-icon-button w-8 h-8 max-[960px]:w-10 max-[960px]:h-10 rounded-full ${isLight ? 'text-[#000000] hover:bg-black/[0.08]' : 'text-[#e6e6e6] max-[960px]:text-[#e0e0e0] hover:bg-[#333537]'}` : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'} flex items-center justify-center transition-colors outline-none disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
                 >
                   {chatVariant
                     ? (
@@ -1137,6 +1315,9 @@ export const InputBar: React.FC<{
                   <ToolChip toolId={selectedTool} onRemove={() => setSelectedTool(null)} />
                 </div>
               )}
+              {leadingChip && (
+                <div className="hidden min-[961px]:block mt-[1px]">{leadingChip}</div>
+              )}
             </div>
             
             {/* The trailing controls are right-anchored to `.textarea-wrapper`,
@@ -1147,7 +1328,7 @@ export const InputBar: React.FC<{
               * invisibly on the 400ms ease; with the ease gone (Gemini doesn't
               * have one) the same 1px became a visible sideways jerk on every
               * wrap and unwrap. Keep it constant. */}
-            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'min-[769px]:max-[960px]:gap-1.5 max-[768px]:gap-2' : ''} ${chatVariant ? 'bottom-[12px] min-[769px]:max-[960px]:bottom-[16px] max-[768px]:bottom-[20px] right-[0px]' : 'bottom-[10px] right-[0px]'}`}>
+            <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 min-[961px]:gap-0' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'max-[960px]:gap-1.5' : ''} ${chatVariant ? 'bottom-[12px] min-[769px]:max-[960px]:bottom-[16px] max-[768px]:bottom-[20px] right-[0px] min-[769px]:max-[960px]:right-[1px] max-[768px]:right-[5px]' : 'bottom-[10px] right-[0px]'} ${trailingTouchOffset} ${templateLayout && !isComposerMaximized ? 'min-[961px]:!bottom-[20px]' : ''}`}>
               {chatVariant && !isDictationActive && (
                 <div className="relative hidden min-[961px]:flex items-center shrink-0">
                   <button
@@ -1193,10 +1374,21 @@ export const InputBar: React.FC<{
                 ref={micButtonRef}
                 onClick={isMicMuteToggle ? handleToggleLiveMicMute : handleToggleDictation}
                 disabled={disabled || (isTranscribingDictation && !isMicMuteToggle)}
-                aria-label={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop listening" : "Microphone"}
+                aria-label={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? DICTATION_STOP_LABEL : DICTATION_START_LABEL}
                 aria-pressed={isMicMuteToggle ? liveMicMuted : undefined}
-                title={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? "Stop voice dictation" : "Start voice dictation"}
-                className={`relative outline-none flex items-center justify-center ${chatVariant ? 'w-8 h-8 max-[960px]:w-10 max-[960px]:h-10' : 'w-8 h-8'} rounded-full disabled:opacity-40 disabled:cursor-default ${isTranscribingDictation && !isMicMuteToggle ? 'cursor-default' : 'cursor-pointer'} ${
+                title={isMicMuteToggle ? (liveMicMuted ? "Turn on microphone" : "Turn off microphone") : isTranscribingDictation ? "Transcribing voice" : isDictating ? DICTATION_STOP_LABEL : DICTATION_START_LABEL}
+                className={`relative outline-none flex items-center justify-center ${chatVariant ? `w-8 h-8 max-[768px]:w-10 max-[768px]:h-10 ${
+                  // On a tablet Gemini's mic sits 1px above Submit; its stop button is a
+                  // send-style button and sits level with it.
+                  isDictationActive && !isMicMuteToggle ? '' : 'min-[769px]:max-[960px]:-mt-0.5'
+                } ${
+                  // Gemini's 48px mic slot on a desktop: 8px off the model pill, 10px to Submit,
+                  // and with no Submit, the slot's last 16px to the box's edge.
+                  isSubmitControlHidden ? 'min-[961px]:ml-2 min-[961px]:mr-px' : 'min-[961px]:ml-2 min-[961px]:mr-2.5'
+                }` : 'w-8 h-8'} ${isDictationActive && chatVariant && !isMicMuteToggle ? 'willow-dictation-stop' : ''} ${
+                  // At <=960px Gemini shows the stop button alone while it answers.
+                  chatVariant && responseControlActive && !isMicMuteToggle && !isDictationActive ? 'max-[960px]:hidden' : ''
+                } rounded-full disabled:opacity-40 disabled:cursor-default ${isTranscribingDictation && !isMicMuteToggle ? 'cursor-default' : 'cursor-pointer'} ${
                   // ChatGPT transitions only the colour group, over 200ms on
                   // cubic-bezier(0.4, 0, 0.2, 1) — measured off its own button.
                   isMicMuteToggle
@@ -1212,17 +1404,23 @@ export const InputBar: React.FC<{
                   isMicMuteToggle && liveMicMuted
                     ? 'bg-[#ff002a] hover:bg-[#fa423e] active:bg-[#ba2623] text-white hover:text-[#cdcdcd]'
                     : isDictationActive && chatVariant
-                    ? isLight ? 'bg-[#f0f4f9] hover:bg-[#e9eef6] text-[#1f1f1f] shadow-sm' : 'bg-[#282a2d] hover:bg-[#383a3d] text-[#e3e3e3] shadow-sm'
+                    ? isLight ? 'bg-[#f2f0f0] hover:bg-[#e5e5e5] text-[#1f1f1f]' : 'bg-[#171717] hover:bg-[#282828] text-[#e3e3e3]'
                     : isDictationActive
                     ? 'text-blue-500 hover:text-blue-400 bg-blue-500/10 animate-pulse'
-                    : chatVariant ? (isLight ? 'text-[#000000] hover:bg-black/[0.08]' : 'text-[#e6e6e6] hover:bg-white/[0.08]') : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'
+                    : chatVariant ? (isLight ? 'willow-composer-icon-button text-[#000000] hover:bg-black/[0.08]' : 'willow-composer-icon-button text-[#e6e6e6] max-[960px]:text-[#e0e0e0] hover:bg-white/[0.08]') : isLight ? 'text-[#444746] hover:text-black' : 'text-[#a0a0a0] hover:text-white'
                 }`}
               >
                 {isMicRippling && !isMicMuteToggle && <span className="gemini-mic-ripple-effect" />}
                 {isDictationActive && chatVariant && !isMicMuteToggle ? (
-                  <span className={`w-2.5 h-2.5 rounded-[1.5px] ${isLight ? 'bg-[#1f1f1f]' : 'bg-[#e3e3e3]'}`} aria-hidden="true" />
+                  <MaterialSymbol
+                    family="google-symbols"
+                    name="stop"
+                    size={STOP_BUTTON_ICON.size}
+                    variationSettings={STOP_BUTTON_ICON.variationSettings}
+                    className="willow-dictation-stop-glyph max-[960px]:!w-7 max-[960px]:!h-7 max-[960px]:!text-[28px]"
+                  />
                 ) : chatVariant ? (
-                  <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} className="max-[960px]:!w-7 max-[960px]:!h-7 max-[960px]:!text-[28px]" />
+                  <MaterialSymbol family="luminous" name="mic" size={24} weight={300} roundness={100} opticalSize={24} className="willow-composer-mic-glyph max-[960px]:!w-7 max-[960px]:!h-7 max-[960px]:!text-[28px]" />
                 ) : (
                   <Mic size={20} strokeWidth={1.8} />
                 )}
@@ -1239,7 +1437,12 @@ export const InputBar: React.FC<{
               </button>
               <button
                 onClick={() => {
-                  if (isDictationActive) return;
+                  // Gemini's Submit beside the stop button: end the take, send what was said.
+                  if (isDictating && !isGenerating) {
+                    stopDictationThen(() => setPendingSend(true));
+                    return;
+                  }
+                  if (isTranscribingDictation) return;
                   // Stop outranks send: while a reply streams this slot is the
                   // stop control, so a click here must never submit the draft.
                   if (isGenerating) return onStopGenerating?.();
@@ -1252,7 +1455,7 @@ export const InputBar: React.FC<{
                   // Empty input in chat → the Live toggle.
                   liveActive ? onStopLive?.() : onStartLive?.();
                 }}
-                disabled={disabled || (isDictationActive && !isGenerating)}
+                disabled={disabled || (isTranscribingDictation && !isGenerating)}
                 title={
                   isGenerating
                     ? 'Stop response'
@@ -1260,7 +1463,7 @@ export const InputBar: React.FC<{
                     ? 'Finishing response'
                     : isTranscribingDictation
                     ? 'Transcribing voice'
-                    : hasContent
+                    : hasContent || isDictating
                     ? // Measured, not inferred from the aria-label: Gemini's send
                       // button is aria-label="Send message" but its tooltip reads
                       // "Submit". Below-placed, gap 8 (trigger bottom 428.8 ->
@@ -1271,7 +1474,7 @@ export const InputBar: React.FC<{
                       ? liveActive ? 'Stop live mode' : 'Start live voice chat'
                       : undefined
                 }
-                aria-label={isGenerating ? 'Stop response' : isResponseRevealing ? 'Finishing response' : isTranscribingDictation ? 'Transcribing voice' : hasContent ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
+                aria-label={isGenerating ? 'Stop response' : isResponseRevealing ? 'Finishing response' : isTranscribingDictation ? 'Transcribing voice' : hasContent || isDictating ? 'Send message' : liveActive ? 'Stop live mode' : 'Start live voice chat'}
                 style={
                   chatVariant && !responseControlActive && !liveActive
                     ? {
@@ -1289,7 +1492,7 @@ export const InputBar: React.FC<{
                 onMouseLeave={() => setIsSubmitHovered(false)}
                 onMouseOver={() => setIsSubmitHovered(true)}
                 onMouseOut={() => setIsSubmitHovered(false)}
-                className={`${isSubmitControlHidden ? 'hidden' : 'flex'} ${chatVariant ? 'w-8 h-8 max-[960px]:w-10 max-[960px]:h-10' : 'w-[34px] h-[34px]'} rounded-full items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isDictationActive && !isGenerating ? 'cursor-default' : 'cursor-pointer'} ${isTranscribingDictation && !isGenerating ? 'willow-transcription-spinner' : ''} ${
+                className={`${isSubmitControlHidden ? 'hidden' : 'flex'} ${chatVariant ? 'w-8 h-8 max-[768px]:w-10 max-[768px]:h-10 min-[769px]:max-[960px]:mx-1 min-[961px]:mr-px' : 'w-[34px] h-[34px]'} rounded-full items-center justify-center shrink-0 transition-[background-color] duration-200 shadow-sm outline-none disabled:opacity-40 disabled:cursor-default ${isSubmitControlContentGated ? 'willow-composer-send-enter' : ''} ${isTranscribingDictation && !isGenerating ? 'cursor-default willow-transcription-spinner' : 'cursor-pointer'} ${
                   chatVariant
                     ? responseControlActive || liveActive
                       ? isLight ? 'bg-[#f2f0f0] hover:bg-[#e5e5e5]' : 'bg-[#171717] hover:bg-[#282828]'
@@ -1313,7 +1516,7 @@ export const InputBar: React.FC<{
                   />
                 ) : isTranscribingDictation ? (
                   <MaterialSymbol name="progress_activity" size={20} weight={400} className={chatVariant ? (isLight ? 'text-black' : 'text-white') : 'text-black'} />
-                ) : hasContent ? (
+                ) : hasContent || isDictating ? (
                   chatVariant
                     ? <MaterialSymbol family="luminous" name="arrow_upward" size={24} weight={300} roundness={100} opticalSize={24} className={`max-[960px]:!w-7 max-[960px]:!h-7 max-[960px]:!text-[28px] ${isLight ? 'text-black' : 'text-white'}`} />
                     : <ArrowUp size={22} className="text-black stroke-[2]" />
@@ -1333,6 +1536,17 @@ export const InputBar: React.FC<{
               </button>
             </div>
           </div>
+          {/* Gemini drops the video and Deep research rows once a conversation is under way;
+              image and music keep theirs. */}
+          {chatVariant && !isComposerMaximized && hasCompanion(selectedTool) && !((selectedTool === 'video' || selectedTool === 'research') && conversation) && (
+            <ComposerCompanion
+              tool={selectedTool}
+              options={toolOptions}
+              onChange={setToolOptions}
+              onUpload={() => fileInputRef.current?.click()}
+              disabled={disabled}
+            />
+          )}
         </div>
         {showDropIndicator && (
           <div
@@ -1405,7 +1619,7 @@ export const InputBar: React.FC<{
         )}
         {chatVariant && showDisclaimer && (
           <p
-            className={`pointer-events-none absolute left-0 right-0 top-full mt-4 text-center text-[13px] font-normal leading-[17px] ${isLight ? 'text-[#444746]' : 'text-[#c4c7c5]'} font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+            className={`pointer-events-none absolute left-0 right-0 top-full mt-4 text-center text-[13px] font-normal leading-[17px] max-[768px]:hidden ${isLight ? 'text-[#444746]' : 'text-[#c4c7c5]'} font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
             style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
           >
             Willow is AI and can make mistakes.
@@ -1665,7 +1879,7 @@ export const InputBar: React.FC<{
                       ${
                         promptText.trim() || attachments.length > 0
                           ? chatVariant
-                            ? "bg-[#a8c7fa] hover:bg-[#b4d0fc] text-[#062e6f] cursor-pointer"
+                            ? "bg-[color:var(--sync-a8c7fa,#a8c7fa)] hover:bg-[color:var(--sync-b4d0fc,#b4d0fc)] text-[color:var(--sync-062e6f,#062e6f)] cursor-pointer"
                             : "bg-zinc-200 hover:bg-white text-black cursor-pointer"
                           : chatVariant
                             ? liveActive
