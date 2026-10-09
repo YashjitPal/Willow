@@ -3751,6 +3751,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
                 <SparkQuestionPanel taskId={currentTask.id} />
               ) : (
                 <SparkComposer
+                  draftKey={`spark:task:${currentTask.id}`}
                   onSubmitFiles={submitFollowUp}
                   /* A working task keeps the box live and turns send into stop, as Gemini's does. */
                   disabled={isFollowUpSubmitting}

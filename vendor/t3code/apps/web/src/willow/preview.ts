@@ -75,6 +75,31 @@ const tabs = new Map<string, Tab>();
 const stateListeners = new Set<(tabId: string, state: DesktopPreviewTabState) => void>();
 let native: ((request: NativePreviewRequest) => Promise<void>) | null = null;
 
+/** A previewed page's frame: no top navigation, so a page cannot move Willow's own. */
+export const PREVIEW_FRAME_SANDBOX =
+  "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads allow-pointer-lock";
+export const PREVIEW_FRAME_ALLOW = "clipboard-read; clipboard-write; fullscreen";
+
+/**
+ * T3's mini player shows a tab over the conversation while the panel is closed, in a slot of its
+ * own (`BrowserSurfaceSlot`, for T3's Electron views): the tab's webview goes there instead, or,
+ * without webviews, a frame of the tab put in it here.
+ */
+const playerSlot = (tabId: string): HTMLElement | null =>
+  document.querySelector<HTMLElement>(
+    `[data-preview-mini-player] [data-browser-surface-slot="${CSS.escape(tabId)}"]`,
+  );
+const playerFrames = new Map<
+  string,
+  { slot: HTMLElement; frame: HTMLIFrameElement; detach: () => void }
+>();
+
+/** Whether a tab has a page to show: what T3's mini player waits for before it shows the tab. */
+export const previewShowsPage = (tabId: string): boolean => {
+  const tab = tabs.get(tabId);
+  return tab !== undefined && tab.state.navStatus.kind !== "Idle";
+};
+
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
 /** What this page draws over a tab: its menus, popovers, tooltips, dialogs and toasts. */
@@ -190,6 +215,7 @@ export function attachPreviewFrame(
   const tab = tabFor(tabId);
   tab.frame = frame;
   if (!frame) return () => {};
+  watchPage();
   if (tab.history.length === 0 && initialUrl && initialUrl !== "about:blank") {
     tab.history = [initialUrl];
     tab.index = 0;
@@ -288,9 +314,51 @@ function schedulePlacement() {
 }
 
 function followPage() {
-  if (![...tabs.values()].some((tab) => tab.surface && tab.look.visible)) return;
+  if (!native) {
+    followPlayerFrames();
+    return;
+  }
+  const shown = (tab: Tab) => (tab.surface && tab.look.visible) || playerSlot(tab.state.tabId);
+  if (![...tabs.values()].some(shown)) return;
   followUntil = performance.now() + FOLLOW_MS;
   schedulePlacement();
+}
+
+/**
+ * Without webviews, a tab in the mini player is a frame of its own there, while the panel's frame
+ * is gone; it goes when the player closes or the panel shows the tab again.
+ */
+function followPlayerFrames() {
+  for (const tab of tabs.values()) {
+    const id = tab.state.tabId;
+    const slot = playerSlot(id);
+    const own = playerFrames.get(id);
+    if (own && (own.slot !== slot || (tab.frame !== null && tab.frame !== own.frame))) {
+      playerFrames.delete(id);
+      own.detach();
+      own.frame.remove();
+    }
+    if (!slot || tab.frame || playerFrames.has(id) || !currentUrl(tab)) continue;
+    const player = slot.closest<HTMLElement>("[data-preview-mini-player]");
+    const frame = document.createElement("iframe");
+    frame.title = "Floating browser preview";
+    frame.setAttribute("sandbox", PREVIEW_FRAME_SANDBOX);
+    frame.setAttribute("allow", PREVIEW_FRAME_ALLOW);
+    // Over the player's backdrop and under its controls; the player passes pointers through to it.
+    Object.assign(frame.style, {
+      position: "absolute",
+      inset: "0",
+      zIndex: "48",
+      width: "100%",
+      height: "100%",
+      border: "0",
+      borderRadius: player ? getComputedStyle(player).borderTopLeftRadius : "0",
+      background: "#fff",
+      pointerEvents: "auto",
+    });
+    slot.appendChild(frame);
+    playerFrames.set(id, { slot, frame, detach: attachPreviewFrame(id, frame) });
+  }
 }
 
 let watching = false;
@@ -308,17 +376,38 @@ function watchPage() {
 
 function flushPlacement() {
   placementFrame = 0;
+  let floating = false;
   for (const tab of tabs.values()) {
-    const request = placement(tab);
+    const shown = shownAt(tab);
+    if (shown?.player) {
+      floating = true;
+      // A tab first shown in the player has its page opened there.
+      const url = currentUrl(tab);
+      if (!tab.opened && url) show(tab, url);
+    }
+    const request = placement(tab, shown);
     const key = JSON.stringify(request);
     if (key === tab.placed) continue;
     tab.placed = key;
     ask(request);
   }
-  if (performance.now() < followUntil) schedulePlacement();
+  // The player is dragged and resized by its own pointer gestures, which no observer sees.
+  if (floating || performance.now() < followUntil) schedulePlacement();
 }
 
-function placement(tab: Tab): NativePreviewRequest {
+/** Where a tab shows: where `HostedBrowserWebview` marks it in the panel, else in the mini player. */
+function shownAt(tab: Tab): { element: HTMLElement; radius: number; player: boolean } | null {
+  if (tab.surface && tab.look.visible) {
+    return { element: tab.surface, radius: tab.look.radius, player: false };
+  }
+  const slot = playerSlot(tab.state.tabId);
+  if (!slot) return null;
+  const player = slot.closest<HTMLElement>("[data-preview-mini-player]");
+  const radius = Number.parseFloat(getComputedStyle(player ?? slot).borderTopLeftRadius) || 0;
+  return { element: slot, radius, player: true };
+}
+
+function placement(tab: Tab, shown: ReturnType<typeof shownAt>): NativePreviewRequest {
   const id = tab.state.tabId;
   const hidden: NativePreviewRequest = {
     action: "place",
@@ -327,16 +416,15 @@ function placement(tab: Tab): NativePreviewRequest {
     holes: [],
     zoom: tab.look.zoom,
   };
-  const surface = tab.surface;
-  if (!surface || !tab.look.visible || document.visibilityState === "hidden") return hidden;
-  const rect = surface.getBoundingClientRect();
+  if (!shown || document.visibilityState === "hidden") return hidden;
+  const rect = shown.element.getBoundingClientRect();
   if (rect.width < 1 || rect.height < 1) return hidden;
   const bounds = {
     x: rect.left,
     y: rect.top,
     width: rect.width,
     height: rect.height,
-    radius: tab.look.radius,
+    radius: shown.radius,
   };
   return { action: "place", id, bounds, holes: holesOver(tab, rect), zoom: tab.look.zoom };
 }
@@ -354,7 +442,13 @@ function holesOver(tab: Tab, rect: DOMRect): NativePreviewArea[] {
   const holes: NativePreviewArea[] = [];
   for (const element of document.querySelectorAll<HTMLElement>(OVER_PREVIEW)) {
     if (slot && element.contains(slot)) continue;
-    if (element.parentElement?.closest(OVER_PREVIEW)) continue;
+    // A popup's own parts go with it; what is marked counts on its own (the mini player's pill).
+    if (
+      !element.hasAttribute("data-willow-over-preview") &&
+      element.parentElement?.closest(OVER_PREVIEW)
+    ) {
+      continue;
+    }
     if (home && !(home.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING)) {
       continue;
     }

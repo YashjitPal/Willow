@@ -34,6 +34,8 @@ at 9am, check my inbox and summarise") and Spark executes them on a schedule.
 | `src/spark-schedule-time.ts` | When a schedule next runs. |
 | `src/attachment-storage.ts` | File attachment persistence. |
 | `src/spark-disk.ts` · `src/spark-task-files.ts` | Each task's files beside `Spark/Tasks/<task>.json` in the user's folder: its attachments, and the remote browser's screenshots. See *The history is kept for good*. |
+| `src/spark-folder-files.ts` | The pass that keeps Spark's files in the user's folder both ways — task attachments, bots' attachments (`src/dots/dot-attachment-files.ts`) and what runs and bots made (`src/spark-workspace-files.ts`) — written from this browser and read back into one whose storage lacks them. Asked for by the tasks folder's passes, at most every 30s, one tab at a time. |
+| `src/spark-workspace-files.ts` | Each OPFS workspace mirrored to the folder at the same paths, and read back: the tasks' as `Spark/Files/`, a bot's as `Spark/Dots/<bot id>/Files/`. See *Created files*. |
 | `src/browser-tabs-bridge.ts` | Connects the Spark agent to `chrome.tabs` / `browser.tabs`. |
 | `src/spark-task-host.ts` | The seam that lets code outside the Spark page start, follow up and stop tasks through the mounted workspace's own runner. Bots use it. |
 | `src/dots/` | Bots (the feature's code keeps the name `bots`; everything users and models read says "bot"): Codex's characters and onboarding, the bots directory and conversation. `dots-light.css` is the light theme for every Bots style that names one of Gemini's dark colours directly. |
@@ -42,6 +44,7 @@ at 9am, check my inbox and summarise") and Spark executes them on a schedule.
 | `src/dots/triggers/`, `src/dots/profile/` | The profile's Scheduled list and the conversation's trigger cards; Instructions, quiet hours and background research, and Skills and apps. |
 | `src/dots/computer/` | A bot's own computer in the desktop app: its pane (Spark's remote browser, filled with the machine's whole desktop), its cards and its profile row. |
 | `src/dots/dots-folder.ts`, `src/dots/dots-folder-plan.ts` | Each bot and its whole thread as `Spark/Dots/<bot id>.json` in the user's folder, so bots outlive browser storage and reach every copy of Willow on the folder. The rules are in the harness [AGENTS.md](src/dots/harness/AGENTS.md#persistence). |
+| `src/dots/dot-attachment-files.ts` | The files the user sent a bot, as `Spark/Dots/<bot id>/Attachments/`, named as a task's are; which ones a bot has is read from its `.json`, and a browser without their payloads reads them back. The dots folder lists only the `.json` files beside these folders. |
 | `src/dots/harness/` | The bot harness: an always-on fork of Spark's harness with its own memory and runtime. Has its own [AGENTS.md](src/dots/harness/AGENTS.md). |
 | `src/pets/` | The desktop pet and its Customise page (`/spark/pets`), in the desktop app only. See *Pets*. |
 
@@ -1435,7 +1438,10 @@ machine" in Times. Willow keeps every one (`remote-browser-shots.ts`), with no c
   scrim shows. `hide_image` is a Luminous glyph; Willow's Google Symbols subset lacks it.
 
 A task's attachments go beside it too (`spark-task-files.ts`, `Attachments/`), and
-deleting the task removes its screenshots and that whole folder. `spark-disk.ts` is how
+deleting the task removes its screenshots and that whole folder. A browser with no payload
+for an attachment its task names — storage cleared, or a new copy of Willow on the folder —
+reads it back from there into IndexedDB (`restoreSparkTaskAttachments`, run by the pass in
+`spark-folder-files.ts`); only a name a task's attachment gives is read. `spark-disk.ts` is how
 these reach `useLocalFS`: `SparkWorkspace` attaches it while a folder is connected and
 authorized, and attaching writes what was saved while it was not.
 
@@ -1609,8 +1615,18 @@ was measured off the pixels (`tools/scratch/ink-lines.cjs`): Arial 11pt on a 20p
 - Code reads in a monospace face. Open in new tab opens an HTML file as its page, inside a
   sandboxed frame with no origin of its own (its scripts run, Willow's storage is out of
   reach), and anything else as its text.
-- A file a task made in another browser is not in this one's OPFS. The page says so, and
-  Download and Print are disabled.
+- With a folder connected, each workspace is mirrored there at the same paths
+  (`spark-workspace-files.ts`: the tasks' as `Spark/Files/`, a bot's as
+  `Spark/Dots/<bot id>/Files/`) and read back into an OPFS that lacks a file, so another
+  copy's files and a reinstalled browser's arrive with the next pass. Nothing is deleted on
+  either side; a file both sides changed (or that differs on a first pass) keeps the
+  folder's copy in place and this browser's beside it as `<name> (Conflict <time>).<ext>`;
+  nothing in OPFS is written while a run or a bot's turn has the workspace open. Files over
+  `MAX_SPARK_FILE_BYTES`, names Windows cannot hold and a workspace's files past its first
+  2,000 stay where they are. The user's folder handle is the one `LocalFSContext` stores,
+  checked against the scope's folder id, so Willow's Android app (whose folder is not
+  stored) keeps only task attachments. A file not yet in this browser's OPFS: the page says
+  so, and Download and Print are disabled.
 
 **At 960px and below** it opens in the overlay the remote browser uses (the 48px close bar
 over a `#1c1c1c` card), and the card holds the page alone, as Gemini's phone and tablet

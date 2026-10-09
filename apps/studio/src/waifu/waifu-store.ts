@@ -5,8 +5,8 @@
 
 import { atom } from 'nanostores';
 import { requestSyncedFolderPass } from '@willow/storage/local-sync';
-import { DEFAULT_MODEL, Live2DModelMeta } from './waifu-models';
-import { DEFAULT_PERSONA, WaifuEmotion, WaifuPersona } from './waifu-personas';
+import { DEFAULT_MODEL, Live2DModelMeta, WAIFU_MODELS } from './waifu-models';
+import { DEFAULT_PERSONA, WAIFU_PERSONAS, WaifuEmotion, WaifuPersona } from './waifu-personas';
 import {
   COMPANION_HISTORY_EVENT,
   COMPANION_HISTORY_KEY,
@@ -36,6 +36,8 @@ export interface WaifuSettings {
 
 const STORAGE_KEYS = {
   MODEL: 'willow:waifu:model-id',
+  /** An avatar loaded from its own URL, which no gallery entry can stand for. */
+  CUSTOM_MODEL: 'willow:waifu:custom-model',
   PERSONA: 'willow:waifu:persona-id',
   SETTINGS: 'willow:waifu:settings',
 };
@@ -49,22 +51,50 @@ function readJSON<T>(key: string, fallback: T): T {
   }
 }
 
-export const activeModelStore = atom<Live2DModelMeta>(DEFAULT_MODEL);
-export const activePersonaStore = atom<WaifuPersona>(DEFAULT_PERSONA);
+const isModelMeta = (value: unknown): value is Live2DModelMeta => {
+  if (!value || typeof value !== 'object') return false;
+  const model = value as Record<string, unknown>;
+  return typeof model.id === 'string' && typeof model.name === 'string' && typeof model.url === 'string' && typeof model.image === 'string';
+};
+
+/** The avatar `id` names: one of the gallery's, or `custom` when it is that one loaded from its own URL. */
+export const companionModelFor = (id: unknown, custom?: unknown): Live2DModelMeta | null => {
+  if (typeof id !== 'string') return null;
+  return WAIFU_MODELS.find((model) => model.id === id) ?? (isModelMeta(custom) && custom.id === id ? custom : null);
+};
+
+export const companionPersonaFor = (id: unknown): WaifuPersona | null =>
+  WAIFU_PERSONAS.find((persona) => persona.id === id) ?? null;
+
+export const activeModelStore = atom<Live2DModelMeta>(
+  companionModelFor(localStorageText(STORAGE_KEYS.MODEL), readJSON<unknown>(STORAGE_KEYS.CUSTOM_MODEL, null)) ?? DEFAULT_MODEL,
+);
+export const activePersonaStore = atom<WaifuPersona>(companionPersonaFor(localStorageText(STORAGE_KEYS.PERSONA)) ?? DEFAULT_PERSONA);
 export const currentEmotionStore = atom<WaifuEmotion>('neutral');
 
-export const waifuSettingsStore = atom<WaifuSettings>(
-  readJSON<WaifuSettings>(STORAGE_KEYS.SETTINGS, {
-    voiceEnabled: true,
-    voicePitch: 1.2,
-    voiceRate: 1.05,
-    voiceVolume: 1.0,
-    liveVoice: 'Aoede',
-    particlesEnabled: true,
-    modelScale: 0.35,
-    backgroundTheme: 'cozy-room',
-  })
-);
+function localStorageText(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export const DEFAULT_WAIFU_SETTINGS: WaifuSettings = {
+  voiceEnabled: true,
+  voicePitch: 1.2,
+  voiceRate: 1.05,
+  voiceVolume: 1.0,
+  liveVoice: 'Aoede',
+  particlesEnabled: true,
+  modelScale: 0.35,
+  backgroundTheme: 'cozy-room',
+};
+
+export const waifuSettingsStore = atom<WaifuSettings>({
+  ...DEFAULT_WAIFU_SETTINGS,
+  ...readJSON<Partial<WaifuSettings>>(STORAGE_KEYS.SETTINGS, {}),
+});
 
 const savedHistory = readCompanionHistory() as WaifuMessage[] | null;
 export const waifuHistoryStore = atom<WaifuMessage[]>(savedHistory?.length ? savedHistory : [
@@ -102,7 +132,29 @@ export function setActiveModel(model: Live2DModelMeta) {
   activeModelStore.set(model);
   try {
     localStorage.setItem(STORAGE_KEYS.MODEL, model.id);
+    if (WAIFU_MODELS.some((entry) => entry.id === model.id)) localStorage.removeItem(STORAGE_KEYS.CUSTOM_MODEL);
+    else localStorage.setItem(STORAGE_KEYS.CUSTOM_MODEL, JSON.stringify(model));
   } catch {}
+}
+
+const BACKGROUND_THEMES: ReadonlyArray<WaifuSettings['backgroundTheme']> = ['cyberpunk', 'cherry-blossom', 'cozy-room', 'minimal', 'gradient'];
+
+/** The companion's settings from `value` (`settings.json`, hand-edited perhaps): what is valid, over the defaults. */
+export function replaceWaifuSettings(value: unknown) {
+  if (!value || typeof value !== 'object') return;
+  const given = value as Record<string, unknown>;
+  const next: WaifuSettings = { ...DEFAULT_WAIFU_SETTINGS };
+  for (const key of ['voiceEnabled', 'particlesEnabled'] as const) {
+    if (typeof given[key] === 'boolean') next[key] = given[key] as boolean;
+  }
+  for (const key of ['voicePitch', 'voiceRate', 'voiceVolume', 'modelScale'] as const) {
+    if (typeof given[key] === 'number' && Number.isFinite(given[key])) next[key] = given[key] as number;
+  }
+  if (typeof given.liveVoice === 'string' && given.liveVoice) next.liveVoice = given.liveVoice;
+  if (BACKGROUND_THEMES.includes(given.backgroundTheme as WaifuSettings['backgroundTheme'])) {
+    next.backgroundTheme = given.backgroundTheme as WaifuSettings['backgroundTheme'];
+  }
+  if (JSON.stringify(next) !== JSON.stringify(waifuSettingsStore.get())) updateWaifuSettings(next);
 }
 
 export function setActivePersona(persona: WaifuPersona) {

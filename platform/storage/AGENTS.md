@@ -33,7 +33,7 @@ Section 11 (Invariants) lists rules that cause data loss when broken.
 | `src/local-fs/chat-title.ts` | Asks the user's chat-naming model for a short title. Never throws. |
 | `src/local-fs/project-manifest.ts` | Reads/repairs a project folder's stable id in `.willow.json`. |
 | `src/local-fs/disk-deps.ts` | The `DiskDeps` contract the two disk writers below are passed. |
-| `src/local-fs/code-disk.ts` | Writes a project's `Code/` folder: codebase files + chat sessions. |
+| `src/local-fs/code-disk.ts` | Writes a project's `Code/` folder: codebase files + chat sessions; reads the chat sessions back for a browser that has none stored (`readProjectChatsFromDisk`). |
 | `src/local-fs/media-disk.ts` | Writes/deletes/renames files in a project's `Media/` folder + cover. |
 | `src/local-fs/conversation-files.ts` | A conversation's files in a same-name folder beside its JSON (`Chats/<id>/Attachments/…`): deterministic names, write-once, move (case-only safe) and delete. See ARCHITECTURE.md §6a. |
 | `src/project-contributors.ts` | Registry where features register their project-save writers (sub-folders *inside* a project). |

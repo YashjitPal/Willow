@@ -698,23 +698,18 @@
   width: calc(100% - 26px);
 }
 
+/* No border, a step off the box (lighter in dark, its chips' hover tone), so it reads apart from it. */
 [data-willow-composer-rail="true"] {
   position: relative;
   overflow: clip;
   padding-bottom: calc(1rem + 1px);
-  border: 1px solid var(--codex-border);
-  border-bottom: 0;
   border-radius: 16px 16px 0 0;
-  background: var(--willow-composer-surface);
+  background: var(--willow-utility-chip-hover);
 }
 
 [data-willow-composer-rail="true"] > [data-slot="composer-banner-attachment"] {
   width: 100%;
   margin: 0;
-}
-
-[data-willow-composer-rail="true"] > * + * {
-  border-top: 1px solid var(--codex-border);
 }
 
 /* Each banner's own glass, and the strip it keeps for the box to cover: the rail draws them once. */

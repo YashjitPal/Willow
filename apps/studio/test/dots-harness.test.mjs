@@ -1024,6 +1024,52 @@ it('draws a message that is only a picture, and marks each app a turn reached on
   assert.deepEqual(screenMarks('t4'), ['used', 'used', 'stopped'], 'taken back: nothing is live any more, and the line says where');
 });
 
+it('shows Seen once the model has a message in hand, through the bot working and typing, until its answer is written', async () => {
+  const { chatRows, seenRow } = await importTs(path.join(repoRoot, 'features', 'spark', 'src', 'dots', 'chat', 'chat-rows.ts'));
+  const dotId = await newDot();
+  const asked = say(dotId, 'What is on my calendar?');
+  const seen = (readThrough) => seenRow(chatRows(store.getDotThread(dotId), Date.now()), readThrough)?.key ?? null;
+  assert.equal(seen(asked.seq - 1), null, 'sent, and not yet in the model’s hands');
+  assert.equal(seen(asked.seq), asked.id, 'read: a request carrying it has begun');
+  store.appendDotItem(dotId, { kind: 'call', tool: 'recall', args: {}, text: '', turnId: 't1' });
+  const typing = store.appendDotItem(dotId, { kind: 'dot', text: 'You have', streaming: true, turnId: 't1' });
+  assert.equal(seen(asked.seq), asked.id, 'it stays while the bot works and while it types');
+
+  const more = say(dotId, 'And tomorrow?');
+  assert.equal(seen(asked.seq), null, 'a message steered in mid-turn is not seen until a request carries it');
+  assert.equal(seen(more.seq), more.id, 'and is, once one does');
+  store.updateDotItem(dotId, typing.id, { text: 'You have two meetings.', streaming: false });
+  assert.equal(seen(more.seq), more.id, 'the answer to the first message leaves the second still read');
+  store.appendDotItem(dotId, { kind: 'dot', text: 'Tomorrow is free.', turnId: 't1' });
+  assert.equal(seen(more.seq), null, 'answered: the reply says it was seen');
+});
+
+it('steers rather than interrupts: a message sent while a tool runs waits for it, comes in next, and is read only then', async () => {
+  const dotId = await newDot();
+  const asked = say(dotId, 'Book the table.');
+  let steered;
+  let finished = false;
+  const lookup = {
+    id: 'recall',
+    run: async () => {
+      steered = say(dotId, 'Make it for four.');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      finished = true;
+      return { observation: 'Found the booking page.' };
+    },
+  };
+  const transport = scripted(['*** Call: recall\n{"query": "booking"}\n*** End Call\n', '*** Message\nBooked, for four.\n*** End Message\n']);
+  const { result, events } = watchedTurn(dotId, transport, { tools: new Map([['recall', lookup]]) });
+  assert.equal((await result).reason, 'idle');
+  assert.equal(finished, true, 'the tool was not cut short');
+  assert.equal(transport.requests.length, 2, 'one turn: no new turn, no restart');
+  assert.doesNotMatch(transport.requests[0].messages.map((message) => message.content).join('\n'), /Make it for four/);
+  assert.match(transport.requests[1].messages.map((message) => message.content).join('\n'), /Found the booking page\.[\s\S]*Make it for four\./, 'the step finished, then the message came in');
+  const reads = events.filter((event) => event.type === 'read').map((event) => event.seq);
+  assert.equal(reads[0], asked.seq);
+  assert.ok(reads[1] >= steered.seq, 'read when a request carrying it began, not when it was sent');
+});
+
 it('marks a declined request, and leaves nothing — not even a day — for one withdrawn before an answer', async () => {
   const { chatRows } = await importTs(path.join(repoRoot, 'features', 'spark', 'src', 'dots', 'chat', 'chat-rows.ts'));
   const dotId = await newDot();

@@ -9,7 +9,7 @@
 // detach it first; a detached turn's late callbacks see `detached` and write nothing, so an
 // old reply can never stream into a new conversation.
 
-import { atom, computed } from 'nanostores';
+import { atom, computed, onMount } from 'nanostores';
 import {
   streamChat,
   isAbortError,
@@ -74,6 +74,16 @@ import {
   type AgentModelOption,
   type MediaAgentPromptContext,
 } from './agent-tools';
+import {
+  agentSettingsText,
+  onAgentSettingsChange,
+  readAgentSettings,
+  writeAgentSettings,
+  type AgentInstruction,
+  type AgentSettings,
+} from './agent-settings';
+
+export type { AgentInstruction, AgentSettings };
 
 export const DEFAULT_SESSION_TITLE = 'Untitled session';
 /** Gallery thumbnails the model has not seen yet, attached per turn. */
@@ -85,21 +95,6 @@ const ATTACHMENT_THUMB_SIZE = 160;
 const MAX_TOOL_ROUNDS = 12;
 const ANALYZE_MAX_BYTES = 18 * 1024 * 1024;
 const STREAM_FLUSH_MS = 32;
-
-export interface AgentInstruction {
-  id: string;
-  title: string;
-  isActive: boolean;
-  content: string;
-  referenceName?: string;
-  referenceId?: string;
-  isEditingTitle?: boolean;
-}
-
-export interface AgentSettings {
-  confirmBeforeGenerating: boolean;
-  instructions: AgentInstruction[];
-}
 
 export interface AgentAttachment {
   name?: string;
@@ -459,50 +454,6 @@ export async function toAgentAttachments(attachments: ImageAttachment[]): Promis
   return converted.filter((att): att is AgentAttachment => att !== null);
 }
 
-// ── Settings (per user, not per project) ──────────────────────────────────────
-
-const DEFAULT_SETTINGS: AgentSettings = { confirmBeforeGenerating: false, instructions: [] };
-
-/* Keyed by the account half of the scope only, so connecting a folder (which changes the
-   root half) does not make a user's standing instructions vanish. */
-const settingsKey = (scopeId: string) => `willow:mediaAgent:settings:v1:${(scopeId || 'signed-out').split('::')[0]}`;
-
-function readSettings(scopeId: string): AgentSettings {
-  try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(settingsKey(scopeId)) : null;
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw);
-    return {
-      confirmBeforeGenerating: parsed?.confirmBeforeGenerating === true,
-      instructions: Array.isArray(parsed?.instructions)
-        ? parsed.instructions
-            .filter((i: any) => i && typeof i.id === 'string')
-            .map((i: any) => ({
-              id: i.id,
-              title: String(i.title ?? ''),
-              isActive: i.isActive !== false,
-              content: String(i.content ?? ''),
-              ...(typeof i.referenceName === 'string' ? { referenceName: i.referenceName } : {}),
-              ...(typeof i.referenceId === 'string' ? { referenceId: i.referenceId } : {}),
-            }))
-        : [],
-    };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
-
-function writeSettings(scopeId: string, settings: AgentSettings): void {
-  try {
-    localStorage.setItem(settingsKey(scopeId), JSON.stringify({
-      confirmBeforeGenerating: settings.confirmBeforeGenerating,
-      instructions: settings.instructions.map(({ isEditingTitle: _editing, ...rest }) => rest),
-    }));
-  } catch {
-    // Quota or privacy mode: settings still apply for this session.
-  }
-}
-
 // ── Persistence mapping ───────────────────────────────────────────────────────
 
 const toStored = (message: AgentMessage): StoredAgentMessage => ({
@@ -547,7 +498,19 @@ export function createMediaAgent(options: { getHost: () => MediaAgentHost; scope
   const $thinking = atom('');
   const $session = atom<{ id: string; title: string }>({ id: newId(), title: DEFAULT_SESSION_TITLE });
   const $history = atom<AgentHistoryState>({ loading: false, sessions: [] });
-  const $settings = atom<AgentSettings>(readSettings(options.scopeId));
+  const settingsScope = () => getHost()?.scopeId ?? options.scopeId;
+  const $settings = atom<AgentSettings>(readAgentSettings(options.scopeId));
+  // Read again whenever anything reads it: settings.json or another tab may have changed them, or
+  // the user signed in since this agent was made. Equal saved settings keep the page's own state
+  // (a title being edited).
+  const refreshSettings = () => {
+    const saved = readAgentSettings(settingsScope());
+    if (agentSettingsText(saved) !== agentSettingsText($settings.get())) $settings.set(saved);
+  };
+  onMount($settings, () => {
+    refreshSettings();
+    return onAgentSettingsChange(refreshSettings);
+  });
 
   let sessionCreatedAt = Date.now();
   let seenMediaIds = new Set<string>();
@@ -1505,7 +1468,7 @@ export function createMediaAgent(options: { getHost: () => MediaAgentHost; scope
   const updateSettings = (patch: Partial<AgentSettings>) => {
     const next = { ...$settings.get(), ...patch };
     $settings.set(next);
-    writeSettings(getHost().scopeId, next);
+    writeAgentSettings(settingsScope(), next);
   };
 
   return {

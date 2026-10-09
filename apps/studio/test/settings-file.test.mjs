@@ -240,11 +240,33 @@ it('is attached by the folder layer and registered by the app', () => {
   const features = read('apps', 'studio', 'src', 'app', 'register-features.ts');
   assert.match(features, /import '\.\/register-settings-file';/);
   const sections = read('apps', 'studio', 'src', 'app', 'register-settings-file.ts');
-  for (const key of ['apiKeys', 'labs', 'voice', 'rail', 'pets', 'customize', 'mcpServers']) {
+  for (const key of ['apiKeys', 'labs', 'voice', 'rail', 'projects', 'spark', 'pages', 'pets', 'companion', 'customize', 'gems', 'connectors', 'mcpServers']) {
     assert.match(sections, new RegExp(`registerSettingsSection\\('${key}'`), `${key} is not in settings.json`);
   }
   const bridge = read('apps', 'studio', 'src', 'app', 'SettingsFileBridge.tsx');
-  for (const key of ['baseUrls', 'model', 'appearance']) {
+  for (const key of ['baseUrls', 'providers', 'model', 'appearance']) {
     assert.match(bridge, new RegExp(`registerSettingsSection\\('${key}'`), `${key} is not in settings.json`);
   }
+});
+
+it('joins Spark\'s apps only once Spark has read its saved workspace', () => {
+  // Registered earlier, the section would answer the file with the apps Spark starts with, and write them over it.
+  const sections = read('apps', 'studio', 'src', 'app', 'register-settings-file.ts');
+  assert.match(sections, /sparkHydrationScope\.subscribe\(\(scope\) => \{\s*if \(scope\) registerSettingsSection\('spark', sparkSection\);\s*\}\);/);
+  assert.doesNotMatch(sections, /registerSettingsSection\('spark', \{/);
+});
+
+it('leaves which connectors are connected out of settings.json', () => {
+  // The tokens behind a connection stay in the browser, so the file must not claim a product is connected.
+  const sections = read('apps', 'studio', 'src', 'app', 'register-settings-file.ts');
+  assert.doesNotMatch(sections, /connectionsStore|personal-connections/);
+});
+
+it('holds a model the file picks before this copy has the folder\'s models, and picks it when they come', () => {
+  // A fresh copy attaches settings.json before Models/catalog.json: the composer falls back to the first
+  // model, and that must not be written over the file's choice.
+  const bridge = read('apps', 'studio', 'src', 'app', 'SettingsFileBridge.tsx');
+  assert.match(bridge, /selected: heldSelection\.current\?\.id \?\? latest\.current\.selectedModelId,/);
+  assert.match(bridge, /heldSelection\.current = selected && !hasModel\(current\.modelConfig, selected\)\s*\? \{ id: selected, timer: setTimeout\(releaseSelection, HELD_SELECTION_MS\) \}/);
+  assert.match(bridge, /if \(!held \|\| !hasModel\(props\.modelConfig, held\.id\)\) return;[\s\S]{0,200}props\.setSelectedModelId\(held\.id\);/);
 });

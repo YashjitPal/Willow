@@ -115,8 +115,28 @@ html[data-willow-compact] [data-mobile="true"] .willow-project-heading__toggle {
   height: 44px;
 }
 
-html[data-willow-compact] [data-mobile="true"] .willow-project-heading__toggle {
-  padding-left: 16px;
+/* A project's folder and name sit as the rows' glyphs and labels above them do. */
+html[data-willow-compact] [data-mobile="true"] .willow-project-heading__glyph {
+  margin-inline: -2px;
+}
+
+html[data-willow-compact] [data-mobile="true"] .willow-project-heading__glyph .willow-project-heading__folder,
+html[data-willow-compact] [data-mobile="true"] .willow-project-heading__chevron {
+  width: 28px;
+  height: 28px;
+  font-size: 28px;
+  line-height: 28px;
+  font-variation-settings: "FILL" 0, "wght" 260, "GRAD" 0, "opsz" 28, "ROND" 100;
+}
+
+html[data-willow-compact] [data-mobile="true"] .willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"],
+html[data-willow-compact]
+  [data-mobile="true"]
+  .willow-projects
+  [data-sidebar="menu-sub"]
+  > li:not([data-thread-item])
+  > :is([data-sidebar="menu-sub-button"], div) {
+  padding-left: 36px;
 }
 
 html[data-willow-compact] [data-mobile="true"] .willow-projects [data-thread-item] > [data-sidebar="menu-sub-button"],

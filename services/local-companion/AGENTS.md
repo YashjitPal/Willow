@@ -249,24 +249,41 @@ JSON lines both ways, started on demand and stopped after ten quiet minutes.
   action. Invoking a control is Windows asking the app to do what a click would: no
   mouse moves.
 
-**The overlay** (`screen-overlay.cs`), from `screen.begin` until `screen.end`, the
-user stopping it, or 40 quiet seconds: a glow around every monitor (drawn once,
-breathing through its window's opacity), a pill at the top of the monitor the bot is
-on — "{bot} is clicking…", with Stop and an Esc badge — and the bot's own cursor, a
-vector arrow in the bot's colour that travels to each action on springs (an arc for
-a long hop), stretches along its way, breathes at rest and dips with a ring where it
-presses; the action waits for it to arrive, then checks the user is still away. It
-is GDI+ in layered windows at real pixels, never activated, kept out of captures
+**The overlay** (`screen-overlay.cs`) shows from `screen.begin` until `screen.end`,
+the user stopping it, or 40 quiet seconds. It has three parts:
+- **A glow around every monitor.** It is drawn once, and its window's opacity
+  carries it in, its breath and its going.
+- **A pill at the top of the monitor the bot is on.** It is dark glass with a soft
+  shadow (a pass-through window of its own under the pill), and the bot's colour
+  glows behind its badge. The badge is the bot's initial, ringed by an arc turning
+  while it acts and a slow pulse while it only holds the screen. Then "{bot} is
+  clicking…", the doing shimmering, and a red-toned Stop with an Esc keycap.
+- **The bot's own cursor.** A vector arrow in the bot's colour, it travels to each
+  action on springs (an arc for a long hop), stretches along its way, breathes at
+  rest, and dips with a ring where it presses. The action waits for it to arrive,
+  then checks the user is still away.
+
+It comes and goes in motion (`Animate`):
+- **Coming:** the glow blooms in over 0.6 s and then breathes. The pill drops into
+  place a beat later and settles, and the cursor grows out of the user's pointer.
+- **Going** (0.4 s): the pill lifts away first and the rest sinks out.
+- **Called back half way:** a fade rises again from where it had got to.
+
+It is GDI+ in layered windows at real pixels, never activated, kept out of captures
 (`WDA_EXCLUDEFROMCAPTURE`; on older Windows it steps aside for a capture), and all
-but the pill let clicks through — a click on the pill itself is refused like
+but the pill let clicks through. A click on the pill itself is refused like
 Willow's own window. Esc is read with a low-level keyboard hook only while it shows,
 and only the user's own key (not one flagged injected) counts; Stop or Esc ends the
 grant there and then, and the helper says so on its own line
 (`{"event":"stopped","how","grant","session"}`), which the companion broadcasts as
 `screen.stopped`. The user's input is never blocked. Since captures leave the overlay
 out, its look is checked with `willow-screen-<hash>.exe --render-samples <folder> [name]
-[#colour]`, which draws the pill, the cursor (resting, travelling, pressing) and a glow
-into PNGs and exits without showing anything.
+[#colour]`, which draws into PNGs and exits without showing anything. It draws:
+- the pill at rest, at work and with Stop under the pointer, on a light and a dark
+  desktop;
+- its coming in and going, a frame at a time;
+- the cursor resting, travelling, pressing and ringing;
+- a glow.
 
 What it refuses, as `{ ok: false, refused }` rather than an error: a point on any of
 Willow's own windows (`willow`: the app's process, by name and by the companion's

@@ -1,8 +1,10 @@
 package com.willow.tunnel
 
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.WebStorage
 import android.webkit.WebView
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
@@ -42,6 +44,23 @@ internal object WebViewSupport {
       cookies.flush()
       done(removed)
     }
+  }
+
+  /**
+   * Everything the WebView keeps for its pages: their storage (localStorage, IndexedDB and the
+   * rest), the HTTP cache and the cookies. What Willow keeps lives on the PC, so the phone's copy
+   * is only ever a cache of it.
+   */
+  fun clearAll(context: Context, done: (Boolean) -> Unit) {
+    WebStorage.getInstance().deleteAllData()
+    try {
+      WebView(context).apply {
+        clearCache(true)
+        destroy()
+      }
+    } catch (ignored: RuntimeException) {
+    }
+    clearCookies(done)
   }
 
   private fun findWebView(view: View): WebView? {

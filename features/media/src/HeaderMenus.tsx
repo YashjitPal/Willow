@@ -13,6 +13,7 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { Avatar } from '@willow/ui/Avatar';
 import { FlowMatDivider, FlowMatMenu, FlowMatMenuItem, type MenuAnchor } from './scenes/flow-ui';
 import { openWillowTv } from './tv/tv-routes';
+import type { ViewSettings } from './view-settings';
 import './flow-menu.css';
 import './header-panels.css';
 
@@ -179,53 +180,7 @@ export const FlowTabs = <T extends string>({ value, onChange, options, compact =
   </div>
 );
 
-export type ViewSettings = {
-  viewMode: 'grid' | 'batch';
-  gridSize: 'S' | 'M' | 'L';
-  soundOnHover: boolean;
-  silentVideos: boolean;
-  tileDetails: boolean;
-  clearPromptOnSubmit: boolean;
-};
-
-export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
-  viewMode: 'grid',
-  gridSize: 'M',
-  soundOnHover: false,
-  silentVideos: false,
-  tileDetails: true,
-  clearPromptOnSubmit: true,
-};
-
-const VIEW_SETTINGS_KEY = 'willow-media-view-settings';
-
-/** Flow keeps these per account, across projects and visits; Willow keeps them in this browser. */
-export function loadViewSettings(): ViewSettings {
-  try {
-    const raw = JSON.parse(localStorage.getItem(VIEW_SETTINGS_KEY) || 'null') as Partial<ViewSettings> | null;
-    if (!raw || typeof raw !== 'object') return DEFAULT_VIEW_SETTINGS;
-    const flag = (key: 'soundOnHover' | 'silentVideos' | 'tileDetails' | 'clearPromptOnSubmit') =>
-      (typeof raw[key] === 'boolean' ? raw[key] as boolean : DEFAULT_VIEW_SETTINGS[key]);
-    return {
-      viewMode: raw.viewMode === 'batch' ? 'batch' : 'grid',
-      gridSize: raw.gridSize === 'S' || raw.gridSize === 'L' ? raw.gridSize : 'M',
-      soundOnHover: flag('soundOnHover'),
-      silentVideos: flag('silentVideos'),
-      tileDetails: flag('tileDetails'),
-      clearPromptOnSubmit: flag('clearPromptOnSubmit'),
-    };
-  } catch {
-    return DEFAULT_VIEW_SETTINGS;
-  }
-}
-
-export function saveViewSettings(settings: ViewSettings): void {
-  try {
-    localStorage.setItem(VIEW_SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // Private mode or a full quota: the settings still apply for this visit.
-  }
-}
+export { DEFAULT_VIEW_SETTINGS, loadViewSettings, saveViewSettings, type ViewSettings } from './view-settings';
 
 /** A trigger's box as a FlowMatMenu anchor, while the menu is open. */
 const belowAnchor = (open: boolean, ref: React.RefObject<HTMLElement | null>): MenuAnchor | null =>

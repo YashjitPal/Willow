@@ -77,18 +77,22 @@ const ABANDONED_AFTER_MS = 60 * 60 * 1000;
 const newToolId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : uid('tool-');
 
+/** Bumped by each preferences write from `settings.json`, so a load begun before it does not put back what it replaced. */
+let prefsEpoch = 0;
+
 /** Loads the account's tools once per scope (user + root + workspace). */
 export async function initToolsStore(scope: string): Promise<void> {
   scopeId = scope || 'guest';
   if (loadedScope === scopeId) return;
   loadedScope = scopeId;
   $toolsLoaded.set(false);
+  const epoch = prefsEpoch;
   try {
     const [tools, prefs] = await Promise.all([listTools(scopeId), loadToolPrefs(scopeId)]);
     if (loadedScope !== scopeId) return;
     const abandoned = tools.filter((t) => t.pending && Date.now() - t.createdAt > ABANDONED_AFTER_MS);
     $tools.set(tools.filter((t) => !abandoned.includes(t)));
-    $toolPrefs.set(prefs);
+    if (epoch === prefsEpoch) $toolPrefs.set(prefs);
     for (const t of abandoned) void deleteStoredTool(t.id, scopeId).catch(() => undefined);
   } catch (error) {
     console.warn('[tools] could not load the tools store', error);
@@ -314,8 +318,18 @@ export async function deleteTool(id: string): Promise<void> {
 }
 
 // The Tools folder put a tool back, or found its file deleted (./tools-disk.ts): the pages follow.
+// So do the favorites, pins and recent tools when settings.json brings them (../media-settings.ts).
 onMediaToolsChange((change) => {
   const { toolId } = change;
+  if (change.fromDisk && change.what === 'prefs') {
+    prefsEpoch += 1;
+    const scope = change.scopeId;
+    if (scope !== loadedScope) return;
+    void loadToolPrefs(scope)
+      .then((prefs) => { if (scope === loadedScope) $toolPrefs.set(prefs); })
+      .catch((error) => console.warn('[tools] preferences from settings.json did not load', error));
+    return;
+  }
   if (!change.fromDisk || !toolId || change.scopeId !== loadedScope) return;
   if (change.what === 'deleted') {
     forgetTool(toolId);

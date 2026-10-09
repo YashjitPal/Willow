@@ -9,6 +9,8 @@ import { InputBar } from './composer/Composer';
 import { DesignProjectsDrawer, PANEL_ENTER_CSS, PANEL_EXIT_CSS } from './DesignProjectsDrawer';
 import { DesignCanvas } from './DesignCanvas';
 import { DesignChat, DesignChatHandle } from './DesignChat';
+import { designProjectLoading, openDesignProjectState, type DesignFolder } from './design-persistence';
+import { designTurnRunning } from './design-store';
 import { readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 
@@ -35,7 +37,12 @@ export const DesignView: React.FC<DesignViewProps> = ({
   const [canvasPrompt, setCanvasPrompt] = useState<string | undefined>();
   const [activeProjectName, setActiveProjectName] = useState('Untitled Design');
   const designChatRef = useRef<DesignChatHandle | null>(null);
-  const { saveLocalFSDesignProject } = useLocalFS();
+  const { saveLocalFSDesignProject, readLocalFSDesignFile, writeLocalFSDesignFile } = useLocalFS();
+  const designFolder = useMemo<DesignFolder>(
+    () => ({ read: readLocalFSDesignFile, write: writeLocalFSDesignFile }),
+    [readLocalFSDesignFile, writeLocalFSDesignFile],
+  );
+  const projectLoading = useStore(designProjectLoading);
   const [internalModelId, setInternalModelId] = useState('gemini-2.5-flash');
   const selectedModelId = externalSelectedModelId || internalModelId;
   const setSelectedModelId = externalSetSelectedModelId || setInternalModelId;
@@ -63,21 +70,24 @@ export const DesignView: React.FC<DesignViewProps> = ({
     return name;
   }, [saveLocalFSDesignProject]);
 
-  const openDesignProject = useCallback((projectName: string, prompt?: string) => {
+  const openDesignProject = useCallback((projectName: string, prompt?: string, fresh = false) => {
+    // A reply still streaming lands in the open project's chat and canvas.
+    if (designTurnRunning.get() && projectName !== activeProjectName) return;
     setActiveProjectName(projectName);
     setCanvasPrompt(prompt?.trim() || undefined);
     setIsProjectsOpen(false);
     setIsCanvasOpen(true);
-  }, []);
+    void openDesignProjectState(projectName, designFolder, { fresh });
+  }, [activeProjectName, designFolder]);
 
   const handleCreateProject = useCallback(() => {
-    openDesignProject(createDesignProject());
+    openDesignProject(createDesignProject(), undefined, true);
   }, [createDesignProject, openDesignProject]);
 
   const handleSubmit = useCallback((prompt: string) => {
     if (!prompt.trim()) return;
     if (!isCanvasOpen) {
-      openDesignProject(createDesignProject(), prompt);
+      openDesignProject(createDesignProject(), prompt, true);
     }
   }, [createDesignProject, isCanvasOpen, openDesignProject]);
 
@@ -159,7 +169,7 @@ export const DesignView: React.FC<DesignViewProps> = ({
         <div className="relative min-h-0 flex-1">
           <aside className="absolute inset-x-auto bottom-0 left-0 top-[80px] z-30 flex w-[382px] shrink-0 flex-col gap-3 bg-[#171717] p-4 transition-[opacity,transform] duration-200 max-lg:pointer-events-none max-lg:-translate-x-full max-lg:opacity-0">
             <div className="min-h-0 flex-1 overflow-hidden rounded-[20px] border border-[#36373a] bg-[#1b1b1d]">
-              <DesignChat ref={designChatRef} modelConfig={modelConfig} selectedModelId={selectedModelId || null} initialPrompt={canvasPrompt} hideComposer />
+              {!projectLoading && <DesignChat ref={designChatRef} modelConfig={modelConfig} selectedModelId={selectedModelId || null} initialPrompt={canvasPrompt} hideComposer />}
             </div>
             <button
               type="button"
@@ -170,7 +180,7 @@ export const DesignView: React.FC<DesignViewProps> = ({
             </button>
           </aside>
           <main className="absolute inset-0 min-w-0 bg-[#0f0f0f]">
-            <DesignCanvas />
+            {!projectLoading && <DesignCanvas />}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-5 sm:pb-7">
               <div className="pointer-events-auto w-full max-w-[730px]">
                 <InputBar

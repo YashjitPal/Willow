@@ -198,10 +198,12 @@ Connection:
 
 Saves (all write IndexedDB and/or disk; never heavy data to localStorage):
 - `saveLocalFSProject(projectName, files)` — writes `Code/<p>/Codebase/*` and registered Code contributors.
-- `saveLocalFSDesignProject(projectName, files)` — writes `Design/<p>/` design files.
+- `saveLocalFSDesignProject(projectName, files)` — writes `Design/<p>/` design files, pruning the project's other unhidden files.
+- `writeLocalFSDesignFile(projectName, path, content)` / `readLocalFSDesignFile(projectName, path)` — one file of `Design/<p>/` (its `design.json`: screens and chat), leaving the rest alone; the read returns `null` only for a missing file and throws otherwise, so an unreadable file is never taken for an absent one.
 - `saveLocalFSChat(chatId, messages, oldChatId?, files?)` — committed scoped body + durable dirty revision + disk file, and the attachments it points at in `<chatId>/` beside it (§6a). `files` are for a chat carrying bytes inline.
 - `loadLocalFSChatAttachment(id, { chatId, attachment }?)` — IndexedDB, then the chat's folder (every chat folder, for a file moved by hand), put back in IndexedDB.
 - `saveLocalFSProjectChat(projectName, chatId, messages, oldChatId?, files?)` — per-project chat under `Code/<p>/Chat sessions/`, its `files` in `<chat>/` beside it.
+- `loadLocalFSProjectChats(projectName)` — those chats read back, each with a reader for its files, in the project's save queue: `[]` for no chats folder, `null` when the folder or any chat can't be read, so part of it is never taken for all of it. The Code screen restores them only into a project with no sessions stored (`features/code/src/workbench/restore-project-chats.ts`).
 - `saveLocalFSMediaAgentSession(projectName, session, files?)` / `deleteLocalFSMediaAgentSession` — `Media/<p>/Agent sessions/<id>.json` and `<id>/`.
 - `saveLocalFSScene(projectName, previousFsName, sceneName, text)` / `deleteLocalFSScene` / `listLocalFSScenes` — `Media/<p>/Scenes/<name>.json` (`scene-disk.ts`); what goes in them is Media's (`features/media/src/scenes/scene-files.ts`). Writes join the project queue.
 - `writeLocalFSConversationFiles(folder, stem, files)` / `readLocalFSConversationFile` / `deleteLocalFSConversationFolder` — a conversation's folder in a registered synced folder (Spark's tasks).
@@ -314,13 +316,20 @@ both are cited here as escapes so this file stays greppable.)
 │   ├── Tasks/
 │   │   ├── <taskId>.json
 │   │   └── <taskId>/             // written by Spark, not by the synced-folder engine
-│   │       ├── Attachments/
+│   │       ├── Attachments/      // read back into a browser missing them (spark-task-files.ts)
 │   │       └── Browser/          // "001 <host>.jpg"… and steps.json
 │   ├── Schedules/
 │   │   └── <scheduleId>.json
-│   └── Dots/
-│       └── <dotId>.json          // the dot and its whole thread: items, notebook, episodes, runtime
-│                                 //   (features/spark/src/dots/dots-folder.ts)
+│   ├── Dots/
+│   │   ├── <dotId>.json          // the dot and its whole thread: items, notebook, episodes, runtime
+│   │   │                         //   (features/spark/src/dots/dots-folder.ts)
+│   │   └── <dotId>/              // written by Spark (spark-folder-files.ts), never read as a dot
+│   │       ├── Attachments/      // files sent to the bot (dots/dot-attachment-files.ts)
+│   │       └── Files/            // the bot's workspace, both ways (spark-workspace-files.ts)
+│   ├── Files/                    // the tasks' workspace, both ways (spark-workspace-files.ts)
+│   └── Pages/
+│       ├── _pages.json           // which Pages there are; pinned, recent, shared with bots
+│       └── <pageId>.json         // a Page and its document (spaces/state/pages-folder.ts)
 ├── Gems/                          // registered via registerSyncedFolder
 │   └── <gemId>.json               // gemId = sanitized gem name
 ├── Pets/                          // desktop app only, written by the app (pets.rs); never scanned here
@@ -347,8 +356,8 @@ stays a project.
 `Chats/` and `Notebooks/` are hand-wired because they are not project areas.
 `Code/`, `Media/`, and feature-owned areas such as `Design/` are registered with
 `registerProjectArea`; discovery, bootstrap, rename, and deletion use that registry.
-`Gems/`, `Skills/`, `Spark/Tasks/`, `Spark/Schedules/` and `Spark/Dots/` are driven by
-`registerSyncedFolder`; nested registered paths are created segment by segment.
+`Gems/`, `Skills/`, `Spark/Tasks/`, `Spark/Schedules/`, `Spark/Dots/` and `Spark/Pages/` are
+driven by `registerSyncedFolder`; nested registered paths are created segment by segment.
 
 `kind` is decided by which registered parent the folder is under. Areas are
 priority-ordered, so a duplicate project name is resolved deterministically.

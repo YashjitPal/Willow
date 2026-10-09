@@ -5,8 +5,9 @@
  * (`WILLOW_MOBILE_PORT`, which Willow's desktop app sets), with what Willow's server gives that
  * page on the desktop (`bin/willow.js`): `/llm-proxy` and `/api/fetch-source`. It also relays the
  * local companion's socket, so code, bots and Spark reach this computer's files and shell from
- * the phone as they do on the desktop, and carries the phone's side of the `phone_*` tools
- * (`./phone.ts`). The app reaches both ports through its own loopback tunnels, so the page's
+ * the phone as they do on the desktop, carries the phone's side of the `phone_*` tools
+ * (`./phone.ts`), and opens Willow's folder on this computer to the phone's page (`./folder.ts`),
+ * so its chats, dots, projects and settings are this computer's. The app reaches both ports through its own loopback tunnels, so the page's
  * origin is `http://localhost`, a secure context that stays put when the computer's address
  * changes.
  *
@@ -20,6 +21,7 @@ import * as Http from "node:http";
 import * as Net from "node:net";
 import * as NodePath from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import * as Zlib from "node:zlib";
 
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -29,6 +31,7 @@ import { AuthAdministrativeScopes, type AuthEnvironmentScope } from "@t3tools/co
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
+import { handleFolderRequest } from "./folder.ts";
 import * as Phone from "./phone.ts";
 
 /** Where the Android app asks, on the agents' port, which port Willow's page is on. */
@@ -218,24 +221,112 @@ function serveFile(
     response.setHeader("Document-Isolation-Policy", "isolate-and-require-corp");
     response.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
   }
+  const extension = NodePath.extname(filePath).toLowerCase();
   response.setHeader(
     "Cache-Control",
     filePath.includes(`${NodePath.sep}assets${NodePath.sep}`)
       ? "public, max-age=31536000, immutable"
       : "no-cache",
   );
-  response.writeHead(200, {
-    "Content-Type":
-      MIME_TYPES[NodePath.extname(filePath).toLowerCase()] ?? "application/octet-stream",
-    "Content-Length": stat.size,
-  });
+  response.setHeader("Content-Type", MIME_TYPES[extension] ?? "application/octet-stream");
+  response.setHeader("Vary", "Accept-Encoding");
+  const encoding = COMPRESSIBLE.has(extension) ? acceptedEncoding(request.headers["accept-encoding"]) : null;
+  if (encoding) {
+    compressed(filePath, stat, encoding).then(
+      (body) => {
+        response.writeHead(200, { "Content-Encoding": encoding, "Content-Length": body.length });
+        response.end(request.method === "HEAD" ? undefined : body);
+      },
+      () => response.destroy(),
+    );
+    return;
+  }
+  // Media plays from ranges: the phone's WebView asks for a video a part at a time.
+  response.setHeader("Accept-Ranges", "bytes");
+  const range = rangeOf(request.headers.range, stat.size);
+  if (range === "unsatisfiable") {
+    response.writeHead(416, { "Content-Range": `bytes */${stat.size}` }).end();
+    return;
+  }
+  if (range) {
+    response.writeHead(206, {
+      "Content-Range": `bytes ${range.start}-${range.end}/${stat.size}`,
+      "Content-Length": range.end - range.start + 1,
+    });
+  } else {
+    response.writeHead(200, { "Content-Length": stat.size });
+  }
   if (request.method === "HEAD") {
     response.end();
     return;
   }
-  const stream = Fs.createReadStream(filePath);
+  const stream = Fs.createReadStream(filePath, range ?? {});
   stream.on("error", () => response.destroy());
   stream.pipe(response);
+}
+
+/**
+ * Willow's scripts and styles, compressed once per build: a cold start fetches about 9 MB of them,
+ * which a phone on Wi-Fi feels, and the build ships none compressed.
+ */
+const COMPRESSIBLE = new Set([".js", ".mjs", ".css", ".html", ".json", ".svg", ".txt", ".wasm", ".map", ".data", ".xml", ".webmanifest"]);
+const COMPRESSED_CACHE_BYTES = 160 * 1024 * 1024;
+const compressedCache = new Map<string, { readonly mtimeMs: number; readonly size: number; readonly body: Buffer }>();
+let compressedBytes = 0;
+
+const acceptedEncoding = (header: string | undefined): "br" | "gzip" | null => {
+  if (!header) return null;
+  if (/\bbr\b/.test(header)) return "br";
+  if (/\bgzip\b/.test(header)) return "gzip";
+  return null;
+};
+
+async function compressed(filePath: string, stat: Fs.Stats, encoding: "br" | "gzip"): Promise<Buffer> {
+  const key = `${encoding}:${filePath}`;
+  const kept = compressedCache.get(key);
+  if (kept && kept.mtimeMs === stat.mtimeMs && kept.size === stat.size) return kept.body;
+  const raw = await Fs.promises.readFile(filePath);
+  const body = await new Promise<Buffer>((resolve, reject) => {
+    const done = (error: Error | null, result: Buffer) => (error ? reject(error) : resolve(result));
+    if (encoding === "br") {
+      Zlib.brotliCompress(
+        raw,
+        { params: { [Zlib.constants.BROTLI_PARAM_QUALITY]: 6, [Zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } },
+        done,
+      );
+    } else {
+      Zlib.gzip(raw, { level: 6 }, done);
+    }
+  });
+  if (kept) compressedBytes -= kept.body.length;
+  compressedCache.delete(key);
+  compressedCache.set(key, { mtimeMs: stat.mtimeMs, size: stat.size, body });
+  compressedBytes += body.length;
+  for (const [oldKey, oldValue] of compressedCache) {
+    if (compressedBytes <= COMPRESSED_CACHE_BYTES) break;
+    compressedCache.delete(oldKey);
+    compressedBytes -= oldValue.body.length;
+  }
+  return body;
+}
+
+/** One `Range: bytes=` span; anything else is answered whole. */
+function rangeOf(header: string | undefined, size: number): { start: number; end: number } | "unsatisfiable" | null {
+  const match = header ? /^bytes=(\d*)-(\d*)$/.exec(header.trim()) : null;
+  if (!match || (!match[1] && !match[2])) return null;
+  let start: number;
+  let end: number;
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (suffix === 0) return "unsatisfiable";
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  }
+  if (start >= size || start > end) return "unsatisfiable";
+  return { start, end };
 }
 
 const rejectUpgrade = (socket: Net.Socket, status: number) => {
@@ -251,6 +342,8 @@ interface ListenerOptions {
   readonly agentsPort: number;
   readonly agentsOrigin: string;
   readonly companion: Companion | null;
+  /** Willow's folder on this computer, which the phone's page works on (`./folder.ts`). */
+  readonly folder: string | undefined;
   readonly issueHarnessToken: (scopes: Scopes) => Promise<string>;
 }
 
@@ -346,6 +439,7 @@ async function startListener(options: ListenerOptions): Promise<Http.Server> {
       return;
     }
 
+    if (await handleFolderRequest(request, response, url, options.folder)) return;
     if (pathname === "/api/willow/harness" && request.method === "POST") {
       // The agents tab may do what the phone's own pairing lets it, and no more.
       if (session.scopes.length === 0) {
@@ -482,6 +576,7 @@ const start = Effect.gen(function* () {
         agentsPort: config.port,
         agentsOrigin: loopbackOrigin(config.port, config.host),
         companion: companionFromEnv(),
+        folder: process.env.WILLOW_FOLDER?.trim() || undefined,
         issueHarnessToken: (scopes) =>
           Effect.runPromise(
             auth

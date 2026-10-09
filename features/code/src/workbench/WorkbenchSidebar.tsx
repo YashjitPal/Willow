@@ -79,7 +79,7 @@ import { streamChat, ChatMessage as AiChatMessage, prewarmClient, isAbortError }
 import { CODE_TOOLS, type CodeToolId } from '../harness/code-tools';
 import { BUILTIN_SKILLS } from '../harness/builtin-skills';
 import { parseResponseForDisplay, type ChatSegment } from '../runtime/sandpack/index';
-import { saveCodeSessions, loadCodeSessions, renameCodeSessions } from '@willow/storage/indexeddb/willow-db';
+import { saveCodeSessions, loadCodeSessions, renameCodeSessions, updateCodeSessions, getCodeSessionStorageScope } from '@willow/storage/indexeddb/willow-db';
 import { isOwnPreviewMessage, useCodeSession } from '../session/code-session';
 import { VisualEditMenu } from './visual-edit-menu';
 import { UnsavedChangesBar } from './UnsavedChangesBar';
@@ -95,6 +95,7 @@ import { useDrive } from '@willow/storage/adapters/use-drive';
 import { markCodeChat, renameCodeChat, unmarkCodeChat } from '@willow/storage/code-chat-storage';
 import { isTempChatId } from '@willow/storage/local-fs/chat-metadata';
 import { latestResumedSnapshot, sanitizeResumedCodeMessages } from './resume-code-chat';
+import { readProjectChatSessions, withRestoredChats } from './restore-project-chats';
 
 // ── The harness ──────────────────────────────────────────────────────────
 // Every Code turn runs on it: see features/code/src/harness/AGENTS.md.
@@ -704,7 +705,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
    */
   const resumedMessagesRef = useRef<ChatMessage[] | null>(null);
 
-  const { chatScopeId, isLocalFolderConnected, localChats, loadLocalFSProject, loadLocalFSChat, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
+  const { chatScopeId, isLocalFolderConnected, localChats, loadLocalFSProject, loadLocalFSProjectChats, loadLocalFSChat, saveLocalFSChat, deleteLocalFSChat, saveLocalFSProjectChat, generateChatTitle } = useLocalFS();
   // Read when naming, so a chat saved elsewhere does not start another naming request.
   const localChatsRef = useRef(localChats);
   localChatsRef.current = localChats;
@@ -1090,9 +1091,29 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
         if (cancelled) return;
       }
 
+      const sessionScope = getCodeSessionStorageScope();
       // loadCodeSessions migrates any legacy localStorage value into IndexedDB on first read.
-      const parsed = (await loadCodeSessions(storageKey)) as ChatSession[] | null;
+      let parsed = (await loadCodeSessions(storageKey)) as ChatSession[] | null;
       if (cancelled) return;
+
+      // Nothing stored for this project: browser storage was wiped, or the folder was
+      // written by another copy of Willow. Its chats are still in the project's
+      // `Chat sessions/`, so they are read back into sessions. Only when nothing is
+      // stored, because deleting a session leaves its file there; and only on a screen
+      // that opened the project, since a new project or a reopened chat is writing its
+      // own chat into that folder. A failed read leaves the project as it was.
+      if (parsed === null && projectName && isLocalFolderConnected && !prompt && !resumeChatId && messages.length === 0) {
+        try {
+          const restored = await readProjectChatSessions(await loadLocalFSProjectChats(projectName));
+          if (cancelled) return;
+          // The storage scope switches before `chatScopeId` does. Written after a switch,
+          // these would land in the new scope's bucket, which the read above never saw.
+          if (restored.length > 0 && getCodeSessionStorageScope() === sessionScope) {
+            parsed = (await updateCodeSessions(storageKey, (stored) => withRestoredChats(stored, restored))) as ChatSession[] | null;
+          }
+        } catch {}
+        if (cancelled) return;
+      }
 
       if (parsed && parsed.length > 0) {
         setSessions(parsed);
@@ -1140,7 +1161,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
     })();
 
     return () => { cancelled = true; };
-  }, [projectName, prompt, chatScopeId, isLocalFolderConnected, loadLocalFSProject, loadLatestProject, onProjectHydrated]);
+  }, [projectName, prompt, chatScopeId, isLocalFolderConnected, loadLocalFSProject, loadLocalFSProjectChats, loadLatestProject, onProjectHydrated]);
 
   // Auto-save current session state when messages or activeSnapshotId change
   useEffect(() => {

@@ -2,6 +2,7 @@
  * The parts of `settings.json` held in React state (see `register-settings-file.ts` for the rest):
  *
  * - `baseUrls`: each provider's endpoint, which the model setup carries for the streaming layer.
+ * - `providers`: each provider's API format and tool policy (its built-in profile in the model setup).
  * - `model`: the model the composer picks, and the system defaults (renaming, transcription, …).
  * - `appearance`: theme, workspace colour and background. Registered once auth has settled, so an
  *   account's own colour is the one written, not the device's from before its profile arrived.
@@ -12,7 +13,15 @@
  */
 
 import React from 'react';
+import { collectSavedModelsInCatalogOrder } from '@willow/core/model-catalog';
 import { registerSettingsSection } from '@willow/core/settings-file';
+import {
+  DEFAULT_PROFILE_IDS,
+  defaultApiFormatForProvider,
+  defaultToolPolicyForProvider,
+  type ProviderApiFormat,
+  type ProviderToolPolicy,
+} from '@willow/ai/providers/profiles';
 import { $themeChoice, setThemeChoice } from '@willow/core/theme-mode';
 import { WORKSPACE_COLOR_DEFINITIONS } from '@willow/core/workspace-theme';
 import { useAuth } from '@willow/auth/AuthContext';
@@ -28,6 +37,20 @@ const isObject = (value: unknown): value is Json =>
 
 const BACKGROUNDS: readonly BackgroundType[] = ['solid', 'waves', 'lines'];
 const THEMES = ['system', 'light', 'dark'] as const;
+/** How long a selection naming a model this copy does not have yet waits for the folder's models list. */
+const HELD_SELECTION_MS = 30_000;
+
+const hasModel = (modelConfig: any, selected: string): boolean => {
+  const id = selected.split('::effort-')[0];
+  return collectSavedModelsInCatalogOrder(modelConfig).some((model) => model.id === id);
+};
+
+const API_FORMATS: readonly ProviderApiFormat[] = ['native-gemini', 'openai-chat-completions', 'openai-responses', 'anthropic-messages', 'xai-chat-completions'];
+const TOOL_POLICIES: readonly ProviderToolPolicy[] = ['provider-native', 'function-calling', 'disabled'];
+
+const builtInProfile = (modelConfig: any, provider: typeof PROVIDER_IDS[number]): any =>
+  (Array.isArray(modelConfig?.providerProfiles) ? modelConfig.providerProfiles : [])
+    .find((profile: any) => profile?.id === DEFAULT_PROFILE_IDS[provider]);
 
 interface Props {
   selectedModelId: string;
@@ -59,6 +82,31 @@ export function SettingsFileBridge(props: Props) {
   const model = useListeners();
   const appearance = useListeners();
 
+  /*
+   * A selection the file names before this copy has the folder's models — a fresh copy attaches
+   * `settings.json` before it takes `Models/catalog.json` — is held rather than lost: the composer falls
+   * back to the first model meanwhile, the file keeps the choice, and it is applied once the list arrives
+   * with it. Held for a while only, so a model since removed cannot pin the file to it.
+   */
+  const heldSelection = React.useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const releaseSelection = React.useCallback(() => {
+    if (!heldSelection.current) return;
+    clearTimeout(heldSelection.current.timer);
+    heldSelection.current = null;
+    model.notify();
+  }, [model.notify]);
+  React.useEffect(() => {
+    const held = heldSelection.current;
+    if (!held || !hasModel(props.modelConfig, held.id)) return;
+    clearTimeout(held.timer);
+    heldSelection.current = null;
+    latest.current = { ...latest.current, selectedModelId: held.id };
+    props.setSelectedModelId(held.id);
+  }, [props.modelConfig]);
+  React.useEffect(() => () => {
+    if (heldSelection.current) clearTimeout(heldSelection.current.timer);
+  }, []);
+
   React.useEffect(() => {
     const stops = [
       registerSettingsSection('baseUrls', {
@@ -75,10 +123,47 @@ export function SettingsFileBridge(props: Props) {
         },
         subscribe: subscribeProviderValues,
       }),
+      registerSettingsSection('providers', {
+        order: 25,
+        read: () => Object.fromEntries(PROVIDER_IDS.map((provider) => {
+          const profile = builtInProfile(latest.current.modelConfig, provider);
+          return [provider, {
+            apiFormat: profile?.apiFormat ?? defaultApiFormatForProvider(provider),
+            toolPolicy: profile?.toolPolicy ?? defaultToolPolicyForProvider(provider),
+          }];
+        })),
+        apply: (value) => {
+          if (!isObject(value)) return;
+          const given = new Map<string, { apiFormat?: ProviderApiFormat; toolPolicy?: ProviderToolPolicy }>();
+          for (const provider of PROVIDER_IDS) {
+            const entry = value[provider];
+            if (!isObject(entry)) continue;
+            given.set(DEFAULT_PROFILE_IDS[provider], {
+              ...(API_FORMATS.includes(entry.apiFormat as ProviderApiFormat) ? { apiFormat: entry.apiFormat as ProviderApiFormat } : {}),
+              ...(TOOL_POLICIES.includes(entry.toolPolicy as ProviderToolPolicy) ? { toolPolicy: entry.toolPolicy as ProviderToolPolicy } : {}),
+            });
+          }
+          const update = (config: any) => {
+            if (!Array.isArray(config?.providerProfiles)) return config;
+            let changed = false;
+            const providerProfiles = config.providerProfiles.map((profile: any) => {
+              const change = given.get(profile?.id);
+              if (!change || Object.entries(change).every(([key, entry]) => profile[key] === entry)) return profile;
+              changed = true;
+              return { ...profile, ...change, updatedAt: Date.now() };
+            });
+            return changed ? { ...config, providerProfiles } : config;
+          };
+          const current = latest.current;
+          latest.current = { ...latest.current, modelConfig: update(latest.current.modelConfig) };
+          current.setModelConfig(update);
+        },
+        subscribe: model.subscribe,
+      }),
       registerSettingsSection('model', {
         order: 30,
         read: () => ({
-          selected: latest.current.selectedModelId,
+          selected: heldSelection.current?.id ?? latest.current.selectedModelId,
           systemDefaults: latest.current.modelConfig?.systemDefaults ?? {},
         }),
         apply: (value) => {
@@ -88,6 +173,10 @@ export function SettingsFileBridge(props: Props) {
             const selected = value.selected;
             latest.current = { ...latest.current, selectedModelId: selected };
             current.setSelectedModelId(selected);
+            if (heldSelection.current) clearTimeout(heldSelection.current.timer);
+            heldSelection.current = selected && !hasModel(current.modelConfig, selected)
+              ? { id: selected, timer: setTimeout(releaseSelection, HELD_SELECTION_MS) }
+              : null;
           }
           if (isObject(value.systemDefaults)) {
             const given = Object.fromEntries(Object.entries(value.systemDefaults)
@@ -104,7 +193,7 @@ export function SettingsFileBridge(props: Props) {
       }),
     ];
     return () => stops.forEach((stop) => stop());
-  }, [model.subscribe]);
+  }, [model.subscribe, releaseSelection]);
 
   React.useEffect(() => {
     if (loading) return;
@@ -140,7 +229,11 @@ export function SettingsFileBridge(props: Props) {
   }, [loading, appearance.subscribe]);
 
   const systemDefaults = JSON.stringify(props.modelConfig?.systemDefaults ?? {});
-  React.useEffect(model.notify, [props.selectedModelId, systemDefaults, model.notify]);
+  const providerFormats = JSON.stringify(PROVIDER_IDS.map((provider) => {
+    const profile = builtInProfile(props.modelConfig, provider);
+    return [profile?.apiFormat, profile?.toolPolicy];
+  }));
+  React.useEffect(model.notify, [props.selectedModelId, systemDefaults, providerFormats, model.notify]);
   React.useEffect(appearance.notify, [workspaceColor, background, appearance.notify]);
 
   return null;

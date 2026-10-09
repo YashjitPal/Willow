@@ -1221,6 +1221,7 @@ export const HeroSection: React.FC<{
           {/* Input Component — omitted when ChatView owns the composer itself. */}
           {!pinnedComposer && (
             <InputBar
+              draftKey="media:home"
               currentMode={mode}
               onModeChange={setMode}
               onSubmit={onPromptSubmit}

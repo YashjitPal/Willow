@@ -1,5 +1,5 @@
 import type { Attachment as AiAttachment } from '@willow/ai/chat';
-import { base64ToBlob } from '@willow/core/attachments';
+import { base64ToBlob, blobToBase64 } from '@willow/core/attachments';
 import type { SparkTaskAttachment } from './spark-types';
 
 const DB_NAME = 'willow-spark';
@@ -102,7 +102,7 @@ const TEXT_MIME_TYPES = new Set([
 
 const TEXT_EXTENSIONS = /\.(?:c|cc|cpp|css|csv|go|h|html?|java|js|jsx|json|md|mjs|py|rb|rs|sql|svg|toml|ts|tsx|txt|xml|ya?ml)$/i;
 
-const getAttachmentType = (file: File): NonNullable<SparkTaskAttachment['type']> => {
+const getAttachmentType = (file: Pick<File, 'name' | 'type'>): NonNullable<SparkTaskAttachment['type']> => {
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('text/') || TEXT_MIME_TYPES.has(file.type) || TEXT_EXTENSIONS.test(file.name)) {
     return 'text';
@@ -204,6 +204,44 @@ export const loadSparkAttachmentBlob = async (
   return (stored.type ?? attachment.type) === 'text'
     ? new Blob([stored.data], { type: mimeType })
     : base64ToBlob(stored.data, mimeType);
+};
+
+/** The ids among `attachmentIds` with no payload in this browser, in their order. */
+export const missingSparkAttachmentPayloads = async (
+  attachmentIds: readonly string[],
+  scopeId: string,
+): Promise<string[]> => {
+  if (!attachmentIds.length) return [];
+  const database = await openAttachmentDatabase();
+  try {
+    return await new Promise<string[]>((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const missing = new Set<string>();
+      attachmentIds.forEach((id) => {
+        const request = store.count(attachmentKey(scopeId, id));
+        request.onsuccess = () => {
+          if (request.result === 0) missing.add(id);
+        };
+      });
+      transaction.oncomplete = () => resolve(attachmentIds.filter((id) => missing.has(id)));
+      transaction.onerror = () => reject(transaction.error ?? new Error('Could not read Spark attachments.'));
+      transaction.onabort = () => reject(transaction.error ?? new Error('Reading Spark attachments was aborted.'));
+    });
+  } finally {
+    database.close();
+  }
+};
+
+/** Keeps `blob` as an attachment's payload, stored the way `createSparkTaskAttachments` stores one. */
+export const putSparkAttachmentPayload = async (
+  attachment: SparkTaskAttachment,
+  blob: Blob,
+  scopeId: string,
+): Promise<void> => {
+  const type = attachment.type ?? getAttachmentType({ name: attachment.name, type: attachment.mimeType });
+  const data = type === 'text' ? await blob.text() : await blobToBase64(blob);
+  await writePayload(scopeId, { ...attachment, type, data });
 };
 
 export const deleteSparkAttachmentPayloads = async (

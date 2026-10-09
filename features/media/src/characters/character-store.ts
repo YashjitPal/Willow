@@ -8,6 +8,7 @@ import {
   saveCharacter,
   type StoredCharacter,
 } from '@willow/storage/media-characters';
+import { deletedHere, rememberDeleted } from '../deleted-here';
 
 export type Character = StoredCharacter;
 
@@ -44,6 +45,51 @@ export async function bindCharacterProject(projectId: string, scopeId: string): 
 
 export const getCharacter = (id: string): Character | undefined => $characters.get().find((c) => c.id === id);
 
+/** The project whose characters `$characters` holds, once they have been read. */
+export const loadedCharacterProject = (): string | null => (bound && $charactersLoaded.get() ? bound.projectId : null);
+
+const isBound = (projectId: string, scopeId: string): boolean => bound?.projectId === projectId && bound.scopeId === scopeId;
+
+function charactersRead(): Promise<void> {
+  if ($charactersLoaded.get()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const off = $charactersLoaded.listen((loaded) => {
+      if (!loaded) return;
+      off();
+      resolve();
+    });
+  });
+}
+
+/**
+ * Characters from the project's folder (./character-folder-sync.ts): each one this browser has no
+ * copy of, or an older one, is saved and shown. Not one deleted here. Returns the ones taken.
+ */
+export async function adoptCharacters(projectId: string, scopeId: string, incoming: readonly Character[]): Promise<Character[]> {
+  if (!projectId || !incoming.length) return [];
+  const deleted = deletedHere('character', scopeId, projectId);
+  const candidates = incoming.filter((c) => !deleted(c.id));
+  if (!candidates.length) return [];
+  if (isBound(projectId, scopeId)) await charactersRead();
+  const shown = isBound(projectId, scopeId);
+  const local = shown ? $characters.get() : await listCharacters(projectId, scopeId);
+  const mine = new Map(local.map((c) => [c.id, c]));
+  const adopted = candidates.filter((c) => {
+    const known = mine.get(c.id);
+    return !known || c.updatedAt > known.updatedAt;
+  });
+  if (!adopted.length) return [];
+  if (shown && isBound(projectId, scopeId)) {
+    const byId = new Map(adopted.map((c) => [c.id, c]));
+    const current = $characters.get();
+    const kept = current.map((c) => byId.get(c.id) ?? c);
+    const added = adopted.filter((c) => !current.some((known) => known.id === c.id));
+    $characters.set([...kept, ...added].sort((a, b) => a.createdAt - b.createdAt));
+  }
+  for (const character of adopted) await saveCharacter(projectId, character, scopeId);
+  return adopted;
+}
+
 function persist(character: Character): void {
   if (!bound) return;
   void saveCharacter(bound.projectId, character, bound.scopeId).catch((error) => console.warn('[Characters] Could not save:', error));
@@ -71,9 +117,19 @@ export function updateCharacter(id: string, patch: Partial<Character>): Characte
   return updated;
 }
 
+let deletionListener: ((id: string) => void) | null = null;
+
+/** The folder sync hears each character deleted, to take its file with it. */
+export function setCharacterDeletionListener(fn: ((id: string) => void) | null): void {
+  deletionListener = fn;
+}
+
 export function deleteCharacter(id: string): void {
   $characters.set($characters.get().filter((c) => c.id !== id));
-  if (bound) void deleteStoredCharacter(bound.projectId, id, bound.scopeId).catch(() => undefined);
+  if (!bound) return;
+  rememberDeleted('character', bound.scopeId, bound.projectId, id);
+  void deleteStoredCharacter(bound.projectId, id, bound.scopeId).catch(() => undefined);
+  deletionListener?.(id);
 }
 
 /* ---- opening the pages: MediaView owns the route ---- */

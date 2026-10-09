@@ -5,8 +5,9 @@
  * endpoints (they reach the model setup), the model choice, and how the workspace looks — register
  * from `SettingsFileBridge` once that state exists. `order` is where each sits in the file:
  *
- *   apiKeys 10 · baseUrls 20 · model 30 · appearance 40 · labs 50 · voice 60 · rail 70 · pets 80 ·
- *   customize 85 · mcpServers 90
+ *   apiKeys 10 · baseUrls 20 · providers 25 · model 30 · appearance 40 · labs 50 · voice 60 · rail 70 ·
+ *   projects 72 (`project-stars.ts`) · pinnedChats 75 (`PinnedChatsSettingsSection`) · spark 78 · pages 79 · pets 80 ·
+ *   companion 82 · customize 85 · gems 87 · connectors 88 · mcpServers 90
  *
  * Every `apply` narrows what it is given: the file is the user's to edit, and a wrong value in it
  * must leave the setting as it was rather than reach the store.
@@ -28,7 +29,25 @@ import {
   updatePetSettings,
   type PetSettings,
 } from '@willow/spark/pets/pet-store';
+import { clientIdProblem, setUserClientId, userClientIds, type ClientIdProvider } from '@willow/personal/connectors/client-ids';
+import { connectorOptions, setGmailContentsAllowed } from '@willow/personal/connectors/connector-options';
+import { replaceSparkApps, setSparkUltraEngaged, sparkHydrationScope, sparkState, sparkUltraEngaged } from '@willow/spark/spark-store';
+import { readSparkProjects, replaceSparkProjects, sparkProjects } from '@willow/spark/spark-projects';
+import { PAGES_FONT_SIZE_BOUNDS, usePagesViewSettingsStore } from '@willow/spark/codex/lib/pages-view-settings';
+import { gemChatIndexStore, replaceGemChatIndex } from '@willow/gems/gems-store';
+import { projectStarsSection } from './project-stars';
 import { customizeSkills, replaceCustomizeSkills } from '../customize/customize-skills';
+import {
+  activeModelStore,
+  activePersonaStore,
+  companionModelFor,
+  companionPersonaFor,
+  replaceWaifuSettings,
+  setActiveModel,
+  setActivePersona,
+  waifuSettingsStore,
+} from '../waifu/waifu-store';
+import { WAIFU_MODELS } from '../waifu/waifu-models';
 import { $railCustomization, parseRailCustomization, saveRailCustomization } from '../shell/rail/rail-pins';
 import { PROVIDER_IDS, applyProviderValues, readDeviceProviderState } from '../settings/provider-settings';
 
@@ -115,6 +134,96 @@ registerSettingsSection('rail', {
   subscribe: (onChange) => $railCustomization.listen(onChange),
 });
 
+registerSettingsSection('projects', projectStarsSection);
+
+const records = (value: unknown): Json[] => (Array.isArray(value) ? value.filter(isObject) : []);
+
+const sparkFolders = () => {
+  const { projects, globalRules, taskModes, taskProjects } = readSparkProjects();
+  return { projects, globalRules, taskModes, taskProjects };
+};
+
+/*
+ * Spark: Ultra, the apps it may use, and in the desktop app the folders its tasks work in, with what
+ * each may do without asking. The apps are part of Spark's saved workspace, read for the signed-in
+ * account after startup, so the section joins once it is: the file is never answered with the apps
+ * Spark starts with. A folder is a path on one computer; one from another computer's file is listed
+ * and simply isn't there.
+ */
+const sparkSection = {
+  order: 78,
+  read: () => {
+    const { connections, customApps } = sparkState.get();
+    return { ultra: sparkUltraEngaged.get(), connections, customApps, folders: sparkFolders() };
+  },
+  apply: (value: unknown) => {
+    if (!isObject(value)) return;
+    if (typeof value.ultra === 'boolean' && value.ultra !== sparkUltraEngaged.get()) setSparkUltraEngaged(value.ultra);
+    replaceSparkApps({ connections: value.connections, customApps: value.customApps });
+    if (isObject(value.folders)) replaceSparkProjects({ ...readSparkProjects(), ...value.folders });
+  },
+  subscribe: (onChange: () => void) => {
+    let { connections, customApps } = sparkState.get();
+    const stops = [
+      sparkState.listen((state) => {
+        if (state.connections === connections && state.customApps === customApps) return;
+        ({ connections, customApps } = state);
+        onChange();
+      }),
+      sparkUltraEngaged.listen(onChange),
+      sparkProjects.listen(onChange),
+    ];
+    return () => stops.forEach((stop) => stop());
+  },
+  // Meeting a folder's file for the first time, custom apps and folders only this copy has are kept.
+  merge: (fromFile: unknown, local: unknown) => {
+    const file = isObject(fromFile) ? fromFile : {};
+    const mine = isObject(local) ? local : {};
+    const fileApps = records(file.customApps);
+    const fileFolders = isObject(file.folders) ? file.folders : {};
+    const myFolders = isObject(mine.folders) ? mine.folders : {};
+    const fileProjects = records(fileFolders.projects);
+    return {
+      ...mine,
+      ...file,
+      customApps: [...fileApps, ...records(mine.customApps).filter((app) => !fileApps.some((entry) => entry.id === app.id))],
+      folders: {
+        ...myFolders,
+        ...fileFolders,
+        projects: [
+          ...fileProjects,
+          ...records(myFolders.projects).filter((project) => !fileProjects.some((entry) => entry.id === project.id || entry.path === project.path)),
+        ],
+      },
+    };
+  },
+};
+sparkHydrationScope.subscribe((scope) => {
+  if (scope) registerSettingsSection('spark', sparkSection);
+});
+
+/* Spark → Pages, as Codex's Settings → Appearance → Pages has it: text size, full width, smart punctuation. */
+registerSettingsSection('pages', {
+  order: 79,
+  read: () => {
+    const { fontSize, fullWidth, smartPunctuationEnabled } = usePagesViewSettingsStore.getState();
+    return { fontSize, fullWidth, smartPunctuationEnabled };
+  },
+  apply: (value) => {
+    if (!isObject(value)) return;
+    const view = usePagesViewSettingsStore.getState();
+    if (typeof value.fontSize === 'number' && Number.isFinite(value.fontSize)) {
+      const fontSize = Math.min(PAGES_FONT_SIZE_BOUNDS.max, Math.max(PAGES_FONT_SIZE_BOUNDS.min, Math.round(value.fontSize)));
+      if (fontSize !== view.fontSize) view.setPagesViewSetting('fontSize', fontSize);
+    }
+    if (typeof value.fullWidth === 'boolean' && value.fullWidth !== view.fullWidth) view.setPagesViewSetting('fullWidth', value.fullWidth);
+    if (typeof value.smartPunctuationEnabled === 'boolean' && value.smartPunctuationEnabled !== view.smartPunctuationEnabled) {
+      view.setPagesViewSetting('smartPunctuationEnabled', value.smartPunctuationEnabled);
+    }
+  },
+  subscribe: (onChange) => usePagesViewSettingsStore.subscribe(onChange),
+});
+
 registerSettingsSection('pets', {
   order: 80,
   read: () => ({ selected: petSelection.get(), settings: petSettings.get(), names: petDetails.get() }),
@@ -128,6 +237,73 @@ registerSettingsSection('pets', {
   subscribe: (onChange) => {
     const stops = [petSettings.store.listen(onChange), petSelection.store.listen(onChange), petDetails.store.listen(onChange)];
     return () => stops.forEach((stop) => stop());
+  },
+});
+
+// The Labs companion: its avatar (one loaded from its own URL in full), persona, voice and look. Its
+// conversation is `Labs/Companion/history.json`.
+registerSettingsSection('companion', {
+  order: 82,
+  read: () => {
+    const avatar = activeModelStore.get();
+    const custom = !WAIFU_MODELS.some((model) => model.id === avatar.id);
+    return {
+      avatar: avatar.id,
+      ...(custom ? { customAvatar: avatar } : {}),
+      persona: activePersonaStore.get().id,
+      settings: waifuSettingsStore.get(),
+    };
+  },
+  apply: (value) => {
+    if (!isObject(value)) return;
+    const avatar = companionModelFor(value.avatar, value.customAvatar);
+    if (avatar && !same(avatar, activeModelStore.get())) setActiveModel(avatar);
+    const persona = companionPersonaFor(value.persona);
+    if (persona && persona.id !== activePersonaStore.get().id) setActivePersona(persona);
+    if ('settings' in value) replaceWaifuSettings(value.settings);
+  },
+  subscribe: (onChange) => {
+    const stops = [activeModelStore.listen(onChange), activePersonaStore.listen(onChange), waifuSettingsStore.listen(onChange)];
+    return () => stops.forEach((stop) => stop());
+  },
+});
+
+const CLIENT_ID_PROVIDERS: readonly ClientIdProvider[] = ['google', 'spotify'];
+
+/*
+ * Settings → Connected Apps: the OAuth client ids the user made for Willow (public by design, they're
+ * in every consent URL) and what Gmail may read. Which products are connected stays in this browser
+ * (`connections-store.ts`): the tokens behind them don't travel, so the file mustn't claim they do.
+ * Meeting a folder's file for the first time, a client id only this copy has is kept.
+ */
+registerSettingsSection('connectors', {
+  order: 88,
+  read: () => ({ clientIds: { ...userClientIds.get() }, gmailContents: connectorOptions.get().gmailContents === true }),
+  apply: (value) => {
+    if (!isObject(value)) return;
+    if (isObject(value.clientIds)) {
+      for (const provider of CLIENT_ID_PROVIDERS) {
+        const given = value.clientIds[provider];
+        const current = userClientIds.get()[provider];
+        if (given === undefined || given === null || given === '') {
+          if (current) setUserClientId(provider, null);
+        } else if (typeof given === 'string' && !clientIdProblem(provider, given) && given.trim() !== current) {
+          setUserClientId(provider, given);
+        }
+      }
+    }
+    if (typeof value.gmailContents === 'boolean' && value.gmailContents !== (connectorOptions.get().gmailContents === true)) {
+      setGmailContentsAllowed(value.gmailContents);
+    }
+  },
+  subscribe: (onChange) => {
+    const stops = [userClientIds.listen(onChange), connectorOptions.listen(onChange)];
+    return () => stops.forEach((stop) => stop());
+  },
+  merge: (fromFile, local) => {
+    const file = isObject(fromFile) ? fromFile : {};
+    const mine = isObject(local) ? local : {};
+    return { ...file, clientIds: { ...(isObject(mine.clientIds) ? mine.clientIds : {}), ...(isObject(file.clientIds) ? file.clientIds : {}) } };
   },
 });
 
@@ -183,6 +359,23 @@ const toMcpServer = (value: unknown): McpServerConfig[] => {
     enabled: value.enabled === true,
   }];
 };
+
+/*
+ * Which Gem each chat was started with, by chat id (a chat file has no Gem field), so a Gem chat
+ * reopened after a reinstall is still that Gem's. Meeting a folder's file, both copies' links are kept.
+ */
+registerSettingsSection('gems', {
+  order: 87,
+  read: () => ({ chats: gemChatIndexStore.get() }),
+  apply: (value) => {
+    if (isObject(value) && isObject(value.chats)) replaceGemChatIndex(value.chats);
+  },
+  subscribe: (onChange) => gemChatIndexStore.listen(onChange),
+  merge: (fromFile, local) => {
+    const chats = (value: unknown) => (isObject(value) && isObject(value.chats) ? value.chats : {});
+    return { chats: { ...chats(local), ...chats(fromFile) } };
+  },
+});
 
 /* Meeting a folder's file for the first time, servers only this copy has are kept beside the file's. */
 registerSettingsSection('mcpServers', {

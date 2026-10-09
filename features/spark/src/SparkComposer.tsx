@@ -83,6 +83,8 @@ export interface SparkComposerProps {
   leadingChip?: React.ReactNode;
   /** Files may go with no words, as a picture does in a messenger: a bot's composer. A task always needs its prompt. */
   allowFilesOnly?: boolean;
+  /** Where unsent text is kept across a restart (`InputBar`'s `draftKey`): the new-task box, a task, a bot. */
+  draftKey?: string;
 }
 
 export const SparkComposer: React.FC<SparkComposerProps> = ({
@@ -102,6 +104,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
   composerRef,
   leadingChip,
   allowFilesOnly = false,
+  draftKey,
 }) => {
   const isUltra = useStore(sparkUltraEngaged);
   const [error, setError] = useState('');
@@ -202,6 +205,7 @@ export const SparkComposer: React.FC<SparkComposerProps> = ({
         // is something to send, and the live handlers below are deliberately absent.
         liveAvailable={false}
         leadingChip={leadingChip}
+        draftKey={draftKey}
       />
       {/* "@" for apps and "/" for skills, as in Gemini Spark's composer. */}
       <SparkMentions host={host} options={mentionOptions} disabled={disabled} />

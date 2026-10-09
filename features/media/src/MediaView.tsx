@@ -126,6 +126,7 @@ import {
   fitVideoDuration,
   isOmniFlashModel,
   mediaModelLists,
+  onModelPicksChange,
   readModelPick,
   resolveModelPick,
   videoApiModelId,
@@ -133,6 +134,11 @@ import {
   writeModelPick,
   type MediaModelKind,
 } from './media-models';
+import { onViewSettingsChange } from './view-settings';
+import { useMediaDetailsSync } from './media-details-sync';
+import { needsSongAudioFile, ownSongAudio, songAudioBaseName, songAudioFileName } from './song-audio';
+import { importAgentSessions } from './agent/agent-session-files';
+import { deletedHere, rememberDeleted } from './deleted-here';
 import { PromptNotice, type PromptNoticeState } from './PromptNotice';
 import { FlowLoadingPage } from './FlowLoadingPage';
 import { PromptValue } from './PromptTextarea';
@@ -149,12 +155,14 @@ import { DragPreview, PromptDropZone, sameDropTarget, type DropTarget } from './
 import { EditorBoundary, isChunkLoadError } from './EditorBoundary';
 import { ConfirmDialog, FlagDialog, ShareDialog } from './editor/editor-overlays';
 import { copyImage, downloadCollection } from './editor/media-download';
-import { collectionPath, listCollections } from '@willow/storage/media-collections';
+import { collectionPath, listCollections, MEDIA_AGENT_SESSIONS_FOLDER } from '@willow/storage/media-collections';
 import type { SceneHost } from './scenes/scene-host';
 import type { ImageEditHost } from './editor/ImageEditor';
 import type { VideoViewHost } from './scenes/SceneBuilder';
 import { $characters, $charactersLoaded, bindCharacterProject, characterName, createCharacter, deleteCharacter, getCharacter, setCharacterOpener, updateCharacter, type Character } from './characters/character-store';
 import type { CharacterHost } from './characters/character-host';
+import { readCharactersFromFolder, useCharacterFolderSync, type CharacterFolder } from './characters/character-folder-sync';
+import { CHARACTERS_FOLDER } from './characters/character-files';
 import { CharactersGrid, CharacterTile } from './characters/CharactersGrid';
 import { CharacterIngredientCard } from './characters/CharacterIngredientCard';
 import { expandCharacterReferences } from './characters/character-references';
@@ -214,8 +222,11 @@ const SCENE_ITEM_PREFIX = 'scene:';
 const COLLECTION_ITEM_PREFIX = 'collection:';
 /** And characters, in All media as in Flow's, as square stand-ins with a `character:` id. */
 const CHARACTER_ITEM_PREFIX = 'character:';
-/** A file on disk after a move: its name there, and its folder (none: Images/, Videos/, Audio/). */
-type FileMove = { id: string; fsName: string; folder?: string };
+/**
+ * A file on disk after a move: its name there, and its folder (none: Images/, Videos/, Audio/).
+ * `audio`: a song's audio beside its cover.
+ */
+type FileMove = { id: string; fsName: string; folder?: string; audio?: boolean };
 const EMPTY_ITEMS: MediaItem[] = [];
 /** A collection's, a scene's or a character's place in the gallery: each is a batch of its own. */
 const isStandIn = (m: MediaItem) => m.id.startsWith(COLLECTION_ITEM_PREFIX) || m.id.startsWith(SCENE_ITEM_PREFIX) || m.id.startsWith(CHARACTER_ITEM_PREFIX);
@@ -299,7 +310,7 @@ export const MediaView: React.FC<{
 }> = ({ onOpenSettings, modelConfig }) => {
   const { user, userProfile, signInWithGoogle, signOut } = useAuth();
   const { apiKeys } = useUserDataContext();
-  const { chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, localFolderName, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, renameLocalFSMediaFile, renameLocalFSProject, loadLocalFSMediaUrl, ensureLocalFSCollectionFolder, moveLocalFSMediaFile, renameLocalFSCollectionFolder, deleteLocalFSCollectionFolder, saveLocalFSMediaAgentSession, deleteLocalFSMediaAgentSession, saveLocalFSScene, deleteLocalFSScene, listLocalFSScenes } = useLocalFS();
+  const { chatScopeId, isLocalFolderConnected, isLocalFolderAuthorized, localFolderName, authorizeLocalFolder, saveLocalFSMedia, saveLocalFSCover, refreshLocalMedia, deleteLocalFSMediaFile, renameLocalFSMediaFile, renameLocalFSProject, loadLocalFSMediaUrl, ensureLocalFSCollectionFolder, moveLocalFSMediaFile, renameLocalFSCollectionFolder, deleteLocalFSCollectionFolder, saveLocalFSMediaAgentSession, deleteLocalFSMediaAgentSession, saveLocalFSScene, deleteLocalFSScene, listLocalFSScenes, saveLocalFSMediaDetails, listLocalFSMediaFolderFiles, saveLocalFSMediaFolderFile, deleteLocalFSMediaFolderFile } = useLocalFS();
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -390,7 +401,19 @@ export const MediaView: React.FC<{
   const moreMenuButtonRef = React.useRef<HTMLButtonElement>(null);
   const sortFilterButtonRef = React.useRef<HTMLButtonElement>(null);
   const [viewSettings, setViewSettings] = React.useState<ViewSettings>(loadViewSettings);
-  React.useEffect(() => saveViewSettings(viewSettings), [viewSettings]);
+  // Only a change is saved: the defaults of a browser that has none saved are not a choice, and
+  // settings.json may yet bring the user's. That (or another tab) changes them under the page.
+  const savedViewSettingsRef = React.useRef(viewSettings);
+  React.useEffect(() => {
+    if (viewSettings === savedViewSettingsRef.current) return;
+    savedViewSettingsRef.current = viewSettings;
+    saveViewSettings(viewSettings);
+  }, [viewSettings]);
+  React.useEffect(() => onViewSettingsChange(() => {
+    const saved = loadViewSettings();
+    savedViewSettingsRef.current = saved;
+    setViewSettings((current) => (JSON.stringify(current) === JSON.stringify(saved) ? current : saved));
+  }), []);
   const [sortFilter, setSortFilter] = React.useState<SortFilter>(DEFAULT_SORT_FILTER);
   const closeHeaderMenu = React.useCallback(() => setOpenHeaderMenu(null), []);
 
@@ -599,6 +622,18 @@ export const MediaView: React.FC<{
   // which the reconciler then ingested as a phantom duplicate tile.
   const fsSaveInFlightRef = React.useRef<Set<string>>(new Set());
 
+  // A song's audio goes beside its cover, named after it, so the folder holds the song and not only
+  // its picture. The audio file's name, or undefined when it could not be written.
+  const saveSongAudio = React.useCallback(async (item: MediaItem, inProject: string, coverFsName: string, folder: string | undefined): Promise<string | undefined> => {
+    if (!item.audioUrl) return undefined;
+    try {
+      const blob = await (await fetch(item.audioUrl)).blob();
+      return (await saveLocalFSMedia(inProject, 'audio', songAudioFileName(coverFsName, blob.type), blob, folder)) || undefined;
+    } catch {
+      return undefined;
+    }
+  }, [saveLocalFSMedia]);
+
   const saveGeneratedMedia = React.useCallback(async (item: MediaItem, url: string) => {
     if (!isLocalFolderConnected) return;
     // If the user switched projects while this generation was in flight, the
@@ -618,16 +653,18 @@ export const MediaView: React.FC<{
       const response = await fetch(url);
       const blob = await response.blob();
       const live = mediaItemsRef.current.find(m => m.id === item.id);
-      const finalName = await saveLocalFSMedia(currentProjectName, item.kind, filename, blob, collectionFolder(live?.collectionId));
+      const folder = collectionFolder(live?.collectionId);
+      const finalName = await saveLocalFSMedia(currentProjectName, item.kind, filename, blob, folder);
       if (finalName) {
-        setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true, fsName: finalName } : m));
+        const audioFsName = item.kind === 'audio' ? await saveSongAudio(item, currentProjectName, finalName, folder) : undefined;
+        setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true, fsName: finalName, ...(audioFsName ? { audioFsName } : {}) } : m));
       }
     } catch (err) {
       // Ignored to prevent debugging logs in production
     } finally {
       fsSaveInFlightRef.current.delete(item.id);
     }
-  }, [isLocalFolderConnected, saveLocalFSMedia]);
+  }, [isLocalFolderConnected, saveLocalFSMedia, saveSongAudio]);
   const [isAgentActive, setIsAgentActive] = React.useState(false);
   const [isAgentSidebarOpen, setIsAgentSidebarOpen] = React.useState(false);
   const [activeMusicItem, setActiveMusicItem] = React.useState<MediaItem | null>(null);
@@ -2250,6 +2287,8 @@ export const MediaView: React.FC<{
 
   /** The project folder's Scenes/ (set with the scene sync below); read after each reconcile. */
   const sceneFolderRef = React.useRef<SceneFolder | null>(null);
+  /** Its Images/Characters/, likewise. */
+  const characterFolderRef = React.useRef<CharacterFolder | null>(null);
   const loadMedia = React.useCallback(async (skipIfGenerating: boolean) => {
     const loadStartTime = Date.now();
     // Not reserved for the initial load: a realtime refresh can supersede it, and
@@ -2356,7 +2395,23 @@ export const MediaView: React.FC<{
     const stored = connected ? await listCollections(projectId, chatScopeId).catch(() => []) : [];
     const storedById = new Map(stored.map((c) => [c.id, c]));
     const folderOf = new Map<string, string>(stored.map((c): [string, string] => [c.id, collectionPath(c, storedById)]));
-    const hydrated = await Promise.all(loaded.map(async (m: any) => {
+    // A song's audio file beside its cover, read (or reused) like the cover, unless the item
+    // carries real audio of its own.
+    const hydrateSongAudio = async (m: any) => {
+      if (!connected || m?.kind !== 'audio' || !m.audioFsName || (m.audioUrl && !m.audioUrl.startsWith('blob:'))) return m;
+      const folder = m.collectionId ? folderOf.get(m.collectionId) : undefined;
+      const prev = prevById.get(m.id);
+      if (prev?.audioFsName === m.audioFsName && liveBlobUrls.has(prev.audioUrl) && blobFolderRef.current.get(prev.audioUrl) === (folder ?? '')) {
+        reusedUrls.add(prev.audioUrl);
+        return { ...m, audioUrl: prev.audioUrl };
+      }
+      const blobUrl = await loadLocalFSMediaUrl(projectName, 'audio', m.audioFsName, folder);
+      if (!blobUrl) return { ...m, audioUrl: undefined };
+      freshFolders.set(blobUrl, folder ?? '');
+      freshBlobUrls.push(blobUrl);
+      return { ...m, audioUrl: blobUrl };
+    };
+    const hydrateFile = async (m: any) => {
       if (m?.url) return m; // browser-only base64 (or already hydrated) — use as-is
       if (connected && m?.fsName && m?.kind) {
         const isAudioFile = m.kind === 'audio' && /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(m.fsName);
@@ -2399,7 +2454,8 @@ export const MediaView: React.FC<{
         }
       }
       return m; // disk-backed but no folder/file → no displayable url
-    }));
+    };
+    const hydrated = await Promise.all(loaded.map(async (m: any) => hydrateSongAudio(await hydrateFile(m))));
 
     // Bail if a newer load superseded this one, or a generation started meanwhile.
     if (gen !== loadGenRef.current || mediaItemsRef.current.some(i => i.status === 'generating')) {
@@ -2414,10 +2470,12 @@ export const MediaView: React.FC<{
     // post-rename reloads actually hit this gate.) The collection counts: a file moved between
     // collection folders on disk changes nothing else.
     const itemSig = (m: any) =>
-      [m?.id, m?.url ?? '', m?.audioUrl ?? '', m?.status, m?.fsName ?? '', m?.kind, m?.prompt ?? '', m?.timestamp ?? 0, m?.collectionId ?? ''].join('\u0000');
-    // Scenes in the folder's Scenes/ point at videos by place, which this reconcile has settled.
+      [m?.id, m?.url ?? '', m?.audioUrl ?? '', m?.audioFsName ?? '', m?.status, m?.fsName ?? '', m?.kind, m?.prompt ?? '', m?.timestamp ?? 0, m?.collectionId ?? ''].join('\u0000');
+    // Scenes in the folder's Scenes/ point at videos by place, which this reconcile has settled, and
+    // characters in its Images/Characters/ at their pictures.
     const readScenes = () => {
       if (connected && sceneFolderRef.current) void readScenesFromFolder(sceneFolderRef.current, projectId, projectName, hydrated, collectionFolder);
+      if (connected && characterFolderRef.current) void readCharactersFromFolder(characterFolderRef.current, projectId, chatScopeId, projectName, hydrated, collectionFolder);
     };
     const prevItems = mediaItemsRef.current;
     if (lastLoadedProjectIdRef.current === projectId && prevItems.length === hydrated.length) {
@@ -2525,11 +2583,30 @@ export const MediaView: React.FC<{
   }, [persistProjectId, chatScopeId]);
 
   // Auto-sync completed items to disk once folder gets authorized
+  /** Songs whose audio this visit has tried to put beside their covers, so a failure is not retried on every change. */
+  const songAudioTriedRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
     if (!isLocalFolderConnected || !isLocalFolderAuthorized || mediaItems.length === 0) return;
 
     const unsaved = mediaItems.filter(m => m.status === 'completed' && m.url && !m.isSavedToFS);
-    if (unsaved.length === 0) return;
+    const audioless = mediaItems.filter(m => needsSongAudioFile(m) && !songAudioTriedRef.current.has(m.id));
+    if (unsaved.length === 0 && audioless.length === 0) return;
+
+    const syncSongAudio = async () => {
+      for (const item of audioless) {
+        if (fsSaveInFlightRef.current.has(item.id) || songAudioTriedRef.current.has(item.id)) continue;
+        const live = mediaItemsRef.current.find(m => m.id === item.id);
+        if (!live?.fsName || !needsSongAudioFile(live)) continue;
+        songAudioTriedRef.current.add(item.id);
+        fsSaveInFlightRef.current.add(item.id);
+        try {
+          const audioFsName = await saveSongAudio(live, projectName, live.fsName, collectionFolder(live.collectionId));
+          if (audioFsName) setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, audioFsName } : m));
+        } finally {
+          fsSaveInFlightRef.current.delete(item.id);
+        }
+      }
+    };
 
     const syncUnsaved = async () => {
       for (const item of unsaved) {
@@ -2551,9 +2628,11 @@ export const MediaView: React.FC<{
 
           const response = await fetch(item.url);
           const blob = await response.blob();
-          const finalName = await saveLocalFSMedia(projectName, item.kind, filename, blob, collectionFolder(live?.collectionId ?? item.collectionId));
+          const folder = collectionFolder(live?.collectionId ?? item.collectionId);
+          const finalName = await saveLocalFSMedia(projectName, item.kind, filename, blob, folder);
           if (finalName) {
-            setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true, fsName: finalName } : m));
+            const audioFsName = item.kind === 'audio' ? await saveSongAudio(item, projectName, finalName, folder) : undefined;
+            setMediaItems(prev => prev.map(m => m.id === item.id ? { ...m, isSavedToFS: true, fsName: finalName, ...(audioFsName ? { audioFsName } : {}) } : m));
           }
         } catch (e) {
           // Ignore write lock issues
@@ -2563,8 +2642,8 @@ export const MediaView: React.FC<{
       }
     };
 
-    void syncUnsaved();
-  }, [isLocalFolderConnected, isLocalFolderAuthorized, mediaItems, projectName, saveLocalFSMedia]);
+    void syncUnsaved().then(syncSongAudio);
+  }, [isLocalFolderConnected, isLocalFolderAuthorized, mediaItems, projectName, saveLocalFSMedia, saveSongAudio]);
 
   // Materialize temporary projects when the first generated item completes successfully
   React.useEffect(() => {
@@ -2740,6 +2819,16 @@ export const MediaView: React.FC<{
   const [imagePick, setImagePick] = React.useState(() => readModelPick('image', chatScopeId));
   const [videoPick, setVideoPick] = React.useState(() => readModelPick('video', chatScopeId));
   const [musicPick, setMusicPick] = React.useState(() => readModelPick('music', chatScopeId));
+  // A sign-in, settings.json or another tab may change them under the page.
+  React.useEffect(() => {
+    const sync = () => {
+      setImagePick(readModelPick('image', chatScopeId));
+      setVideoPick(readModelPick('video', chatScopeId));
+      setMusicPick(readModelPick('music', chatScopeId));
+    };
+    sync();
+    return onModelPicksChange(sync);
+  }, [chatScopeId]);
   const pickModel = (kind: MediaModelKind, id: string) => {
     const live = liveModelId(id);
     (kind === 'image' ? setImagePick : kind === 'video' ? setVideoPick : setMusicPick)(live);
@@ -3832,9 +3921,11 @@ export const MediaView: React.FC<{
     saveSessionToDisk: (session, files) => (
       isLocalFolderConnected ? saveLocalFSMediaAgentSession(projectName || 'Default', session, files) : Promise.resolve(false)
     ),
-    deleteSessionFromDisk: (sessionId) => (
-      isLocalFolderConnected ? deleteLocalFSMediaAgentSession(projectName || 'Default', sessionId) : Promise.resolve(false)
-    ),
+    // Remembered too, so a copy the folder still has is not read back as one this browser lacks.
+    deleteSessionFromDisk: (sessionId) => {
+      rememberDeleted('agent-session', chatScopeId, persistProjectId, sessionId);
+      return isLocalFolderConnected ? deleteLocalFSMediaAgentSession(projectName || 'Default', sessionId) : Promise.resolve(false);
+    },
     get mediaItems() {
       return mediaItemsRef.current;
     },
@@ -3946,6 +4037,25 @@ export const MediaView: React.FC<{
   React.useEffect(() => {
     void bindCharacterProject(persistProjectId, chatScopeId);
   }, [persistProjectId, chatScopeId]);
+  // Each character is also a small file in the project folder's Images/Characters/, its pictures
+  // pointing at their files (characters/character-folder-sync.ts). Characters are kept per account,
+  // so a change of account reads the folder again before writing to it.
+  const characterFolder = React.useMemo<CharacterFolder>(() => ({
+    key: `${chatScopeId}\u0000${localFolderName || ''}`,
+    list: (name) => listLocalFSMediaFolderFiles(name, CHARACTERS_FOLDER),
+    save: (name, fsName, text) => saveLocalFSMediaFolderFile(name, CHARACTERS_FOLDER, fsName, text),
+    remove: (name, fsName) => deleteLocalFSMediaFolderFile(name, CHARACTERS_FOLDER, fsName),
+  }), [chatScopeId, localFolderName, listLocalFSMediaFolderFiles, saveLocalFSMediaFolderFile, deleteLocalFSMediaFolderFile]);
+  React.useEffect(() => { characterFolderRef.current = characterFolder; }, [characterFolder]);
+  useCharacterFolderSync({
+    folder: characterFolder,
+    projectId: persistProjectId,
+    projectName,
+    connected: isLocalFolderConnected && isLocalFolderAuthorized && !!projectName && !!projectId && !projectId.startsWith('temp_'),
+    items: mediaItems,
+    folderOf: collectionFolder,
+    collectionsKey: collections,
+  });
   // The page a click asked for (null: none), shown on that click's own frame. react-router renders
   // navigations as transitions, which would leave the old page up a few frames. It holds only
   // while the location is the one it was asked from; once any navigation lands, the URL decides.
@@ -4267,6 +4377,7 @@ export const MediaView: React.FC<{
         historyParentId: undefined,
         isSavedToFS: false,
         fsName: undefined,
+        audioFsName: undefined,
       };
       setMediaItems((prev) => [copy, ...prev]);
       if (copy.url && isLocalFolderConnected) void saveGeneratedMedia(copy, copy.url);
@@ -4953,6 +5064,10 @@ export const MediaView: React.FC<{
       try { URL.revokeObjectURL(item.url); } catch {}
       mediaBlobUrlsRef.current = mediaBlobUrlsRef.current.filter(u => u !== item.url);
     }
+    if (item?.audioFsName && item.audioUrl?.startsWith('blob:')) {
+      try { URL.revokeObjectURL(item.audioUrl); } catch {}
+      mediaBlobUrlsRef.current = mediaBlobUrlsRef.current.filter(u => u !== item.audioUrl);
+    }
     setMediaItems(prev => {
       const next = prev.filter(m => m.id !== id);
       // Persist removal to IndexedDB (unified on the real project id).
@@ -4966,6 +5081,9 @@ export const MediaView: React.FC<{
     // then fails and leaves the folder to be adopted back as a collection.
     if (!fileGoesWithFolder && item?.fsName && item.kind) {
       void deleteLocalFSMediaFile(projectName, item.kind, item.fsName, collectionFolder(item.collectionId));
+      // A song's audio would otherwise come back as a song of its own.
+      const audio = ownSongAudio(item, mediaItemsRef.current);
+      if (audio) void deleteLocalFSMediaFile(projectName, 'audio', audio, collectionFolder(item.collectionId));
     }
   });
   const onTileRename = useEventCallback((id: string, newName: string) => {
@@ -5001,10 +5119,16 @@ export const MediaView: React.FC<{
     const targetFsName = target.fsName;
     if (baseName && target.isSavedToFS && targetFsName && targetKind && isLocalFolderConnected) {
       void (async () => {
-        const finalFsName = await renameLocalFSMediaFile(projectNameRef.current, targetKind, targetFsName, uniqueName, collectionFolder(target.collectionId));
+        const folder = collectionFolder(target.collectionId);
+        const finalFsName = await renameLocalFSMediaFile(projectNameRef.current, targetKind, targetFsName, uniqueName, folder);
         if (!finalFsName || finalFsName === targetFsName) return; // no folder/file → metadata-only rename
+        // A song's audio keeps its cover's name, by which a browser that starts over pairs them.
+        const audio = ownSongAudio(target, items);
+        const audioFsName = audio
+          ? (await renameLocalFSMediaFile(projectNameRef.current, 'audio', audio, songAudioBaseName(finalFsName), folder)) || undefined
+          : undefined;
         setMediaItems(prev => {
-          const next = prev.map(m => m.id === id ? { ...m, shortenedPrompt: uniqueName, fsName: finalFsName } : m);
+          const next = prev.map(m => m.id === id ? { ...m, shortenedPrompt: uniqueName, fsName: finalFsName, ...(audioFsName ? { audioFsName } : {}) } : m);
           if (persistProjectId) void saveProjectMedia(persistProjectId, next, chatScopeId);
           return next;
         });
@@ -5117,6 +5241,47 @@ export const MediaView: React.FC<{
     }
   }, [openCollectionId, collectionsLoaded, collections, tabSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // What each file was made with, beside the files (media-details-sync.ts), for a browser that
+  // starts over to read back in its reconcile.
+  const mediaReadHere = React.useCallback(
+    () => mediaLoadedRef.current && lastLoadedProjectIdRef.current === projectId,
+    [projectId],
+  );
+  useMediaDetailsSync({
+    ready: diskReady && collectionsLoaded,
+    isLoaded: mediaReadHere,
+    projectId: persistProjectId,
+    projectName,
+    items: mediaItems,
+    collections,
+    folderOf: collectionFolder,
+    save: saveLocalFSMediaDetails,
+  });
+
+  // A browser that starts over has none of the project's agent chats: the folder's copies of the
+  // ones it lacks go back into its history, once each visit to the project.
+  const agentChatsReadRef = React.useRef('');
+  React.useEffect(() => {
+    if (!diskReady || !persistProjectId) return;
+    const key = `${chatScopeId}\u0000${persistProjectId}\u0000${projectName}`;
+    if (agentChatsReadRef.current === key) return;
+    agentChatsReadRef.current = key;
+    const scopeId = chatScopeId;
+    const projectKey = persistProjectId;
+    void listLocalFSMediaFolderFiles(projectName, MEDIA_AGENT_SESSIONS_FOLDER)
+      .then(async (files) => {
+        if (!files) {
+          // Unreadable: read again the next time this runs.
+          if (agentChatsReadRef.current === key) agentChatsReadRef.current = '';
+          return;
+        }
+        if (await importAgentSessions(projectKey, scopeId, files, deletedHere('agent-session', scopeId, projectKey))) {
+          void mediaAgent.refreshHistory();
+        }
+      })
+      .catch((error) => console.warn('[MediaAgent] Could not read the conversations in the project folder:', error));
+  }, [diskReady, persistProjectId, projectName, chatScopeId, listLocalFSMediaFolderFiles, mediaAgent]);
+
   /**
    * Flow's New collection: an untitled tile at the start of the grid, no animation — inside the
    * open collection when there is one, as Flow makes it there.
@@ -5215,12 +5380,17 @@ export const MediaView: React.FC<{
     const reread: FileMove[] = [];
     for (const m of moving) {
       if (!m.isSavedToFS || !m.fsName) continue;
-      const moved = await moveLocalFSMediaFile(projectName, m.kind, m.fsName, collectionFolder(m.collectionId), folder);
+      const from = collectionFolder(m.collectionId);
+      const moved = await moveLocalFSMediaFile(projectName, m.kind, m.fsName, from, folder);
       if (!moved) continue;
       reread.push({ id: m.id, fsName: moved, folder });
-      if (moved !== m.fsName) {
+      // A song's audio goes where its cover went: they pair up within a folder.
+      const audio = ownSongAudio(m, mediaItemsRef.current);
+      const movedAudio = audio ? await moveLocalFSMediaFile(projectName, 'audio', audio, from, folder) : null;
+      if (movedAudio) reread.push({ id: m.id, fsName: movedAudio, folder, audio: true });
+      if (moved !== m.fsName || (movedAudio && movedAudio !== m.audioFsName)) {
         setMediaItems((prev) => {
-          const next = prev.map((x) => (x.id === m.id ? { ...x, fsName: moved } : x));
+          const next = prev.map((x) => (x.id === m.id ? { ...x, fsName: moved, ...(movedAudio ? { audioFsName: movedAudio } : {}) } : x));
           if (persistProjectId) void saveProjectMedia(persistProjectId, next, chatScopeId);
           return next;
         });
@@ -5233,7 +5403,13 @@ export const MediaView: React.FC<{
     const ids = new Set([collection.id, ...descendantsOf(collection.id).map((c) => c.id)]);
     return mediaItemsRef.current
       .filter((m) => m.collectionId && ids.has(m.collectionId) && m.isSavedToFS && m.fsName)
-      .map((m) => ({ id: m.id, fsName: m.fsName as string, folder: collectionFolder(m.collectionId) }));
+      .flatMap((m) => {
+        const folder = collectionFolder(m.collectionId);
+        return [
+          { id: m.id, fsName: m.fsName as string, folder },
+          ...(m.audioFsName ? [{ id: m.id, fsName: m.audioFsName, folder, audio: true }] : []),
+        ];
+      });
   };
   /**
    * New blob: URLs for files that have moved (see blobFolderRef). Each tile swaps to its new URL
@@ -5244,7 +5420,7 @@ export const MediaView: React.FC<{
     for (const move of moves) {
       const m = mediaItemsRef.current.find((x) => x.id === move.id);
       if (!m) continue;
-      const field = m.kind === 'audio' && /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(move.fsName) ? 'audioUrl' : 'url';
+      const field = move.audio || (m.kind === 'audio' && /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(move.fsName)) ? 'audioUrl' : 'url';
       const old = m[field];
       if (!old?.startsWith('blob:')) continue;
       const fresh = await loadLocalFSMediaUrl(projectName, m.kind, move.fsName, move.folder);

@@ -7,7 +7,7 @@ import { useReducedMotion } from "../../codex/lib/theme-engine";
 import { SideDrawer } from "../../codex/ui/side-drawer";
 import { useAppShellHeader } from "../willow/shell/main-area";
 import { AccessDenied } from "../components/access-denied";
-import { usePage, type PageMetadata } from "../state";
+import { usePage, useSpacesStore, type PageMetadata } from "../state";
 import { pageCss } from "./css";
 import { pageMessages } from "./messages";
 import { PageCommentsRail, PageCommentsSidebar, type PageCommentsProps, type PendingComment } from "./page-comments";
@@ -35,6 +35,9 @@ function RoomReporter({ hasRoom, onChange }: { hasRoom: boolean; onChange: (hasR
 export function SpacePage() {
   const { pageId = "" } = useParams();
   const page = usePage(pageId);
+  // Saved Pages are still being read: a Page opened now would show the seed's copy, or none.
+  const pagesLoading = useSpacesStore((state) => state.pagesStatus === "loading");
+  if (pagesLoading) return null;
   if (page == null) return <AccessDenied target={{ kind: "page", id: pageId }} />;
   return <SpacePageContent key={pageId} page={page} />;
 }

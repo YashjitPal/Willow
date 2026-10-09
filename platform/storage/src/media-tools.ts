@@ -99,7 +99,7 @@ export interface MediaToolsChange {
   /** Null for the account's preferences. */
   toolId: string | null;
   what: 'tool' | 'version' | 'chat' | 'storage' | 'prefs' | 'deleted';
-  /** Made by the Tools folder's sync, which must not take it for work to write out. */
+  /** Made from the folder (the Tools folder's sync, or settings.json), which must not take it for work to write out. */
   fromDisk?: boolean;
 }
 
@@ -289,18 +289,24 @@ export async function saveToolChat(toolId: string, messages: StoredToolChatMessa
 }
 
 export async function loadToolPrefs(scopeId: string): Promise<StoredToolPrefs> {
+  return { favorites: [], pins: [], ...(await loadSavedToolPrefs(scopeId)) };
+}
+
+/** The scope's preferences as saved, or null when it never saved any. */
+export async function loadSavedToolPrefs(scopeId: string): Promise<StoredToolPrefs | null> {
   const db = await openDB();
   const store = db.transaction(PREFS, 'readonly').objectStore(PREFS);
   const record = await read<{ prefs: StoredToolPrefs } | undefined>(store.get(`${scope(scopeId)}prefs`), 'load the Media tool preferences');
-  return { favorites: [], pins: [], ...record?.prefs };
+  return record?.prefs ? { favorites: [], pins: [], ...record.prefs } : null;
 }
 
-export async function saveToolPrefs(prefs: StoredToolPrefs, scopeId: string): Promise<void> {
+/** `fromDisk` for preferences taken from `settings.json`, which the open Tools pages then show. */
+export async function saveToolPrefs(prefs: StoredToolPrefs, scopeId: string, options?: { fromDisk: true }): Promise<void> {
   const db = await openDB();
   const tx = db.transaction(PREFS, 'readwrite');
   tx.objectStore(PREFS).put({ key: `${scope(scopeId)}prefs`, prefs });
   await done(tx, 'save the Media tool preferences');
-  announce({ scopeId, toolId: null, what: 'prefs' });
+  announce({ scopeId, toolId: null, what: 'prefs', ...(options?.fromDisk ? { fromDisk: true } : {}) });
 }
 
 /* ------------------------------------------------------------------ *

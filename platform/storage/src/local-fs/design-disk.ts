@@ -61,3 +61,49 @@ export const saveDesignProjectToDisk = async (
     return false;
   }
 };
+
+/** One file of a Design project, written alone: the project's other files stay as they are. */
+export const writeDesignProjectFile = async (
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
+  projectName: string,
+  path: string,
+  content: string,
+): Promise<boolean> => {
+  const rootHandle = await getActiveHandle();
+  const relative = normalize(path);
+  if (!rootHandle || !relative) return false;
+  try {
+    const targetName = resolveCurrentProjectName(projectName);
+    const designDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('design'), { create: true });
+    const projectDir = await designDir.getDirectoryHandle(targetName, { create: true });
+    await ensureProjectManifest(projectDir, targetName);
+    await writeFileRecursively(projectDir, relative, content);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * A file of a Design project: `null` when there is no folder, project or file. Any other failure
+ * throws, so a caller can't take a file it couldn't read for one that isn't there and write over it.
+ */
+export const readDesignProjectFile = async (
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
+  projectName: string,
+  path: string,
+): Promise<string | null> => {
+  const rootHandle = await getActiveHandle();
+  const parts = normalize(path).split('/').filter(Boolean);
+  const name = parts.pop();
+  if (!rootHandle || !name) return null;
+  try {
+    let dir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('design'));
+    dir = await dir.getDirectoryHandle(resolveCurrentProjectName(projectName));
+    for (const part of parts) dir = await dir.getDirectoryHandle(part);
+    return await (await (await dir.getFileHandle(name)).getFile()).text();
+  } catch (error) {
+    if ((error as { name?: string } | null)?.name === 'NotFoundError') return null;
+    throw error;
+  }
+};

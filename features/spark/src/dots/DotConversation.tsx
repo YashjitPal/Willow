@@ -433,6 +433,7 @@ export function DotConversation({ dot, modelConfig, selectedModelId, setSelected
             <div className="spark-task-detail__followup-composer">
               <SparkComposer
                 composerRef={composerRef}
+                draftKey={`bot:${dot.id}`}
                 theme={composerTheme}
                 onSubmitFiles={(prompt, files) => void send(prompt, files)}
                 allowFilesOnly

@@ -25,6 +25,15 @@ class WillowTunnelModule : Module() {
       WebViewSupport.clearCookies { removed -> promise.resolve(removed) }
     }.runOnQueue(Queues.MAIN)
 
+    AsyncFunction("clearWebData") { promise: Promise ->
+      val context = appContext.reactContext
+      if (context == null) {
+        promise.resolve(false)
+      } else {
+        WebViewSupport.clearAll(context) { removed -> promise.resolve(removed) }
+      }
+    }.runOnQueue(Queues.MAIN)
+
     AsyncFunction("installDocumentStartScript") { viewTag: Int, script: String, origins: List<String> ->
       WebViewSupport.installDocumentStartScript(appContext, viewTag, script, origins)
     }.runOnQueue(Queues.MAIN)

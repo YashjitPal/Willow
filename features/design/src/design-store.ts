@@ -13,6 +13,17 @@ export interface DesignNodeData {
 
 export const designNodesStore = atom<DesignNodeData[]>([]);
 
+export interface DesignChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  isGenerating?: boolean;
+  timestamp: number;
+}
+
+/** The open project's Design chat, saved with its screens by `design-persistence`. */
+export const designMessagesStore = atom<DesignChatMessage[]>([]);
+
 export function addDesignNode(node: Omit<DesignNodeData, 'id' | 'timestamp'>) {
   const currentNodes = designNodesStore.get();
 

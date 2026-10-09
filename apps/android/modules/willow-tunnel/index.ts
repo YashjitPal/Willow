@@ -11,6 +11,8 @@ declare class WillowTunnelModule extends NativeModule {
   stopAll(): Promise<void>;
   /** Removes every WebView cookie (all hosts). Resolves with whether any were removed. */
   clearCookies(): Promise<boolean>;
+  /** Erases all the WebView keeps: page storage, the HTTP cache and the cookies. */
+  clearWebData(): Promise<boolean>;
   /**
    * Runs `script` before the page's own scripts in every document from `origins`,
    * in the WebView mounted under the native view `viewTag`, replacing the one

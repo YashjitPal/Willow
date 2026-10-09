@@ -225,7 +225,36 @@ pub(crate) struct Companion {
     pub(crate) token: String,
 }
 
+/// What the uninstaller set aside while deleting the app data (`windows/hooks.nsh`) and couldn't put
+/// back: `<data dir>.kept` beside each data folder, returned to the same paths before anything uses them.
+fn put_back_set_aside(app: &AppHandle) {
+    let folders = [
+        (app.path().app_local_data_dir(), &["agents", "computers"][..]),
+        (app.path().app_config_dir(), &["local-folder.json"][..]),
+    ];
+    for (dir, names) in folders {
+        let Ok(dir) = dir else { continue };
+        let Some(folder) = dir.file_name().map(|name| name.to_string_lossy().into_owned()) else { continue };
+        let kept = dir.with_file_name(format!("{folder}.kept"));
+        if !kept.is_dir() {
+            continue;
+        }
+        for name in names {
+            let (from, to) = (kept.join(name), dir.join(name));
+            if !from.exists() || to.exists() {
+                continue;
+            }
+            if let Err(error) = fs::create_dir_all(&dir).and_then(|()| fs::rename(&from, &to)) {
+                eprintln!("[willow] could not put back {}: {error}", from.display());
+            }
+        }
+        // Only once empty: anything that couldn't move back stays where it is.
+        let _ = fs::remove_dir(&kept);
+    }
+}
+
 fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    put_back_set_aside(app);
     let site = site(app)?;
     let companion_port = any_free_port()?;
     let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());

@@ -35,6 +35,11 @@ const INTERVAL: Duration = Duration::from_secs(30 * 60);
 const KEEP: usize = 7;
 /// T3's own files beside its database (`userdata`) that are copied to `Agents/Settings`.
 const SETTINGS: [&str; 2] = ["settings.json", "keybindings.json"];
+/// Which database this is (`userdata/`), and which one the backups are of (`Agents/Backups/`). A database
+/// that is not the one the backups came from — a fresh one, started while the folder could not be found —
+/// never replaces or prunes them.
+const DATABASE_ID: &str = "willow-database-id";
+const BACKUPS_ID: &str = "database-id";
 
 /// `node --no-warnings -e SCRIPT -- <database> <copy>`. The copy is left as one file, not in WAL mode.
 const SCRIPT: &str = "const { DatabaseSync, backup } = require('node:sqlite');\
@@ -91,7 +96,14 @@ pub fn restore_if_empty(app: &AppHandle, home: &Path) {
         }
         let partial = userdata.join("statev2.sqlite.partial");
         match fs::copy(&backup, &partial).and_then(|_| fs::rename(&partial, &db)) {
-            Ok(()) => eprintln!("The agents' conversations were put back from {}.", backup.display()),
+            Ok(()) => {
+                // The database put back is the one the backups are of, and keeps backing up to them.
+                let _ = fs::remove_file(userdata.join(DATABASE_ID));
+                if let Some(id) = read_id(&agents.join("Backups").join(BACKUPS_ID)) {
+                    let _ = fs::write(userdata.join(DATABASE_ID), id);
+                }
+                eprintln!("The agents' conversations were put back from {}.", backup.display());
+            }
             Err(error) => {
                 let _ = fs::remove_file(&partial);
                 eprintln!("The agents' conversations could not be put back from {}: {error}", backup.display());
@@ -195,6 +207,15 @@ fn back_up(app: &AppHandle, copied: &mut Option<SystemTime>) -> Result<(), Strin
     let Some(folder) = crate::local_folder::folder(app).filter(|folder| folder.is_dir()) else { return Ok(()) };
     let agents = folder.join("Agents");
     let backups = agents.join("Backups");
+    let ours = db.parent().and_then(database_id).ok_or("The agents' database could not be given an id.")?;
+    let theirs = read_id(&backups.join(BACKUPS_ID));
+    if !belongs(theirs.as_deref(), &ours) {
+        // This database began without the backups (the folder was not found when the agents first
+        // started, so none was put back); copied over them, it would take the history they hold.
+        eprintln!("The agents' backups in {} are of another database, and are left as they are.", backups.display());
+        *copied = Some(changed_at);
+        return Ok(());
+    }
     let target = backups.join(format!("{}.sqlite", today()));
     // Copied since the last change already, by an earlier run of Willow today.
     if fs::metadata(&target).and_then(|metadata| metadata.modified()).is_ok_and(|at| at >= changed_at) {
@@ -202,6 +223,9 @@ fn back_up(app: &AppHandle, copied: &mut Option<SystemTime>) -> Result<(), Strin
         return Ok(());
     }
     fs::create_dir_all(&backups).map_err(|error| error.to_string())?;
+    if theirs.is_none() {
+        fs::write(backups.join(BACKUPS_ID), &ours).map_err(|error| error.to_string())?;
+    }
     write_readme(&agents, &db);
     let partial = backups.join(format!("{}.sqlite.partial", today()));
     let _ = fs::remove_file(&partial);
@@ -222,6 +246,27 @@ fn back_up(app: &AppHandle, copied: &mut Option<SystemTime>) -> Result<(), Strin
     *copied = Some(changed_at);
     prune(&backups);
     Ok(())
+}
+
+/// This database's id (`userdata/willow-database-id`), made the first time it is asked for.
+fn database_id(userdata: &Path) -> Option<String> {
+    let file = userdata.join(DATABASE_ID);
+    if let Some(id) = read_id(&file) {
+        return Some(id);
+    }
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    fs::write(&file, &id).ok()?;
+    Some(id)
+}
+
+fn read_id(file: &Path) -> Option<String> {
+    fs::read_to_string(file).ok().map(|text| text.trim().to_string()).filter(|id| !id.is_empty())
+}
+
+/// Whether backups of `theirs` may take this database's copies: they are its own, or nobody's yet
+/// (backups from before ids, which the database backing up to them then claims).
+fn belongs(theirs: Option<&str>, ours: &str) -> bool {
+    theirs.is_none_or(|theirs| theirs == ours)
 }
 
 /// The newest `KEEP` days stay; older backups go. They are copies Willow made, not the user's files.
@@ -313,6 +358,18 @@ fn today() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backups_take_copies_of_their_own_database_only() {
+        let dir = std::env::temp_dir().join(format!("willow-agents-id-{}", uuid::Uuid::new_v4().simple()));
+        fs::create_dir_all(&dir).unwrap();
+        let first = database_id(&dir).unwrap();
+        assert_eq!(database_id(&dir).unwrap(), first, "an id is made once and kept");
+        assert!(belongs(None, &first), "backups from before ids are claimed");
+        assert!(belongs(Some(&first), &first));
+        assert!(!belongs(Some("another-database"), &first), "a fresh database leaves another's backups alone");
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_settings_copy_keeps_no_secret_and_everything_else() {

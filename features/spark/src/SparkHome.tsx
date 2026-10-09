@@ -178,6 +178,7 @@ export const SparkHome: React.FC<SparkHomeProps> = ({
         >
           <SparkComposer
             composerRef={composerRef}
+            draftKey="spark:home"
             onSubmitTask={onSubmitTask}
             modelConfig={modelConfig}
             selectedModelId={selectedModelId}

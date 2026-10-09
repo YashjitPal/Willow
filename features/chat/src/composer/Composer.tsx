@@ -147,6 +147,27 @@ export interface ComposerHandle {
   sendWith: (text: string, files: File[]) => void;
 }
 
+const DRAFT_PREFIX = 'willow:draft:';
+
+/** The text left unsent in the box `key` names, or nothing. */
+const readDraft = (key: string | undefined): string => {
+  if (!key) return '';
+  try {
+    return localStorage.getItem(`${DRAFT_PREFIX}${key}`) ?? '';
+  } catch {
+    return '';
+  }
+};
+
+const writeDraft = (key: string, text: string): void => {
+  try {
+    if (text.trim()) localStorage.setItem(`${DRAFT_PREFIX}${key}`, text);
+    else localStorage.removeItem(`${DRAFT_PREFIX}${key}`);
+  } catch {
+    // Storage full or off: the draft lives as long as the box, as it always did.
+  }
+};
+
 export const InputBar: React.FC<{
   currentMode: Mode;
   onModeChange: (mode: Mode) => void;
@@ -228,7 +249,13 @@ export const InputBar: React.FC<{
    * the box to two rows, as a tool chip does.
    */
   leadingChip?: React.ReactNode;
-}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, chatVariant = false, sparkMode = false, sparkToolsEnabled = false, showDisclaimer = false, docked = false, conversation = false, workspaceColor, theme, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef, extraEfforts, effortDisplayOverride, defaultTool, template = null, onTemplateClear, onSelectedToolChange, leadingChip }) => {
+  /**
+   * Where the text typed and not yet sent is kept (`willow:draft:<key>` in localStorage), so it is
+   * still in the box after a reload or a restart: one key per conversation, or per surface for a
+   * new one. Without it the text lives only as long as the box.
+   */
+  draftKey?: string;
+}> = ({ currentMode, onModeChange, onSubmit, modelConfig, selectedModelId, setSelectedModelId, onAuthRequired, chatVariant = false, sparkMode = false, sparkToolsEnabled = false, showDisclaimer = false, docked = false, conversation = false, workspaceColor, theme, liveActive = false, onStartLive, onStopLive, liveMicMuted = false, onToggleLiveMicMute, isGenerating = false, isResponseRevealing = false, onStopGenerating, liveAvailable = false, placeholder, disabled = false, composerRef, extraEfforts, effortDisplayOverride, defaultTool, template = null, onTemplateClear, onSelectedToolChange, leadingChip, draftKey }) => {
   const { workspaceColor: currentWorkspaceColor } = useAuth();
   const effectiveWorkspaceColor = workspaceColor || currentWorkspaceColor;
   const workspaceTheme = useMemo(() => theme ?? getWorkspaceTheme(effectiveWorkspaceColor), [theme, effectiveWorkspaceColor]);
@@ -245,8 +272,18 @@ export const InputBar: React.FC<{
         return pending;
       }
     } catch {}
-    return "";
+    return readDraft(draftKey);
   });
+  // Another conversation's box: its own draft, taken in this render so no write pairs one
+  // conversation's text with the other's key.
+  const [draftFor, setDraftFor] = useState(draftKey);
+  if (draftFor !== draftKey) {
+    setDraftFor(draftKey);
+    setPromptText(readDraft(draftKey));
+  }
+  useEffect(() => {
+    if (draftKey) writeDraft(draftKey, promptText);
+  }, [draftKey, promptText]);
   const [isComposerMaximized, setIsComposerMaximized] = useState(false);
   const [canMaximizeComposer, setCanMaximizeComposer] = useState(false);
   const [collapsedChatPaddingRight, setCollapsedChatPaddingRight] = useState(204);

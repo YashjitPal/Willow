@@ -43,6 +43,20 @@ export type MarkRow =
 
 export type ChatRow = { type: 'day'; key: string; label: string } | { type: 'card'; key: string; item: DotItem } | MessageRow | MarkRow;
 
+/**
+ * The message a read receipt hangs under, if any: the user's latest, once the model has had it in hand (`readThrough`,
+ * the last seq a request that has begun carried), and on through the bot thinking, working and typing — as a messenger
+ * shows "Seen" above the other side's typing — until the bot's answer is written.
+ */
+export const seenRow = (rows: ChatRow[], readThrough: number): MessageRow | null => {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.type !== 'message' || (row.from === 'dot' && row.item.streaming)) continue;
+    return row.from === 'user' && readThrough >= row.item.seq ? row : null;
+  }
+  return null;
+};
+
 const isMessage = (item: DotItem) => (item.kind === 'user' || item.kind === 'dot') && Boolean(item.text.trim() || item.streaming || item.attachments?.length);
 const isCard = (item: DotItem) =>
   (item.kind === 'approval' && Boolean(item.approval)) || item.kind === 'machine' || (item.kind === 'help' && Boolean(item.help)) || item.kind === 'trigger-card'

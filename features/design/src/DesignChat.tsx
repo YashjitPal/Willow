@@ -5,7 +5,7 @@ import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { streamChat, ChatMessage as AiChatMessage, prewarmClient } from '@willow/ai/chat';
 import { apiKeysForBinding, resolveProviderBinding } from '@willow/ai/providers/profiles';
 import type { ProviderId } from '@willow/ai/providers/endpoints';
-import { addDesignNode, designNodesStore, designTurnRunning, selectedDesignNodeIds } from './design-store';
+import { addDesignNode, designMessagesStore, designNodesStore, designTurnRunning, selectedDesignNodeIds, type DesignChatMessage } from './design-store';
 import { useStore } from '@nanostores/react';
 import { TextShimmer } from '@willow/ui/text-shimmer';
 import ReactMarkdown from 'react-markdown';
@@ -23,13 +23,9 @@ export interface DesignChatHandle {
   focus: () => void;
 }
 
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  isGenerating?: boolean;
-  timestamp: number;
-}
+type ChatMessage = DesignChatMessage;
+
+const setMessages = (update: (previous: ChatMessage[]) => ChatMessage[]) => designMessagesStore.set(update(designMessagesStore.get()));
 
 export const DesignChat = forwardRef<DesignChatHandle, DesignChatProps>(({ modelConfig, selectedModelId, initialPrompt, hideComposer = false }, ref) => {
   // Build a tiny HTML preview for the squircle thumbnails
@@ -45,7 +41,7 @@ export const DesignChat = forwardRef<DesignChatHandle, DesignChatProps>(({ model
       .replace(/export\s+const\s+/g, 'const ');
     return `<!DOCTYPE html><html class="dark"><head><meta charset="utf-8"><script src="https://cdn.tailwindcss.com"><\/script><script src="https://unpkg.com/react@18/umd/react.production.min.js"><\/script><script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><\/script><script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script><script>tailwind.config={darkMode:'class'}<\/script><style>*{animation:none!important;transition:none!important}html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0a0a0a;color:#fff;font-family:system-ui,sans-serif}#root{width:100%;height:100%}::-webkit-scrollbar{display:none}</style></head><body><div id="root"></div><script type="text/babel" data-presets="react,typescript,env">const React=window.React;window.require=(m)=>{if(m==='react')return React;if(m==='lucide-react')return new Proxy({},{get:(_,p)=>(props)=>React.createElement('span')});return{}};try{${cleaned};const C=typeof App!=='undefined'?App:null;if(C)ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(C))}catch(e){}<\/script></body></html>`;
   }, []);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messages = useStore(designMessagesStore);
   const [promptValue, setPromptValue] = useState('');
   const [isCurrentlyGenerating, setIsCurrentlyGenerating] = useState(false);
   useEffect(() => { designTurnRunning.set(isCurrentlyGenerating); }, [isCurrentlyGenerating]);

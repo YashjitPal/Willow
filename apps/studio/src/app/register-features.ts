@@ -20,6 +20,7 @@ import '@willow/design/register';
 import '@willow/gems/register';
 import '@willow/media/register';
 import '@willow/spark/register';
+import '@willow/spark/spaces/state/register-pages-folder';
 import './register-model-catalog';
 import '../waifu/register-companion-history';
 // The parts of settings.json held outside React; SettingsFileBridge adds the rest.

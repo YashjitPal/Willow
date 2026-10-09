@@ -37,11 +37,28 @@ export function compareMediaItemsNewestFirst(a: any, b: any): number {
   return String(a?.id || '').localeCompare(String(b?.id || ''));
 }
 
+const scopeListeners = new Set<(next: string, previous: string) => void>();
+
+/** The scope media is kept under now: `${uid}::${rootId}`, as `chatScopeId`. */
+export function getMediaStorageScope(): string {
+  return activeMediaScopeId;
+}
+
+/** Hears each change of scope before the rest of the app does. Returns the unsubscribe. */
+export function onMediaStorageScopeChange(listener: (next: string, previous: string) => void): () => void {
+  scopeListeners.add(listener);
+  return () => { scopeListeners.delete(listener); };
+}
+
 /** Keep browser media metadata isolated by authenticated user, root and workspace. */
 export function setMediaStorageScope(scopeId: string): void {
   const nextScopeId = scopeId || DEFAULT_MEDIA_SCOPE;
   if (activeMediaScopeId === nextScopeId) return;
+  const previousScopeId = activeMediaScopeId;
   activeMediaScopeId = nextScopeId;
+  for (const listener of scopeListeners) {
+    try { listener(nextScopeId, previousScopeId); } catch (error) { console.warn('[MediaStorage] A scope listener failed:', error); }
+  }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('willow_media_updated'));
     notifyProjectCoversUpdated();

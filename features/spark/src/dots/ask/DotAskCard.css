@@ -7,6 +7,8 @@
 
 .dot-ask {
   --dot-ask-mono: var(--font-mono, ui-monospace, "Cascadia Code", SFMono-Regular, Menlo, Consolas, monospace);
+  /* What sits inside the card to be read exactly — a command, a letter, files — set a little below it. */
+  --dot-ask-inset: color-mix(in srgb, var(--md-sys-color-surface-container-lowest) 72%, transparent);
   --md-circular-progress-size: 24px;
   --md-circular-progress-active-indicator-width: 12;
   --md-circular-progress-active-indicator-color: var(--md-sys-color-primary);
@@ -213,7 +215,7 @@
   padding: 10px 14px;
   overflow-x: auto;
   border-radius: 14px;
-  background: var(--md-sys-color-surface-container-lowest);
+  background: var(--dot-ask-inset);
   color: var(--md-sys-color-on-surface);
   font-family: var(--dot-ask-mono);
   font-size: 13px;
@@ -263,7 +265,7 @@
   padding: 10px 14px;
   overflow: auto;
   border-radius: 14px;
-  background: var(--md-sys-color-surface-container-lowest);
+  background: var(--dot-ask-inset);
   color: var(--md-sys-color-on-surface-variant);
   font-family: var(--dot-ask-mono);
   font-size: 12px;

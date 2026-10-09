@@ -8,7 +8,7 @@ import { dotAttachmentBlob } from '../harness/runtime/dot-attachments';
 import type { DotAttachmentRef, DotItem, DotThread } from '../harness/thread/thread-types';
 import { M3_SCOPE } from '../m3/m3';
 import { appOfCall, type DotAppMark } from './app-marks';
-import { chatRows, type MessageRow, type ScreenMark as ScreenMarkKind } from './chat-rows';
+import { chatRows, seenRow, type MessageRow, type ScreenMark as ScreenMarkKind } from './chat-rows';
 import './DotChat.css';
 
 /** The row a long press or the react button opens with; "more" shows the rest of the picker. */
@@ -457,15 +457,13 @@ export function DotChat({ dot, name, thread, activity, renderCard }: DotChatProp
   // The turn under way: its app calls without a result yet are still connecting, and its use of the screen is live.
   const liveTurn = useMemo(() => (working ? [...(thread?.items ?? [])].reverse().find((item) => item.turnId)?.turnId : undefined), [thread, working]);
   const rows = useMemo(() => chatRows(thread, Date.now(), appOfCall, liveTurn), [thread, tick, liveTurn]);
-  const messages = rows.filter((row): row is MessageRow => row.type === 'message');
-  const last = messages.at(-1);
   // "Typing…" is the message being written, as in a messenger: it shows while the bot writes, the message whole once
   // written. Working without writing shows under its name in the header, not here.
   const typing = working ? activity?.typingItemId ?? null : null;
   // A messenger's read receipt: the model has the user's latest message in hand — it has begun on a request that
-  // carried it — whether or not it has answered yet.
+  // carried it — and it stays while the bot works and types, until its answer is written.
   const readThrough = thread?.runtime.readSeq ?? thread?.runtime.lastActedSeq ?? 0;
-  const seenKey = last?.from === 'user' && readThrough >= last.item.seq ? last.key : null;
+  const seenKey = seenRow(rows, readThrough)?.key ?? null;
 
   return (
     <div className={`dot-chat ${M3_SCOPE}`} style={tint}>

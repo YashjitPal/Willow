@@ -82,27 +82,62 @@ export const resolveModelPick = (pick: string, models: readonly MediaModelOption
   return models.some((model) => model.id === live) ? live : (models[0]?.id ?? '');
 };
 
-const picksKey = (scopeId: string) => `willow:media:modelPicks:v1:${(scopeId || 'signed-out').split('::')[0]}`;
+export type ModelPicks = Partial<Record<MediaModelKind, string>>;
 
-const readPicks = (scopeId: string): Partial<Record<MediaModelKind, string>> => {
+const MODEL_KINDS: readonly MediaModelKind[] = ['image', 'video', 'music'];
+const PICKS_PREFIX = 'willow:media:modelPicks:v1:';
+export const MODEL_PICKS_CHANGED_EVENT = 'willow:media-model-picks-changed';
+
+const picksKey = (scopeId: string) => `${PICKS_PREFIX}${(scopeId || 'signed-out').split('::')[0]}`;
+
+/** Picks from storage or from `settings.json`, which is the user's to edit: a model id per kind. */
+export const narrowModelPicks = (raw: unknown): ModelPicks | null => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const picks: ModelPicks = {};
+  for (const kind of MODEL_KINDS) {
+    const pick = (raw as Record<string, unknown>)[kind];
+    if (typeof pick === 'string') picks[kind] = pick;
+  }
+  return picks;
+};
+
+/** The account's picks as saved, or null when it never saved any. */
+export const readSavedModelPicks = (scopeId: string): ModelPicks | null => {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(picksKey(scopeId)) : null;
-    const picks = raw ? JSON.parse(raw) : null;
-    return picks && typeof picks === 'object' ? picks : {};
+    return raw ? narrowModelPicks(JSON.parse(raw)) : null;
   } catch {
-    return {};
+    return null;
   }
 };
 
-export const readModelPick = (kind: MediaModelKind, scopeId: string): string => {
-  const pick = readPicks(scopeId)[kind];
-  return typeof pick === 'string' ? pick : '';
-};
+export const readModelPick = (kind: MediaModelKind, scopeId: string): string => readSavedModelPicks(scopeId)?.[kind] ?? '';
 
-export const writeModelPick = (kind: MediaModelKind, id: string, scopeId: string): void => {
+export const writeModelPicks = (picks: ModelPicks, scopeId: string): void => {
   try {
-    localStorage.setItem(picksKey(scopeId), JSON.stringify({ ...readPicks(scopeId), [kind]: id }));
+    const text = JSON.stringify(picks);
+    if (localStorage.getItem(picksKey(scopeId)) === text) return;
+    localStorage.setItem(picksKey(scopeId), text);
   } catch {
     // Storage full or blocked: the pick lasts until the page is closed.
+    return;
   }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(MODEL_PICKS_CHANGED_EVENT));
+};
+
+export const writeModelPick = (kind: MediaModelKind, id: string, scopeId: string): void =>
+  writeModelPicks({ ...readSavedModelPicks(scopeId), [kind]: id }, scopeId);
+
+/** Calls `listener` whenever saved picks may have changed, here or in another tab. */
+export const onModelPicksChange = (listener: () => void): (() => void) => {
+  if (typeof window === 'undefined') return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || event.key.startsWith(PICKS_PREFIX)) listener();
+  };
+  window.addEventListener(MODEL_PICKS_CHANGED_EVENT, listener);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(MODEL_PICKS_CHANGED_EVENT, listener);
+    window.removeEventListener('storage', onStorage);
+  };
 };

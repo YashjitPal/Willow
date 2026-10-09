@@ -5270,6 +5270,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             )}
             <InputBar
               chatVariant
+              draftKey={`chat:${chatScopeId}:${activeChatId || 'new'}`}
               workspaceColor={workspaceColor}
               // Zero state has no disclaimer, matching Gemini, which keeps its
               // own in the bottom bar and out of the centred composer. It costs

@@ -77,23 +77,29 @@ let cache: { scope: string; state: SparkProjectsState } | null = null;
 const isRule = (value: unknown): value is string[] =>
   Array.isArray(value) && value.length > 0 && value.every((part) => typeof part === 'string' && part.length > 0);
 
+const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+/** Folders and approvals as stored, or as `settings.json` has them: whatever isn't well formed is dropped. */
+const normalizeState = (value: unknown): SparkProjectsState => {
+  const saved = (isObject(value) ? value : {}) as Partial<SparkProjectsState>;
+  const projects = (Array.isArray(saved.projects) ? saved.projects : [])
+    .filter((project): project is SparkProject => Boolean(project && typeof project.id === 'string' && typeof project.path === 'string'))
+    .map((project) => ({ ...project, name: project.name || folderName(project.path), rules: (Array.isArray(project.rules) ? project.rules : []).filter(isRule) }));
+  const ids = new Set(projects.map((project) => project.id));
+  return {
+    projects,
+    taskProjects: Object.fromEntries(Object.entries(isObject(saved.taskProjects) ? saved.taskProjects : {}).filter(([, id]) => ids.has(id))),
+    taskModes: Object.fromEntries(Object.entries(isObject(saved.taskModes) ? saved.taskModes : {}).filter(([, mode]) => mode === 'ask' || mode === 'full')),
+    globalRules: (Array.isArray(saved.globalRules) ? saved.globalRules : []).filter(isRule),
+    activeProjectId: typeof saved.activeProjectId === 'string' && ids.has(saved.activeProjectId) ? saved.activeProjectId : null,
+    collapsed: Object.fromEntries(Object.entries(isObject(saved.collapsed) ? saved.collapsed : {}).filter(([id]) => ids.has(id))) as Record<string, true>,
+  };
+};
+
 const readState = (scope: string): SparkProjectsState => {
   try {
     const raw = globalThis.localStorage?.getItem(storageKey(scope));
-    if (!raw) return EMPTY;
-    const saved = JSON.parse(raw) as Partial<SparkProjectsState>;
-    const projects = (Array.isArray(saved.projects) ? saved.projects : [])
-      .filter((project): project is SparkProject => Boolean(project && typeof project.id === 'string' && typeof project.path === 'string'))
-      .map((project) => ({ ...project, name: project.name || folderName(project.path), rules: (project.rules ?? []).filter(isRule) }));
-    const ids = new Set(projects.map((project) => project.id));
-    return {
-      projects,
-      taskProjects: Object.fromEntries(Object.entries(saved.taskProjects ?? {}).filter(([, id]) => ids.has(id))),
-      taskModes: Object.fromEntries(Object.entries(saved.taskModes ?? {}).filter(([, mode]) => mode === 'ask' || mode === 'full')),
-      globalRules: (saved.globalRules ?? []).filter(isRule),
-      activeProjectId: saved.activeProjectId && ids.has(saved.activeProjectId) ? saved.activeProjectId : null,
-      collapsed: Object.fromEntries(Object.entries(saved.collapsed ?? {}).filter(([id]) => ids.has(id))) as Record<string, true>,
-    };
+    return raw ? normalizeState(JSON.parse(raw)) : EMPTY;
   } catch {
     return EMPTY;
   }
@@ -137,6 +143,15 @@ sparkHydrationScope.subscribe((scope) => {
 /** Loads the folders for the current scope. Components call it once on mount. */
 export const ensureSparkProjectsLoaded = (): void => {
   current();
+};
+
+/** The folders and approvals of the signed-in Spark scope, read now rather than when the atom next publishes. */
+export const readSparkProjects = (): SparkProjectsState => current();
+
+/** Folders and approvals as `settings.json` has them (`normalizeState` narrows them). */
+export const replaceSparkProjects = (value: unknown): void => {
+  const next = normalizeState(value);
+  if (JSON.stringify(next) !== JSON.stringify(current())) commit(next);
 };
 
 const folderName = (path: string): string => {

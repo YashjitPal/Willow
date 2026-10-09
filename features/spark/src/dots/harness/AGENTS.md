@@ -633,8 +633,20 @@ bot's name in the header — its status line, or what it is doing (`activity.sta
 hand — at the first sign of life of a request that carried it (a thinking phase,
 a token, a thought or usage), not when the request was sent: the loop reports a
 `read` event and the runtime keeps `runtime.readSeq` (threads from before it read
-`lastActedSeq`). A message handled without being read — a stop, a pause — is not
-"Seen".
+`lastActedSeq`). It stays there while the bot thinks, works and types (a message
+still being written does not count as the latest), and goes once the bot's answer
+is written, the reply saying it was seen (`seenRow` in `chat/chat-rows.ts`). A
+message handled without being read — a stop, a pause — is not "Seen".
+
+**Writing while the bot works steers it, never interrupts it.** The message joins
+the thread at once. The response the model is writing, and the calls in it, finish
+as they were. The next request carries the message, placed after that step's
+results, and the bot carries on with its work, changed as the message asks. The
+loop rebuilds its context on every request, and a response with no calls ends the
+turn only if nothing arrived meanwhile. So the message is "Seen" when that request
+begins, not when it is sent. Only Stop (`interruptDot`) and pausing cut a turn
+short. A turn that ended just as the message landed is followed by another
+(`kick`'s `again`).
 
 **Pictures and files.** The composer's files go with the message, or on their own
 (`allowFilesOnly`): `storeDotAttachments` keeps them as Spark's attachment payloads
@@ -649,8 +661,30 @@ and any other file as a chip (`SentPicture` in `DotChat.tsx`).
 (`chat/chat-rows.ts`): "Connecting to <logo> Gmail" while a turn's first call to an app
 runs, as Willow's chat names an app, and "Connected to" after — once an app a turn,
 for connected apps (`app:*`), the bot's email and MCP servers (`chat/app-marks.ts`) —
-and the user's screen in the bot's hands ("Pip is using your screen", with Stop, then
-how it ended). A request for the screen still waiting on the user stays a card.
+and the user's screen in the bot's hands. Each turn that used the screen gets a line
+at its first look under a go-ahead. While that turn is under way and the go-ahead
+holds, the line is a capsule: "Pip is using your screen", with Stop (`ScreenMark` in
+`DotChat.tsx`). Once the turn is over it reads "Pip used your screen", however long
+the go-ahead still holds; it is never live after the work. A go-ahead not used yet
+is a line of its own ("You let Pip use your screen"). A declined request, and the
+user taking the screen back, are lines where they happened. A request for the screen
+still waiting on the user stays a card.
+
+**Asks look one way** (`ask/DotAskCard.tsx`). Every card where the bot asks the user's
+leave shares one shape: their screen, a command, an email or a Discord post, a change
+to their files, its own computer, a hand at it. Each has:
+- a glyph tile, and a kicker naming the kind of ask;
+- the ask as a sentence ("Pip wants to …");
+- the bot's reason, set in as its own words;
+- what it would do;
+- the choice at the end. The go-ahead is a filled button named for what happens
+  (Allow, Run, Start, Send, Post, Apply, Set up), the alternative is "Don't …", and
+  "Always allow …" is a checkbox beside them.
+
+A card waiting on the user wears a wash of the bot's colour, arrives softly and draws
+the eye once; settled cards go quiet. The screen card says what the go-ahead lets the
+bot do on this system (Windows, macOS or Linux, from the app's own), how the user
+takes the screen back, and how long the go-ahead lasts.
 
 The profile's Now card has one button for pausing and resuming: it turns into play
 where it is.
@@ -794,7 +828,8 @@ where nothing waits for approval.
 - **Prefix rules.** `user_run_command` may offer `prefix_rule` (Codex's); Spark's
   `offeredPrefix` keeps it only when safe — never an interpreter, a destructive
   command or a bare package manager — else derives one. The card's **Always allow**
-  approves the command and stores the prefix in `runtime.computer.rules`; from then
+  checkbox, ticked when the user runs the command, also stores the prefix in
+  `runtime.computer.rules`; from then
   on `allowedByRules` (every segment must match; redirection and substitution never
   do) lets such commands run at once from the tool, their output its result, recorded
   like a command run in act mode (quiet steps) so it shows in Activity. The profile
@@ -810,7 +845,7 @@ where nothing waits for approval.
 - **Running is approved.** `user_run_command` (finishes, at most 120 s) and
   `user_start_job` (keeps running in the background) never run anything: they record
   an `approval` item — the exact command, folder and reason — which the
-  conversation shows as a card with Approve and Deny. What runs on approval is
+  conversation shows as a card with Run and Don't run (Start for a job). What runs on approval is
   that recorded command, never something the model re-issues. When the user lets
   the bot act without asking, the tools run it themselves and write the same record
   and steps, quietly ("Permissions" above).
@@ -910,18 +945,27 @@ one by its number in the latest list and comes back with what the screen looks l
 now.
 
 - **The overlay** (Windows; `runtime/screen-overlay.ts`). The first use of the screen
-  under a grant shows it — the bot's name and colour on a pill with Stop and Esc, a
-  glow, and the bot's own cursor travelling to each action — and it comes down when
-  the grant ends (`onScreenGrantEnded`) or the turn does; the next use brings it
-  back. Every action carries its grant, and the user's Stop or Esc on their screen
+  under a grant shows three things, drawn by the companion's
+  `screen/screen-overlay.cs`:
+  - a pill with the bot's initial in its colour, a ring turning while it acts, what
+    it is doing, and Stop with Esc;
+  - a glow around the screen's edge;
+  - the bot's own cursor, travelling to each action.
+
+  It comes down when the grant ends (`onScreenGrantEnded`) or the turn does; the
+  next use brings it back. It comes in motion: the glow blooms in and breathes, the
+  pill drops into place, and the cursor grows out of the user's pointer. Going, the
+  pill lifts away and the rest sinks out. Every action carries its grant, and the user's Stop or Esc on their screen
   arrives as `screen.stopped`, a Stop like the card's: the grant ends, the bot hears
   how ("they pressed Esc"), and an action already on its way is refused (`stopped`).
   On Linux, `end` takes the bot's desktop and its apps down with the grant.
 
 - **Asked once for a stretch of work** (`runtime/screen-control.ts`). Seeing and
   using go together, as with remote access: the first use records a `screen` card —
-  "{bot} wants to see and use your screen", with the bot's reason — and does nothing
-  until Allow. While allowed, the card shows Stop. A grant lapses after 15 minutes
+  "{bot} wants to use your screen", with the bot's reason, what it would see and do,
+  and how long the go-ahead lasts — and does nothing until Allow. Once answered, the
+  card becomes a line of the conversation ("Marks" above), live with Stop only while
+  a turn is using the screen. A grant lapses after 15 minutes
   unused (an `ended` event, quiet), and ends when the user disconnects or connects
   something else in its place. With the bot acting without asking (Permissions), the card is posted
   already allowed (`standing: 'mode'`) and Stop still ends it. After Don't allow, the
@@ -1086,6 +1130,12 @@ allowed for good, its triggers, its notebook — are a change on one side, which
 pass's own records tell apart, so a choice made in the profile here is written and
 one made in another copy is taken. Taking disk's whenever anything differed put a
 Permissions choice back to the file's within seconds (`dots-disk.test.mjs`).
+
+The files the user sent a bot are beside its file as `Spark/Dots/<bot id>/Attachments/`,
+and what its turns made as `Spark/Dots/<bot id>/Files/`, both read back into a copy
+that lacks them (`../dot-attachment-files.ts`, `../../spark-workspace-files.ts`; see
+Spark's [AGENTS.md](../../../AGENTS.md#created-files)). The dots folder reads only the
+`.json` files beside those folders.
 
 ## Invariants worth not breaking
 

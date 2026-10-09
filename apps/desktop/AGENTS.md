@@ -468,7 +468,22 @@ key or token; `scrub`). Never `userdata/secrets` or the logs, and only for
 is not there at all — Willow's data removed, a reinstall, another computer on the folder —
 the server's first start puts the newest backup and the settings back before it opens
 anything (`restore_if_empty`, called from `harness.rs`); moving `Agents/` aside starts the
-agents afresh instead.
+agents afresh instead. A backup names the database it came from (`willow-database-id` in
+`userdata/`, `database-id` in `Backups/`), so a fresh database never writes over or prunes
+another's backups.
+
+Uninstalling with "Delete the application data" ticked removes `%APPDATA%` and
+`%LOCALAPPDATA%\<identifier>` whole (Tauri's template; an update never does). The installer
+hooks (`src-tauri/windows/hooks.nsh`, `installerHooks` in `tauri.conf.json`) set three things
+aside first and put them back at the same paths after: `agents/` (worktrees, scratch, the
+projects agents started, attachments), `computers/` (the bots' Linux computer, whose disk WSL
+keeps registered at its path; `Willow-Computer` is stopped first, and only it) and
+`local-folder.json` (a Willow folder the user picked). Same paths, so the worktrees' links,
+the database's paths and the distro's registration still hold for the next install. If one
+can't be moved (still in use), the uninstaller keeps the app data whole instead of deleting
+around it. Anything left in `<data dir>.kept` is put back on the next start
+(`put_back_set_aside` in `main.rs`). Tested by running the hooks around the template's
+removal for a test identifier, in normal, in-use and update runs.
 
 ## Build and run
 

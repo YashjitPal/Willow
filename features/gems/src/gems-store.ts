@@ -241,3 +241,16 @@ export const recordGemChat = (chatId: string, gemId: string): void => {
 
 export const gemIdForChat = (chatId: string | null | undefined): string | null =>
   (chatId ? gemChatIndexStore.get()[chatId] ?? null : null);
+
+/** Chat-to-Gem links as `settings.json` has them; anything but a map of ids leaves them as they are. */
+export const replaceGemChatIndex = (value: unknown): void => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const next = Object.fromEntries(Object.entries(value).filter(([chatId, gemId]) => chatId && typeof gemId === 'string' && gemId)) as Record<string, string>;
+  if (JSON.stringify(next) === JSON.stringify(gemChatIndexStore.get())) return;
+  gemChatIndexStore.set(next);
+  try {
+    localStorage.setItem(GEM_CHATS_KEY, JSON.stringify(next));
+  } catch {
+    // The association is a convenience; a full quota must not break the chat.
+  }
+};

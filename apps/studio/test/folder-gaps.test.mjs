@@ -141,6 +141,8 @@ describe('the pinned chats', () => {
     const app = read('apps', 'studio', 'src', 'app', 'App.tsx');
     const provider = app.slice(app.indexOf('<LocalFSProvider modelConfig={modelConfig}>'), app.indexOf('</LocalFSProvider>'));
     assert.match(provider, /<PinnedChatsSettingsSection \/>/, 'the section needs the folder\'s chat scope');
+    // Signing in on a new copy: the account's scope starts from the signed-out one's pins, the file's.
+    assert.match(section, /if \(previous === chatScopeId \|\| folderOf\(previous\) !== folderOf\(chatScopeId\)\) return;\s*if \(readPinnedChats\(chatScopeId\) !== null\) return;\s*const carried = readPinnedChats\(previous\);\s*if \(carried\?\.length\) writePinnedChats\(chatScopeId, carried\);/);
     const sidebar = read('apps', 'studio', 'src', 'shell', 'sidebar', 'Sidebar.tsx');
     assert.doesNotMatch(sidebar, /localStorage\.setItem\(pinnedChatsKey/, 'a write the file would not hear');
     assert.equal((sidebar.match(/writePinnedChats\(chatScopeId, next\);/g) ?? []).length, 3);

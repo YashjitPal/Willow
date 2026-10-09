@@ -1,18 +1,19 @@
 /**
- * Writing a project's Code/ folder to the local disk.
+ * Writing a project's Code/ folder to the local disk, and reading its chats back.
  *
  * The counterpart to ./media-disk. Lifted out of LocalFSProvider because these
  * close over nothing but the helpers they now receive as `deps`; the provider
  * still wraps each in a useCallback with its original dependency array, so the
  * context value identity is unchanged.
  *
- * Both swallow their errors and report failure through the return value: a
+ * Each swallows its errors and reports failure through the return value: a
  * project save is a background sync, so the caller keeps its in-memory state
  * and retries rather than failing the edit that triggered it.
  */
 
 import { writeFileRecursively } from '../adapters/local-disk';
 import { getProjectFolderWriters } from '../project-contributors';
+import { readConversationFile } from './conversation-files';
 import { getProjectAreaFolder, registerProjectArea } from './project-areas';
 import { ensureProjectManifest } from './project-manifest';
 import type { DiskDeps } from './disk-deps';
@@ -156,5 +157,58 @@ export const saveProjectChatToDisk = async (
     return true;
   } catch (err) {
     return false;
+  }
+};
+
+/** A chat in a project's `Chat sessions/`, as read back off disk. */
+export interface ProjectChatOnDisk {
+  /** Its file's name without `.json`: the id the chat was saved under. */
+  chatId: string;
+  /** The file's text, unparsed. */
+  text: string;
+  lastModified: number;
+  /** A file in the chat's folder beside it, by the path its JSON names (`Attachments/…`); null when it is not there. */
+  readFile: (path: string) => Promise<File | null>;
+}
+
+/**
+ * Every chat in a project's `Chat sessions/`, for a copy whose browser storage no
+ * longer holds them. Only the `.json` files are chats; the folders beside them hold
+ * their files. A project with no chats saved is an empty list. One file that cannot
+ * be read makes the whole answer null, because a caller that keeps what it reads
+ * back would otherwise take part of the folder for all of it. Nothing is created.
+ */
+export const readProjectChatsFromDisk = async (
+  { getActiveHandle, resolveCurrentProjectName }: DiskDeps,
+  projectName: string,
+): Promise<ProjectChatOnDisk[] | null> => {
+  const rootHandle = await getActiveHandle();
+  if (!rootHandle) return null;
+
+  let chatSessionsDir: FileSystemDirectoryHandle;
+  try {
+    const codeDir = await rootHandle.getDirectoryHandle(getProjectAreaFolder('code'));
+    const projectDir = await codeDir.getDirectoryHandle(resolveCurrentProjectName(projectName));
+    chatSessionsDir = await projectDir.getDirectoryHandle('Chat sessions');
+  } catch (err) {
+    return (err as { name?: string } | null)?.name === 'NotFoundError' ? [] : null;
+  }
+
+  try {
+    const chats: ProjectChatOnDisk[] = [];
+    for await (const entry of (chatSessionsDir as any).values()) {
+      if (entry.kind !== 'file' || !/^.+\.json$/i.test(entry.name)) continue;
+      const chatId: string = entry.name.slice(0, -'.json'.length);
+      const file: File = await entry.getFile();
+      chats.push({
+        chatId,
+        text: await file.text(),
+        lastModified: file.lastModified,
+        readFile: (path) => readConversationFile(chatSessionsDir, chatId, path),
+      });
+    }
+    return chats;
+  } catch (err) {
+    return null;
   }
 };

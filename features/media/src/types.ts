@@ -71,6 +71,8 @@ export type MediaItem = {
   favorite?: boolean;
   isSavedToFS?: boolean;
   fsName?: string;
+  /** A song's audio file, beside its cover (`fsName`) in the same folder. */
+  audioFsName?: string;
   lyrics?: { time: number; text: string }[];
   effort?: string;
   quality?: string;

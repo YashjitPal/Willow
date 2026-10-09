@@ -7,6 +7,7 @@ import {
   type ComponentProps,
   type CSSProperties,
 } from "react";
+import { isWillowEmbedded } from "~/willow/harness";
 import { ChatCanvasContext } from "./ChatCanvasContext";
 import { resolveChatCanvasLayout, type ChatCanvasPreview } from "./chatCanvasLayout";
 import type { PreviewMiniPlayerObstacles } from "../preview/previewMiniPlayerLayout";
@@ -97,10 +98,23 @@ export function ChatCanvas({
   }, [composerOverlayElement, timelineElement]);
   const context = useMemo(() => {
     const container = { width: measurements.width, height: measurements.height };
+    const layout = resolveChatCanvasLayout({ ...measurements, container, preview, detailsCard });
     return {
       container,
       lane: { padding: measurements.padding, minChatWidth: measurements.minChatWidth },
-      layout: resolveChatCanvasLayout({ ...measurements, container, preview, detailsCard }),
+      // In Willow's agent tabs what floats (the preview, the workspace card) floats over the
+      // conversation, which keeps its place instead of moving over for it.
+      layout: isWillowEmbedded()
+        ? {
+            ...layout,
+            chat: resolveChatCanvasLayout({
+              ...measurements,
+              container,
+              preview: null,
+              detailsCard: null,
+            }).chat,
+          }
+        : layout,
       previewKey: preview?.key ?? null,
       reportPreview,
       clearPreview,

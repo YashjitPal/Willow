@@ -12,7 +12,8 @@ device dimensions. Think "Figma boards, but each frame is a running React compon
 | `src/DesignNode.tsx` | One frame on the canvas. Renders the generated component, plus `VIEWPORTS` and `CANVAS_SCALE`. |
 | `src/DesignChat.tsx` | The prompt surface that generates and revises nodes. |
 | `src/ColorPickerMenu.tsx` | Colour picker for node styling. |
-| `src/design-store.ts` | Nanostore: nodes, focus, selection, viewport mode. The feature's whole state. |
+| `src/design-store.ts` | Nanostore: nodes, the chat's messages, focus, selection, viewport mode. The feature's whole state. |
+| `src/design-persistence.ts` | Opens a project's nodes and chat, and saves them: IndexedDB `willow-design` between runs, `Design/<project>/design.json` for a reinstall. |
 | `src/register.ts` | **Side-effect module.** Keeps Design's storage registration entry point. |
 
 ## `register.ts` — the pattern worth copying
@@ -40,9 +41,18 @@ human can open) and `<name>.json` (canvas position, size, prompt, timestamp).
 the Design view mounted, hidden, until it settles (`apps/studio` AGENTS.md, "Screens
 that keep working after you leave them"), so the chat transcript survives leaving
 and coming back. A screen finished off screen still lands on the canvas, since
-`designNodesStore` is module-level. Nothing carries a reply on in another tab: the
-chat and the canvas live in memory only, so there is nothing for a second tab to
-resume from until Design saves its projects' chats and nodes.
+`designNodesStore` is module-level. Opening another project waits for the reply, since
+it would land in whichever project is open. Nothing carries a reply on in another tab.
+
+## Saving a project
+
+`openDesignProjectState` shows a project's nodes and chat and saves each change after
+(`design-persistence.ts`): this browser's copy in IndexedDB, and `design.json` in the
+project's folder, written alone through `writeLocalFSDesignFile` so the project's other
+files stay. The folder's file wins when this browser has none (a reinstall) or when it
+differs from the text this browser last wrote there (another copy changed it). A file
+that can't be read leaves the session's changes unsaved rather than written over it.
+Thumbnails aren't written: they are a cache of the node's own code.
 
 ## The dot grid
 

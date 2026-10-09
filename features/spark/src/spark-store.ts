@@ -2384,6 +2384,24 @@ export const deleteSparkCustomApp = (appId: string): boolean => {
   return true;
 };
 
+/** Connected and custom apps as `settings.json` has them. A part that isn't well formed leaves its apps as they are. */
+export const replaceSparkApps = ({ connections, customApps }: { connections?: unknown; customApps?: unknown }): void => {
+  const current = sparkState.get();
+  let next = current;
+  if (isRecord(connections)) {
+    const merged = { ...current.connections };
+    (Object.keys(INITIAL_SPARK_CONNECTIONS) as SparkConnectedAppId[]).forEach((id) => {
+      if (typeof connections[id] === 'boolean') merged[id] = connections[id] as boolean;
+    });
+    if ((Object.keys(merged) as SparkConnectedAppId[]).some((id) => merged[id] !== current.connections[id])) next = { ...next, connections: merged };
+  }
+  if (Array.isArray(customApps)) {
+    const apps = customApps.map(normalizeCustomApp).filter((app): app is SparkCustomApp => Boolean(app));
+    if (JSON.stringify(apps) !== JSON.stringify(current.customApps)) next = { ...next, customApps: apps };
+  }
+  if (next !== current) publishSparkState(next);
+};
+
 export const resetSparkState = (): void => {
   publishSparkState(createInitialState());
 };

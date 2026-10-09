@@ -2407,6 +2407,7 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         <>
           <SparkComposer
             composerRef={sharedComposerRef}
+            draftKey="spark:new-task"
             onSubmitFiles={submitSharedNewTask}
             disabled={sharedComposerSubmitting}
             /* Gemini's narrow task list asks "Describe task", without the article. */

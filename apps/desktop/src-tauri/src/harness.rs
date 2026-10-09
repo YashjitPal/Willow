@@ -47,6 +47,7 @@ const BOOTSTRAPPED: &[&str] = &[
     "WILLOW_MOBILE_PORT",
     "WILLOW_COMPANION_PORT",
     "WILLOW_COMPANION_TOKEN",
+    "WILLOW_FOLDER",
     "WILLOW_ROOT",
 ];
 const LOCAL_ONLY: &str = "local-only";
@@ -273,10 +274,15 @@ fn start(app: &AppHandle, process: &str, token: String) -> Result<Connection, St
     // (the server's `willow/mobile.ts`).
     let mobile_port = port.saturating_add(1).to_string();
     let companion = app.try_state::<crate::Companion>().map(|companion| (companion.port.to_string(), companion.token.clone()));
+    // The phone's Willow works on this computer's Willow folder (the server's `willow/folder.ts`).
+    let willow_folder = crate::local_folder::folder(app).map(|folder| folder.to_string_lossy().into_owned());
     let mut env = vec![("T3CODE_TELEMETRY_ENABLED", "false"), ("WILLOW_MOBILE_PORT", mobile_port.as_str())];
     if let Some((port, token)) = &companion {
         env.push(("WILLOW_COMPANION_PORT", port));
         env.push(("WILLOW_COMPANION_TOKEN", token));
+    }
+    if let Some(folder) = &willow_folder {
+        env.push(("WILLOW_FOLDER", folder));
     }
     app.state::<Children>()
         .spawn_with_input(

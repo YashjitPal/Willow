@@ -5,6 +5,7 @@ import { cn } from "../../lib/utils";
 import { Popover, PopoverPopup, PopoverCreateHandle } from "../ui/popover";
 import { selectThreadPanelOpen, useRightPanelStore } from "../../rightPanelStore";
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
+import { isWillowEmbedded } from "~/willow/harness";
 import { useChatCanvas } from "./ChatCanvasContext";
 import {
   resolveThreadDetailsCardDensity,
@@ -26,21 +27,25 @@ export function ThreadDetailsCard({
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
   const canvas = useChatCanvas();
-  const preferredPlacement = canvas
+  // In Willow's agent tabs the card always floats over the page, as a popover, and never moves the
+  // conversation over to make room for it.
+  const inline = canvas && !isWillowEmbedded() ? canvas : null;
+  const preferredPlacement = inline
     ? resolveThreadDetailsCardLayout({
-        container: canvas.container,
-        lane: canvas.lane,
+        container: inline.container,
+        lane: inline.lane,
         frame: null,
       })
     : null;
-  const placement = canvas
-    ? resolveThreadDetailsCardLayout({
-        container: canvas.container,
-        lane: canvas.lane,
-        frame: canvas.layout.frame,
-        overlapsDetailsCard: canvas.layout.overlapsDetailsCard,
-      })
-    : null;
+  const placement =
+    canvas && inline
+      ? resolveThreadDetailsCardLayout({
+          container: canvas.container,
+          lane: canvas.lane,
+          frame: canvas.layout.frame,
+          overlapsDetailsCard: canvas.layout.overlapsDetailsCard,
+        })
+      : null;
   const mode = placement ? "inline" : "popover";
   const inlineOpen = useRightPanelStore((state) =>
     selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "inline"),

@@ -25,7 +25,7 @@ export function SettingsSheet({ visible, connection, onClose, onDisconnect }: Pr
   const confirmDisconnect = () => {
     Alert.alert(
       'Disconnect this PC?',
-      "The phone forgets this PC and signs out of it. To connect again, scan the PC's pairing code.",
+      "The phone forgets this PC and erases its copy of Willow. Your chats, keys and everything else stay on the PC. To connect again, scan the PC's pairing code.",
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Disconnect', style: 'destructive', onPress: onDisconnect },

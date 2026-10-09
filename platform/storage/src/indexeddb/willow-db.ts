@@ -37,6 +37,15 @@ export function setCodeSessionStorageScope(scopeId: string): void {
   activeCodeSessionScopeId = scopeId || DEFAULT_CODE_SESSION_SCOPE;
 }
 
+/**
+ * The scope code sessions are read and written under now. It changes ahead of
+ * the React state that re-runs a caller's effects, so a caller that waits between
+ * a read and a write compares it to know both touch the same scope.
+ */
+export function getCodeSessionStorageScope(): string {
+  return activeCodeSessionScopeId;
+}
+
 function scopedCodeSessionKey(logicalStorageKey: string, scopeId = activeCodeSessionScopeId): string {
   return `scope:${encodeURIComponent(scopeId)}:code-session:${logicalStorageKey}`;
 }
@@ -638,6 +647,39 @@ export function saveCodeSessions(storageKey: string, sessions: any[]): Promise<v
     () => { if (saveChains.get(physicalStorageKey) === run) saveChains.delete(physicalStorageKey); },
     () => { if (saveChains.get(physicalStorageKey) === run) saveChains.delete(physicalStorageKey); }
   );
+  return run;
+}
+
+/**
+ * Change a project's code-editor sessions from what is stored now, as one link
+ * of the same per-key chain as `saveCodeSessions`. A caller that reads, waits on
+ * something slow, then saves would write over any save queued in between; here
+ * the read happens in turn, so `update` is handed what those saves left.
+ *
+ * `update` gets the stored sessions fully inflated (null when none are stored)
+ * and returns what to store, or null to leave them as they are. Resolves to what
+ * is stored afterwards. Like a save, it never adopts a legacy unscoped bucket;
+ * `loadCodeSessions` does that on read.
+ */
+export function updateCodeSessions(
+  storageKey: string,
+  update: (stored: any[] | null) => any[] | null,
+): Promise<any[] | null> {
+  const physicalStorageKey = scopedCodeSessionKey(storageKey);
+  const prev = saveChains.get(physicalStorageKey) ?? Promise.resolve();
+  const run = prev
+    .catch(() => {})
+    .then(async () => {
+      const fromDb = await idbGet<any[]>(CODE_SESSIONS_STORE, physicalStorageKey);
+      const stored = fromDb === null ? null : await inflateSessions(physicalStorageKey, fromDb);
+      const next = update(stored);
+      if (!next) return stored;
+      await saveCodeSessionsInner(physicalStorageKey, next);
+      return next;
+    });
+  const link = run.then(() => {}, () => {});
+  saveChains.set(physicalStorageKey, link);
+  void link.then(() => { if (saveChains.get(physicalStorageKey) === link) saveChains.delete(physicalStorageKey); });
   return run;
 }
 

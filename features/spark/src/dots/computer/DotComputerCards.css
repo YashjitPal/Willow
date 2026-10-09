@@ -20,8 +20,8 @@
 }
 
 .dot-computer-secret__input:focus {
-  border-color: var(--md-sys-color-primary, #a8c7fa);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary, #a8c7fa) 22%, transparent);
+  border-color: var(--md-sys-color-primary, var(--sync-a8c7fa, #a8c7fa));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary, var(--sync-a8c7fa, #a8c7fa)) 22%, transparent);
 }
 
 .dot-computer-preview {

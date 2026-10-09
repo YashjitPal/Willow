@@ -25,6 +25,7 @@ import {
   type SparkTask,
 } from './spark-store';
 import { SPARK_TASKS_FOLDER } from './spark-disk';
+import { requestSparkFolderFiles } from './spark-folder-files';
 import { getNextScheduleRunAt } from './spark-schedule-time';
 // Bots' own folder, Spark/Dots: each bot with its whole conversation.
 import './dots/dots-folder';
@@ -48,6 +49,8 @@ const descriptor = <T extends { id: string }>(
       const records = collection === 'tasks'
         ? await loadSparkTaskRecordsForSync(localRecords as unknown as SparkTask[], ctx.scopeId)
         : localRecords;
+      // The files beside the records — attachments, and what runs and bots made — once this pass has applied.
+      if (collection === 'tasks') requestSparkFolderFiles(ctx.scopeId);
       return records.map((record) => ({
         id: record.id,
         contents: JSON.stringify(record, null, 2),

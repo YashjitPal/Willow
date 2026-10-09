@@ -16,6 +16,9 @@ import { goToSparkHome, goToSparkHomeWithPrompt, navigateSpark, replaceSparkLoca
 import { spacesRoutes } from './spaces/routes';
 import { SpacesShell } from './spaces/willow/SpacesShell';
 import { resetRightPanel } from './spaces/willow/shell/right-panel-state';
+import { keepPagesSaved } from './spaces/state/pages-persistence';
+
+keepPagesSaved();
 
 const isPagesPath = (pathname: string) => /^\/space(\/|$)/.test(pathname);
 

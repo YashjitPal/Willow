@@ -8,7 +8,7 @@
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 70%, transparent);
   border-radius: 16px;
-  background: var(--md-sys-color-surface-container-lowest);
+  background: var(--dot-ask-inset);
 }
 
 .dot-edit-card__files {

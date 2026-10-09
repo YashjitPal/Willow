@@ -123,10 +123,12 @@ function Root() {
 
   const disconnectPc = useCallback(async () => {
     setSettingsOpen(false);
-    await disconnect();
-    await WillowTunnel.clearCookies().catch(() => false);
+    // The WebView goes first, so no page writes again what is erased below.
     setSaved(null);
     showConnect();
+    await disconnect();
+    // Everything Willow keeps is the PC's; the phone's copy was only a cache of it.
+    await WillowTunnel.clearWebData().catch(() => false);
   }, [showConnect]);
 
   const openSettings = useCallback(() => setSettingsOpen(true), []);

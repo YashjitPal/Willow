@@ -2405,7 +2405,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           <span aria-hidden="true" className="willow-project-heading__glyph">
             <Glyph
               name={projectExpanded ? "folder_open" : "folder"}
-              family="material"
+              family="luminous"
               className="willow-project-heading__folder"
             />
             <span className="willow-project-heading__chevron">

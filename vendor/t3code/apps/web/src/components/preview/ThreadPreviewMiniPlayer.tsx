@@ -37,6 +37,8 @@ import { useDeviceState } from "~/state/device";
 
 import { DeviceStreamView } from "../device/DeviceStreamView";
 import type { DeviceScreenSize } from "@t3tools/client-runtime/device/stream";
+import { isWillowEmbedded } from "~/willow/harness";
+import { previewShowsPage } from "~/willow/preview";
 import { previewBridge } from "./previewBridge";
 import {
   clampPreviewMiniPlayerPosition,
@@ -109,6 +111,10 @@ function BrowserMiniPlayer({ threadRef, tabId, miniPlayer }: Props & { readonly 
     recordingTabIds.has(runtimeTabId) ||
     findActiveBrowserRecordingRuntimeTabId(threadRef, tabId) !== null;
   const desktopOverlay = previewState.desktopByTabId[tabId] ?? null;
+  // Willow's preview puts the tab in the player itself (its willow/preview.ts), with no Electron view.
+  const showsPage =
+    desktopOverlay?.hasWebContents === true ||
+    (isWillowEmbedded() && previewShowsPage(runtimeTabId));
   const fittedSourceContent = useBrowserSurfaceStore(
     (state) => state.byTabId[runtimeTabId]?.fittedSourceContent ?? null,
   );
@@ -179,14 +185,14 @@ function BrowserMiniPlayer({ threadRef, tabId, miniPlayer }: Props & { readonly 
         <>
           <BrowserSurfaceSlot
             tabId={runtimeTabId}
-            visible={Boolean(desktopOverlay?.hasWebContents)}
+            visible={showsPage}
             cornerRadius={PREVIEW_MINI_PLAYER_CORNER_RADIUS}
             zIndex={PREVIEW_MINI_PLAYER_WEBVIEW_Z_INDEX}
             fitSourceContent
             layoutVersion={`${frame.x}:${frame.y}`}
             className="absolute inset-0"
           />
-          {!desktopOverlay?.hasWebContents ? (
+          {!showsPage ? (
             <div className="pointer-events-none absolute inset-0 z-[49] flex items-center justify-center rounded-[inherit] bg-muted text-xs text-muted-foreground">
               Reconnecting preview…
             </div>
@@ -388,9 +394,11 @@ function MiniPlayerShell({
             borderRadius: radius,
           }}
         >
+          {/* Willow's webview for the tab is cut away under these, so they stay reachable over it. */}
           <div
             className="group pointer-events-auto absolute z-[49] size-3 touch-none cursor-grab active:cursor-grabbing"
             style={{ right: pillInset, top: pillInset }}
+            data-willow-over-preview
             onPointerDown={(event) => beginGesture(event, null)}
             onPointerMove={handlePointerMove}
             onPointerUp={endGesture}
@@ -411,7 +419,10 @@ function MiniPlayerShell({
                 )}
               />
             </div>
-            <div className="pointer-events-none absolute right-0 top-0 flex h-8 cursor-grab items-center gap-0.5 rounded-lg border border-border/80 bg-popover/92 p-0.5 opacity-0 shadow-lg/20 backdrop-blur-xl transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 active:cursor-grabbing">
+            <div
+              className="pointer-events-none absolute right-0 top-0 flex h-8 cursor-grab items-center gap-0.5 rounded-lg border border-border/80 bg-popover/92 p-0.5 opacity-0 shadow-lg/20 backdrop-blur-xl transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 active:cursor-grabbing"
+              data-willow-over-preview
+            >
               {recording ? (
                 <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
                   <span className="size-2 rounded-full bg-destructive motion-safe:animate-status-pulse" />

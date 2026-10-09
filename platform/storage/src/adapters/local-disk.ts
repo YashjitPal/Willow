@@ -4,6 +4,7 @@
  * Persists directory handles in IndexedDB
  */
 
+import { isAndroidApp } from '@willow/core/android-bridge';
 import { isDesktopApp } from '@willow/core/desktop-bridge';
 import { getProjectFileUploadPayload, readProjectFileContent } from '@willow/projects/file-content';
 
@@ -73,8 +74,9 @@ function getDB(): Promise<IDBDatabase> {
 /**
  * Check if the browser supports File System Access API
  */
+/** Willow's Android app has no picker, but works on the computer's folder (`@willow/core/android-folder`). */
 export function isFSAAPISupported(): boolean {
-  return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+  return typeof window !== 'undefined' && ('showDirectoryPicker' in window || isAndroidApp());
 }
 
 /**

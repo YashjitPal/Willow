@@ -26,6 +26,8 @@ import {
   attachPreviewFrame,
   attachPreviewSurface,
   placePreviewSurface,
+  PREVIEW_FRAME_ALLOW,
+  PREVIEW_FRAME_SANDBOX,
   previewHasWebviews,
 } from "~/willow/preview";
 import { isWillowEmbedded } from "~/willow/harness";
@@ -362,9 +364,8 @@ export function HostedBrowserWebview(props: {
           <iframe
             ref={setWillowFrameRef}
             title="Preview"
-            // No top navigation: a previewed page must not move Willow's own.
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads allow-pointer-lock"
-            allow="clipboard-read; clipboard-write; fullscreen"
+            sandbox={PREVIEW_FRAME_SANDBOX}
+            allow={PREVIEW_FRAME_ALLOW}
             data-preview-tab={runtimeTabId}
             data-preview-server-tab={tabId}
             aria-hidden={active ? undefined : true}

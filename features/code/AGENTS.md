@@ -74,12 +74,13 @@ Two rules keep a turn from damaging another session:
 | `src/WorkbenchView.tsx` | Workbench shell. Owns project load/save. |
 | `src/workbench/WorkbenchSidebar.tsx` | Chat + file tree (about 4380 lines — see below). Sends every Code message to the harness. |
 | `src/workbench/resume-code-chat.ts` | Reads a saved Code chat back in, including each reply's harness transcript. |
+| `src/workbench/restore-project-chats.ts` | Turns a project's `Chat sessions/` back into sessions when browser storage has none for it (a wiped install, or a folder from another copy). One chat is on disk once per screen that showed it; the longest copy wins, and chats already stored are never replaced. |
 | `src/workbench/visual-edit-menu.tsx` | The visual-edit inspector panel (1138 lines), split out of the sidebar. |
 | `src/workbench/sidebar-icons.tsx` | The sidebar's 13 inline SVG icons (149 lines). |
 | `src/workbench/collapsible-indicators.tsx` | The expand/collapse test and file indicators in the transcript (265 lines). |
 | `src/workbench/GlobalErrorToasts.tsx` | Error toast stack, portalled out of the sidebar's stacking context (135 lines). |
 | `src/workbench/attachment-files.ts` | Reads dropped files, slugifies and de-duplicates their upload paths. |
-| `src/workbench/chat-files.ts` | A chat's attachments and annotated screenshots as files beside its JSON (`Chat sessions/<chat>/Attachments/`, `Screenshots/`); the project copy names the file instead of holding base64. An inbox chat keeps its bytes inline, since reopening reads them from its JSON. See `platform/storage/ARCHITECTURE.md` §6a. |
+| `src/workbench/chat-files.ts` | A chat's attachments and annotated screenshots as files beside its JSON (`Chat sessions/<chat>/Attachments/`, `Screenshots/`); the project copy names the file instead of holding base64, and `joinChatFiles` reads those files back in when the project's chats are restored. An inbox chat keeps its bytes inline, since reopening reads them from its JSON. See `platform/storage/ARCHITECTURE.md` §6a. |
 | `src/workbench/message-text.ts` | Strips code blocks and indicator markers out of a message. |
 | `src/workbench/design-generation.ts` | The design system prompt plus its response parser. |
 | `src/workbench/sidebar-prompts.ts` | Session-title and follow-up-suggestion prompts. |
