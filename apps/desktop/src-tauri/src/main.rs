@@ -291,7 +291,10 @@ fn start(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let app = app.clone();
     thread::spawn(move || match launch(&app, &site, companion_port, &token) {
-        Ok(()) => tabs::site_ready(&app),
+        Ok(()) => {
+            tabs::site_ready(&app);
+            harness::start_if_exposed(&app);
+        }
         Err(message) => fail(&app, &message),
     });
     Ok(())

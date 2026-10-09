@@ -73,9 +73,13 @@ apps/desktop/
    Willow passes `--hidden` and opens straight into the tray.
 
 The agents' server (`harness.rs`) also gets `WILLOW_MOBILE_PORT` (its own port
-plus one) and the companion's port and token. With them it serves Willow's page
-to phones paired with it, for Willow's Android app (`apps/android`), and relays
-the companion to them (`vendor/t3code/apps/server/src/willow/mobile.ts`).
+plus one), the companion's port and token, and the Willow folder (`WILLOW_FOLDER`).
+With them it serves Willow's page to phones paired with it, for Willow's Android
+app (`apps/android`), relays the companion to them and lets them work on the
+folder (`vendor/t3code/apps/server/src/willow/mobile.ts`, `folder.ts`). While its
+network access or Tailscale Serve is on, it starts with Willow, once Willow's own
+server is up, instead of when a tab first asks for it, so a phone reaches it
+without a tab open on this computer.
 
 ### The window
 
@@ -393,8 +397,9 @@ Measured: a hard kill of the app leaves no `willow-node` behind.
   access is on (the agents tab's Settings > Connections). Its phone listener answers
   only clients paired with that server, by their session cookie. It relays the
   companion to them, adding the companion's token on this computer, so a phone never
-  holds it. Phones get `/llm-proxy` and `/api/fetch-source` too, but not Spark's
-  browse proxy.
+  holds it. Phones get `/llm-proxy`, `/api/fetch-source` and the Willow folder too
+  (no path, link or junction reaches out of the folder), but not Spark's browse
+  proxy.
 - On Windows nothing listens on Willow's port, so no other program — a browser
   included — can open Willow; only the app's own page answers its address.
   Willow's server listens on a per-launch named pipe and refuses requests

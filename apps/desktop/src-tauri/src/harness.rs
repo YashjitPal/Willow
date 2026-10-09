@@ -1,8 +1,8 @@
 //! The coding agents' server: T3 Code's, forked into `vendor/t3code` and restyled for Willow's
 //! agent tabs (`features/harness`). It runs on Willow's Node with a data folder of its own and
 //! answers on a port kept across launches: the tabs show its page, whose storage belongs to that
-//! origin, so a new port would be a new, empty T3. It starts the first time a tab asks for it and
-//! again whenever it has stopped.
+//! origin, so a new port would be a new, empty T3. It starts the first time a tab asks for it, or
+//! with Willow while network access or Tailscale Serve is on, and again whenever it has stopped.
 //!
 //! A tab signs in as T3's desktop renderer does: the bootstrap token handed to the server on
 //! stdin is exchanged in the page for a bearer session (`/oauth/token`). The token lasts as long
@@ -143,6 +143,16 @@ fn write_settings(app: &AppHandle, settings: &Settings) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(|error| error.to_string())?;
     }
     fs::write(&file, serde_json::to_string(settings).map_err(|error| error.to_string())?).map_err(|error| error.to_string())
+}
+
+/// With network access or Tailscale Serve on, the server starts with Willow: phones and other
+/// computers paired with it reach it (a phone's Willow comes from it) before any tab asks for it.
+/// Blocks while it starts.
+pub fn start_if_exposed(app: &AppHandle) {
+    let settings = read_settings(app);
+    if settings.network_accessible() || settings.tailscale_serve_enabled.unwrap_or(false) {
+        let _ = connection(app);
+    }
 }
 
 /// The running server, started if need be. Blocks while it starts.
