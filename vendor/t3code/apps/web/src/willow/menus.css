@@ -565,6 +565,15 @@ svg[data-willow-icon="more_vert"] .willow-icon-glyph {
   animation: willow-tooltip-hide 75ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
+/*
+ * Over a browser tab's own webview (Willow's desktop app) a tooltip shows through a hole cut in it
+ * (willow/preview.ts), where a fade would show the page's dark ground through the tooltip: there it
+ * comes at once, and goes under the webview as soon as it starts to close.
+ */
+[data-slot="tooltip-popup"][data-willow-over-native] {
+  animation: none;
+}
+
 [data-slot="tooltip-popup"]::before {
   display: none;
 }

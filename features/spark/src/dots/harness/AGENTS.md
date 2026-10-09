@@ -920,6 +920,25 @@ where nothing waits for approval.
   carries on. Message Content (reading whole channels) is asked for only when the
   application has it on — Discord refuses the connection otherwise — and the page
   points to the switch. A refused token shows on the page with a field for a new one.
+- **It looks like the bot** (`dots/discord-look.ts`). The Discord bot wears the bot's
+  own picture, banner and name, given when the bot is linked and again whenever the
+  user changes the character, its colour or its name here:
+  - **Picture:** the character, drawn by the app's own avatar capture
+    (`requestSavedAvatarCapture`), centred on a soft field of the bot's colour and
+    kept inside the circle Discord cuts.
+  - **Banner:** its wallpaper, "Blue Hour" in its colour, cut to Discord's 17 by 6.
+  - **Name:** its name, when Discord takes it (`discordUsername`).
+
+  It goes as one `PATCH /users/@me` for the pictures and one for the name, through
+  `setDotDiscordProfile`. What was last sent is kept on the link as fingerprints
+  (`look`), so nothing is sent again until the look changes (`discordLookPlan`), and
+  a second window finds nothing to do. Discord limits how often a bot may change: a
+  refusal for now waits as long as it asks (`waitUntil`), half an hour when it does
+  not say, and a refusal outright waits for the next change. A banner Discord won't
+  take doesn't hold up the picture. `watchDiscordLooks` runs from `SparkWorkspace`
+  on every page, under `willow-dot-discord-look:<id>`. The bot's Discord page says
+  where it stands under "Looks like {bot}", with a switch to keep whatever it wears
+  there instead; turned back on, everything is sent again.
 
 ## The user's screen
 
@@ -1204,8 +1223,8 @@ samples), acting at once (commands, jobs, email, Discord) with quiet records, a
 change of mode mid-turn, and proposed edits (apply, decline, a stale patch,
 withdrawal, a window closed mid-apply).
 `apps/studio/test/dots-discord.test.mjs` drives Discord: the token check, who is
-heard as the user, splitting, posting, the tool's consent, triggers, the transcript
-and the prompt; `services/local-companion/test/discord.test.mjs` the companion's
+heard as the user, splitting, posting, the tool's consent, triggers, the transcript,
+the prompt, and the look it wears there (names, what to send, Discord's refusals); `services/local-companion/test/discord.test.mjs` the companion's
 routes and its gateway against a stand-in.
 `services/local-companion/test/workspace-write.test.mjs` runs the real companion's
 `fs.write` against a temporary folder. Run them with `npm test`, and

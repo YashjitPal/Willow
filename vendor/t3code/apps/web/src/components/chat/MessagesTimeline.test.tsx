@@ -1437,6 +1437,18 @@ describe("MessagesTimeline", () => {
             },
           },
           {
+            id: "command-spacing",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            entry: {
+              id: "command-spacing",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              runId,
+              label: "Ran command",
+              tone: "tool",
+            },
+          },
+          {
             id: "assistant-final-spacing",
             kind: "message",
             createdAt: "2026-03-17T19:12:32.000Z",
@@ -2606,10 +2618,7 @@ describe("MessagesTimeline", () => {
 
   // Codex names a reasoning row "Thought" and keeps its text behind the disclosure.
   it.each([
-    [
-      "**Viewing image first** with *care*, ~~old~~ `code` and [context](https://example.com)",
-      1,
-    ],
+    ["**Viewing image first** with *care*, ~~old~~ `code` and [context](https://example.com)", 1],
     ["first paragraph\n\nsecond paragraph", 0],
     ["- first\n- second", 0],
     ["first  \nsecond", 0],

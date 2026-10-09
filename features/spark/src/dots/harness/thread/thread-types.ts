@@ -567,6 +567,11 @@ export interface DotRuntimeState {
   readSeq?: number;
   /** Every item at or below this seq is covered by a level-1 episode. */
   lastCompactedSeq: number;
+  /**
+   * When the user last started the conversation over, and the highest seq it cleared: items and episodes up to it are
+   * gone, and a copy of the thread from before it — another tab's, the bots folder's — is behind this one.
+   */
+  conversationReset?: { at: number; seq: number };
   /** Routines from before triggers. Each becomes a schedule trigger when the thread loads; empty after that. */
   routines: DotRoutine[];
   /** The bot's triggers: what wakes it besides the user, its sleeps and its delegated work. */

@@ -1,6 +1,7 @@
-import { memo, type ReactElement } from "react";
+import { memo, useEffect, type ReactElement } from "react";
 
 import { willowSymbol } from "~/willow/icons";
+import { offerTerminal, useTerminalFolded } from "~/willow/panelFolds";
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
@@ -56,6 +57,25 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   onToggleThreadPanel,
   onToggleRightPanel,
 }: PanelLayoutControlsProps) {
+  // The browser's bar beside these controls may take the terminal's button into its menu.
+  const terminalFolded = useTerminalFolded();
+  useEffect(() => {
+    if (!showTerminalControl) return;
+    offerTerminal({
+      open: terminalOpen,
+      available: terminalAvailable,
+      shortcutLabel: terminalShortcutLabel,
+      toggle: onToggleTerminal,
+    });
+    return () => offerTerminal(null);
+  }, [
+    showTerminalControl,
+    terminalOpen,
+    terminalAvailable,
+    terminalShortcutLabel,
+    onToggleTerminal,
+  ]);
+
   const threadPanelToggle = (
     <Toggle
       className="relative shrink-0 [-webkit-app-region:no-drag]"
@@ -98,7 +118,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
             )
           : threadPanelTooltip(threadPanelToggle)
         : null}
-      {showTerminalControl ? (
+      {showTerminalControl && !terminalFolded ? (
         <Tooltip>
           <TooltipTrigger render={<span className="flex shrink-0" />}>
             <Toggle

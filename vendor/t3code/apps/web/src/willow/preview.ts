@@ -367,7 +367,13 @@ let watching = false;
 function watchPage() {
   if (watching) return;
   watching = true;
-  new MutationObserver(followPage).observe(document.body, { childList: true, subtree: true });
+  // A popup starting to close counts too, so its hole closes with it rather than once it is gone.
+  new MutationObserver(followPage).observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["data-ending-style"],
+  });
   window.addEventListener("resize", schedulePlacement);
   window.addEventListener("scroll", schedulePlacement, true);
   document.addEventListener("visibilitychange", schedulePlacement);
@@ -452,12 +458,18 @@ function holesOver(tab: Tab, rect: DOMRect): NativePreviewArea[] {
     if (home && !(home.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING)) {
       continue;
     }
+    // A popup on its way out goes under the tab at once: its hole would show it fading over the
+    // page's dark ground.
+    if (element.hasAttribute("data-ending-style")) continue;
     const box = element.getBoundingClientRect();
     const left = Math.max(box.left, rect.left);
     const top = Math.max(box.top, rect.top);
     const right = Math.min(box.right, rect.right);
     const bottom = Math.min(box.bottom, rect.bottom);
     if (right <= left || bottom <= top) continue;
+    // Likewise a tooltip over the tab shows at once rather than fading in (willow/menus.css).
+    if (element.dataset.slot === "tooltip-popup")
+      element.setAttribute("data-willow-over-native", "");
     const style = getComputedStyle(element);
     if (style.visibility === "hidden" || Number(style.opacity) === 0) continue;
     const whole =

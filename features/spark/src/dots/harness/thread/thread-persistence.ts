@@ -20,6 +20,8 @@ export interface DotThreadPersistence {
   load(dotId: string): Promise<{ items: DotItem[]; meta: DotThreadMeta | null }>;
   putItems(dotId: string, items: DotItem[]): Promise<void>;
   putMeta(meta: DotThreadMeta): Promise<void>;
+  /** Removes a bot's items, keeping the rest of its thread. */
+  clearItems(dotId: string): Promise<void>;
   remove(dotId: string): Promise<void>;
 }
 
@@ -45,6 +47,9 @@ export const memoryPersistence = (): DotThreadPersistence => {
     },
     async putMeta(meta) {
       metas.set(meta.dotId, structuredClone(meta));
+    },
+    async clearItems(dotId) {
+      items.delete(dotId);
     },
     async remove(dotId) {
       items.delete(dotId);
@@ -114,6 +119,12 @@ export const indexedDbPersistence = (): DotThreadPersistence => {
       const db = await open();
       const tx = db.transaction(META, 'readwrite');
       tx.objectStore(META).put(meta);
+      await transactionDone(tx);
+    },
+    async clearItems(dotId) {
+      const db = await open();
+      const tx = db.transaction(ITEMS, 'readwrite');
+      tx.objectStore(ITEMS).delete(range(dotId));
       await transactionDone(tx);
     },
     async remove(dotId) {

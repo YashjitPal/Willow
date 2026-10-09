@@ -68,11 +68,15 @@ const writeThread = async (dotId: string, thread: DotThread): Promise<void> => {
   const nextSeq = Math.max(thread.nextSeq, ...thread.items.map((item) => item.seq + 1), 1);
   const { items, ...rest } = thread;
   const meta = { ...rest, dotId, nextSeq, revision: Math.max((stored.meta?.revision ?? 0) + 1, Date.now()) };
+  // Disk's conversation was started over after this copy's: the messages this copy holds from before it go first.
+  const restarted = (thread.runtime.conversationReset?.at ?? 0) > (stored.meta?.runtime.conversationReset?.at ?? 0);
+  if (restarted) await persistence.clearItems(dotId);
   await persistence.putItems(dotId, items);
   await persistence.putMeta(meta);
   if (getDotThread(dotId)) {
+    if (restarted) channel?.postMessage({ type: 'reset', dotId, meta });
     channel?.postMessage({ type: 'items', dotId, items });
-    channel?.postMessage({ type: 'meta', dotId, meta });
+    if (!restarted) channel?.postMessage({ type: 'meta', dotId, meta });
   }
 };
 
@@ -105,8 +109,10 @@ registerSyncedFolder('spark-dots', {
       // gone. The same messages with the rest told apart (how freely the bot acts, its triggers, its
       // notebook) are a change on one side, which the engine tells apart and this cannot: taken here, a
       // choice just made in the bot's profile went back to the file's on the next pass.
+      // A conversation another copy started over holds fewer messages, not more.
+      const restartedOnDisk = (file?.thread?.runtime.conversationReset?.at ?? 0) > (thread?.runtime.conversationReset?.at ?? 0);
       const further = onDisk !== null && file?.thread && threadRelation(thread, file.thread) === 'ahead'
-        && (!thread || stateLost || file.thread.items.length > thread.items.length);
+        && (!thread || stateLost || restartedOnDisk || file.thread.items.length > thread.items.length);
       if (onDisk !== null && file?.thread && further) {
         // Taken, and the bot as disk has it unless it changed here since.
         await writeThread(dot.id, file.thread);

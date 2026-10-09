@@ -3,6 +3,7 @@ import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } 
 import {
   CodexChevron,
   CodexDiffStats,
+  CodexDrawings,
   CodexIcon,
   CodexLabelView,
   CodexShellBlock,
@@ -21,6 +22,8 @@ import {
   type CodexLabel,
 } from "../../willow/activitySummary";
 import type { CodexIconName } from "../../willow/codexIcons";
+import { willowSymbol } from "../../willow/icons";
+import { ResponseRating } from "../../willow/ResponseRating";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
@@ -148,7 +151,6 @@ import {
   MinusIcon,
   Redo2Icon,
   Minimize2Icon,
-  Undo2Icon,
   WrenchIcon,
   XIcon,
   ZapIcon,
@@ -1335,80 +1337,82 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }
 
   return (
-    <TimelineRowCtx value={sharedState}>
-      <TimelineRowActivityCtx value={activityState}>
-        <TooltipScrollDismissArea
-          ref={setTimelineViewportElement}
-          className="relative h-full min-h-0"
-          data-assistant-citation-viewport="true"
-        >
-          {onCiteAssistantText && citationThreadRef ? (
-            <AssistantSelectionToolbar
-              viewport={timelineViewportElement}
-              threadRef={citationThreadRef}
-              onCite={onCiteAssistantText}
+    <CodexDrawings value>
+      <TimelineRowCtx value={sharedState}>
+        <TimelineRowActivityCtx value={activityState}>
+          <TooltipScrollDismissArea
+            ref={setTimelineViewportElement}
+            className="relative h-full min-h-0"
+            data-assistant-citation-viewport="true"
+          >
+            {onCiteAssistantText && citationThreadRef ? (
+              <AssistantSelectionToolbar
+                viewport={timelineViewportElement}
+                threadRef={citationThreadRef}
+                onCite={onCiteAssistantText}
+              />
+            ) : null}
+            <LegendList<MessagesTimelineRow>
+              ref={setTimelineList}
+              data={rows}
+              extraData={`${listIdentityKey}:${rows.length}`}
+              keyExtractor={keyExtractor}
+              getItemType={getItemType}
+              renderItem={renderItem}
+              estimatedItemSize={90}
+              initialScrollAtEnd={citationRequest === null && rememberedPosition?.atEnd !== false}
+              // Legend needs a data refresh to mount new pins without a scroll event.
+              dataVersion={readyCitationRequest?.key ?? listIdentityKey}
+              {...(alwaysRender ? { alwaysRender } : {})}
+              onLoad={onCitationListLoad}
+              {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
+              contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
+              maintainScrollAtEnd={
+                citationPositioning ||
+                (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
+                anchoredEndSpace ||
+                !liveFollowEnabled ||
+                disclosureToggleSettling
+                  ? false
+                  : isWorking && !prefersReducedMotion && settlingListIdentity === null
+                    ? TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH
+                    : TIMELINE_MAINTAIN_SCROLL_AT_END
+              }
+              maintainVisibleContentPosition={
+                citationPositioning ||
+                (restoringThreadPosition && rememberedPosition?.atEnd === false)
+                  ? false
+                  : maintainVisibleContentPosition
+              }
+              maintainScrollAtEndThreshold={1}
+              onScroll={handleScroll}
+              onItemSizeChanged={reportContentOverflow}
+              className={cn(
+                "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]",
+                topFadeEnabled && "topbar-scroll-fade",
+              )}
+              ListHeaderComponent={listHeader}
+              ListFooterComponent={timelineListFooter}
             />
-          ) : null}
-          <LegendList<MessagesTimelineRow>
-            ref={setTimelineList}
-            data={rows}
-            extraData={`${listIdentityKey}:${rows.length}`}
-            keyExtractor={keyExtractor}
-            getItemType={getItemType}
-            renderItem={renderItem}
-            estimatedItemSize={90}
-            initialScrollAtEnd={citationRequest === null && rememberedPosition?.atEnd !== false}
-            // Legend needs a data refresh to mount new pins without a scroll event.
-            dataVersion={readyCitationRequest?.key ?? listIdentityKey}
-            {...(alwaysRender ? { alwaysRender } : {})}
-            onLoad={onCitationListLoad}
-            {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
-            contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
-            maintainScrollAtEnd={
-              citationPositioning ||
-              (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
-              anchoredEndSpace ||
-              !liveFollowEnabled ||
-              disclosureToggleSettling
-                ? false
-                : isWorking && !prefersReducedMotion && settlingListIdentity === null
-                  ? TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH
-                  : TIMELINE_MAINTAIN_SCROLL_AT_END
-            }
-            maintainVisibleContentPosition={
-              citationPositioning ||
-              (restoringThreadPosition && rememberedPosition?.atEnd === false)
-                ? false
-                : maintainVisibleContentPosition
-            }
-            maintainScrollAtEndThreshold={1}
-            onScroll={handleScroll}
-            onItemSizeChanged={reportContentOverflow}
-            className={cn(
-              "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]",
-              topFadeEnabled && "topbar-scroll-fade",
-            )}
-            ListHeaderComponent={listHeader}
-            ListFooterComponent={timelineListFooter}
-          />
-          <TimelineMinimap
-            items={minimapItems}
-            hasPersistentGutter={minimapHasPersistentGutter}
-            hitStripWidth={minimapHitStripWidth}
-            currentIndex={minimapCurrentIndex}
-            stripMap={minimapStripMap}
-            onSelect={(item) => {
-              onManualNavigation();
-              void listRef.current?.scrollToIndex({
-                index: item.rowIndex,
-                animated: true,
-                viewOffset: 24,
-              });
-            }}
-          />
-        </TooltipScrollDismissArea>
-      </TimelineRowActivityCtx>
-    </TimelineRowCtx>
+            <TimelineMinimap
+              items={minimapItems}
+              hasPersistentGutter={minimapHasPersistentGutter}
+              hitStripWidth={minimapHitStripWidth}
+              currentIndex={minimapCurrentIndex}
+              stripMap={minimapStripMap}
+              onSelect={(item) => {
+                onManualNavigation();
+                void listRef.current?.scrollToIndex({
+                  index: item.rowIndex,
+                  animated: true,
+                  viewOffset: 24,
+                });
+              }}
+            />
+          </TooltipScrollDismissArea>
+        </TimelineRowActivityCtx>
+      </TimelineRowCtx>
+    </CodexDrawings>
   );
 });
 
@@ -2125,6 +2129,49 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     ],
   );
 
+  const userActions = (
+    <div
+      data-willow-user-actions=""
+      className="flex shrink-0 items-center justify-end text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100"
+    >
+      <div className="flex shrink-0 items-center gap-2">
+        <Tooltip>
+          <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
+            {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
+          </TooltipTrigger>
+          <TooltipPopup>
+            {formatChatTimestampTooltip(row.message.createdAt, ctx.timestampFormat)}
+          </TooltipPopup>
+        </Tooltip>
+        <div className="flex items-center gap-0.5">
+          {typeof revertTurnCount === "number" && (
+            <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
+          )}
+          {resolvedContext.text && (
+            <MessageCopyButton
+              // Structured paste needs the canonical links to retain their positions.
+              text={
+                contextClipboardFragment
+                  ? resolvedContext.text
+                  : replaceComposerContextReferences(
+                      resolvedContext.text,
+                      (reference) => reference.label,
+                    )
+              }
+              {...(contextClipboardFragment
+                ? {
+                    extraFlavors: { [COMPOSER_CONTEXT_CLIPBOARD_MIME]: contextClipboardFragment },
+                  }
+                : {})}
+              copiedLabel="Prompt copied"
+              variant="ghost"
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="group relative flex flex-col items-end gap-1" data-willow-user-row="">
       {userMessage.isAutomation ? (
@@ -2228,76 +2275,84 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         </div>
       )}
       {/* Willow's sent message (features/chat UserMessageBubble): message.css. */}
-      {showsBubble ? (
-        <div data-user-message-bubble="true" className="willow-user-bubble">
-          {unchippedFiles.length > 0 || unknownAttachments.length > 0 ? (
-            <div className="mb-2 flex flex-col gap-1">
-              {unchippedFiles.map((file) => {
-                const fileIdentity = (
-                  <>
-                    <PierreEntryIcon pathValue={file.name} kind="file" theme={ctx.resolvedTheme} />
-                    <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                  </>
-                );
-                if (file.downloadable !== false) {
-                  return (
-                    <div key={file.id} className="flex min-w-0 items-center gap-1">
-                      <button
-                        type="button"
-                        aria-label={`Preview ${file.name}`}
-                        onClick={() => ctx.onFileOpen(file)}
-                        className="focus-visible:ring-ring/70 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 text-left text-sm hover:underline focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
-                      >
-                        {fileIdentity}
-                        <EyeIcon className="size-4 shrink-0" />
-                      </button>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              size="icon-xs"
-                              variant="ghost-muted"
-                              aria-label={`Download ${file.name}`}
-                              onClick={() => ctx.onFileDownload(file)}
-                            />
-                          }
+      {/* Codex's line: the bubble's buttons beside it on hover, so the timeline goes on 16px under it. */}
+      <div data-willow-user-line="" className="flex w-full items-center justify-end gap-1">
+        {userActions}
+        {showsBubble ? (
+          <div data-user-message-bubble="true" className="willow-user-bubble">
+            {unchippedFiles.length > 0 || unknownAttachments.length > 0 ? (
+              <div className="mb-2 flex flex-col gap-1">
+                {unchippedFiles.map((file) => {
+                  const fileIdentity = (
+                    <>
+                      <PierreEntryIcon
+                        pathValue={file.name}
+                        kind="file"
+                        theme={ctx.resolvedTheme}
+                      />
+                      <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                    </>
+                  );
+                  if (file.downloadable !== false) {
+                    return (
+                      <div key={file.id} className="flex min-w-0 items-center gap-1">
+                        <button
+                          type="button"
+                          aria-label={`Preview ${file.name}`}
+                          onClick={() => ctx.onFileOpen(file)}
+                          className="focus-visible:ring-ring/70 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 text-left text-sm hover:underline focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
                         >
-                          <DownloadIcon />
-                        </TooltipTrigger>
-                        <TooltipPopup side="top">Download {file.name}</TooltipPopup>
-                      </Tooltip>
+                          {fileIdentity}
+                          <EyeIcon className="size-4 shrink-0" />
+                        </button>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                size="icon-xs"
+                                variant="ghost-muted"
+                                aria-label={`Download ${file.name}`}
+                                onClick={() => ctx.onFileDownload(file)}
+                              />
+                            }
+                          >
+                            <DownloadIcon />
+                          </TooltipTrigger>
+                          <TooltipPopup side="top">Download {file.name}</TooltipPopup>
+                        </Tooltip>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div key={file.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
+                      {fileIdentity}
                     </div>
                   );
-                }
-
-                return (
-                  <div key={file.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
-                    {fileIdentity}
+                })}
+                {unknownAttachments.map((attachment) => (
+                  <div key={attachment.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
+                    <PierreEntryIcon
+                      pathValue={attachment.name}
+                      kind="file"
+                      theme={ctx.resolvedTheme}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
                   </div>
-                );
-              })}
-              {unknownAttachments.map((attachment) => (
-                <div key={attachment.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
-                  <PierreEntryIcon
-                    pathValue={attachment.name}
-                    kind="file"
-                    theme={ctx.resolvedTheme}
-                  />
-                  <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
-                </div>
-              ))}
+                ))}
+              </div>
+            ) : null}
+            <div onCopyCapture={onBodyCopyCapture}>
+              <CollapsibleUserMessageBody
+                text={resolvedContext.text}
+                renderContextReference={renderContextReference}
+                skills={ctx.skills}
+                markdownCwd={ctx.markdownCwd}
+              />
             </div>
-          ) : null}
-          <div onCopyCapture={onBodyCopyCapture}>
-            <CollapsibleUserMessageBody
-              text={resolvedContext.text}
-              renderContextReference={renderContextReference}
-              skills={ctx.skills}
-              markdownCwd={ctx.markdownCwd}
-            />
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       {row.projectedItem &&
       row.projectedItem.item.status !== "completed" &&
       row.projectedItem.item.status !== "pending" &&
@@ -2308,46 +2363,6 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </span>
         </div>
       ) : null}
-      <div
-        data-willow-user-actions=""
-        className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100"
-      >
-        <div className="flex shrink-0 items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
-              {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
-            </TooltipTrigger>
-            <TooltipPopup>
-              {formatChatTimestampTooltip(row.message.createdAt, ctx.timestampFormat)}
-            </TooltipPopup>
-          </Tooltip>
-          <div className="flex items-center gap-0.5">
-            {typeof revertTurnCount === "number" && (
-              <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
-            )}
-            {resolvedContext.text && (
-              <MessageCopyButton
-                // Structured paste needs the canonical links to retain their positions.
-                text={
-                  contextClipboardFragment
-                    ? resolvedContext.text
-                    : replaceComposerContextReferences(
-                        resolvedContext.text,
-                        (reference) => reference.label,
-                      )
-                }
-                {...(contextClipboardFragment
-                  ? {
-                      extraFlavors: { [COMPOSER_CONTEXT_CLIPBOARD_MIME]: contextClipboardFragment },
-                    }
-                  : {})}
-                copiedLabel="Prompt copied"
-                variant="ghost"
-              />
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -2419,6 +2434,10 @@ export function resolvePreviewAnnotationImage(input: {
   );
 }
 
+/** Willow's glyphs for a prompt's Edit and a reply's branch (features/chat ChatView, ChatResponseChrome). */
+const EditGlyph = willowSymbol("edit", "luminous");
+const BranchGlyph = willowSymbol("arrow_split", "luminous");
+
 function RevertUserMessageButton({
   turnCount,
   messageId,
@@ -2443,7 +2462,7 @@ function RevertUserMessageButton({
           />
         }
       >
-        <Undo2Icon className="size-3" />
+        <EditGlyph />
       </TooltipTrigger>
       <TooltipPopup side="top">Edit from here</TooltipPopup>
     </Tooltip>
@@ -2624,7 +2643,7 @@ function AssistantForkButton({
           />
         }
       >
-        <GitForkIcon className={cn("size-3", busy && "animate-pulse")} />
+        <BranchGlyph className={cn(busy && "animate-pulse")} />
       </TooltipTrigger>
       <TooltipPopup side="top">Fork from this response</TooltipPopup>
     </Tooltip>
@@ -2666,7 +2685,13 @@ function AssistantMessageMeta({
   alwaysVisible?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
+  const answered = resolveAssistantMessageCopyState({
+    text: message.text ?? null,
+    showCopyButton,
+    streaming: copyStreaming,
+  }).visible;
 
+  // Willow's order under a response: the ratings, Copy, then the branch; the time after them.
   return (
     <div
       data-willow-assistant-actions=""
@@ -2678,6 +2703,12 @@ function AssistantMessageMeta({
         className,
       )}
     >
+      {answered ? <ResponseRating messageId={message.id} /> : null}
+      <AssistantCopyButton
+        message={message}
+        showCopyButton={showCopyButton}
+        streaming={copyStreaming}
+      />
       {projectedItem?.item.type === "assistant_message" ? (
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
@@ -2686,11 +2717,6 @@ function AssistantMessageMeta({
           {projectedItem.item.status}
         </span>
       ) : null}
-      <AssistantCopyButton
-        message={message}
-        showCopyButton={showCopyButton}
-        streaming={copyStreaming}
-      />
       {!message.streaming && (
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>

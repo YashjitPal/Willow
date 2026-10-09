@@ -794,6 +794,21 @@ function timelineEntryFoldRunId(entry: TimelineEntry, runlessKey: RunId | null):
   return null;
 }
 
+/**
+ * A command, read, edit, search, image, tool call or subagent: the agent working, not thinking or
+ * writing. Only a turn with some gets the "Working for" header and folds behind "Worked for"; one
+ * that only thinks shows "Thinking", then keeps its "Thought" over the reply.
+ */
+function timelineEntryDoesWork(entry: TimelineEntry): boolean {
+  if (entry.kind === "work") {
+    return entry.entry.tone === "tool" || entry.entry.viewedImagePath !== undefined;
+  }
+  return (
+    entry.kind === "event" &&
+    (timelineEntryIsPersistentResourceCard(entry) || entry.projectedItem.item.type === "subagent")
+  );
+}
+
 /** A steer adds input to its existing turn, without creating a new header. */
 function timelineEntryStartsResponse(entry: TimelineEntry): boolean {
   return (
@@ -1026,6 +1041,10 @@ function deriveTurnFolds(input: {
     const isStoppedTurn =
       interruptedRunIds.has(runId) ||
       (input.latestRun?.runId === runId && input.latestRun.status === "interrupted");
+    // A stopped turn still folds, so it reads "You stopped after 3s" rather than "Run interrupted".
+    if (!isStoppedTurn && !group.entries.some(timelineEntryDoesWork)) {
+      continue;
+    }
     // A turn cut short by a steer leaves trailing work entries behind its
     // terminal message — take whichever ended last.
     const lastEntryEnd =
@@ -1380,8 +1399,13 @@ export function deriveMessagesTimelineRows(input: {
   const activeWorkEntryIds = new Set(
     activeWorkRow !== null || latestToolFailed ? activeToolEntries.map((entry) => entry.id) : [],
   );
+  // The header waits for the turn's first piece of work, a worktree's setup included; a turn that
+  // only thinks shows "Thinking".
+  const activeTurnDoesWork =
+    (input.worktreeSetup !== null && input.worktreeSetup !== undefined) ||
+    timelineEntries.slice(activeTurnHeaderIndex).some(timelineEntryDoesWork);
   const appendWorkingRow = () => {
-    if (input.turnStarted === false) return;
+    if (input.turnStarted === false || !activeTurnDoesWork) return;
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",

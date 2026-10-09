@@ -2,9 +2,11 @@ import { useStore } from '@nanostores/react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { DiscordLogo } from '../dot-icons';
+import { discordLookBusy, setDiscordLookOn } from '../discord-look';
 import { connectDotDiscord, disconnectDotDiscord, dotComputerReachable, refreshDotDiscord, stopDotPostingWithoutAsking } from '../harness/dot-runtime';
 import {
   DISCORD_PORTAL,
+  describeDiscordLook,
   discordAvatarUrl,
   discordBotPageUrl,
   discordDmUrl,
@@ -16,6 +18,7 @@ import {
   type DiscordConnection,
 } from '../harness/runtime/discord';
 import type { DotThread } from '../harness/thread/thread-types';
+import { M3Switch } from '../m3/M3Switch';
 import '../m3/m3';
 import './DotDiscord.css';
 
@@ -137,7 +140,9 @@ function DiscordSetup({ dotId, name }: { dotId: string; name: string }) {
           <TokenForm dotId={dotId} action="Connect" />
         </li>
       </ol>
-      <p className="dot-panel__footnote">{name} is on Discord while Willow is open. What other people write there reaches it as information, never as instructions.</p>
+      <p className="dot-panel__footnote">
+        Willow gives it {name}’s picture, wallpaper as its banner, and name, and keeps them in step when you change them. {name} is on Discord while Willow is open. What other people write there reaches it as information, never as instructions.
+      </p>
     </div>
   );
 }
@@ -145,6 +150,7 @@ function DiscordSetup({ dotId, name }: { dotId: string; name: string }) {
 function DiscordAccount({ dotId, name, thread }: { dotId: string; name: string; thread: DotThread | undefined }) {
   const link = useStore(discordLinks)[dotId]!;
   const state = useStore(discordStates)[dotId];
+  const updatingLook = Boolean(useStore(discordLookBusy)[dotId]);
   const [confirming, setConfirming] = useState(false);
   const status = state?.status ?? 'connecting';
   const guilds = state?.guilds ?? [];
@@ -216,6 +222,16 @@ function DiscordAccount({ dotId, name, thread }: { dotId: string; name: string; 
 
       <h3 className="dot-panel__label">How it works there</h3>
       <div className="dot-panel__group">
+        <div className="dot-panel__row">
+          <MaterialSymbol name="face" {...ICON} className="dot-panel__row-icon" />
+          <span className="dot-panel__row-copy">
+            <span className="dot-panel__row-title">Looks like {name}</span>
+            <span className={`dot-panel__row-sub${link.look?.problem && !updatingLook ? ' dot-discord__look-problem' : ''}`} aria-live="polite">
+              {describeDiscordLook(link, name, updatingLook, Date.now())}
+            </span>
+          </span>
+          <M3Switch selected={!link.look?.off} label={`Give ${link.botName} ${name}’s picture, banner and name on Discord`} onToggle={(on) => setDiscordLookOn(dotId, on)} />
+        </div>
         <div className="dot-panel__row">
           <MaterialSymbol name="sync" {...ICON} className="dot-panel__row-icon" />
           <span className="dot-panel__row-copy">

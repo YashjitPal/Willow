@@ -164,6 +164,14 @@ export const stopSparkDotReply = (dotId: string): void => {
   void runtime().then((module) => module.interruptDot(dotId));
 };
 
+/** Starts a bot's conversation over and keeps everything else it has (the runtime's `resetDotConversation`). */
+export const resetSparkDotConversation = async (dotId: string): Promise<void> => {
+  if (findSparkDot(dotId) == null) return;
+  await (await runtime()).resetDotConversation(dotId);
+  // A bot from before the harness still carries the first messages of that same conversation on itself.
+  if (findSparkDot(dotId)?.messages.length) updateDot(dotId, (dot) => ({ ...dot, messages: [] }));
+};
+
 export const addSparkDotCategory = (name: string): void => {
   const category = name.trim();
   const state = sparkDots.get();
@@ -172,6 +180,18 @@ export const addSparkDotCategory = (name: string): void => {
 };
 
 export const setSparkDotCategory = (dotId: string, category: string | null): void => updateDot(dotId, (dot) => ({ ...dot, category }));
+
+/**
+ * Deletes a category. Its bots stay, filed under none: a bot still wearing it would bring the category back the next
+ * time the bots folder is read (`applySyncedSparkDots`).
+ */
+export const deleteSparkDotCategory = (category: string): void => {
+  const state = sparkDots.get();
+  sparkDots.set({
+    categories: state.categories.filter((candidate) => candidate !== category),
+    dots: state.dots.map((dot) => (dot.category === category ? { ...dot, category: null } : dot)),
+  });
+};
 
 /** Deletes a bot. The runtime notices and removes its thread and stops its work. */
 export const deleteSparkDot = (dotId: string): void => {

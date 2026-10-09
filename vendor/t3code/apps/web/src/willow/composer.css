@@ -122,7 +122,11 @@
   font-size: 17px;
   font-weight: 400;
   line-height: 24px;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-variation-settings:
+    "ROND" 0,
+    "slnt" 0,
+    "wdth" 92,
+    "wght" 400;
   letter-spacing: normal;
 }
 
@@ -153,7 +157,13 @@
   padding: 0 12px;
   overflow-x: auto;
   scrollbar-width: none;
-  mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 12px,
+    #000 calc(100% - 12px),
+    transparent 100%
+  );
 }
 
 [data-willow-attachment-strip]::-webkit-scrollbar {
@@ -162,10 +172,10 @@
 
 /* A 112px square on 20px corners, whatever the picture's own shape: it is cover-cropped to fill. */
 :is(
-    [data-chat-composer-expanded-image="true"],
-    [data-chat-composer-video="true"],
-    [data-chat-composer-image-placeholder="true"]
-  ) {
+  [data-chat-composer-expanded-image="true"],
+  [data-chat-composer-video="true"],
+  [data-chat-composer-image-placeholder="true"]
+) {
   width: 112px;
   min-width: 112px;
   max-width: none;
@@ -198,7 +208,10 @@
   transition: none;
 }
 
-:is([data-chat-composer-expanded-image="true"], [data-chat-composer-video="true"]):is(:hover, :focus-within)
+:is([data-chat-composer-expanded-image="true"], [data-chat-composer-video="true"]):is(
+    :hover,
+    :focus-within
+  )
   [data-willow-attachment-remove] {
   visibility: visible;
 }
@@ -240,7 +253,10 @@
   visibility: hidden;
 }
 
-:is([data-chat-composer-expanded-image="true"], [data-willow-attachment-tile]):is(:hover, :focus-within)
+:is([data-chat-composer-expanded-image="true"], [data-willow-attachment-tile]):is(
+    :hover,
+    :focus-within
+  )
   [data-willow-attachment-contents],
 [data-willow-attachment-contents]:has([data-popup-open]) {
   visibility: visible;
@@ -307,7 +323,9 @@
   color: var(--willow-composer-icon);
   outline: none;
   cursor: pointer;
-  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .willow-composer-plus:hover:not(:disabled) {
@@ -329,7 +347,12 @@
   font-size: 24px;
   font-weight: 300;
   line-height: 24px;
-  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "ROND" 100, "opsz" 24;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 300,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 24;
   font-feature-settings: "liga";
   user-select: none;
   transition: transform 200ms cubic-bezier(0.2, 0, 0, 1);
@@ -358,14 +381,19 @@
   font-size: 13px;
   font-weight: 400;
   line-height: 17px;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-variation-settings:
+    "ROND" 0,
+    "slnt" 0,
+    "wdth" 92,
+    "wght" 400;
   letter-spacing: normal;
   user-select: none;
   transform: none;
   transition: none;
 }
 
-[data-chat-composer-footer="true"] [data-composer-control]:is(:hover, [data-popup-open], [data-pressed], [aria-pressed="true"]) {
+[data-chat-composer-footer="true"]
+  [data-composer-control]:is(:hover, [data-popup-open], [data-pressed], [aria-pressed="true"]) {
   background: var(--willow-chip-surface);
   color: var(--willow-chip-text);
 }
@@ -384,7 +412,11 @@
 }
 
 [data-chat-composer-footer="true"] [data-composer-control] .willow-icon-glyph {
-  font-variation-settings: "FILL" 0, "wght" 330, "GRAD" 0, "opsz" 20;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 330,
+    "GRAD" 0,
+    "opsz" 20;
 }
 
 [data-chat-composer-footer="true"] [data-composer-control] [data-composer-control-label] {
@@ -430,20 +462,35 @@
 }
 
 [data-chat-composer-footer="true"] [data-willow-access-control="true"] .willow-icon-glyph {
-  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 300,
+    "GRAD" 0,
+    "opsz" 24;
 }
 
 /* Willow's own glyphs at its menus' settings (SparkFolderSections' "Full access" lock). */
-[data-chat-composer-footer="true"] [data-willow-access-control="true"] .willow-icon-glyph--luminous {
-  font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "ROND" 100, "opsz" 20;
+[data-chat-composer-footer="true"]
+  [data-willow-access-control="true"]
+  .willow-icon-glyph--luminous {
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 320,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 20;
 }
 
-[data-chat-composer-footer="true"] [data-willow-access-control="true"] [data-composer-control-label] {
+[data-chat-composer-footer="true"]
+  [data-willow-access-control="true"]
+  [data-composer-control-label] {
   max-width: 220px;
   color: inherit;
 }
 
-[data-chat-composer-footer="true"] [data-willow-access-control="true"] [data-composer-control-chevron] {
+[data-chat-composer-footer="true"]
+  [data-willow-access-control="true"]
+  [data-composer-control-chevron] {
   width: 24px;
   height: 24px;
   flex-basis: 24px;
@@ -451,7 +498,12 @@
   font-size: 24px;
   font-weight: 300;
   line-height: 24px;
-  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300;
+  font-variation-settings:
+    "FILL" 0,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 24,
+    "wght" 300;
 }
 
 [data-chat-composer-footer="true"]
@@ -465,7 +517,9 @@
  * with the glyph on its baseline) is taller than the glyph, with the glyph at its top. As a flex
  * box it is the glyph's height, centred in the control as the model pill's chevron is.
  */
-[data-chat-composer-footer="true"] [data-composer-control] > span:has(> [data-composer-control-chevron]),
+[data-chat-composer-footer="true"]
+  [data-composer-control]
+  > span:has(> [data-composer-control-chevron]),
 [data-willow-composer-utility="true"]
   :is([data-composer-control], [data-composer-context-control])
   > span:has(> [data-composer-control-chevron]) {
@@ -487,7 +541,12 @@
   font-style: normal;
   font-weight: 330;
   line-height: 16px;
-  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 16, "wght" 330;
+  font-variation-settings:
+    "FILL" 0,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 16,
+    "wght" 330;
   font-feature-settings: "liga";
   letter-spacing: 0;
   user-select: none;
@@ -539,11 +598,11 @@
 }
 
 [data-willow-composer-utility="true"]:not(
-    :has(
-      [data-slot="composer-context-strip"]:not(.invisible) [data-composer-context-control],
-      [data-willow-context-meter-trigger]
-    )
-  ) {
+  :has(
+    [data-slot="composer-context-strip"]:not(.invisible) [data-composer-context-control],
+    [data-willow-context-meter-trigger]
+  )
+) {
   display: none;
 }
 
@@ -650,7 +709,9 @@
   color: var(--willow-utility-chip-text);
 }
 
-[data-willow-composer-utility="true"] :is([data-composer-control], [data-composer-context-control]) svg {
+[data-willow-composer-utility="true"]
+  :is([data-composer-control], [data-composer-context-control])
+  svg {
   width: 20px;
   height: 20px;
   margin: 0;
@@ -661,7 +722,11 @@
 [data-willow-composer-utility="true"]
   :is([data-composer-control], [data-composer-context-control])
   .willow-icon-glyph {
-  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 300,
+    "GRAD" 0,
+    "opsz" 24;
 }
 
 [data-willow-composer-utility="true"]
@@ -677,7 +742,12 @@
   color: currentColor;
   font-size: 20px;
   line-height: 20px;
-  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 300;
+  font-variation-settings:
+    "FILL" 0,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 20,
+    "wght" 300;
 }
 
 [data-willow-context-meter-trigger="true"] > span:first-child {
@@ -729,6 +799,56 @@
 
 [data-willow-composer-rail="true"] [data-composer-banner-surface][data-variant="error"] {
   background: color-mix(in srgb, var(--error) 9%, transparent);
+}
+
+/* ── Scroll to end (ChatView) ───────────────────────────────────────────── */
+
+/*
+ * Codex's round jump button over the box (ThreadView's "Scroll to latest") as Willow's 36px tonal
+ * icon button (settings' #282a2c / #e3e3e3, a step deeper under the pointer), no edge or shadow,
+ * holding only the model pill's 24px chevron.
+ */
+[data-willow-scroll-to-end] {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: #e3e3e3;
+  box-shadow: none;
+  color: #1f1f1f;
+}
+
+[data-willow-scroll-to-end]:hover {
+  background: #d1d5db;
+}
+
+:root.dark [data-willow-scroll-to-end] {
+  background: #282a2c;
+  color: #e3e3e3;
+}
+
+:root.dark [data-willow-scroll-to-end]:hover {
+  background: #323436;
+}
+
+[data-willow-scroll-to-end]::before {
+  display: none;
+}
+
+[data-willow-scroll-to-end] svg {
+  width: 24px;
+  height: 24px;
+  opacity: 1;
+}
+
+[data-willow-scroll-to-end] .willow-icon-glyph--luminous {
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 300,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 24;
 }
 
 /* ── Queued follow-ups (Codex's queued-message-list, a row of the rail) ──── */
@@ -893,11 +1013,17 @@
   font-size: 15px;
   font-weight: 400;
   line-height: 20px;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-variation-settings:
+    "ROND" 0,
+    "slnt" 0,
+    "wdth" 92,
+    "wght" 400;
   white-space: nowrap;
   outline: none;
   cursor: pointer;
-  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .willow-model-pill:is(:hover, [data-popup-open]) {
@@ -940,7 +1066,12 @@
   font-size: 24px;
   font-weight: 300;
   line-height: 24px;
-  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "ROND" 100, "opsz" 24;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 300,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 24;
   font-feature-settings: "liga";
   user-select: none;
   transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -996,7 +1127,12 @@
   font-size: 24px;
   font-weight: 300;
   line-height: 24px;
-  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "ROND" 100, "opsz" 24;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 300,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 24;
   font-feature-settings: "liga";
   user-select: none;
 }
@@ -1028,7 +1164,12 @@
   font-size: 24px;
   font-weight: 320;
   line-height: 24px;
-  font-variation-settings: "FILL" 1, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300;
+  font-variation-settings:
+    "FILL" 1,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 24,
+    "wght" 300;
   font-feature-settings: "liga";
   user-select: none;
 }
@@ -1057,7 +1198,11 @@
   border: 0;
   background: var(--willow-models-surface);
   box-shadow: var(--willow-models-shadow);
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-variation-settings:
+    "ROND" 0,
+    "slnt" 0,
+    "wdth" 92,
+    "wght" 400;
   transform-origin: right bottom;
   animation: willow-dropdown-open-up 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -1082,7 +1227,11 @@
   border: 0;
   background: var(--willow-models-surface);
   box-shadow: var(--willow-models-sub-shadow);
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-variation-settings:
+    "ROND" 0,
+    "slnt" 0,
+    "wdth" 92,
+    "wght" 400;
   animation: none;
 }
 
@@ -1131,15 +1280,26 @@
   min-height: 48px;
 }
 
-.willow-models-menu__sub :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]) .text-xs {
+.willow-models-menu__sub
+  :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"])
+  .text-xs {
   padding-bottom: 8px;
   color: var(--willow-models-muted);
   font-size: 12px;
   line-height: 16px;
 }
 
-.willow-models-menu :is(.willow-models-menu__model, .willow-models-menu__trait):is([data-highlighted], [data-popup-open], :active),
-.willow-models-menu__sub :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]):is([data-highlighted], :active) {
+.willow-models-menu
+  :is(.willow-models-menu__model, .willow-models-menu__trait):is(
+    [data-highlighted],
+    [data-popup-open],
+    :active
+  ),
+.willow-models-menu__sub
+  :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"]):is(
+    [data-highlighted],
+    :active
+  ) {
   background: var(--willow-models-hover);
 }
 
@@ -1155,7 +1315,12 @@
   font-size: 20px;
   font-weight: 320;
   line-height: 20px;
-  font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "ROND" 100, "opsz" 20;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 320,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 20;
   font-feature-settings: "liga";
   user-select: none;
 }
@@ -1212,7 +1377,10 @@
   font-size: 24px;
   font-weight: 400;
   line-height: 24px;
-  font-variation-settings: "ROND" 100, "slnt" 0, "wght" 400;
+  font-variation-settings:
+    "ROND" 100,
+    "slnt" 0,
+    "wght" 400;
   font-feature-settings: "liga";
   user-select: none;
 }
@@ -1230,7 +1398,8 @@
 }
 
 /* The trait's values: ModelsMenu's effort menu, a check in the 36px column and the label after. */
-.willow-models-menu__sub :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"])::before {
+.willow-models-menu__sub
+  :is([data-slot="menu-radio-item"], [data-slot="menu-checkbox-item"])::before {
   width: 36px;
   flex: 0 0 36px;
   color: var(--willow-models-text);
@@ -1319,7 +1488,12 @@
   font-size: 20px;
   font-weight: 320;
   line-height: 20px;
-  font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 20, "wght" 320;
+  font-variation-settings:
+    "FILL" 0,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 20,
+    "wght" 320;
   font-feature-settings: "liga";
   user-select: none;
 }
@@ -1444,7 +1618,11 @@
   font-size: 13px;
   font-weight: 400;
   line-height: 17px;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-variation-settings:
+    "ROND" 0,
+    "slnt" 0,
+    "wdth" 92,
+    "wght" 400;
 }
 
 [data-composer-command-drawer="true"] [data-slot="command-item"] > span > span:nth-child(2) {

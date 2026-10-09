@@ -1863,6 +1863,18 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
    */
   const taskHostRef = useRef({ createTask, submitFollowUp, stopTask, getExecutionSettings, skills, connections });
   taskHostRef.current = { createTask, submitFollowUp, stopTask, getExecutionSettings, skills, connections };
+  // A bot on Discord wears its look there too, kept in step as it changes here.
+  useEffect(() => {
+    let stop = () => {};
+    let cancelled = false;
+    void import('./dots/discord-look').then((module) => {
+      if (!cancelled) stop = module.watchDiscordLooks();
+    });
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, []);
   useEffect(() => {
     startDotsRuntime();
     return registerSparkTaskHost({

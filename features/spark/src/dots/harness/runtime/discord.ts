@@ -28,7 +28,26 @@ export interface DiscordLink {
   public?: boolean;
   /** The DM between the bot and the user, once Discord lets it open (they share a server). */
   dmChannelId?: string;
+  /** How its picture and name there follow the bot's look here. */
+  look?: DiscordLook;
   linkedAt: number;
+}
+
+/** The Discord bot wearing the bot's own look: what it was last given, and what stopped it, when something did. */
+export interface DiscordLook {
+  /** The user turned it off: whatever the bot wears on Discord stays as it is. */
+  off?: boolean;
+  /** The look its picture was last made from, or tried and refused for. */
+  avatarKey?: string;
+  /** The wallpaper its banner was last made from, or tried and refused for. */
+  bannerKey?: string;
+  /** The name last given it, or tried and refused. */
+  name?: string;
+  /** Discord asked to wait: nothing more is sent before then. */
+  waitUntil?: number;
+  problem?: string;
+  /** When it last took a change. */
+  at?: number;
 }
 
 export interface DiscordChannel {
@@ -92,7 +111,7 @@ export interface DiscordNext {
   guilds?: DiscordGuild[];
 }
 
-export type DiscordMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+export type DiscordMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /** Discord's API, as Willow's companion relays it. */
 export interface DiscordRelay {
@@ -180,6 +199,15 @@ export const setDiscordLink = (dotId: string, link: DiscordLink | null): void =>
     discordStates.set(states);
     writeJson(STATE_KEY, states);
   }
+};
+
+/** Changes a bot's link as storage holds it now, if it still has one. */
+export const updateDiscordLink = (dotId: string, change: (link: DiscordLink) => DiscordLink): DiscordLink | null => {
+  const link = storedLinks()[dotId];
+  if (!link) return null;
+  const next = change(link);
+  setDiscordLink(dotId, next);
+  return next;
 };
 
 const EMPTY_STATE: DiscordGatewayState = { status: 'connecting', guilds: [], sent: [], updatedAt: 0 };
@@ -331,6 +359,102 @@ export const discordProblem = (reply: { status: number; body: unknown }): string
   if (reply.status === 401) return 'Discord no longer accepts the bot’s token. The user can connect it again from the Discord button in the bot’s profile.';
   if (reply.status === 429) return `Discord is limiting how fast the bot acts${body.retry_after ? `; try again in ${Math.ceil(body.retry_after)} seconds` : ''}.`;
   return body.message ? `Discord refused: ${body.message}` : `Discord refused (${reply.status}).`;
+};
+
+/* ------------------------------------------------------------------------ */
+/* Its look                                                                  */
+/* ------------------------------------------------------------------------ */
+
+/** The bot's name as Discord takes a bot's: 2 to 32 characters, none of the few it keeps for itself. Else null. */
+export const discordUsername = (name: string | null | undefined): string | null => {
+  const value = (name ?? '').trim().replace(/\s+/g, ' ');
+  if (value.length < 2 || value.length > 32) return null;
+  if (/[@#:]|```|discord|clyde/i.test(value) || /^(everyone|here)$/i.test(value)) return null;
+  return value;
+};
+
+export interface DiscordLookWanted {
+  /** The bot's character and colour, as a fingerprint; null when it has none to draw. */
+  avatarKey: string | null;
+  /** Its wallpaper, as a fingerprint. */
+  bannerKey: string | null;
+  /** Its name as Discord takes it, or null when Discord would not take it. */
+  name: string | null;
+}
+
+/**
+ * What has to change on Discord for the bot to look there as it does here — its picture, its banner, its name — or null
+ * when nothing does, the user turned it off, or Discord asked to wait. A change already tried and refused is not tried
+ * again until the look changes once more.
+ */
+export const discordLookPlan = (link: DiscordLink, wanted: DiscordLookWanted, now: number): { avatar: boolean; banner: boolean; name: string | null } | null => {
+  const look = link.look ?? {};
+  if (look.off || (look.waitUntil ?? 0) > now) return null;
+  const avatar = Boolean(wanted.avatarKey) && wanted.avatarKey !== look.avatarKey;
+  const banner = Boolean(wanted.bannerKey) && wanted.bannerKey !== look.bannerKey;
+  const name = wanted.name && wanted.name !== link.botName && wanted.name !== look.name ? wanted.name : null;
+  return avatar || banner || name ? { avatar, banner, name } : null;
+};
+
+/** The line under "Looks like {name}" on the bot's Discord page. */
+export const describeDiscordLook = (link: DiscordLink, name: string, busy: boolean, now: number): string => {
+  const look = link.look ?? {};
+  if (look.off) return 'Its picture, banner and name on Discord stay as they are';
+  if (busy) return 'Updating it on Discord…';
+  if ((look.waitUntil ?? 0) > now) {
+    const at = new Date(look.waitUntil!).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return `${look.problem ?? 'Discord asked Willow to wait.'} Willow tries again at ${at}.`;
+  }
+  if (look.problem) return look.problem;
+  return `Its picture, banner and name on Discord follow ${name}’s here`;
+};
+
+interface ProfileError extends ApiError {
+  errors?: unknown;
+}
+
+/** How long to wait when Discord says a bot is changing its picture or name too often, without saying for how long. */
+export const LOOK_RATE_WAIT_MS = 30 * 60_000;
+
+/** What the bot wears on Discord once a change has gone through. */
+export interface DiscordProfile {
+  avatar: string | null;
+  banner: string | null;
+  username: string;
+}
+
+/** Why Discord refused a change to the bot's look, with when to try again when it asked to wait, and what it refused. */
+export interface DiscordProfileRefusal {
+  problem: string;
+  waitUntil?: number;
+  /** Discord would not take the banner, though the rest may go without it. */
+  banner?: boolean;
+}
+
+/**
+ * Gives the bot a new picture or banner (data URLs) or name on Discord. Resolves to what it wears now, or to why not —
+ * with when to try again, when Discord asked to wait.
+ */
+export const setDiscordProfile = async (
+  link: DiscordLink,
+  relay: DiscordRelay,
+  change: { avatar?: string; banner?: string; username?: string },
+  now: number,
+): Promise<DiscordProfile | DiscordProfileRefusal> => {
+  const reply = await relay.call<ApiUser & ProfileError & { banner?: string | null }>(link.token, 'PATCH', '/users/@me', { body: change });
+  if (reply.status === 200 && reply.body?.id) return { avatar: reply.body.avatar ?? null, banner: reply.body.banner ?? null, username: reply.body.username || link.botName };
+  const body = (reply.body && typeof reply.body === 'object' ? reply.body : {}) as ProfileError;
+  const what = change.avatar ? 'picture' : change.banner ? 'banner' : 'name';
+  if (reply.status === 429) {
+    return { problem: `Discord is limiting how often the bot can change its ${what}.`, waitUntil: now + Math.ceil(Math.max(body.retry_after ?? 60, 1) * 1_000) };
+  }
+  const reasons = JSON.stringify(body.errors ?? '');
+  if (/RATE_LIMIT/.test(reasons)) return { problem: `Discord limits how often a bot’s ${what} changes.`, waitUntil: now + LOOK_RATE_WAIT_MS };
+  if (/USERNAME_TOO_MANY_USERS/.test(reasons)) return { problem: 'Too many accounts on Discord have that name for the bot to take it.' };
+  if (/USERNAME|BASE_TYPE_BAD_LENGTH/.test(reasons)) return { problem: 'Discord doesn’t allow that name for a bot.' };
+  if (change.banner && /"banner"|BANNER/.test(reasons)) return { problem: 'Discord didn’t take the banner.', banner: true };
+  if (/AVATAR|IMAGE|FILE/.test(reasons)) return { problem: 'Discord didn’t take the picture.' };
+  return { problem: discordProblem(reply) };
 };
 
 /** Opens the DM between the bot and the user, which Discord allows once they share a server. */

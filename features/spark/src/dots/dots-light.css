@@ -22,6 +22,14 @@
   background: #e9eef6;
 }
 
+:is(.light-theme, [data-theme="light"]) .spark-dots-chip__delete {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-chip__delete:hover {
+  background: rgba(31, 31, 31, 0.08);
+}
+
 :is(.light-theme, [data-theme="light"]) .spark-dots-chip--input::placeholder,
 :is(.light-theme, [data-theme="light"]) .spark-dots-search__input::placeholder {
   color: #747775;

@@ -1,10 +1,12 @@
 import { memo } from "react";
-import { Copy } from "lucide";
 import { Button } from "../ui/button";
-import { MorphIcon } from "~/components/MorphIcon";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { willowSymbol } from "~/willow/icons";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+
+/** Willow's copy glyph, under a prompt and a response alike (features/chat ChatView, ChatResponseChrome). */
+const CopyGlyph = willowSymbol("copy", "luminous");
 
 /** How long Willow's snackbar stays once it is in (platform/ui CopyToast). */
 const COPIED_TOAST_TIMEOUT_MS = 2000;
@@ -56,7 +58,7 @@ export const MessageCopyButton = memo(function MessageCopyButton({
           />
         }
       >
-        <MorphIcon className="size-3" icon={Copy} />
+        <CopyGlyph />
       </TooltipTrigger>
       <TooltipPopup>
         <p>Copy message</p>

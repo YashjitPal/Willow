@@ -35,7 +35,8 @@ it('relays the routes on its list for a bot token, and nothing else', async () =
     { method: 'DELETE', path: '/channels/123456789012' },
     { method: 'POST', path: '/guilds/123456/bans/987654' },
     { method: 'GET', path: '/channels/123456789012/../../users/@me' },
-    { method: 'PATCH', path: '/users/@me' },
+    { method: 'PATCH', path: '/channels/123456789012' },
+    { method: 'PATCH', path: '/guilds/123456/members/@me' },
   ];
   for (const request of refused) {
     await assert.rejects(discordCall({ token: TOKEN, ...request }, { fetchImpl }), /not allowed/, `${request.method} ${request.path}`);
@@ -49,6 +50,36 @@ it('relays the routes on its list for a bot token, and nothing else', async () =
   });
   assert.equal(limited.status, 204, 'a short rate limit is waited out');
   assert.equal(attempts, 2);
+});
+
+it('lets a bot change its own picture, banner and name, and nothing else about itself', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return json(200, { id: '42', username: 'Pip', avatar: 'a1b2', banner: 'c3d4' });
+  };
+  const avatar = `data:image/png;base64,${Buffer.alloc(300_000, 7).toString('base64')}`;
+  const banner = `data:image/jpeg;base64,${Buffer.alloc(150_000, 9).toString('base64')}`;
+  const changed = await discordCall({ token: TOKEN, method: 'PATCH', path: '/users/@me', body: { avatar, banner, username: 'Pip' } }, { fetchImpl });
+  assert.deepEqual(changed, { status: 200, body: { id: '42', username: 'Pip', avatar: 'a1b2', banner: 'c3d4' } });
+  assert.equal(calls[0].init.method, 'PATCH');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { avatar, banner, username: 'Pip' }, 'pictures far past the usual size limit go as they are');
+
+  for (const [body, problem] of [
+    [undefined, /picture, banner and name/],
+    [{}, /picture, banner and name/],
+    [{ avatar, bio: 'hi' }, /picture, banner and name/],
+    [{ accent_color: 255 }, /picture, banner and name/],
+    [{ avatar: 'https://example.com/cat.png' }, /picture has to be an image/],
+    [{ avatar: 'data:text/html;base64,PGgxPg==' }, /picture has to be an image/],
+    [{ banner: 'data:image/svg+xml;base64,PHN2Zz4=' }, /banner has to be an image/],
+    [{ username: 'P' }, /2 to 32/],
+    [{ username: 'x'.repeat(33) }, /2 to 32/],
+  ]) {
+    await assert.rejects(discordCall({ token: TOKEN, method: 'PATCH', path: '/users/@me', body }, { fetchImpl }), problem, JSON.stringify(body)?.slice(0, 60));
+  }
+  await assert.rejects(discordCall({ token: TOKEN, method: 'PATCH', path: '/users/@me', body: { avatar: `data:image/png;base64,${'A'.repeat(8_500_000)}` } }, { fetchImpl }), /too much/);
+  assert.equal(calls.length, 1, 'nothing refused reached Discord');
 });
 
 /** A stand-in for Discord's gateway: Hello on connect, then whatever the test does with each packet. */

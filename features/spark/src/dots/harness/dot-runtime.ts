@@ -91,6 +91,7 @@ import {
   rememberSent,
   sendToDiscord,
   setDiscordLink,
+  setDiscordProfile,
   showDiscordTyping,
   unreactOnDiscord,
   verifyDiscordToken,
@@ -99,6 +100,8 @@ import {
   type DiscordLink,
   type DiscordMethod,
   type DiscordNext,
+  type DiscordProfile,
+  type DiscordProfileRefusal,
   type DiscordRelay,
 } from './runtime/discord';
 import { applyProposedEdit, declineProposedEdit, pendingEdits, settleInterruptedEdits } from './runtime/edits';
@@ -133,7 +136,7 @@ import {
 import { companionMachine, setDotMachineLook, type DotMachineBridge, type DotMachineLook } from './runtime/machine-bridge';
 import { dotBrowserColors, dotWallpaperColors } from '../computer/dot-wallpaper';
 import { dotTintHex } from '../dot-tint';
-import { withWebLock } from './runtime/web-lock';
+import { withWebLock, withWebLockWhenFree } from './runtime/web-lock';
 import { fireTimeTriggers, forgetDiscordGathered, hearDiscord, hearReturn, hearSparkTasks, nextTimeTriggerAt, runTriggerNow, startTriggerEngine, watchPresence, type FireTrigger } from './triggers/trigger-engine';
 import { deleteTrigger, migrateRoutines, setTriggerPaused } from './triggers/trigger-store';
 import { SCREEN_SYSTEM, screeningPrompt, screenPasses, type ScreenEvent } from './triggers/trigger-screen';
@@ -148,7 +151,16 @@ import { allowedInResearch, inQuietHours, isResearchTurn, quietHoursOf, RESEARCH
 import { readDotAttachments } from './runtime/dot-attachments';
 import { withSentFiles } from './runtime/sent-files';
 import { messageExcerpt, plainMessageText, reactionMayAnswer, userReactionsByMessage } from './thread/reactions';
-import { appendDotItem, deleteDotThread, dotThreads, getDotThread, loadDotThread, updateDotRuntime, type DotItemDraft } from './thread/thread-store';
+import {
+  appendDotItem,
+  deleteDotThread,
+  dotThreads,
+  getDotThread,
+  loadDotThread,
+  resetDotThreadConversation,
+  updateDotRuntime,
+  type DotItemDraft,
+} from './thread/thread-store';
 import { wakesDot, type DotDiscordPost, type DotDiscordSource, type DotItem, type DotPermissionMode, type DotPlan, type DotThread, type DotTriggerType } from './thread/thread-types';
 
 /* ------------------------------------------------------------------------ */
@@ -1802,6 +1814,26 @@ export const retryDot = (dotId: string): void => {
   kick(dotId);
 };
 
+/** How long a reset waits for a turn another tab is running to finish before going ahead without it. */
+const RESET_LOCK_WAIT_MS = 15_000;
+
+/**
+ * The user started the bot's conversation over. What it is saying stops, its messages and their summaries go, and what
+ * it keeps for itself — its notebook, what it learned about the user, its instructions, triggers and settings — stays.
+ */
+export const resetDotConversation = async (dotId: string): Promise<void> => {
+  const dot = findDot(dotId);
+  if (!dot) return;
+  const entry = control(dotId);
+  entry.again = false;
+  entry.abort?.abort();
+  clearTimeout(entry.retryTimer);
+  entry.retries = 0;
+  await ensureLoaded(dot);
+  // The turn just stopped still writes what it was in the middle of; the reset goes after it.
+  await withWebLockWhenFree(`willow-dot-turn:${dotId}`, () => resetDotThreadConversation(dotId), RESET_LOCK_WAIT_MS);
+};
+
 /** Removes a deleted bot's thread and stops its work. */
 export const forgetDot = async (dotId: string): Promise<void> => {
   const entry = controls.get(dotId);
@@ -1838,7 +1870,8 @@ export const connectDotDiscord = async (dotId: string, token: string): Promise<s
   }
   const previous = discordLinkFor(dotId);
   if (previous && previous.token !== verified.token) void config.discord.close(previous.token).catch(() => undefined);
-  setDiscordLink(dotId, { ...verified, ...(previous?.botId === verified.botId && previous.dmChannelId ? { dmChannelId: previous.dmChannelId } : {}) });
+  const same = previous?.botId === verified.botId;
+  setDiscordLink(dotId, { ...verified, ...(same && previous.dmChannelId ? { dmChannelId: previous.dmChannelId } : {}), ...(same && previous.look ? { look: previous.look } : {}) });
   patchDiscordState(dotId, { status: 'connecting', problem: undefined, guilds: [], epoch: undefined, after: undefined, guildsVersion: undefined }, config.now());
   return null;
 };
@@ -1855,3 +1888,13 @@ export const disconnectDotDiscord = (dotId: string): void => {
 
 /** Looks again at what the Discord application allows, after the user changed it in Discord. */
 export const refreshDotDiscord = (dotId: string): Promise<void> => refreshDiscordContent(dotId);
+
+/** Gives the bot's Discord bot a new picture or banner (data URLs) or name: what it wears there now, or why not. */
+export const setDotDiscordProfile = async (
+  dotId: string,
+  change: { avatar?: string; banner?: string; username?: string },
+): Promise<DiscordProfile | DiscordProfileRefusal> => {
+  const link = discordLinkFor(dotId);
+  if (!link) return { problem: 'This bot isn’t on Discord.' };
+  return setDiscordProfile(link, config.discord, change, config.now()).catch((error) => ({ problem: discordUnreachable(error) }));
+};

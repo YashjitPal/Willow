@@ -3,7 +3,7 @@
  * icons, the disclosure chevron that fades in beside a summary, the shell card under a command,
  * the unified diff under an edit, and the diff stats. activitySummary.ts names the work.
  */
-import { useMemo, useState, type SVGProps } from "react";
+import { createContext, use, useMemo, useState, type SVGProps } from "react";
 
 import { cn } from "~/lib/utils";
 import { ensureLocalApi } from "~/localApi";
@@ -13,6 +13,9 @@ import { codexIcons, type CodexIconName } from "./codexIcons";
 
 export type { CodexIconName };
 export { fileNameOf, formatCodexElapsed } from "./activitySummary";
+
+/** Under it Codex's icons keep their own drawings, as the timeline draws a turn's work. */
+export const CodexDrawings = createContext(false);
 
 /**
  * Willow's glyph (Material Symbols Rounded) for each Codex icon that means the same thing. Brand
@@ -84,7 +87,10 @@ const WILLOW_GLYPHS: Partial<Record<CodexIconName, string>> = {
   "x-circle": "cancel",
 };
 
-/** One of the Codex desktop icons, drawn with Willow's glyph for it when Willow has one. */
+/**
+ * One of the Codex desktop icons, drawn with Willow's glyph for it when Willow has one, except
+ * under CodexDrawings.
+ */
 export function CodexIcon({
   name,
   className,
@@ -93,7 +99,7 @@ export function CodexIcon({
   SVGProps<SVGSVGElement>,
   "name" | "className"
 >) {
-  const glyph = WILLOW_GLYPHS[name];
+  const glyph = use(CodexDrawings) ? undefined : WILLOW_GLYPHS[name];
   if (glyph) {
     return (
       <svg
@@ -120,11 +126,14 @@ export function CodexIcon({
       data-codex-icon={name}
       className={cn("shrink-0", className)}
       // The bodies are the app's own static icon set.
-      dangerouslySetInnerHTML={{ __html: icon.body }}
+      dangerouslySetInnerHTML={{ __html: icon.body.replace(FIXED_INK, 'fill="currentColor"') }}
       {...rest}
     />
   );
 }
+
+/** The light theme's ink, which two one-colour drawings (mcp, spinner) carry instead of currentColor. */
+const FIXED_INK = /fill="(?:#222326|black)"/g;
 
 /** The 14px chevron after a row's summary: hidden until the row is pointed at, turned while open. */
 export function CodexChevron({ expanded }: { expanded: boolean }) {

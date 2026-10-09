@@ -117,6 +117,10 @@ export type ThreadRelation = 'same' | 'ahead' | 'behind' | 'diverged';
 export const threadRelation = (local: DotThread | null, remote: DotThread | null): ThreadRelation => {
   if (!remote) return local ? 'behind' : 'same';
   if (!local) return 'ahead';
+  // A conversation started over is further along than every copy from before it, whatever messages those hold.
+  const localReset = local.runtime.conversationReset?.at ?? 0;
+  const remoteReset = remote.runtime.conversationReset?.at ?? 0;
+  if (localReset !== remoteReset) return localReset > remoteReset ? 'behind' : 'ahead';
   const shared = Math.min(local.items.length, remote.items.length);
   for (let index = 0; index < shared; index += 1) {
     if (!sameItem(local.items[index]!, remote.items[index]!)) return 'diverged';

@@ -1,13 +1,15 @@
 import { useStore } from '@nanostores/react';
 import { atom } from 'nanostores';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { goToSparkDot, goToSparkDots } from '../spark-store';
 import { formatSparkRelativeTime } from '../spark-types';
 import { DotAvatar } from './character/avatar/dot-avatar';
 import { usePrewarmCharacterShaders } from './character/orbit/shader-prewarm';
+import { DotCategoryDeleteDialog } from './DotDialogs';
+import { DotRowMenu } from './DotMenu';
 import { transitionDotNavigation } from './dot-transition';
-import { addSparkDotCategory, sparkDotLastActivity, sparkDotName, sparkDotPreview, sparkDots, type SparkDot } from './dots-store';
+import { addSparkDotCategory, deleteSparkDotCategory, sparkDotLastActivity, sparkDotName, sparkDotPreview, sparkDots, type SparkDot } from './dots-store';
 import { dotActivity } from './harness/dot-runtime';
 import { dotThreads } from './harness/thread/thread-store';
 import { openDotOnboarding } from './state/creation-store';
@@ -50,6 +52,10 @@ export function DotsDirectory({ selectedDotId }: { selectedDotId?: string }) {
   const category = useStore(directoryCategory);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [categoryDraft, setCategoryDraft] = useState('');
+  const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
+  const [menuDotId, setMenuDotId] = useState<string | null>(null);
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const deleteCategoryRef = useRef<HTMLButtonElement>(null);
   const now = Date.now();
 
   const visibleDots = useMemo(
@@ -98,19 +104,36 @@ export function DotsDirectory({ selectedDotId }: { selectedDotId?: string }) {
           />
         </label>
 
-        <div className="spark-dots-chips" role="tablist" aria-label="Categories">
-          {[ALL, ...categories].map((candidate) => (
-            <button
-              key={candidate}
-              type="button"
-              role="tab"
-              aria-selected={category === candidate}
-              className={`spark-dots-chip${category === candidate ? ' is-selected' : ''}`}
-              onClick={() => directoryCategory.set(candidate)}
-            >
-              {candidate}
-            </button>
-          ))}
+        <div ref={chipsRef} className="spark-dots-chips" role="group" aria-label="Categories">
+          {[ALL, ...categories].map((candidate) => {
+            const selected = category === candidate;
+            // The category on show can be deleted from its own chip.
+            const deletable = selected && candidate !== ALL;
+            return (
+              <span key={candidate} className="spark-dots-chip-group">
+                <button
+                  type="button"
+                  aria-pressed={selected}
+                  className={`spark-dots-chip${selected ? ' is-selected' : ''}${deletable ? ' has-delete' : ''}`}
+                  onClick={() => directoryCategory.set(candidate)}
+                >
+                  {candidate}
+                </button>
+                {deletable && (
+                  <button
+                    ref={deleteCategoryRef}
+                    type="button"
+                    className="spark-dots-chip__delete"
+                    aria-label={`Delete the ${candidate} category`}
+                    title="Delete category"
+                    onClick={() => setCategoryToDelete(candidate)}
+                  >
+                    <MaterialSymbol family="luminous" name="close" size={16} opticalSize={16} />
+                  </button>
+                )}
+              </span>
+            );
+          })}
           {isAddingCategory ? (
             <input
               className="spark-dots-chip spark-dots-chip--input"
@@ -139,21 +162,22 @@ export function DotsDirectory({ selectedDotId }: { selectedDotId?: string }) {
         <div className="spark-dots__list" role="list" aria-label="Your bots">
           {visibleDots.map((dot) => {
             const selected = dot.id === selectedDotId;
+            const menuOpen = menuDotId === dot.id;
             return (
-              <button
-                key={dot.id}
-                type="button"
-                role="listitem"
-                aria-current={selected ? 'page' : undefined}
-                className={`spark-dots-row${selected ? ' is-selected' : ''}`}
-                // From the tab the bot slides in, as a task does; switching bots beside an open one keeps it still.
-                onClick={() => (selectedDotId == null ? transitionDotNavigation(() => goToSparkDot(dot.id)) : goToSparkDot(dot.id))}
-              >
-                <SparkDotAvatar dotId={dot.id} className="spark-dots-row__avatar" />
-                <span className="spark-dots-row__copy">
-                  <span className="spark-dots-row__name">{sparkDotName(dot)}</span>
-                  <span className="spark-dots-row__preview">{activities[dot.id]?.working ? 'Working…' : sparkDotPreview(dot)}</span>
-                </span>
+              <div key={dot.id} role="listitem" className={`spark-dots-row${selected ? ' is-selected' : ''}${menuOpen ? ' is-menu-open' : ''}`}>
+                <button
+                  type="button"
+                  className="spark-dots-row__open"
+                  aria-current={selected ? 'page' : undefined}
+                  // From the tab the bot slides in, as a task does; switching bots beside an open one keeps it still.
+                  onClick={() => (selectedDotId == null ? transitionDotNavigation(() => goToSparkDot(dot.id)) : goToSparkDot(dot.id))}
+                >
+                  <SparkDotAvatar dotId={dot.id} className="spark-dots-row__avatar" />
+                  <span className="spark-dots-row__copy">
+                    <span className="spark-dots-row__name">{sparkDotName(dot)}</span>
+                    <span className="spark-dots-row__preview">{activities[dot.id]?.working ? 'Working…' : sparkDotPreview(dot)}</span>
+                  </span>
+                </button>
                 <span className="spark-dots-row__meta">
                   {dot.pinned && (
                     <span className="spark-dots-row__pin" role="img" aria-label="Pinned" title="Pinned">
@@ -162,13 +186,31 @@ export function DotsDirectory({ selectedDotId }: { selectedDotId?: string }) {
                   )}
                   {dot.category && <span className="spark-dots-row__category">{dot.category}</span>}
                   <span className="spark-dots-row__time">{formatSparkRelativeTime(new Date(sparkDotLastActivity(dot)).toISOString(), now)}</span>
+                  <DotRowMenu dot={dot} selected={selected} open={menuOpen} onOpenChange={(open) => setMenuDotId(open ? dot.id : null)} />
                 </span>
-              </button>
+              </div>
             );
           })}
           {visibleDots.length === 0 && <p className="spark-dots__empty">{query.trim() ? 'No bots match your search.' : 'No bots in this category yet.'}</p>}
         </div>
       </div>
+
+      {categoryToDelete != null && (
+        <DotCategoryDeleteDialog
+          category={categoryToDelete}
+          count={dots.filter((dot) => dot.category === categoryToDelete).length}
+          onClose={() => {
+            setCategoryToDelete(null);
+            window.requestAnimationFrame(() => deleteCategoryRef.current?.focus());
+          }}
+          onDelete={() => {
+            deleteSparkDotCategory(categoryToDelete);
+            if (directoryCategory.get() === categoryToDelete) directoryCategory.set(ALL);
+            setCategoryToDelete(null);
+            window.requestAnimationFrame(() => chipsRef.current?.querySelector<HTMLButtonElement>('.spark-dots-chip')?.focus());
+          }}
+        />
+      )}
     </section>
   );
 }

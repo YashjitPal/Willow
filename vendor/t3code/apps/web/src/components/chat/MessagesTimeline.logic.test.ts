@@ -612,7 +612,7 @@ describe("resolveAssistantMessageCopyState", () => {
 });
 
 describe("deriveMessagesTimelineRows", () => {
-  it("shows only Thinking until the turn has started where it runs, then Codex's working header", () => {
+  it("shows only Thinking until the turn does some work, then Codex's working header", () => {
     const at = "2026-01-01T00:00:00Z";
     const sent: TimelineEntry = {
       kind: "message",
@@ -628,6 +628,33 @@ describe("deriveMessagesTimelineRows", () => {
         updatedAt: at,
       },
     };
+    const thought: TimelineEntry = {
+      kind: "work",
+      id: "thought",
+      createdAt: at,
+      entry: {
+        id: "thought",
+        createdAt: at,
+        label: "Thinking",
+        tone: "thinking",
+        itemType: "reasoning",
+        toolLifecycleStatus: "inProgress",
+      },
+    };
+    const command: TimelineEntry = {
+      kind: "work",
+      id: "command",
+      createdAt: at,
+      entry: {
+        id: "command",
+        createdAt: at,
+        label: "Ran npm test",
+        tone: "tool",
+        itemType: "command_execution",
+        command: "npm test",
+        toolLifecycleStatus: "inProgress",
+      },
+    };
     const input = {
       timelineEntries: [sent],
       isWorking: true,
@@ -641,8 +668,83 @@ describe("deriveMessagesTimelineRows", () => {
     expect(waiting.at(-1)).toMatchObject({ kind: "thinking" });
 
     const started = deriveMessagesTimelineRows({ ...input, turnStarted: true });
-    expect(started.filter((row) => row.kind === "working")).toHaveLength(1);
+    expect(started.some((row) => row.kind === "working")).toBe(false);
     expect(started.at(-1)).toMatchObject({ kind: "thinking" });
+
+    const thinking = deriveMessagesTimelineRows({
+      ...input,
+      timelineEntries: [sent, thought],
+      turnStarted: true,
+    });
+    expect(thinking.some((row) => row.kind === "working")).toBe(false);
+    expect(thinking.at(-1)).toMatchObject({ kind: "thinking" });
+
+    const working = deriveMessagesTimelineRows({
+      ...input,
+      timelineEntries: [sent, thought, command],
+      turnStarted: true,
+    });
+    expect(working.filter((row) => row.kind === "working")).toHaveLength(1);
+    expect(working.findIndex((row) => row.kind === "working")).toBe(1);
+  });
+
+  it("keeps a turn that only thought unfolded, its thought over the reply", () => {
+    const runId = RunId.make("thought-only");
+    const at = (second: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          kind: "message",
+          id: "question",
+          createdAt: at(0),
+          message: {
+            id: MessageId.make("question"),
+            role: "user",
+            text: "What does greet return for an empty name?",
+            runId,
+            streaming: false,
+            createdAt: at(0),
+            updatedAt: at(0),
+          },
+        },
+        {
+          kind: "work",
+          id: "thought",
+          createdAt: at(1),
+          entry: {
+            id: "thought",
+            runId,
+            createdAt: at(1),
+            label: "Thinking",
+            tone: "thinking",
+            itemType: "reasoning",
+            detail: "greet puts the name in as it is.",
+            toolLifecycleStatus: "completed",
+          },
+        },
+        {
+          kind: "message",
+          id: "reply",
+          createdAt: at(3),
+          message: {
+            id: MessageId.make("reply"),
+            role: "assistant",
+            text: 'It returns "Hello, !".',
+            runId,
+            streaming: false,
+            createdAt: at(3),
+            updatedAt: at(3),
+          },
+        },
+      ],
+      latestRun: { runId, status: "completed", startedAt: at(0), completedAt: at(3) },
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+    expect(rows.some((row) => row.kind === "turn-fold")).toBe(false);
+    expect(rows.map((row) => row.kind)).toEqual(["message", "work", "message"]);
   });
 
   it("stops stranded thinking after a steer and follows the next thought or tool", () => {
@@ -1496,6 +1598,18 @@ describe("deriveMessagesTimelineRows", () => {
         },
       },
       {
+        id: "command-entry",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:02Z",
+        entry: {
+          id: "command-entry",
+          createdAt: "2026-01-01T00:00:02Z",
+          runId: "turn-1" as never,
+          label: "Ran command",
+          tone: "tool" as const,
+        },
+      },
+      {
         id: "assistant-middle-entry",
         kind: "message" as const,
         createdAt: "2026-01-01T00:00:03Z",
@@ -1701,7 +1815,13 @@ describe("deriveMessagesTimelineRows", () => {
         streaming: false,
       },
     });
-    const timelineEntries = [prompt("initial-prompt", "send")];
+    const command: TimelineEntry = {
+      id: "command",
+      kind: "work",
+      createdAt: startedAt,
+      entry: { id: "command", createdAt: startedAt, runId, label: "Ran command", tone: "tool" },
+    };
+    const timelineEntries: TimelineEntry[] = [prompt("initial-prompt", "send"), command];
     for (let index = 0; index < 3; index += 1) {
       const rows = deriveMessagesTimelineRows({
         timelineEntries,
@@ -1719,7 +1839,7 @@ describe("deriveMessagesTimelineRows", () => {
         expect.objectContaining({ createdAt: startedAt }),
       ]);
       expect(rows.filter((row) => row.kind === "message").map((row) => row.id)).toEqual(
-        timelineEntries.map((entry) => entry.id),
+        timelineEntries.filter((entry) => entry.kind === "message").map((entry) => entry.id),
       );
       timelineEntries.push(prompt(`steer-${index}`, "steer"));
     }
@@ -1860,11 +1980,11 @@ describe("deriveMessagesTimelineRows", () => {
       supportsConversationRollback: false,
     });
 
+    // The new turn has done nothing yet, so it shows "Thinking" without the working header.
     expect(rows.map((row) => row.id)).toEqual([
       "turn-fold:turn-1",
       "assistant-final-entry",
       "user-followup-entry",
-      "working-indicator-row",
       "live-activity-row",
     ]);
     const finalRow = rows.find((row) => row.id === "assistant-final-entry");
@@ -4607,7 +4727,7 @@ it.each([true, false])(
         runId: RunId.make(run),
         createdAt: time(second),
         label: id,
-        tone: "info" as const,
+        tone: notification ? ("info" as const) : ("tool" as const),
         ...(notification ? { itemType: "notification" as const } : {}),
       },
     });

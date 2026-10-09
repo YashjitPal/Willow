@@ -504,6 +504,7 @@ export function AppearancePickerDialog({
       shouldIgnoreClickOutside={saving}
       contentProps={{
         "aria-describedby": undefined,
+        className: "dot-appearance-editor",
         onCloseAutoFocus,
         onClick: stopPropagation,
         onEscapeKeyDown: (event) => {

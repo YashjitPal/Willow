@@ -28,6 +28,17 @@
   flex-direction: column;
 }
 
+/*
+ * The appearance editor (Codex's, on Willow's tokens) shows no scrollbar anywhere: Windows draws its classic ones over
+ * the options, where Codex's macOS overlay scrollbars stay out of sight. What overflows still scrolls by wheel, touch
+ * and keyboard. On a short window the dialog's own overlay is what scrolls.
+ */
+.willow-dots-dialog-root:has(.dot-appearance-editor) .codex-dialog-overlay,
+.dot-appearance-editor,
+.dot-appearance-editor * {
+  scrollbar-width: none;
+}
+
 /* ── Codex characters in Willow's lists ─────────────────────────────────── */
 
 .spark-dots-avatar {
@@ -71,7 +82,7 @@
 
 .spark-dots-button:focus-visible,
 .spark-dots-chip:focus-visible,
-.spark-dots-row:focus-visible {
+.spark-dots-row:has(.spark-dots-row__open:focus-visible) {
   outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
 }
@@ -127,6 +138,44 @@
 .spark-dots-chip--input:focus {
   outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
   outline-offset: 2px;
+}
+
+.spark-dots-chip-group {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The category on show carries its delete button at its end, inside the chip. */
+.spark-dots-chip.has-delete {
+  padding-right: 38px;
+}
+
+.spark-dots-chip__delete {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--sync-d3e3fd, #d3e3fd);
+  cursor: pointer;
+  translate: 0 -50%;
+  transition: background-color 0.15s;
+}
+
+.spark-dots-chip__delete:hover {
+  background: rgba(211, 227, 253, 0.12);
+}
+
+.spark-dots-chip__delete:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 1px;
 }
 
 /* ── Directory ──────────────────────────────────────────────────────────── */
@@ -219,19 +268,21 @@
   margin-top: 8px;
 }
 
+/*
+ * A row is Spark's task row (`.spark-task-detail__task-row`): the bot opens from the row's own button, and its ⋮ sits
+ * beside it among the row's details, showing while the row is hovered or focused.
+ */
 .spark-dots-row {
+  position: relative;
   display: flex;
   width: 100%;
   min-height: 72px;
   align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  border: 0;
+  gap: 12px;
+  padding: 0 12px 0 0;
   border-radius: 16px;
   background: transparent;
   color: inherit;
-  text-align: left;
-  cursor: pointer;
   transition: background-color 0.15s;
 }
 
@@ -243,6 +294,54 @@
 .spark-dots-row.is-selected,
 .spark-dots-row.is-selected:hover {
   background: var(--spark-raised-surface, #1f1f1f);
+}
+
+.spark-dots-row.is-menu-open {
+  z-index: 20;
+}
+
+.spark-dots-row__open {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  align-self: stretch;
+  gap: 16px;
+  padding: 12px 0 12px 16px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.spark-dots-row:hover .spark-task-detail__row-menu-button,
+.spark-dots-row:focus-within .spark-task-detail__row-menu-button,
+.spark-dots-row.is-selected .spark-task-detail__row-menu-button,
+.spark-dots-row.is-menu-open .spark-task-detail__row-menu-button {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* A touch screen has no hover to reveal it, so the ⋮ always shows, as on Spark's task rows (SparkAllTasks.css). */
+@media (hover: none) {
+  .spark-dots-row .spark-task-detail__row-menu-button {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+/* Spark's row menu, 8px under the ⋮ centred in the taller bot row; near the list's foot it opens above the ⋮. */
+.spark-dots-row .spark-task-detail__list-task-menu {
+  top: calc(50% + 24px);
+}
+
+.spark-dots-row .spark-task-detail__list-task-menu.opens-up {
+  top: auto;
+  bottom: calc(50% + 24px);
+  transform-origin: 100% 100%;
 }
 
 .spark-dots-row__copy {

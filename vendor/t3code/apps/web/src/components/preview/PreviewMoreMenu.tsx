@@ -2,6 +2,9 @@
 
 import type { DesktopPreviewColorScheme, EnvironmentId } from "@t3tools/contracts";
 import { Minus, MoreVertical, Plus as PlusIcon, RotateCcw } from "lucide-react";
+import { use } from "react";
+
+import { FoldedActions } from "~/willow/panelFolds";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -83,6 +86,8 @@ export function PreviewMoreMenu({
   profileId,
   profileName,
 }: Props) {
+  // The bar's buttons that ran out of room come first (PreviewChromeRow).
+  const folded = use(FoldedActions);
   if (!previewBridge) return null;
   const bridge = previewBridge;
   const tabDisabled = !tabId || !hasWebContents;
@@ -109,6 +114,12 @@ export function PreviewMoreMenu({
         <TooltipPopup>More</TooltipPopup>
       </Tooltip>
       <MenuPopup align="end" sideOffset={6}>
+        {folded.map((action) => (
+          <MenuItem key={action.key} onClick={action.onSelect} disabled={action.disabled}>
+            {action.label}
+          </MenuItem>
+        ))}
+        {folded.length > 0 ? <MenuSeparator /> : null}
         <MenuItem onClick={callTab(bridge.hardReload)} disabled={tabDisabled}>
           Hard reload
         </MenuItem>

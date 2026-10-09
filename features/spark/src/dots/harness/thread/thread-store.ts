@@ -53,6 +53,7 @@ const commit = (thread: DotThread): DotThread => {
 type ThreadBroadcast =
   | { type: 'items'; dotId: string; items: DotItem[] }
   | { type: 'meta'; dotId: string; meta: DotThreadMeta }
+  | { type: 'reset'; dotId: string; meta: DotThreadMeta }
   | { type: 'removed'; dotId: string };
 
 const channel: BroadcastChannel | null =
@@ -83,9 +84,19 @@ channel?.addEventListener('message', (event: MessageEvent<ThreadBroadcast>) => {
   }
   const thread = getDotThread(message.dotId);
   if (!thread) return;
+  if (message.type === 'reset') {
+    revisions.set(message.dotId, Math.max(revisions.get(message.dotId) ?? 0, message.meta.revision));
+    const { revision: _revision, ...meta } = message.meta;
+    commit({ ...thread, ...meta, items: [], nextSeq: Math.max(thread.nextSeq, meta.nextSeq) });
+    return;
+  }
   if (message.type === 'items') {
-    const items = mergeItems(thread.items, message.items);
-    const nextSeq = Math.max(thread.nextSeq, ...message.items.map((item) => item.seq + 1));
+    // Items from before the conversation was started over stay gone, however late their news arrives.
+    const resetSeq = thread.runtime.conversationReset?.seq ?? 0;
+    const incoming = message.items.filter((item) => item.seq > resetSeq);
+    if (incoming.length === 0) return;
+    const items = mergeItems(thread.items, incoming);
+    const nextSeq = Math.max(thread.nextSeq, ...incoming.map((item) => item.seq + 1));
     commit({ ...thread, items, nextSeq });
     return;
   }
@@ -279,12 +290,39 @@ export const recordDotEpisodes = (
     const absorbed = new Set(update.absorb.ids);
     episodes = episodes.map((episode) => (absorbed.has(episode.id) ? { ...episode, absorbedBy: update.absorb!.by } : episode));
   }
-  if (update.add) episodes.push(...update.add);
+  // A summary written in the background of a conversation started over since tells of messages that are gone.
+  const resetSeq = thread.runtime.conversationReset?.seq ?? 0;
+  if (update.add) episodes.push(...update.add.filter((episode) => episode.fromSeq > resetSeq));
   const runtime = update.lastCompactedSeq === undefined
     ? thread.runtime
     : { ...thread.runtime, lastCompactedSeq: Math.max(thread.runtime.lastCompactedSeq, update.lastCompactedSeq) };
   commit({ ...thread, episodes, runtime });
   scheduleMeta(dotId);
+};
+
+/**
+ * Starts the conversation over: its items and the episodes that summarise them go, and the rest of the thread — the
+ * notebook, what the bot learned, its triggers and settings — stays. Seqs keep counting from where they were, so no
+ * new item takes an old one's id.
+ */
+export const resetDotThreadConversation = async (dotId: string): Promise<void> => {
+  const thread = requireThread(dotId);
+  const seq = thread.nextSeq - 1;
+  clearTimeout(metaTimers.get(dotId));
+  metaTimers.delete(dotId);
+  const runtime: DotRuntimeState = {
+    ...thread.runtime,
+    ...(thread.runtime.status === 'error' || thread.runtime.status === 'working' ? { status: 'idle' as const } : {}),
+    lastError: undefined,
+    lastActedSeq: seq,
+    readSeq: seq,
+    lastCompactedSeq: seq,
+    conversationReset: { at: Date.now(), seq },
+  };
+  const meta = metaOf(commit({ ...thread, items: [], episodes: [], runtime }));
+  await persistence.clearItems(dotId);
+  await persistence.putMeta(meta);
+  broadcast({ type: 'reset', dotId, meta });
 };
 
 export const deleteDotThread = async (dotId: string): Promise<void> => {

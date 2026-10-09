@@ -90,8 +90,8 @@ export function DotRenameDialog({ dot, onClose }: { dot: SparkDot; onClose: () =
   );
 }
 
-/** A Spark task's delete dialog, for a bot. `onDelete` removes it, leaving the bot first if it is open. */
-export function DotDeleteDialog({ dot, onClose, onDelete }: { dot: SparkDot; onClose: () => void; onDelete: () => void }) {
+/** A Spark task's delete dialog, saying what an action can't take back. Cancel has the focus. */
+function DotConfirmDialog({ title, description, confirmLabel, onClose, onConfirm }: { title: string; description: string; confirmLabel: string; onClose: () => void; onConfirm: () => void }) {
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -111,18 +111,62 @@ export function DotDeleteDialog({ dot, onClose, onDelete }: { dot: SparkDot; onC
       }}
     >
       <div ref={dialogRef} className="spark-task-detail__delete-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
-        <h2 id={titleId}>Delete this bot?</h2>
-        <p id={descriptionId}>{sparkDotName(dot)} and its conversation will be deleted from your Willow activity, and any work it is doing will stop.</p>
+        <h2 id={titleId}>{title}</h2>
+        <p id={descriptionId}>{description}</p>
         <div className="spark-task-detail__delete-actions">
           <button ref={cancelRef} type="button" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="is-danger" onClick={onDelete}>
-            Delete
+          <button type="button" className="is-danger" onClick={onConfirm}>
+            {confirmLabel}
           </button>
         </div>
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** A Spark task's delete dialog, for a bot. `onDelete` removes it, leaving the bot first if it is open. */
+export function DotDeleteDialog({ dot, onClose, onDelete }: { dot: SparkDot; onClose: () => void; onDelete: () => void }) {
+  return (
+    <DotConfirmDialog
+      title="Delete this bot?"
+      description={`${sparkDotName(dot)} and its conversation will be deleted from your Willow activity, and any work it is doing will stop.`}
+      confirmLabel="Delete"
+      onClose={onClose}
+      onConfirm={onDelete}
+    />
+  );
+}
+
+/** Before a bot's conversation starts over: the messages go for good, and what the bot keeps for itself stays. */
+export function DotResetDialog({ dot, onClose, onReset }: { dot: SparkDot; onClose: () => void; onReset: () => void }) {
+  const name = sparkDotName(dot);
+  return (
+    <DotConfirmDialog
+      title="Reset this conversation?"
+      description={`Every message between you and ${name} will be permanently deleted, and ${name} won’t remember any of it. This can’t be undone. If ${name} is replying, it will stop. ${name} keeps its notes, what it has learned about you, its instructions and its settings.`}
+      confirmLabel="Reset"
+      onClose={onClose}
+      onConfirm={onReset}
+    />
+  );
+}
+
+/** Before a category goes: the bots filed under it stay, under no category. */
+export function DotCategoryDeleteDialog({ category, count, onClose, onDelete }: { category: string; count: number; onClose: () => void; onDelete: () => void }) {
+  return (
+    <DotConfirmDialog
+      title={`Delete “${category}”?`}
+      description={
+        count === 0
+          ? 'This category will be removed.'
+          : `This category will be removed. ${count === 1 ? 'The bot in it stays' : `The ${count} bots in it stay`}, just without a category.`
+      }
+      confirmLabel="Delete"
+      onClose={onClose}
+      onConfirm={onDelete}
+    />
   );
 }

@@ -175,6 +175,7 @@ import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
 import { devTimelineFixture } from "../willow/devTimeline";
+import { willowSymbol } from "../willow/icons";
 import { isWillowEmbedded, useWillowScope, withHarnessModel } from "../willow/harness";
 import { useWillowCompact } from "../willow/viewport";
 import {
@@ -295,7 +296,6 @@ import {
   AlarmClockIcon,
   CheckCircle2Icon,
   PaperclipIcon,
-  ChevronDownIcon,
   DownloadIcon,
   GitBranchIcon,
   TargetIcon,
@@ -594,6 +594,8 @@ import {
   recallableComposerPrompt,
 } from "./chat/composerPromptHistory";
 
+/** The model pill's chevron (willow/WillowModelPill), alone in the scroll-to-end circle. */
+const ScrollToEndGlyph = willowSymbol("keyboard_arrow_down", "luminous");
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_MODELS: ServerProvider["models"] = [];
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
@@ -11136,20 +11138,27 @@ export default function ChatView(props: ChatViewProps) {
                   className="chat-scroll-to-bottom pointer-events-none absolute z-30 flex justify-center py-1.5"
                   style={{ bottom: scrollToEndClearance + 4 }}
                 >
-                  <Button
-                    aria-label="Scroll to end"
-                    onPointerDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      composerRef.current?.restoreAfterTimelineReachedEnd();
-                      scrollToEnd(true);
-                    }}
-                    className="pointer-events-auto"
-                    size="xs"
-                    variant="glass"
-                  >
-                    <ChevronDownIcon className="size-3.5" />
-                    Scroll to end
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          aria-label="Scroll to end"
+                          data-willow-scroll-to-end=""
+                          onPointerDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            composerRef.current?.restoreAfterTimelineReachedEnd();
+                            scrollToEnd(true);
+                          }}
+                          className="pointer-events-auto"
+                          size="icon"
+                          variant="ghost"
+                        />
+                      }
+                    >
+                      <ScrollToEndGlyph />
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">Scroll to end</TooltipPopup>
+                  </Tooltip>
                 </div>
               )}
             </div>

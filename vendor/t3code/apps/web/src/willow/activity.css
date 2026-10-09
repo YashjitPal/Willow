@@ -1,10 +1,10 @@
 /*
  * A turn's work as the Codex app draws it, from the Codex app UI clone (styles/tokens.css and
- * index.css, components/thread): one line per piece of work, 14px/22px, 16px apart, a 16px icon
- * at 60% and the summary at 60% (inside an opened group too; 30% for reasoning), full strength
- * while pointed at, a 14px chevron after it that shows on hover and turns when open. Commands
- * open to a shell card, edits to a unified diff; a finished turn folds behind "Worked for 6s"
- * over a rule. Willow's type and glyphs throughout (Google Sans Flex, Material Symbols).
+ * index.css, components/thread): one line per piece of work in the chat type, 16px apart, Codex's
+ * icon at 60% and the summary at 60% (inside an opened group too; 30% for reasoning), full
+ * strength while pointed at, a chevron after it that shows on hover and turns when open. Commands
+ * open to a shell card, edits to a unified diff; a finished turn that did work folds behind
+ * "Worked for 6s" over a rule. Codex's icons (CodexDrawings) in Willow's type.
  */
 
 :root {
@@ -32,7 +32,16 @@
   --codex-activity-dim: color-mix(in oklab, var(--codex-ink) 30%, transparent);
   --codex-icon: color-mix(in oklab, var(--codex-ink) 60%, transparent);
   --codex-shimmer-base: color-mix(in srgb, var(--codex-ink-tertiary) 55%, transparent);
-  --codex-chat-font-size: 14px;
+  /*
+   * Codex sizes its timeline from its chat type, so the work reads at a reply's 17px/24px here, its
+   * icons and chevrons scaled with it (16px and 14px beside Codex's 14px). Code keeps Codex's 13px,
+   * which is Willow's replies' too.
+   */
+  --codex-chat-font-size: 17px;
+  --codex-chat-line-height: 24px;
+  --codex-chat-code-font-size: 13px;
+  --codex-icon-size: 20px;
+  --codex-chevron-size: 17px;
   --codex-item-gap: 16px;
   --codex-grouped-gap: 4px;
 }
@@ -70,24 +79,24 @@
 [data-willow-activity-row] > [data-willow-activity-line] {
   display: inline-flex;
   max-width: 100%;
-  min-height: 22px;
+  min-height: var(--codex-chat-line-height);
   align-items: center;
   gap: 4px;
   font-family: var(--font-sans);
   font-size: var(--codex-chat-font-size);
-  line-height: 22px;
+  line-height: var(--codex-chat-line-height);
   vertical-align: top;
 }
 
 [data-willow-activity-icon] {
-  width: 16px;
-  height: 16px;
+  width: var(--codex-icon-size);
+  height: var(--codex-icon-size);
   margin-inline-end: 2px;
 }
 
 [data-willow-activity-icon] :is(svg, img, span) {
-  width: 16px;
-  height: 16px;
+  width: var(--codex-icon-size);
+  height: var(--codex-icon-size);
   color: var(--codex-icon);
   opacity: 1;
   filter: none;
@@ -107,7 +116,8 @@
   color: var(--codex-activity-dim);
 }
 
-[data-willow-activity-label] :is(p, span, div):not(.text-destructive, .text-warning, .text-foreground) {
+[data-willow-activity-label]
+  :is(p, span, div):not(.text-destructive, .text-warning, .text-foreground) {
   color: inherit;
 }
 
@@ -125,7 +135,7 @@
 [data-willow-activity-details] pre {
   color: var(--codex-ink-tertiary);
   font-family: var(--font-mono);
-  font-size: calc(var(--codex-chat-font-size) - 1px);
+  font-size: var(--codex-chat-code-font-size);
   font-weight: 500;
   line-height: 20px;
 }
@@ -136,8 +146,12 @@
 
 @media (hover: hover) {
   [data-willow-activity-line]:hover [data-willow-activity-label],
-  [data-willow-activity-row="nested"] > [data-willow-activity-line]:hover [data-willow-activity-label],
-  [data-willow-activity-kind="reasoning"] > [data-willow-activity-line]:hover [data-willow-activity-label] {
+  [data-willow-activity-row="nested"]
+    > [data-willow-activity-line]:hover
+    [data-willow-activity-label],
+  [data-willow-activity-kind="reasoning"]
+    > [data-willow-activity-line]:hover
+    [data-willow-activity-label] {
     color: var(--codex-ink);
   }
 
@@ -158,8 +172,8 @@
 }
 
 .willow-activity-chevron {
-  width: 14px;
-  height: 14px;
+  width: var(--codex-chevron-size);
+  height: var(--codex-chevron-size);
   color: var(--codex-icon);
   opacity: 0;
   transition:
@@ -172,7 +186,8 @@
   transform: rotate(90deg);
 }
 
-:is([data-willow-activity-row], [data-timeline-row-kind="turn-fold"] button):focus-visible .willow-activity-chevron {
+:is([data-willow-activity-row], [data-timeline-row-kind="turn-fold"] button):focus-visible
+  .willow-activity-chevron {
   opacity: 1;
 }
 
@@ -200,14 +215,28 @@
   max-height: 140px;
   margin-top: 4px;
   padding: 0 8px 0 0;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 1rem, #000 calc(100% - 1rem), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 1rem, #000 calc(100% - 1rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 1rem,
+    #000 calc(100% - 1rem),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 1rem,
+    #000 calc(100% - 1rem),
+    transparent 100%
+  );
 }
 
-[data-willow-activity-kind="reasoning"] [data-willow-activity-details] :is(.chat-markdown, .chat-markdown *) {
+[data-willow-activity-kind="reasoning"]
+  [data-willow-activity-details]
+  :is(.chat-markdown, .chat-markdown *) {
   color: color-mix(in oklab, var(--codex-ink) 50%, transparent);
   font-size: var(--codex-chat-font-size);
-  line-height: 22px;
+  line-height: var(--codex-chat-line-height);
 }
 
 /* A viewed image opens to Codex's strip of 112px thumbnails on hairline frames (ImageViewItem). */
@@ -246,7 +275,7 @@
 [data-v2-item-inspector] :is(pre, code, .font-mono) {
   color: var(--codex-ink-tertiary);
   font-family: var(--font-mono);
-  font-size: calc(var(--codex-chat-font-size) - 1px);
+  font-size: var(--codex-chat-code-font-size);
 }
 
 [data-v2-item-inspector] a {
@@ -310,7 +339,7 @@
   color: var(--codex-ink);
   font-size: var(--codex-chat-font-size);
   font-weight: 500;
-  line-height: 20px;
+  line-height: var(--codex-chat-line-height);
 }
 
 .willow-plan-card__title {
@@ -319,7 +348,7 @@
   overflow: hidden;
   color: var(--codex-ink-tertiary);
   font-size: var(--codex-chat-font-size);
-  line-height: 20px;
+  line-height: var(--codex-chat-line-height);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -353,7 +382,7 @@
   color: var(--codex-ink);
   font-size: var(--codex-chat-font-size);
   font-weight: 500;
-  line-height: 20px;
+  line-height: var(--codex-chat-line-height);
 }
 
 .willow-turn-diff__actions {
@@ -377,7 +406,7 @@
   border: 0;
   background: transparent;
   font-size: calc(var(--codex-chat-font-size) - 1px);
-  line-height: 18px;
+  line-height: 22px;
   text-align: start;
   cursor: default;
 }
@@ -436,7 +465,9 @@
   white-space: nowrap;
   cursor: default;
   user-select: none;
-  transition: background-color 150ms, color 150ms;
+  transition:
+    background-color 150ms,
+    color 150ms;
 }
 
 .willow-pill-button:hover {
@@ -476,7 +507,7 @@
   gap: 8px;
   color: var(--codex-ink-secondary);
   font-size: var(--codex-chat-font-size);
-  line-height: 20px;
+  line-height: var(--codex-chat-line-height);
 }
 
 .willow-approval__icon {
@@ -573,7 +604,7 @@
   border-radius: 6px;
   color: var(--codex-ink-tertiary);
   font-size: var(--codex-chat-font-size);
-  line-height: 22px;
+  line-height: var(--codex-chat-line-height);
 }
 
 [data-timeline-row-kind="turn-fold"] button[aria-expanded]:hover {
@@ -595,11 +626,11 @@
 }
 
 [data-timeline-row-kind="working"] > div > div {
-  height: 22px;
+  height: var(--codex-chat-line-height);
   padding: 0;
   color: var(--codex-ink-tertiary);
   font-size: var(--codex-chat-font-size);
-  line-height: 22px;
+  line-height: var(--codex-chat-line-height);
 }
 
 /* Compaction is Codex's divider: 13px tertiary words between two rules, without a glyph. */
@@ -611,7 +642,9 @@
   line-height: 20px;
 }
 
-[data-timeline-row-kind="context-compaction"] [role="separator"] > span:is(:first-child, :last-child) {
+[data-timeline-row-kind="context-compaction"]
+  [role="separator"]
+  > span:is(:first-child, :last-child) {
   background: var(--codex-border);
 }
 
@@ -773,7 +806,7 @@
   -webkit-line-clamp: 2;
   color: var(--codex-ink-tertiary);
   font-family: var(--font-mono);
-  font-size: calc(var(--codex-chat-font-size) - 1px);
+  font-size: var(--codex-chat-code-font-size);
   font-weight: 400;
   line-height: 20px;
   word-break: break-all;
@@ -814,12 +847,24 @@
   overflow: auto;
   color: var(--codex-ink-tertiary);
   font-family: var(--font-mono);
-  font-size: calc(var(--codex-chat-font-size) - 1px);
+  font-size: var(--codex-chat-code-font-size);
   font-weight: 400;
   line-height: 20px;
   white-space: pre;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 2rem, #000 calc(100% - 2rem), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 2rem, #000 calc(100% - 2rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 2rem,
+    #000 calc(100% - 2rem),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 2rem,
+    #000 calc(100% - 2rem),
+    transparent 100%
+  );
 }
 
 .willow-shell__output,
@@ -838,7 +883,7 @@
 
 .willow-shell__footer {
   display: flex;
-  min-height: 22px;
+  min-height: var(--codex-chat-line-height);
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
@@ -846,7 +891,7 @@
   color: var(--codex-ink-tertiary);
   font-family: var(--font-sans);
   font-size: var(--codex-chat-font-size);
-  line-height: 22px;
+  line-height: var(--codex-chat-line-height);
 }
 
 .willow-shell__success {

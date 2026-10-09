@@ -110,7 +110,19 @@ Changes from upstream:
   T3's, keeps thinking and image views out of tool groups, drops the closing "Thinking" under a
   reply that is already streaming and folds a stopped turn behind "You stopped after" as Codex
   does; `ProposedPlanCard.tsx`, `ChangedFilesTree.tsx` (`ChangedFilesCard`) and
-  `ComposerPendingApprovalPanel.tsx` take Codex's plan, end-of-turn and approval cards.
+  `ComposerPendingApprovalPanel.tsx` take Codex's plan, end-of-turn and approval cards. The
+  timeline draws Codex's own icons (`MessagesTimeline.tsx` provides `CodexDrawings`; elsewhere
+  `CodexIcon` draws Willow's glyph for the same meaning) and sizes its work from a reply's
+  17px/24px as Codex sizes it from its chat type, code keeping 13px. Only a turn that does some
+  work (a command, read, edit, search, image, tool call, subagent or worktree setup) gets the
+  "Working for" header and folds behind "Worked for"; one that only thinks shows "Thinking", then
+  keeps its "Thought" over the reply.
+- Under a reply are Willow's buttons for one (features/chat `ChatResponseChrome`): Good response
+  and Bad response (`willow/ResponseRating.tsx`, kept on this computer by message), Copy, then
+  the branch (`arrow_split`) and the time. A sent message's buttons are Willow's Copy prompt and
+  Edit (Edit from here) where Codex keeps its own, beside the bubble on hover, so the timeline goes
+  on 16px under it; at Willow's compact widths they stay under it. The scroll-to-end button is a
+  36px tonal circle holding only the model pill's chevron (`composer.css`).
 - The sidebar is Willow's own (`willow/WillowSidebar.tsx`, `willow/sidebar.css`): tabs for New
   thread, Add project, Search threads (`routes/search.tsx` and `willow/WillowSearchPage.tsx`, Willow's
   Search chats page, `willow/search.css`), Pull requests and Usage, and the gear opening Willow's
@@ -151,7 +163,14 @@ Changes from upstream:
   choosing, closing, the tab's menu, and the + menu, anchored under the strip's + at the top of
   the page. The panel's row then keeps only its controls, over the surface at the top right, and
   the surface's own bar (the browser's address bar, a review's tools) moves up beside them into
-  the row's place (`rightpanel.css`).
+  the row's place (`rightpanel.css`). The browser's bar ends 4px short of those controls
+  (`PreviewChromeRow.tsx` measures them) and, while its address would be under 180px, folds its
+  buttons into its "More" menu one at a time: picture in picture, the panel's terminal button,
+  annotate, then screenshot (`willow/panelFolds.ts`, through which `PanelLayoutControls.tsx`
+  hands over its terminal toggle), never the panel's own toggle.
+- Over a tab's own webview (`preview.ts`) a tooltip shows at once rather than fading in, and a
+  popup that starts to close goes under the webview with it: its hole would show the page's dark
+  ground through the fade.
 - The page changes layout at Willow's breakpoints, measured on Willow's window (rail included)
   rather than its own narrower frame: Willow's page sends the width (`viewport`, and
   `viewportWidth` in the init) and `willow/viewport.ts` marks the root with the tiers it falls in

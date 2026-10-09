@@ -17,7 +17,11 @@
   font-size: 17px;
   font-weight: 400;
   line-height: 24px;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-variation-settings:
+    "ROND" 0,
+    "slnt" 0,
+    "wdth" 92,
+    "wght" 400;
   overflow-wrap: anywhere;
 }
 
@@ -31,7 +35,11 @@
   color: inherit;
   font-size: 17px;
   line-height: 24px;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-variation-settings:
+    "ROND" 0,
+    "slnt" 0,
+    "wdth" 92,
+    "wght" 400;
 }
 
 .willow-user-bubble .chat-markdown p {
@@ -137,34 +145,52 @@
   font-size: 20px;
   font-weight: 320;
   line-height: 20px;
-  font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "ROND" 100, "opsz" 20;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 320,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 20;
   font-feature-settings: "liga";
   user-select: none;
 }
 
 /*
- * The bubble's buttons, under it on hover (ChatView's `gemini-user-actions`): 4px below, 12px in
- * from the right, 250ms in and out. They take the top of the 52px Willow leaves under a message,
- * so the gap stays 52px whether they show or not.
+ * The bubble's buttons are Willow's (ChatView's `gemini-user-actions`, 250ms in and out) where
+ * Codex keeps its own, beside the bubble on hover (UserMessage, 4px from it), so the timeline goes
+ * on Codex's 16px under the bubble. Where nothing hovers (Willow's compact widths) they show under
+ * it as Willow's do: 4px below, 12px in from the right, in the top of Willow's 52px.
  */
-[data-willow-user-row] > [data-willow-user-actions] {
-  width: auto;
-  max-width: none;
+[data-willow-user-line] > [data-willow-user-actions] {
   height: 36px;
-  margin-inline-end: 12px;
+  margin: 0;
   padding: 0;
   transition: opacity 250ms;
+}
+
+[data-timeline-row-kind="message"]:has(> [data-willow-user-row]),
+[data-timeline-row-kind="message"]:has(> * > [data-willow-user-row]) {
+  padding-bottom: var(--codex-item-gap);
+}
+
+html[data-willow-compact] [data-willow-user-line] {
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+html[data-willow-compact] [data-willow-user-line] > [data-willow-user-actions] {
+  margin-inline-end: 12px;
+}
+
+html[data-willow-compact] [data-timeline-row-kind="message"]:has(> [data-willow-user-row]),
+html[data-willow-compact] [data-timeline-row-kind="message"]:has(> * > [data-willow-user-row]) {
+  padding-bottom: 12px;
 }
 
 /* A reply's buttons come and go as Willow's under a response do (ChatView, 240ms). */
 [data-willow-assistant-actions] {
   transition: opacity 240ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-/* 4px, the buttons' 36px, and this: Willow's 52px between a message and its reply. */
-[data-timeline-row-kind="message"]:has(> [data-willow-user-row]),
-[data-timeline-row-kind="message"]:has(> * > [data-willow-user-row]) {
-  padding-bottom: 12px;
 }
 
 [data-willow-user-actions] > div {
@@ -231,4 +257,90 @@
   height: 20px;
   color: inherit;
   opacity: 1;
+}
+
+/* Copy prompt's and Edit's Luminous glyphs, at Willow's 320. */
+:is([data-willow-user-actions], [data-willow-assistant-actions]) .willow-icon-glyph--luminous {
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 320,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 20;
+}
+
+[data-willow-assistant-actions] .willow-icon-glyph--luminous.willow-icon-glyph--filled {
+  font-variation-settings:
+    "FILL" 1,
+    "wght" 320,
+    "GRAD" 0,
+    "ROND" 100,
+    "opsz" 20;
+}
+
+/*
+ * A reply's buttons are Willow's under a response (features/chat ChatResponseChrome's
+ * ResponseActions): Good response, Bad response, Copy, then the branch, 32px round buttons edge to
+ * edge with the first glyph on the reply's edge, 20px glyphs in #000000 / #e6e6e6 on 8% of that
+ * ink under the pointer; a chosen rating keeps 8% / 9% and fills its thumb. The time follows them.
+ */
+[data-willow-assistant-actions] {
+  height: 32px;
+  gap: 0;
+  margin-inline-start: -6px;
+}
+
+[data-willow-assistant-actions] :is(button, [role="button"]) {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  box-shadow: none;
+  color: #000000;
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+
+:root.dark [data-willow-assistant-actions] :is(button, [role="button"]) {
+  color: #e6e6e6;
+}
+
+[data-willow-assistant-actions] :is(button, [role="button"]):is(:hover, [aria-pressed="true"]) {
+  background: rgb(0 0 0 / 8%);
+  color: #000000;
+}
+
+:root.dark [data-willow-assistant-actions] :is(button, [role="button"]):hover {
+  background: rgb(255 255 255 / 8%);
+  color: #e6e6e6;
+}
+
+:root.dark [data-willow-assistant-actions] :is(button, [role="button"])[aria-pressed="true"] {
+  background: rgb(255 255 255 / 9%);
+  color: #e3e3e3;
+}
+
+[data-willow-assistant-actions] :is(button, [role="button"]) svg {
+  width: 20px;
+  height: 20px;
+  color: inherit;
+  opacity: 1;
+}
+
+[data-willow-assistant-actions] [data-slot="tooltip-trigger"]:is(p, span) {
+  margin-inline-start: 8px;
+  color: rgb(0 0 0 / 55%);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+:root.dark [data-willow-assistant-actions] [data-slot="tooltip-trigger"]:is(p, span) {
+  color: rgb(255 255 255 / 55%);
 }

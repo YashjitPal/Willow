@@ -40,37 +40,44 @@ const work = (
   entry: { id, createdAt: at(second), ...entry },
 });
 
-const answer = () => [
-  "I added a **Usage** section to `README.md` and the tests still pass.",
-  "",
-  "## What changed",
-  "",
-  "- Documented `greet(name)` with a short example",
-  "- Linked the section from the top of the README",
-  "",
-  "```ts",
-  'import { greet } from "./src/index";',
-  "",
-  'console.log(greet("Willow")); // Hello, Willow!',
-  "```",
-  "",
-  "> `npm test` ran 1 test: 1 passed, 0 failed.",
-  "",
-  "See the [Node test runner docs](https://nodejs.org/api/test.html) for more options.",
-].join("\n");
+const answer = () =>
+  [
+    "I added a **Usage** section to `README.md` and the tests still pass.",
+    "",
+    "## What changed",
+    "",
+    "- Documented `greet(name)` with a short example",
+    "- Linked the section from the top of the README",
+    "",
+    "```ts",
+    'import { greet } from "./src/index";',
+    "",
+    'console.log(greet("Willow")); // Hello, Willow!',
+    "```",
+    "",
+    "> `npm test` ran 1 test: 1 passed, 0 failed.",
+    "",
+    "See the [Node test runner docs](https://nodejs.org/api/test.html) for more options.",
+  ].join("\n");
 
-const plan = () => [
-  "# Publish sample-project to npm",
-  "",
-  "1. Sign in with `npm login` (the last command had no credentials).",
-  "2. Set `name`, `version` and `files` in `package.json`.",
-  "3. Run `npm publish --access public` from a clean checkout.",
-  "",
-  "**Risks:** the package name may already be taken; check with `npm view`.",
-].join("\n");
+const plan = () =>
+  [
+    "# Publish sample-project to npm",
+    "",
+    "1. Sign in with `npm login` (the last command had no credentials).",
+    "2. Set `name`, `version` and `files` in `package.json`.",
+    "3. Run `npm publish --access public` from a clean checkout.",
+    "",
+    "**Risks:** the package name may already be taken; check with `npm view`.",
+  ].join("\n");
 
 const fixture = (): ReadonlyArray<TimelineEntry> => [
-  message("user-1", "user", 0, "Add a Usage section to README.md that shows how to call greet, then run the tests."),
+  message(
+    "user-1",
+    "user",
+    0,
+    "Add a Usage section to README.md that shows how to call greet, then run the tests.",
+  ),
   work("thinking-1", 1, {
     label: "Thinking",
     tone: "thinking",
@@ -106,7 +113,8 @@ const fixture = (): ReadonlyArray<TimelineEntry> => [
     tone: "tool",
     itemType: "command_execution",
     command: "npm test",
-    detail: "> sample-project@1.0.0 test\n> node --test\n\n✔ greet says hello (0.8ms)\nℹ tests 1\nℹ pass 1\nℹ fail 0",
+    detail:
+      "> sample-project@1.0.0 test\n> node --test\n\n✔ greet says hello (0.8ms)\nℹ tests 1\nℹ pass 1\nℹ fail 0",
     toolLifecycleStatus: "completed",
   }),
   message("assistant-1", "assistant", 6, answer()),
@@ -123,7 +131,8 @@ const fixture = (): ReadonlyArray<TimelineEntry> => [
     tone: "tool",
     itemType: "command_execution",
     command: "npm whoami",
-    detail: "npm ERR! code ENEEDAUTH\nnpm ERR! need auth This command requires you to be logged in.",
+    detail:
+      "npm ERR! code ENEEDAUTH\nnpm ERR! need auth This command requires you to be logged in.",
     toolLifecycleStatus: "failed",
   }),
   {
@@ -145,6 +154,19 @@ const fixture = (): ReadonlyArray<TimelineEntry> => [
     itemType: "error",
     detail: "The model is overloaded. Retrying in 4s.",
   }),
+  message("user-3", "user", 12, "What does greet return for an empty name?"),
+  work("thinking-2", 13, {
+    label: "Thinking",
+    tone: "thinking",
+    itemType: "reasoning",
+    detail: "greet puts the name in as it is, so an empty name leaves nothing after the comma.",
+  }),
+  message(
+    "assistant-3",
+    "assistant",
+    15,
+    '`greet("")` returns `"Hello, !"`: the name goes in as it is, so nothing follows the comma.',
+  ),
 ];
 
 function withFixture<T extends ReadonlyArray<TimelineEntry>>(entries: T): T {

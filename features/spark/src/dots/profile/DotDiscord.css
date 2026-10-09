@@ -148,6 +148,11 @@
   text-decoration: none;
 }
 
+/* Under "Looks like …": what Discord refused of the bot's look, when it did. */
+.dot-panel__row-sub.dot-discord__look-problem {
+  color: var(--md-sys-color-error);
+}
+
 .dot-discord__problem {
   margin: 10px 6px 0;
   color: var(--md-sys-color-error);

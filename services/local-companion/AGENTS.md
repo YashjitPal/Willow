@@ -90,8 +90,11 @@ controls hold it in place; **do not weaken any of them without saying so explici
    `discord.call` reaches `discord.com/api/v10` only, for a bot token, on the
    routes listed in `src/discord.mjs` (the bot's own user and application, its
    servers' channels, reading and posting messages, typing, its own reactions,
-   opening its DM): nothing that manages a server or anyone else's account, ids
-   and query values checked, bodies capped at 64 KB, answers at 4 MB.
+   opening its DM, and its own picture, banner and name): nothing that manages a
+   server or anyone else's account, ids and query values checked, bodies capped
+   at 64 KB, answers at 4 MB. The one change a bot may make to itself,
+   `PATCH /users/@me`, takes only `avatar` and `banner` (images as data URLs) and
+   `username` (2 to 32 characters), with room for pictures (8 MB).
    `screen.*` (desktop app) reaches the user's own screen — Windows' shared
    desktop, macOS's apps in the background, or on Linux a desktop of the bot's own —
    never Willow's own windows, and on Windows holds off while the user is using the

@@ -96,6 +96,88 @@ it('checks a bot token against Discord, and learns the bot, its owner and what i
   assert.match(discord.discordAvatarUrl({ botId: '1098765432109876543' }), /^https:\/\/cdn\.discordapp\.com\/embed\/avatars\/[0-5]\.png$/);
 });
 
+it('gives the Discord bot the bot’s picture, banner and name, once each change, waiting when Discord asks', async () => {
+  assert.equal(discord.discordUsername('  Pip   the  Helper '), 'Pip the Helper', 'spaces folded as Discord would');
+  for (const refused of [null, '', 'P', 'x'.repeat(33), 'Discord Helper', 'me@home', 'a#b', 'here', 'Clyde']) assert.equal(discord.discordUsername(refused), null, String(refused));
+
+  const wanted = { avatarKey: 'face-1', bannerKey: 'wall-1', name: 'Pip' };
+  assert.deepEqual(discord.discordLookPlan(LINK, wanted, NOW), { avatar: true, banner: true, name: 'Pip' }, 'just linked: all three');
+  const synced = { ...LINK, botName: 'Pip', look: { avatarKey: 'face-1', bannerKey: 'wall-1', name: 'Pip' } };
+  assert.equal(discord.discordLookPlan(synced, wanted, NOW), null, 'in step: nothing to send');
+  assert.deepEqual(discord.discordLookPlan(synced, { ...wanted, avatarKey: 'face-2' }, NOW), { avatar: true, banner: false, name: null }, 'a new character: only the picture');
+  assert.deepEqual(discord.discordLookPlan(synced, { ...wanted, name: 'Juniper' }, NOW), { avatar: false, banner: false, name: 'Juniper' }, 'renamed: only the name');
+  assert.equal(discord.discordLookPlan({ ...LINK, look: { off: true } }, wanted, NOW), null, 'turned off');
+  assert.equal(discord.discordLookPlan({ ...LINK, look: { waitUntil: NOW + 60_000 } }, wanted, NOW), null, 'Discord asked to wait');
+  assert.ok(discord.discordLookPlan({ ...LINK, look: { waitUntil: NOW - 1 } }, wanted, NOW), 'and once the wait is over, it goes');
+  assert.equal(discord.discordLookPlan({ ...synced, botName: 'Ada', look: { ...synced.look, name: 'Pip' } }, wanted, NOW), null, 'a name Discord refused is not tried again until it changes');
+  assert.equal(discord.discordLookPlan({ ...synced, look: { bannerKey: 'wall-1', name: 'Pip' } }, { ...wanted, avatarKey: null }, NOW), null, 'nothing to draw, nothing to send');
+
+  const calls = [];
+  const answering = (status, body) => ({ call: async (token, method, path, options) => { calls.push({ token, method, path, body: options?.body }); return { status, body }; } });
+  const avatar = 'data:image/png;base64,AAAA';
+  const done = await discord.setDiscordProfile(LINK, answering(200, { id: '500', username: 'Pip', avatar: 'f00d', banner: 'b00b' }), { avatar, username: 'Pip' }, NOW);
+  assert.deepEqual(done, { avatar: 'f00d', banner: 'b00b', username: 'Pip' });
+  assert.deepEqual(calls[0], { token: TOKEN, method: 'PATCH', path: '/users/@me', body: { avatar, username: 'Pip' } });
+
+  const slowed = await discord.setDiscordProfile(LINK, answering(429, { retry_after: 120 }), { avatar }, NOW);
+  assert.equal(slowed.waitUntil, NOW + 120_000);
+  assert.match(slowed.problem, /limiting how often the bot can change its picture/);
+  const tooFast = await discord.setDiscordProfile(LINK, answering(400, { code: 50035, errors: { username: { _errors: [{ code: 'USERNAME_RATE_LIMIT' }] } } }), { username: 'Pip' }, NOW);
+  assert.equal(tooFast.waitUntil, NOW + discord.LOOK_RATE_WAIT_MS, 'Discord’s own “too fast” waits half an hour');
+  const badName = await discord.setDiscordProfile(LINK, answering(400, { code: 50035, errors: { username: { _errors: [{ code: 'USERNAME_INVALID_CONTAINS' }] } } }), { username: 'Pip' }, NOW);
+  assert.deepEqual(badName, { problem: 'Discord doesn’t allow that name for a bot.' }, 'refused outright: no wait, and not tried again');
+  const noBanner = await discord.setDiscordProfile(LINK, answering(400, { code: 50035, errors: { banner: { _errors: [{ code: 'BINARY_TYPE_MAX_SIZE' }] } } }), { avatar, banner: avatar }, NOW);
+  assert.equal(noBanner.banner, true, 'a refused banner says so, so the picture can go without it');
+
+  assert.equal(discord.describeDiscordLook(synced, 'Pip', false, NOW), 'Its picture, banner and name on Discord follow Pip’s here');
+  assert.equal(discord.describeDiscordLook(synced, 'Pip', true, NOW), 'Updating it on Discord…');
+  assert.equal(discord.describeDiscordLook({ ...LINK, look: { off: true } }, 'Pip', false, NOW), 'Its picture, banner and name on Discord stay as they are');
+  assert.match(discord.describeDiscordLook({ ...LINK, look: { problem: 'Discord limits how often a bot’s picture changes.', waitUntil: NOW + 60_000 } }, 'Pip', false, NOW), /^Discord limits how often a bot’s picture changes\. Willow tries again at .+\.$/);
+});
+
+it('fills the Discord picture with the character as fully as the circle allows, pixel for pixel', async () => {
+  const picture = await importTs(path.join(repoRoot, 'features', 'spark', 'src', 'dots', 'discord-picture.ts'));
+  const close = (actual, expected, label) => assert.ok(Math.abs(actual - expected) < 1e-6, `${label}: ${actual} is not ${expected}`);
+
+  const square = picture.smallestCircle([[0, 0], [10, 0], [0, 10], [10, 10], [5, 5], [2, 8]]);
+  close(square.x, 5, 'x');
+  close(square.y, 5, 'y');
+  close(square.r, Math.hypot(5, 5), 'r');
+  const obtuse = picture.smallestCircle([[0, 0], [10, 0], [5, 1]]);
+  close(obtuse.r, 5, 'an obtuse triangle’s circle is its longest side’s');
+  const line = picture.smallestCircle([[0, 0], [3, 0], [9, 0]]);
+  close(line.x, 4.5, 'points in a line: the two farthest apart');
+  close(line.r, 4.5, 'r');
+  assert.equal(picture.smallestCircle([]), null);
+
+  // Against every circle through two or three of a scatter: none smaller holds them all.
+  let seed = 7;
+  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const scatter = Array.from({ length: 14 }, () => [Math.round(random() * 100), Math.round(random() * 60)]);
+  const found = picture.smallestCircle(scatter, random);
+  const holdsAll = (circle) => scatter.every(([x, y]) => Math.hypot(x - circle.x, y - circle.y) <= circle.r + 1e-6);
+  assert.ok(holdsAll(found));
+  for (let a = 0; a < scatter.length; a += 1) {
+    for (let b = a + 1; b < scatter.length; b += 1) {
+      const pair = { x: (scatter[a][0] + scatter[b][0]) / 2, y: (scatter[a][1] + scatter[b][1]) / 2, r: Math.hypot(scatter[a][0] - scatter[b][0], scatter[a][1] - scatter[b][1]) / 2 };
+      if (holdsAll(pair)) assert.ok(found.r <= pair.r + 1e-6, 'no circle through a pair beats it');
+    }
+  }
+
+  // A 40 × 30 picture: a solid 10 × 6 block, a faint haze everywhere (its soft edge), and nothing else.
+  const width = 40;
+  const height = 30;
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) rgba[index * 4 + 3] = 12;
+  for (let y = 12; y < 18; y += 1) for (let x = 15; x < 25; x += 1) rgba[(y * width + x) * 4 + 3] = 255;
+  const outline = picture.outlinePoints(rgba, width, height);
+  assert.equal(outline.length, 6 * 4, 'the haze is not the character');
+  const frame = picture.pictureFrame(rgba, width, height);
+  const radius = Math.ceil(Math.hypot(5, 3)) + 1;
+  assert.deepEqual(frame, { size: radius * 2, left: radius - 20, top: radius - 15 }, 'the block’s own circle, with a pixel to spare, whole-pixel offsets');
+  assert.equal(picture.pictureFrame(new Uint8ClampedArray(16), 2, 2), null, 'nothing solid, nothing to frame');
+});
+
 it('hears the user in its DM and where they mention it, and everyone else only as information', () => {
   const sent = new Map([['2001', 'i40']]);
   const event = (data) => ({ seq: 1, type: 'message', data });

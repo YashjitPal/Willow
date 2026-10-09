@@ -12,6 +12,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -20,6 +21,18 @@ import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
+import {
+  FOLD_ORDER,
+  type FoldedAction,
+  FoldedActions,
+  foldTerminal,
+  useOfferedTerminal,
+} from "~/willow/panelFolds";
+
+/** The address keeps at least this much before a button folds into the menu. */
+const MIN_ADDRESS_WIDTH = 180;
+/** What a folded button gives back: the widest of them, the terminal's 36px header button and gap. */
+const FOLD_STEP = 40;
 
 interface Props {
   url: string;
@@ -96,6 +109,112 @@ export function PreviewChromeRow({
   const [draft, setDraft] = useState(url);
   const [inputFocused, setInputFocused] = useState(false);
 
+  // As the row runs short its buttons fold into the "More" menu one at a time (willow/panelFolds),
+  // the panel's terminal button too while the bar sits beside the panel's controls.
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const [foldedCount, setFoldedCount] = useState(0);
+  const [besideControls, setBesideControls] = useState(false);
+  const offeredTerminal = useOfferedTerminal();
+  const present: Record<(typeof FOLD_ORDER)[number], boolean> = {
+    pictureInPicture: onPictureInPicture !== undefined,
+    terminal: besideControls && offeredTerminal !== null,
+    annotate: onPickElement !== undefined,
+    screenshot: onCapture !== undefined,
+  };
+  const foldable = FOLD_ORDER.filter((name) => present[name]);
+  const folded = new Set(foldable.slice(0, foldedCount));
+  const foldableCount = useRef(foldable.length);
+  useLayoutEffect(() => {
+    foldableCount.current = foldable.length;
+  });
+  const foldsTerminal = folded.has("terminal");
+  const measureRef = useRef<() => void>(() => undefined);
+
+  // The panel's controls narrow once the terminal's button has gone; the bar takes the room.
+  useEffect(() => {
+    foldTerminal(foldsTerminal);
+    const frame = requestAnimationFrame(() => measureRef.current());
+    return () => cancelAnimationFrame(frame);
+  }, [foldsTerminal]);
+  useEffect(() => () => foldTerminal(false), []);
+
+  useLayoutEffect(() => {
+    const form = formRef.current;
+    const address = form?.querySelector<HTMLElement>('[data-slot="input-group"]');
+    if (!form || !address) return;
+    const measure = () => {
+      const beside =
+        form
+          .closest("[data-right-panel-surface-content]")
+          ?.previousElementSibling?.hasAttribute("data-willow-strip-tabs") ?? false;
+      setBesideControls(beside);
+      // Beside the panel's controls the bar ends 4px short of them, however many of them show.
+      const bar = form.getBoundingClientRect();
+      const controls = beside
+        ? [...document.querySelectorAll<HTMLElement>("[data-workspace-titlebar-controls]")]
+            .map((element) => element.getBoundingClientRect())
+            .find(
+              (box) =>
+                box.width > 0 &&
+                box.left < bar.right &&
+                box.right > bar.left &&
+                box.top < bar.bottom &&
+                box.bottom > bar.top,
+            )
+        : undefined;
+      form.style.paddingInlineEnd = controls ? `${Math.ceil(bar.right - controls.left) + 4}px` : "";
+      // Nothing folds without the menu to fold into.
+      const hasMenu = form.querySelector('[aria-label="Preview menu"]') !== null;
+      const width = address.getBoundingClientRect().width;
+      setFoldedCount((count) => {
+        if (!hasMenu) return 0;
+        if (width < MIN_ADDRESS_WIDTH) return Math.min(count + 1, foldableCount.current);
+        if (width >= MIN_ADDRESS_WIDTH + FOLD_STEP) return Math.max(count - 1, 0);
+        return count;
+      });
+    };
+    measureRef.current = measure;
+    const observer = new ResizeObserver(measure);
+    observer.observe(form);
+    observer.observe(address);
+    return () => observer.disconnect();
+  }, []);
+
+  // The menu lists them in the row's order, each named for what it will do.
+  const foldedActions: FoldedAction[] = [];
+  if (onPickElement && folded.has("annotate")) {
+    foldedActions.push({
+      key: "annotate",
+      label: pickActive ? "Cancel annotation" : "Annotate preview",
+      disabled: pickDisabled === true,
+      onSelect: onPickElement,
+    });
+  }
+  if (onCapture && folded.has("screenshot")) {
+    foldedActions.push({
+      key: "screenshot",
+      label: recording ? "Stop recording" : "Capture screenshot",
+      disabled: captureDisabled === true,
+      onSelect: () => onCapture(false),
+    });
+  }
+  if (onPictureInPicture && folded.has("pictureInPicture")) {
+    foldedActions.push({
+      key: "pictureInPicture",
+      label: pictureInPicture ? "Close floating preview" : "Float preview over chat",
+      disabled: pictureInPictureDisabled === true,
+      onSelect: onPictureInPicture,
+    });
+  }
+  if (offeredTerminal && foldsTerminal) {
+    foldedActions.push({
+      key: "terminal",
+      label: offeredTerminal.open ? "Close terminal drawer" : "Open terminal drawer",
+      disabled: !offeredTerminal.available,
+      onSelect: offeredTerminal.toggle,
+    });
+  }
+
   useEffect(() => {
     if (focusUrlNonce == null) return;
     const node = inputRef.current;
@@ -114,6 +233,7 @@ export function PreviewChromeRow({
   return (
     <div className="relative">
       <form
+        ref={formRef}
         onSubmit={submit}
         className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent"
         data-surface-subheader
@@ -232,7 +352,7 @@ export function PreviewChromeRow({
           ) : null}
         </InputGroup>
 
-        {onPickElement ? (
+        {onPickElement && !folded.has("annotate") ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -258,7 +378,7 @@ export function PreviewChromeRow({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-        {onCapture ? (
+        {onCapture && !folded.has("screenshot") ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -283,7 +403,7 @@ export function PreviewChromeRow({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-        {onPictureInPicture ? (
+        {onPictureInPicture && !folded.has("pictureInPicture") ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -307,7 +427,7 @@ export function PreviewChromeRow({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-        {trailingActions}
+        <FoldedActions value={foldedActions}>{trailingActions}</FoldedActions>
       </form>
       <div
         aria-hidden

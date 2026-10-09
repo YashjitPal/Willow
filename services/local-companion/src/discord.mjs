@@ -43,8 +43,25 @@ const ROUTES = [
   route('PUT', `/channels/${ID}/messages/${ID}/reactions/[^/?#]{1,120}/@me`),
   route('DELETE', `/channels/${ID}/messages/${ID}/reactions/[^/?#]{1,120}/@me`),
   route('POST', '/users/@me/channels'),
+  // The bot's own picture, banner and name, which Willow keeps in step with the bot's look.
+  route('PATCH', '/users/@me'),
 ];
 const QUERY_KEYS = ['limit', 'before', 'after', 'around'];
+// Pictures are bigger than anything else sent: room for a 1024 px avatar and a banner together.
+const MAX_PROFILE_BODY = 8 * 1024 * 1024;
+const PROFILE_KEYS = new Set(['avatar', 'banner', 'username']);
+const IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+=*$/;
+
+/** What a bot may change about itself through Willow: its picture, its banner and its name, nothing more. */
+export const profileProblem = (body) => {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'Only the bot’s picture, banner and name can be changed.';
+  const keys = Object.keys(body);
+  if (keys.length === 0 || keys.some((key) => !PROFILE_KEYS.has(key))) return 'Only the bot’s picture, banner and name can be changed.';
+  if ('avatar' in body && !(typeof body.avatar === 'string' && IMAGE.test(body.avatar))) return 'A bot’s picture has to be an image.';
+  if ('banner' in body && !(typeof body.banner === 'string' && IMAGE.test(body.banner))) return 'A bot’s banner has to be an image.';
+  if ('username' in body && !(typeof body.username === 'string' && body.username.trim().length >= 2 && body.username.length <= 32)) return 'A bot’s name has 2 to 32 characters.';
+  return null;
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -66,13 +83,18 @@ export async function discordCall(payload, { api = API, fetchImpl = (...args) =>
   const method = String(payload.method || 'GET').toUpperCase();
   const path = String(payload.path || '');
   if (!ROUTES.some((entry) => entry.method === method && entry.pattern.test(path))) throw new Error('That Discord request is not allowed.');
+  const profile = method === 'PATCH';
+  if (profile) {
+    const problem = profileProblem(payload.body);
+    if (problem) throw new Error(problem);
+  }
   const query = new URLSearchParams();
   for (const key of QUERY_KEYS) {
     const value = payload.query?.[key];
     if (value !== undefined && value !== null && /^\d{1,22}$/.test(String(value))) query.set(key, String(value));
   }
   const body = payload.body === undefined || method === 'GET' || method === 'DELETE' ? undefined : JSON.stringify(payload.body);
-  if (body && body.length > MAX_BODY) throw new Error('That is too much to send to Discord at once.');
+  if (body && body.length > (profile ? MAX_PROFILE_BODY : MAX_BODY)) throw new Error('That is too much to send to Discord at once.');
   const url = `${api}${path}${query.toString() ? `?${query}` : ''}`;
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetchImpl(url, {
