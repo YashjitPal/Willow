@@ -690,15 +690,14 @@
 /*
  * What is attached above the box is one panel, as Codex's rail is: 13px in from the box's sides
  * (--home-composer-inline-inset) under its 32px corners, 16px corners at the top (--radius-2xl),
- * a 1px rule round it and between its rows, and its bottom tucked under the box's top. On the
- * box's own surface, so the prompt box and what is attached to it read as one; the box's drop
- * marks where it starts.
+ * and its bottom tucked under the box's top. Codex's rules round it and between its rows are left
+ * out, and it sits a step off the box's surface (lighter in dark, its chips' hover tone), so it
+ * reads apart from the box.
  */
 [data-slot="composer-banner-attachment"]:has(> [data-willow-composer-rail="true"]) {
   width: calc(100% - 26px);
 }
 
-/* No border, a step off the box (lighter in dark, its chips' hover tone), so it reads apart from it. */
 [data-willow-composer-rail="true"] {
   position: relative;
   overflow: clip;

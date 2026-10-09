@@ -96,11 +96,8 @@ export function DotRoomHeader({ dotId, name, activity, profileOpen, flying, char
   const reducedMotion = useReducedMotion();
   const buttonRef = useRef<HTMLButtonElement>(null);
   return (
-    <motion.div
-      className="willow-dots spark-dots-room-header"
-      initial={false}
-      animate={{ opacity: +!profileOpen, transform: profileOpen ? 'scale(0.92)' : 'scale(1)' }}
-      transition={{ type: 'tween', duration: reducedMotion ? 0 : 0.15, ease }}
+    <div
+      className={`willow-dots spark-dots-room-header${profileOpen ? ' is-stepped-back' : ''}${reducedMotion ? '' : ' can-animate'}`}
       aria-hidden={profileOpen || undefined}
       inert={profileOpen || undefined}
     >
@@ -129,6 +126,6 @@ export function DotRoomHeader({ dotId, name, activity, profileOpen, flying, char
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

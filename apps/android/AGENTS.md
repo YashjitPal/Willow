@@ -14,9 +14,11 @@ on it; pages reach it only through `window.__WILLOW_ANDROID__` (the contract
 below). The other ends:
 
 - **The PC side** is the agents' server: `vendor/t3code/apps/server/src/willow/mobile.ts`
-  serves Willow's page to paired phones, and `phone.ts` routes the agents' `phone_*` tools.
+  serves Willow's page to paired phones, `folder.ts` serves them the PC's Willow folder,
+  and `phone.ts` routes the agents' `phone_*` tools.
 - **Willow's page side** is `platform/core/src/android-bridge.ts`. It covers the agents
-  tab's sign-in, the companion relay and the phone-tool relay. The page also has agent
+  tab's sign-in, the companion relay and the phone-tool relay. `android-folder.ts` beside
+  it hands Willow's storage the PC's folder (see Willow's data). The page also has agent
   rows in the sidebar, and Back closes an agent tab (`features/harness/src/harness-android.ts`).
 
 ## Layout
@@ -39,9 +41,9 @@ apps/android/
   modules/willow-tunnel/   Local Expo module (Kotlin), autolinked from modules/
     index.ts               Its JS face
     android/src/main/java/com/willow/tunnel/
-      WillowTunnelModule.kt  start, stop, stopAll, clearCookies, installDocumentStartScript
+      WillowTunnelModule.kt  start, stop, stopAll, clearCookies, clearWebData, installDocumentStartScript
       TcpTunnel.kt           The forwarder
-      WebViewSupport.kt      Document-start script and cookie clearing for the WebView
+      WebViewSupport.kt      Document-start script, and clearing the WebView's cookies and data
   plugins/with-release-debug-signing.js   Release builds signed with the debug keystore
   scripts/
     build-apk.mjs          prebuild, fetch Gradle, SDK packages, assembleRelease, copy to dist/
@@ -65,9 +67,9 @@ apps/android/
    the answer's `agentsPort`, because a TCP tunnel can't carry TLS to an
    `http://localhost` page. That port must answer too, so Network access must be on.
 2. **Tunnels.** `127.0.0.1:41860 → host:agentsPort` and
-   `127.0.0.1:41861 → host:willowPort`. The ports are fixed: Willow keeps
-   everything in the WebView's localStorage, IndexedDB and cookies, which belong
-   to these origins.
+   `127.0.0.1:41861 → host:willowPort`. The ports are fixed: the session cookie,
+   and what Willow's page keeps in the WebView's localStorage and IndexedDB while
+   it runs, belong to these origins.
 3. **Pair.** `{host, agentsPort, willowPort}` is saved (AsyncStorage, never the
    token) and the WebView opens `http://localhost:41860/pair#token=…`. The agents'
    client pairs and sets its session cookie for `localhost` (cookies ignore ports,
@@ -98,9 +100,21 @@ reload) and Connect another PC. The settings button (three dots) is only on the
 Connect screen and that error view; pages open the sheet through the bridge. A
 crashed renderer gets a new WebView. The user agent ends in `WillowAndroid/<version>`.
 
-**Disconnect this PC** stops the tunnels, forgets the PC and clears the WebView's
-cookies (natively: react-native-webview has no cookie API). localStorage and
-IndexedDB stay, so connecting again finds Willow as it was.
+**Willow's data** is the PC's. Willow's page has no folder picker on the phone:
+`platform/core/src/android-folder.ts` hands Willow's storage the PC's Willow folder as
+its local folder, a File System Access handle over `/api/willow/folder` on the Willow
+origin. Willow's sync engine reads and writes it as on the PC (chats, settings with the
+API keys, dots, projects, gems, notebooks), so a change on either side shows on the
+other within a pass of it, about 3 s. The handle asks for the folder's version at most
+once a second, lists again only after it changes, and keeps recently read files (up to
+64 MB, files to 8 MB) until then. The page's working copies in localStorage and
+IndexedDB last until Disconnect.
+
+**Disconnect this PC** leaves Willow's page first, then stops the tunnels, forgets
+the PC and erases what the WebView keeps: localStorage, IndexedDB and the rest of
+its web storage (`WebStorage.deleteAllData`), its cache and its cookies, natively
+(react-native-webview has no API for them). Willow's data stays on the PC, so
+connecting again finds it as it was.
 
 ## The page bridge (contract)
 
@@ -229,7 +243,12 @@ stand-in companion. Checked:
   phone home, its model pill and composer);
 - the drawer's agent rows appeared, which proves the bridge;
 - Codex's tab loaded from `http://localhost:41860/`;
-- one Back closed it again.
+- one Back closed it again;
+- with the server serving a stand-in Willow folder, a chat made on the computer showed
+  on the phone and opened, and one removed on the phone went to the folder's
+  `Recycle Bin` on the computer;
+- Disconnect this PC emptied the WebView's IndexedDB and localStorage (checked as root
+  in the app's `app_webview` folder).
 
 Not yet: QR scanning, location, notifications, vibration, clipboard, photos and links
 on a real phone.
@@ -239,9 +258,8 @@ on a real phone.
 - Google refuses its sign-in inside an embedded WebView, and popups go to the
   system browser, whose cookies the app can't see: signing in with Google from the
   phone doesn't work.
-- The phone keeps its own Willow data (chats, settings, keys) in its WebView storage
-  under `http://localhost:41861`, apart from the PC's. The agents' threads live on
-  the PC, so they are the same from both.
+- Willow on the phone works only while it reaches the PC: its data is the PC's folder,
+  with nothing kept for offline use.
 - Agents reach the phone only while the app is open: no foreground service, and
   Android may stop the app in the background.
 - Plain HTTP on the local network: the PC's servers have no TLS.

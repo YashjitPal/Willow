@@ -39,15 +39,25 @@ Changes from upstream:
 - `apps/server/src/willow/ssh.ts`: desktop-managed SSH environments, which T3 keeps in its
   Electron main process, served to Willow's page only (it must present the desktop bootstrap
   token).
-- `apps/server/src/willow/mobile.ts` and `phone.ts`: Willow on a phone (Willow's
+- `apps/server/src/willow/mobile.ts`, `phone.ts` and `folder.ts`: Willow on a phone (Willow's
   `apps/android`). With `WILLOW_MOBILE_PORT` set (Willow's desktop app sets the server's port
   plus one), the server also serves Willow's own page on that port. The page comes from
   Willow's `apps/studio/dist`, found above `vendor/t3code`. Only clients paired with this
   server get it: their session cookie is checked against `/api/auth/session`. Alongside the
   page come Willow's `/llm-proxy` and `/api/fetch-source`, and a relay to Willow's local
-  companion (`WILLOW_COMPANION_PORT` and `WILLOW_COMPANION_TOKEN`).
+  companion (`WILLOW_COMPANION_PORT` and `WILLOW_COMPANION_TOKEN`). Willow's scripts and
+  styles go out compressed (brotli, else gzip, each kept until its file changes), and files
+  answer byte ranges, for media.
   - `GET /.well-known/willow/mobile` names the page's port and the server's own.
-  - `POST /api/willow/harness` issues the phone a pairing credential for the agent tabs' page.
+  - `POST /api/willow/harness` issues the phone a pairing credential for the agent tabs' page,
+    with the phone session's own scopes.
+  - `folder.ts` serves the computer's Willow folder (`WILLOW_FOLDER`, which Willow's desktop app
+    sets) under `/api/willow/folder`: listings, files with an ETag, writes through a swap file,
+    creation, removal and moves. Every path is held inside the folder, and links or junctions
+    out of it are refused. Its version, kept by a recursive watcher, changes whenever anything
+    in the folder does. The phone's Willow page takes the folder as its local folder (Willow's
+    `platform/core/src/android-folder.ts`) and re-reads only after the version changes, so its
+    chats, settings and keys, dots and the rest are the computer's.
   - The `phone_*` MCP tools (`mcp/toolkits/phone`) reach the phone through `phone.ts`. The
     phone's Willow page long-polls `/api/willow/phone/next` and posts each answer to
     `/api/willow/phone/result`.
@@ -80,8 +90,9 @@ Changes from upstream:
   (Willow's `features/harness/src/harness-theme.ts`). `DraftHeroHeadline.tsx` drops T3's "or
   start without a project" line; "No project" in the headline's project menu carries the
   shortcut. What is attached above the box is
-  Codex's composer rail, one panel 13px in from its sides with a rule between its rows
-  (`composer.css` on `ChatComposer.tsx`'s banner column): in Willow `ComposerBannerStack.tsx` lists
+  Codex's composer rail, one panel 13px in from its sides, without Codex's rules and on Willow's
+  chip hover fill so it reads apart from the box (`composer.css` on `ChatComposer.tsx`'s banner
+  column): in Willow `ComposerBannerStack.tsx` lists
   every notice there rather than stacking them, and `QueuedRunsControl.tsx` is a row of it as
   Codex's queued messages (its glyph, the words, Steer, bin, and a menu with Edit message and
   T3's queue / steer setting); a running plan's "Step N / M" sits centred over it as Codex's
@@ -103,8 +114,9 @@ Changes from upstream:
 - The sidebar is Willow's own (`willow/WillowSidebar.tsx`, `willow/sidebar.css`): tabs for New
   thread, Add project, Search threads (`routes/search.tsx` and `willow/WillowSearchPage.tsx`, Willow's
   Search chats page, `willow/search.css`), Pull requests and Usage, and the gear opening Willow's
-  settings pane of T3's settings pages; `LegacySidebar.tsx` makes each project a folder row with its
-  working count. In Willow `AppSidebarLayout.tsx` keeps the sidebar at Willow's 288px with no
+  settings pane of T3's settings pages; `LegacySidebar.tsx` makes each project a folder row (Luminous's
+  folder, open while the project is) with its working count, at the size of the tabs above, and its
+  threads' times end where that count does. In Willow `AppSidebarLayout.tsx` keeps the sidebar at Willow's 288px with no
   resize handle (its collapse button is the only control, as Willow's own), collapses it to
   Willow's 52px rail (T3's icon mode, on the page's own colour: `sidebar.css` drops T3's grain)
   instead of off the screen, drops T3's floating sidebar button (the shortcut stays),
@@ -125,6 +137,13 @@ Changes from upstream:
   chosen one); sent messages are Willow's chat bubble (`willow/message.css`,
   `CollapsibleUserMessageBody` in `MessagesTimeline.tsx`); "more" buttons are Willow's three-dot
   trigger (`icons.tsx` maps the ellipses to `more_vert`).
+- The thread's details card and the browser's mini player float over the conversation, panel
+  open or closed: in Willow `ThreadDetailsCard.tsx` is always its popover, and `ChatCanvas.tsx`
+  lays the conversation out as if neither were there, where T3 moves it aside for them. Willow's
+  tabs have no `webContentsId`, so `ThreadPreviewMiniPlayer.tsx` asks `preview.ts` whether the
+  tab shows a page (`previewShowsPage`), and with the panel closed `preview.ts` places the tab's
+  webview or iframe in the player's slot, cut away under the player's handle and pill
+  (`data-willow-over-preview`).
 - In Willow's desktop app the side panel's tabs are drawn in the strip across its window, over
   the panel up to the window buttons (`stripTabs: true` in the page's init): `RightPanelTabs.tsx`
   reports them through `willow/stripTabs.ts` (a glyph as a PNG mask drawn from the icon font,
