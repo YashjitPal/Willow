@@ -2253,7 +2253,9 @@ export default function ChatView(props: ChatViewProps) {
     );
   }, [serverProjection, timelineAnchorMessageId]);
   useEffect(() => {
-    if (!anchorRunSettled) return;
+    // Willow's chat keeps the space under a sent message until the next send. LegendList
+    // re-sizes that filler on every row measurement, so it shrinks as the reply grows.
+    if (!anchorRunSettled || isWillowEmbedded()) return;
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: null });
   }, [anchorRunSettled, activeThreadKey]);
   const activeRightPanelKind = useRightPanelStore((state) =>
@@ -6557,8 +6559,9 @@ export default function ChatView(props: ChatViewProps) {
       // Reachable only once manual navigation has already broken follow, so
       // the anchored turn framing is over: the user scrolled back to the live
       // edge and expects the stream to stick to it again, exactly like the
-      // scroll-to-bottom pill (#6519).
-      setTimelineAnchor(releaseChatTimelineAnchor);
+      // scroll-to-bottom pill (#6519). Willow's chat never follows a stream, and dropping
+      // the filler here would pull the page down under the reader.
+      if (!isWillowEmbedded()) setTimelineAnchor(releaseChatTimelineAnchor);
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
     } else {
@@ -6570,6 +6573,9 @@ export default function ChatView(props: ChatViewProps) {
 
   useLayoutEffect(() => {
     if (timelineScrollModeRef.current !== "anchoring-new-turn") return;
+    // Willow's chat keeps a sent message at the top while its reply, work and all, fills the
+    // space under it (features/chat ChatView's response reserve), instead of following the end.
+    if (isWillowEmbedded()) return;
     if (
       shouldReleaseTimelineAnchorForToolActivity({
         anchorMessageId: timelineAnchorMessageId,

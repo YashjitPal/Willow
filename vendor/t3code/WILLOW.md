@@ -121,20 +121,34 @@ Changes from upstream:
   keeps its "Thought" over the reply. A streaming reply reveals as Willow's does
   (`willow/streamReveal.ts`, from platform/ui `streaming-text-reveal.ts`): `ChatMarkdown.tsx`
   shows it a sentence or a few words at a time, catching up after the stream ends, and the words
-  each step adds fade in (`willow/streamWords.ts`).
+  each step adds fade in, blocks that begin in one step taking turns 120ms apart
+  (`willow/streamWords.ts`, StreamingMarkdown's `nextRevealBlockTiming`). Rows come and go as in
+  the ChatGPT app (its webview's `collapsed-turn-disclosure` and markdown fade): one that arrives
+  while the thread is open fades in over 150ms, and opening "Worked for" grows the turn's work
+  from nothing over 300ms while closing shrinks it away over 150ms before the fold closes
+  (`willow/rowMotion.ts`, `activity.css`). A sent message moves to the top and its reply fills
+  the space under it, kept until the next send as in Willow's chat: in Willow `ChatView.tsx`
+  anchors every sent message (T3 anchors a thread's first) and keeps the anchor through tool
+  activity, the end of the run and a return to the end. The turn minimap is Material's page
+  indicator (wear compose-material3 `PageIndicator`): a dot per turn, the selected one a pill
+  that stretches to the next turn as you read through it (`resolveTimelineMinimapSelection`,
+  `activity.css`). An HTML render paints Willow's page and code colours where T3 would show its
+  darker canvas beside a narrow picture (`hooks/useHtmlRenderTheme.ts`).
 - Under a reply are Willow's buttons for one (features/chat `ChatResponseChrome`): Good response
   and Bad response (`willow/ResponseRating.tsx`, kept on this computer by message), Copy, then
-  the branch (`arrow_split`) and the time. A sent message's buttons are Willow's Copy prompt and
-  Edit (Edit from here) where Codex keeps its own, beside the bubble on hover, so the timeline goes
-  on 16px under it; at Willow's compact widths they stay under it. The scroll-to-end button is a
-  36px tonal circle holding only the model pill's chevron (`composer.css`).
+  the branch (`arrow_split`) and the time; the latest finished reply keeps them, older ones show
+  them on hover. A sent message's buttons are Willow's Copy prompt and Edit (Edit from here),
+  under the bubble on hover with Willow's 52px below it (44px at compact widths) and no time
+  (`willow/message.css`). The scroll-to-end button is a 36px tonal circle holding only the model
+  pill's chevron, and the docked prompt box sits on the page's colour under Gemini's 28px fade,
+  so a reply never shows around or under it (`composer.css`).
 - The sidebar is Willow's own (`willow/WillowSidebar.tsx`, `willow/sidebar.css`): tabs for New
   thread, Add project, Search threads (`routes/search.tsx` and `willow/WillowSearchPage.tsx`, Willow's
   Search chats page, `willow/search.css`), Pull requests and Usage, and the gear opening Willow's
   settings pane of T3's settings pages; `LegacySidebar.tsx` makes each project a folder row (Luminous's
   folder, open while the project is) with its working count, at the size of the tabs above, and its
-  threads' times end where that count does; a thread's row shows no tooltip of its name, as
-  Willow's chat list does not. In Willow `AppSidebarLayout.tsx` keeps the sidebar at Willow's 288px with no
+  threads' times end where that count does; neither a project's row nor a thread's shows a
+  tooltip of its name or folder, as Willow's chat list does not. In Willow `AppSidebarLayout.tsx` keeps the sidebar at Willow's 288px with no
   resize handle (its collapse button is the only control, as Willow's own), collapses it to
   Willow's 52px rail (T3's icon mode, on the page's own colour: `sidebar.css` drops T3's grain)
   instead of off the screen, drops T3's floating sidebar button (the shortcut stays),

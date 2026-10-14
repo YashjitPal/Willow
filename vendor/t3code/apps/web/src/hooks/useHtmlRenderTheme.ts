@@ -2,6 +2,7 @@ import { HTML_RENDER_DEFAULT_FONTS, htmlRenderTheme } from "@t3tools/shared/html
 import { useMemo, useSyncExternalStore } from "react";
 
 import { appearanceFontStack } from "../appearanceFonts";
+import { isWillowEmbedded } from "../willow/harness";
 import {
   getStandardThemeColors,
   getThemeColorsForMode,
@@ -27,6 +28,22 @@ function resolveActiveThemeColors(
     : (getThemeColorsForMode(definition, appearance) ?? definition.colors);
 }
 
+/**
+ * Willow paints the thread in its own colours rather than T3's palette, so a render takes the
+ * page's: past a picture narrower than the frame it would otherwise show T3's darker canvas.
+ */
+function willowColors(colors: ReturnType<typeof getStandardThemeColors>) {
+  if (!isWillowEmbedded() || typeof document === "undefined") return colors;
+  const style = getComputedStyle(document.documentElement);
+  const canvas = style.getPropertyValue("--background").trim();
+  const codeBackground = style.getPropertyValue("--code-background").trim();
+  return {
+    ...colors,
+    ...(canvas ? { canvas } : {}),
+    ...(codeBackground ? { codeBackground } : {}),
+  };
+}
+
 /** The app's active theme and fonts, as handed to agent HTML renders. Stable until one changes. */
 export function useHtmlRenderTheme() {
   const { theme, resolvedTheme, themeHalves } = useTheme();
@@ -40,7 +57,7 @@ export function useHtmlRenderTheme() {
   const mono = useClientSettings((settings) => settings.fontFamilyCode);
   return useMemo(
     () =>
-      htmlRenderTheme(colors, resolvedTheme, {
+      htmlRenderTheme(willowColors(colors), resolvedTheme, {
         sans: appearanceFontStack(sans, HTML_RENDER_DEFAULT_FONTS.sans),
         mono: appearanceFontStack(mono, HTML_RENDER_DEFAULT_FONTS.mono),
       }),

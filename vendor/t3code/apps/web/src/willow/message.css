@@ -156,55 +156,60 @@
 }
 
 /*
- * The bubble's buttons are Willow's (ChatView's `gemini-user-actions`, 250ms in and out) where
- * Codex keeps its own, beside the bubble on hover (UserMessage, 4px from it), so the timeline goes
- * on Codex's 16px under the bubble. Where nothing hovers (Willow's compact widths) they show under
- * it as Willow's do: 4px below, 12px in from the right, in the top of Willow's 52px.
+ * The bubble's buttons are Willow's (ChatView's `gemini-user-actions`): Copy prompt, then Edit,
+ * edge to edge in a 36px row 4px under the bubble and 12px in from its right (20px at Willow's
+ * compact widths), in over 250ms while the message is pointed at, and in the 52px Willow leaves
+ * under a message (44px at its compact widths), whose strip keeps them while the pointer crosses
+ * it. Keyboard focus shows them too, a click's does not.
  */
-[data-willow-user-line] > [data-willow-user-actions] {
+[data-willow-user-row] > [data-willow-user-actions] {
+  position: absolute;
+  top: 100%;
+  right: 12px;
+  z-index: 10;
+  display: flex;
   height: 36px;
-  margin: 0;
-  padding: 0;
+  align-items: flex-start;
+  margin-top: 4px;
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 250ms;
+}
+
+[data-willow-user-row]:is(:hover, :has(:focus-visible)) > [data-willow-user-actions] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+[data-willow-user-row]::after {
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  height: 52px;
+  content: "";
 }
 
 [data-timeline-row-kind="message"]:has(> [data-willow-user-row]),
 [data-timeline-row-kind="message"]:has(> * > [data-willow-user-row]) {
-  padding-bottom: var(--codex-item-gap);
+  padding-bottom: 52px;
 }
 
-html[data-willow-compact] [data-willow-user-line] {
-  flex-direction: column-reverse;
-  align-items: flex-end;
-  gap: 4px;
+html[data-willow-compact] [data-willow-user-row] > [data-willow-user-actions] {
+  right: 20px;
 }
 
-html[data-willow-compact] [data-willow-user-line] > [data-willow-user-actions] {
-  margin-inline-end: 12px;
+html[data-willow-compact] [data-willow-user-row]::after {
+  height: 44px;
 }
 
 html[data-willow-compact] [data-timeline-row-kind="message"]:has(> [data-willow-user-row]),
 html[data-willow-compact] [data-timeline-row-kind="message"]:has(> * > [data-willow-user-row]) {
-  padding-bottom: 12px;
+  padding-bottom: 44px;
 }
 
 /* A reply's buttons come and go as Willow's under a response do (ChatView, 240ms). */
 [data-willow-assistant-actions] {
   transition: opacity 240ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-[data-willow-user-actions] > div {
-  gap: 8px;
-}
-
-[data-willow-user-actions] [data-slot="tooltip-trigger"]:is(p, span) {
-  color: rgb(0 0 0 / 55%);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-:root.dark [data-willow-user-actions] [data-slot="tooltip-trigger"]:is(p, span) {
-  color: rgb(255 255 255 / 55%);
 }
 
 [data-willow-user-actions] :is(button, [role="button"]) {
@@ -288,6 +293,11 @@ html[data-willow-compact] [data-timeline-row-kind="message"]:has(> * > [data-wil
   height: 32px;
   gap: 0;
   margin-inline-start: -6px;
+}
+
+/* The row's first circle reaches those 6px past the reply's edge, past each row's clip. */
+:is([data-timeline-root], :has(> .messages-timeline-row-frame)) {
+  overflow-clip-margin: 8px;
 }
 
 [data-willow-assistant-actions] :is(button, [role="button"]) {

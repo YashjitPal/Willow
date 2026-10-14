@@ -77,6 +77,47 @@
   --willow-plus-glyph: #e6e6e6;
 }
 
+/* ── The dock ─────────────────────────────────────────────────────────────── */
+
+/*
+ * Willow's docked box sits on the page's own colour from its top edge down, under Gemini's 28px
+ * fade over the thread (features/chat ChatView's footer), so a reply never shows around or under
+ * it. At 960px and under that colour starts 12px above the box. The overlay's own top padding
+ * (pt-1.5, sm:pt-2) is part of the fade.
+ */
+[data-chat-composer-overlay="true"] {
+  --willow-dock-pad: 6px;
+  --willow-dock-solid: 0px;
+}
+
+@media (min-width: 640px) {
+  [data-chat-composer-overlay="true"] {
+    --willow-dock-pad: 8px;
+  }
+}
+
+html[data-willow-compact] [data-chat-composer-overlay="true"] {
+  --willow-dock-solid: 12px;
+}
+
+[data-chat-composer-overlay="true"]:not(:has(> .willow-home-glow-layer))::before {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(var(--willow-dock-pad) - var(--willow-dock-solid) - 28px);
+  bottom: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    color-mix(in srgb, var(--background) 50%, transparent) 14px,
+    color-mix(in srgb, var(--background) 85%, transparent) 21px,
+    color-mix(in srgb, var(--background) 99%, transparent) 26.6px,
+    var(--background) 28px
+  );
+}
+
 /* ── The box ──────────────────────────────────────────────────────────────── */
 
 [data-slot="composer-shell"] {

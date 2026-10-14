@@ -951,7 +951,7 @@ describe("MessagesTimeline", () => {
     expect(resolveTimelineIsAtEnd({ isNearEnd: true, isAtEnd: false })).toBe(false);
     expect(resolveTimelineIsAtEnd({ isAtEnd: false })).toBe(false);
 
-    expect(resolveTimelineMinimapHeightStyle(5)).toBe("min(32px, calc(100vh - 18rem))");
+    expect(resolveTimelineMinimapHeightStyle(5)).toBe("min(40px, calc(100vh - 18rem))");
     expect(resolveTimelineMinimapTopPercent(2, 5)).toBe(50);
     expect(
       resolveTimelineMinimapIndexFromPointer({
@@ -1011,6 +1011,30 @@ describe("MessagesTimeline", () => {
     expect(resolveTimelineMinimapInteractiveWidth(0, true)).toBe("22rem");
     expect(resolveTimelineMinimapInteractiveWidth(14, true)).toBe("22rem");
     expect(resolveTimelineMinimapInteractiveWidth(40, true)).toBe("22rem");
+  });
+
+  it("draws the minimap's selected pill the way Material's page indicator does", async () => {
+    const { resolveTimelineMinimapSelection } = await import("./MessagesTimeline.logic");
+    // Turns at 0, 400 and 1200 in a 1600px thread seen through 800px, so the reading line sits
+    // at twice the scroll offset.
+    const select = (scrollTop: number, itemTops: ReadonlyArray<number | null> = [0, 400, 1200]) =>
+      resolveTimelineMinimapSelection({
+        scrollTop,
+        scrollLength: 800,
+        contentLength: 1600,
+        itemTops,
+      });
+
+    expect(select(0)).toEqual({ start: 0, length: 0 });
+    expect(select(50)).toEqual({ start: 0, length: 0.5 });
+    expect(select(100)).toEqual({ start: 0, length: 1 });
+    expect(select(150)).toEqual({ start: 0.5, length: 0.5 });
+    expect(select(200)).toEqual({ start: 1, length: 0 });
+    // The end of the thread reaches the last turn, however short it is.
+    expect(select(800)).toEqual({ start: 2, length: 0 });
+    // Above the first turn, and before a turn not laid out yet, the pill is a dot.
+    expect(select(0, [100, 400, 1200])).toEqual({ start: 0, length: 0 });
+    expect(select(200, [0, null, 1200])).toEqual({ start: 0, length: 0 });
   });
 
   it("anchors a sent attachment message using its measured height", () => {
@@ -1468,6 +1492,98 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain('class="pb-1.5" data-timeline-row-id="turn-fold:');
     expect(markup).toContain('data-timeline-row-kind="turn-fold"');
+  });
+
+  // The ChatGPT app's collapsed-turn-disclosure: a turn's work grows in as "Worked for" opens,
+  // and shrinks away before the turn closes, its chevron turning at the click.
+  it("lets a turn's work grow in and shrink away as Worked for opens and closes", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+      setTimeout(() => callback(0), 16),
+    );
+    vi.stubGlobal("cancelAnimationFrame", (frame: number) => clearTimeout(frame));
+    const runId = RunId.make("run-fold-motion");
+    let renderer: ReactTestRenderer | undefined;
+    const workRow = () =>
+      renderer!.root.findAll((node) => node.props["data-timeline-row-kind"] === "work")[0];
+    const fold = () =>
+      renderer!.root.find(
+        (node) => node.type === "button" && node.props["data-scroll-anchor-ignore"] === true,
+      );
+    try {
+      await act(() => {
+        renderer = create(
+          <MessagesTimeline
+            {...buildProps()}
+            timelineEntries={[
+              buildUserTimelineEntry("Fix the spacing"),
+              {
+                id: "assistant-commentary-motion",
+                kind: "message",
+                createdAt: "2026-03-17T19:12:30.000Z",
+                message: {
+                  id: MessageId.make("assistant-commentary-motion"),
+                  role: "assistant",
+                  text: "Checking the layout.",
+                  runId,
+                  createdAt: "2026-03-17T19:12:30.000Z",
+                  updatedAt: "2026-03-17T19:12:31.000Z",
+                  streaming: false,
+                },
+              },
+              {
+                id: "command-motion",
+                kind: "work",
+                createdAt: "2026-03-17T19:12:31.000Z",
+                entry: {
+                  id: "command-motion",
+                  createdAt: "2026-03-17T19:12:31.000Z",
+                  runId,
+                  label: "Ran command",
+                  tone: "tool",
+                },
+              },
+              {
+                id: "assistant-final-motion",
+                kind: "message",
+                createdAt: "2026-03-17T19:12:32.000Z",
+                message: {
+                  id: MessageId.make("assistant-final-motion"),
+                  role: "assistant",
+                  text: "Spacing fixed.",
+                  runId,
+                  createdAt: "2026-03-17T19:12:32.000Z",
+                  updatedAt: "2026-03-17T19:12:33.000Z",
+                  streaming: false,
+                },
+              },
+            ]}
+          />,
+        );
+      });
+      expect(workRow()).toBeUndefined();
+
+      await act(() => fold().props.onClick());
+      expect(fold().props["aria-expanded"]).toBe(true);
+      expect(workRow()?.props["data-row-motion"]).toBe("fold-enter");
+      // A word's fade ending inside the row leaves its entrance alone; its own ending clears it.
+      await act(() => workRow()!.props.onAnimationEnd({ target: {}, currentTarget: workRow() }));
+      expect(workRow()?.props["data-row-motion"]).toBe("fold-enter");
+      const row = {};
+      await act(() => workRow()!.props.onAnimationEnd({ target: row, currentTarget: row }));
+      expect(workRow()?.props["data-row-motion"]).toBeUndefined();
+
+      await act(() => fold().props.onClick());
+      expect(fold().props["aria-expanded"]).toBe(false);
+      expect(workRow()?.props["data-row-motion"]).toBe("fold-exit");
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      expect(workRow()).toBeUndefined();
+    } finally {
+      await act(() => renderer?.unmount());
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   // Codex's thinking carries no icon (ReasoningItem), so neither does the live row.

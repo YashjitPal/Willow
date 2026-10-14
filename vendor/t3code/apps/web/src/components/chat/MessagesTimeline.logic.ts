@@ -248,7 +248,8 @@ export function workEntryIsVisibleInGroup(
     !workEntryIndicatesToolNeutralStatus(entry)
   );
 }
-const TIMELINE_MINIMAP_ITEM_SPACING = 8;
+// Material's page indicator: 6dp dots 4dp apart (wear compose-material3 PageIndicator).
+const TIMELINE_MINIMAP_ITEM_SPACING = 10;
 export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
 const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
@@ -373,6 +374,39 @@ export function resolveTimelineMinimapCurrentIndex(input: {
   }
 
   return precedingIndex;
+}
+
+/**
+ * Where Material's page indicator draws its selected pill, in dot steps from the first dot
+ * (wear compose-material3 PageIndicator's drawSelectedIndicatorArc). The page is the turn under a
+ * reading line that runs from the viewport's top to its bottom across the scroll range, so the
+ * last turn is reached at the end however short it is. The pill is a dot on that turn and
+ * stretches to the next one as the line crosses the turn, then lets go of the first.
+ */
+export function resolveTimelineMinimapSelection(input: {
+  readonly scrollTop: number;
+  readonly scrollLength: number;
+  readonly contentLength: number;
+  readonly itemTops: ReadonlyArray<number | null>;
+}): { readonly start: number; readonly length: number } {
+  const maxScroll = Math.max(0, input.contentLength - input.scrollLength);
+  const progress = maxScroll > 0 ? Math.min(1, Math.max(0, input.scrollTop / maxScroll)) : 1;
+  const line = input.scrollTop + progress * input.scrollLength;
+  let page = -1;
+  for (const [index, top] of input.itemTops.entries()) {
+    if (top !== null && top <= line) page = index;
+  }
+  if (page < 0) return { start: 0, length: 0 };
+
+  const top = input.itemTops[page]!;
+  const nextTop = input.itemTops[page + 1] ?? null;
+  const offset =
+    nextTop === null || nextTop <= top
+      ? 0
+      : Math.min(1, Math.max(0, (line - top) / (nextTop - top)));
+  const startWeight = Math.max(0, 1 - offset * 2);
+  const endWeight = Math.max(0, offset * 2 - 1);
+  return { start: page + endWeight, length: Math.max(0, 1 - startWeight - endWeight) };
 }
 
 /**

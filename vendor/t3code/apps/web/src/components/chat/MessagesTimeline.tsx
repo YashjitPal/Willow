@@ -22,8 +22,17 @@ import {
   type CodexLabel,
 } from "../../willow/activitySummary";
 import type { CodexIconName } from "../../willow/codexIcons";
+import { isWillowEmbedded } from "../../willow/harness";
 import { willowSymbol } from "../../willow/icons";
 import { ResponseRating } from "../../willow/ResponseRating";
+import {
+  createRowMotionStore,
+  FOLD_EXIT_MS,
+  ROW_MOTION_STALE_MS,
+  RowMotionCtx,
+  takeArrivedRowIds,
+  useRowMotion,
+} from "../../willow/rowMotion";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
@@ -96,6 +105,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
@@ -198,6 +208,7 @@ import {
 import { useAssistantCitationTarget, type CitationHistoryPage } from "./useAssistantCitationTarget";
 import {
   computeStableMessagesTimelineRows,
+  deriveMessagesTimelineRows,
   deriveMessagesTimelineRowsWithState,
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
@@ -210,6 +221,7 @@ import {
   resolveTimelineMinimapIndexFromPointer,
   resolveTimelineMinimapInteractiveWidth,
   resolveTimelineMinimapNavigationInteractive,
+  resolveTimelineMinimapSelection,
   resolveTimelineMinimapTopPercent,
   resolveWorkGroupScrollIndex,
   shouldFollowWorkGroupAppend,
@@ -304,6 +316,8 @@ import {
 
 interface TimelineRowSharedState {
   citationRequest: AssistantCitationTarget | null;
+  /** The latest finished reply, whose buttons stay on screen as Willow's do. */
+  latestReplyMessageId: string | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
   routeThreadKey: string;
@@ -626,6 +640,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [listIdentityKey, rememberedPosition],
   );
   const [minimapStripMap] = useState(() => new Map<string, HTMLSpanElement>());
+  const minimapSelectionRef = useRef<HTMLSpanElement | null>(null);
+  const [rowMotion] = useState(createRowMotionStore);
+  const knownRowIdsRef = useRef<{ readonly key: string; readonly ids: Set<string> } | null>(null);
+  const foldOpeningRef = useRef(false);
   const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
   const disclosureAnchorKeyRef = useRef<string | null>(null);
   const disclosureSettleFrameRef = useRef<number | null>(null);
@@ -688,20 +706,58 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     return disclosureAnchorKey === null || row.id === disclosureAnchorKey;
   }, []);
 
+  const closingRunIdsRef = useRef(new Set<RunId>());
   const onToggleTurnFold = useCallback(
     (runId: RunId) => {
-      suspendEndScrollMaintenanceForDisclosure(`turn-fold:${runId}`);
-      setExpandedRunIds((existing) => {
-        const next = new Set(existing);
-        if (next.has(runId)) {
-          next.delete(runId);
-        } else {
-          next.add(runId);
-        }
-        return next;
-      });
+      if (closingRunIdsRef.current.has(runId)) return;
+      const toggle = () => {
+        suspendEndScrollMaintenanceForDisclosure(`turn-fold:${runId}`);
+        setExpandedRunIds((existing) => {
+          const next = new Set(existing);
+          if (next.has(runId)) {
+            next.delete(runId);
+          } else {
+            next.add(runId);
+          }
+          return next;
+        });
+      };
+      if (!expandedRunIds.has(runId)) {
+        foldOpeningRef.current = true;
+        toggle();
+        return;
+      }
+      // Codex lets a closing turn's work leave before it goes (collapsed-turn-disclosure's
+      // AnimatePresence): the rows the fold hides shrink away, then the fold closes.
+      const projection = rowsProjectionRef.current?.projection;
+      const closedRunIds = new Set(expandedRunIds);
+      closedRunIds.delete(runId);
+      const staying = new Set(
+        projection
+          ? deriveMessagesTimelineRows({ ...projection.input, expandedRunIds: closedRunIds }).map(
+              (row) => row.id,
+            )
+          : [],
+      );
+      const shown = projection?.rows ?? [];
+      const leaving = shown.filter((row) => !staying.has(row.id)).map((row) => row.id);
+      if (leaving.length === 0) {
+        toggle();
+        return;
+      }
+      const foldRowIds = shown
+        .filter((row) => row.kind === "turn-fold" && row.runId === runId)
+        .map((row) => row.id);
+      closingRunIdsRef.current.add(runId);
+      rowMotion.set(leaving, "fold-exit");
+      rowMotion.set(foldRowIds, "closing");
+      setTimeout(() => {
+        closingRunIdsRef.current.delete(runId);
+        rowMotion.set([...leaving, ...foldRowIds], undefined);
+        toggle();
+      }, FOLD_EXIT_MS);
     },
-    [suspendEndScrollMaintenanceForDisclosure],
+    [expandedRunIds, rowMotion, suspendEndScrollMaintenanceForDisclosure],
   );
   const onToggleWorkGroup = useCallback(
     (groupId: string, anchorKey: string) => {
@@ -811,6 +867,27 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     worktreeSetup,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
+  // Before paint, so a row's first frame already carries its entrance (willow/rowMotion.ts).
+  useLayoutEffect(() => {
+    const ids = rows.map((row) => row.id);
+    const known = knownRowIdsRef.current;
+    const opening = foldOpeningRef.current;
+    foldOpeningRef.current = false;
+    if (known?.key !== listIdentityKey) {
+      knownRowIdsRef.current = { key: listIdentityKey, ids: new Set(ids) };
+      return;
+    }
+    const arrived = takeArrivedRowIds(ids, known.ids);
+    if (arrived.length === 0) return;
+    const motion = opening ? "fold-enter" : "arrive";
+    rowMotion.set(arrived, motion);
+    setTimeout(() => {
+      rowMotion.set(
+        arrived.filter((rowId) => rowMotion.get(rowId) === motion),
+        undefined,
+      );
+    }, ROW_MOTION_STALE_MS);
+  }, [listIdentityKey, rowMotion, rows]);
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -984,7 +1061,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const config = resolveChatListAnchoredEndSpace(
       rows,
       anchorMessageId,
-      (row) => (row.kind === "message" && row.message.role === "user" ? row.message.id : null),
+      // Willow's chat gives every sent message the space under it, not only a thread's first.
+      (row) =>
+        row.kind === "message" &&
+        row.message.role === "user" &&
+        (!isWillowEmbedded() || row.message.id === anchorMessageId)
+          ? row.message.id
+          : null,
       { anchorOffset: CHAT_TIMELINE_ANCHOR_OFFSET },
     );
     return config
@@ -1098,6 +1181,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         strip.dataset.inView = next;
       }
     }
+    // Written straight to the pill, like the strips: it follows every scroll tick.
+    const selection = resolveTimelineMinimapSelection({
+      scrollTop,
+      scrollLength: state.scrollLength ?? 0,
+      contentLength: state.contentLength ?? 0,
+      itemTops: itemBounds.map((bounds) => bounds.top),
+    });
+    minimapSelectionRef.current?.style.setProperty("--selection-start", String(selection.start));
+    minimapSelectionRef.current?.style.setProperty("--selection-length", String(selection.length));
     const nextCurrentIndex = resolveTimelineMinimapCurrentIndex({
       scrollTop,
       scrollBottom,
@@ -1161,9 +1253,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth]);
 
+  const latestReplyMessageId = useMemo(() => {
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index]!;
+      if (
+        (row.kind === "message" &&
+          row.message.role === "assistant" &&
+          row.showAssistantMeta &&
+          !row.message.streaming) ||
+        row.kind === "assistant-meta"
+      ) {
+        return row.message.id;
+      }
+    }
+    return null;
+  }, [rows]);
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
       citationRequest: readyCitationRequest,
+      latestReplyMessageId,
       listRef,
       timestampFormat,
       routeThreadKey,
@@ -1200,6 +1308,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }),
     [
       readyCitationRequest,
+      latestReplyMessageId,
       listRef,
       timestampFormat,
       routeThreadKey,
@@ -1338,80 +1447,83 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   return (
     <CodexDrawings value>
-      <TimelineRowCtx value={sharedState}>
-        <TimelineRowActivityCtx value={activityState}>
-          <TooltipScrollDismissArea
-            ref={setTimelineViewportElement}
-            className="relative h-full min-h-0"
-            data-assistant-citation-viewport="true"
-          >
-            {onCiteAssistantText && citationThreadRef ? (
-              <AssistantSelectionToolbar
-                viewport={timelineViewportElement}
-                threadRef={citationThreadRef}
-                onCite={onCiteAssistantText}
+      <RowMotionCtx value={rowMotion}>
+        <TimelineRowCtx value={sharedState}>
+          <TimelineRowActivityCtx value={activityState}>
+            <TooltipScrollDismissArea
+              ref={setTimelineViewportElement}
+              className="relative h-full min-h-0"
+              data-assistant-citation-viewport="true"
+            >
+              {onCiteAssistantText && citationThreadRef ? (
+                <AssistantSelectionToolbar
+                  viewport={timelineViewportElement}
+                  threadRef={citationThreadRef}
+                  onCite={onCiteAssistantText}
+                />
+              ) : null}
+              <LegendList<MessagesTimelineRow>
+                ref={setTimelineList}
+                data={rows}
+                extraData={`${listIdentityKey}:${rows.length}`}
+                keyExtractor={keyExtractor}
+                getItemType={getItemType}
+                renderItem={renderItem}
+                estimatedItemSize={90}
+                initialScrollAtEnd={citationRequest === null && rememberedPosition?.atEnd !== false}
+                // Legend needs a data refresh to mount new pins without a scroll event.
+                dataVersion={readyCitationRequest?.key ?? listIdentityKey}
+                {...(alwaysRender ? { alwaysRender } : {})}
+                onLoad={onCitationListLoad}
+                {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
+                contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
+                maintainScrollAtEnd={
+                  citationPositioning ||
+                  (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
+                  anchoredEndSpace ||
+                  !liveFollowEnabled ||
+                  disclosureToggleSettling
+                    ? false
+                    : isWorking && !prefersReducedMotion && settlingListIdentity === null
+                      ? TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH
+                      : TIMELINE_MAINTAIN_SCROLL_AT_END
+                }
+                maintainVisibleContentPosition={
+                  citationPositioning ||
+                  (restoringThreadPosition && rememberedPosition?.atEnd === false)
+                    ? false
+                    : maintainVisibleContentPosition
+                }
+                maintainScrollAtEndThreshold={1}
+                onScroll={handleScroll}
+                onItemSizeChanged={reportContentOverflow}
+                className={cn(
+                  "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]",
+                  topFadeEnabled && "topbar-scroll-fade",
+                )}
+                ListHeaderComponent={listHeader}
+                ListFooterComponent={timelineListFooter}
               />
-            ) : null}
-            <LegendList<MessagesTimelineRow>
-              ref={setTimelineList}
-              data={rows}
-              extraData={`${listIdentityKey}:${rows.length}`}
-              keyExtractor={keyExtractor}
-              getItemType={getItemType}
-              renderItem={renderItem}
-              estimatedItemSize={90}
-              initialScrollAtEnd={citationRequest === null && rememberedPosition?.atEnd !== false}
-              // Legend needs a data refresh to mount new pins without a scroll event.
-              dataVersion={readyCitationRequest?.key ?? listIdentityKey}
-              {...(alwaysRender ? { alwaysRender } : {})}
-              onLoad={onCitationListLoad}
-              {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
-              contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
-              maintainScrollAtEnd={
-                citationPositioning ||
-                (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
-                anchoredEndSpace ||
-                !liveFollowEnabled ||
-                disclosureToggleSettling
-                  ? false
-                  : isWorking && !prefersReducedMotion && settlingListIdentity === null
-                    ? TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH
-                    : TIMELINE_MAINTAIN_SCROLL_AT_END
-              }
-              maintainVisibleContentPosition={
-                citationPositioning ||
-                (restoringThreadPosition && rememberedPosition?.atEnd === false)
-                  ? false
-                  : maintainVisibleContentPosition
-              }
-              maintainScrollAtEndThreshold={1}
-              onScroll={handleScroll}
-              onItemSizeChanged={reportContentOverflow}
-              className={cn(
-                "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]",
-                topFadeEnabled && "topbar-scroll-fade",
-              )}
-              ListHeaderComponent={listHeader}
-              ListFooterComponent={timelineListFooter}
-            />
-            <TimelineMinimap
-              items={minimapItems}
-              hasPersistentGutter={minimapHasPersistentGutter}
-              hitStripWidth={minimapHitStripWidth}
-              currentIndex={minimapCurrentIndex}
-              stripMap={minimapStripMap}
-              onSelect={(item) => {
-                onManualNavigation();
-                void listRef.current?.scrollToIndex({
-                  index: item.rowIndex,
-                  animated: true,
-                  viewOffset: 24,
-                });
-              }}
-            />
-          </TooltipScrollDismissArea>
-        </TimelineRowActivityCtx>
-      </TimelineRowCtx>
+              <TimelineMinimap
+                items={minimapItems}
+                hasPersistentGutter={minimapHasPersistentGutter}
+                hitStripWidth={minimapHitStripWidth}
+                currentIndex={minimapCurrentIndex}
+                stripMap={minimapStripMap}
+                selectionRef={minimapSelectionRef}
+                onSelect={(item) => {
+                  onManualNavigation();
+                  void listRef.current?.scrollToIndex({
+                    index: item.rowIndex,
+                    animated: true,
+                    viewOffset: 24,
+                  });
+                }}
+              />
+            </TooltipScrollDismissArea>
+          </TimelineRowActivityCtx>
+        </TimelineRowCtx>
+      </RowMotionCtx>
     </CodexDrawings>
   );
 });
@@ -1480,6 +1592,7 @@ function TimelineMinimap({
   currentIndex,
   items,
   stripMap,
+  selectionRef,
   onSelect,
 }: {
   hasPersistentGutter: boolean;
@@ -1487,6 +1600,7 @@ function TimelineMinimap({
   currentIndex: number | null;
   items: ReadonlyArray<TimelineMinimapItem>;
   stripMap: Map<string, HTMLSpanElement>;
+  selectionRef: React.RefObject<HTMLSpanElement | null>;
   onSelect: (item: TimelineMinimapItem) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -1573,10 +1687,14 @@ function TimelineMinimap({
             // the centered content column; with no usable gutter it goes inert.
             hitStripWidth > 0 ? "pointer-events-auto" : "pointer-events-none",
           )}
-          style={{
-            height: resolveTimelineMinimapHeightStyle(items.length),
-            width: resolveTimelineMinimapInteractiveWidth(hitStripWidth, activeItem !== null),
-          }}
+          data-minimap-rail=""
+          style={
+            {
+              height: resolveTimelineMinimapHeightStyle(items.length),
+              width: resolveTimelineMinimapInteractiveWidth(hitStripWidth, activeItem !== null),
+              "--minimap-gaps": items.length - 1,
+            } as CSSProperties
+          }
         >
           <TimelineMinimapNavigationButton
             direction="previous"
@@ -1632,48 +1750,27 @@ function TimelineMinimap({
             }}
             type="button"
           >
-            <div className="absolute top-0 left-3 h-full w-px bg-border/15" />
-            {items.map((item, index) => {
-              const top = `${resolveTimelineMinimapTopPercent(index, items.length)}%`;
-              const activeDistance =
-                resolvedActiveIndex === null ? null : Math.abs(index - resolvedActiveIndex);
-              return (
-                // Compositor-friendly on purpose: in-view state and the hover
-                // fisheye animate constantly (every scroll tick and streaming
-                // update flips a band of strips), so the strip animates only
-                // transform and opacity. Width tiers are a scale-x on a fixed
-                // w-6 box, and the in-view highlight is an opacity-faded bright
-                // overlay — never background-color or width, which would force
-                // main-thread style/layout/paint at 60fps for each transition.
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "group/strip pointer-events-none absolute left-0 h-0.5 w-6 origin-left -translate-y-1/2 rounded-full transition-transform duration-150",
-                    activeDistance === 0 ? "bg-muted-foreground/75" : "bg-muted-foreground/35",
-                    activeDistance === 0
-                      ? "scale-x-100"
-                      : activeDistance === 1
-                        ? "scale-x-[0.667]"
-                        : activeDistance === 2
-                          ? "scale-x-[0.417]"
-                          : "scale-x-[0.333]",
-                  )}
-                  data-in-view="false"
-                  data-minimap-strip
-                  key={item.id}
-                  ref={(node) => {
-                    if (node) {
-                      stripMap.set(item.id, node);
-                    } else {
-                      stripMap.delete(item.id);
-                    }
-                  }}
-                  style={{ top }}
-                >
-                  <span className="absolute inset-0 rounded-full bg-foreground/90 opacity-0 transition-opacity duration-150 group-data-[in-view=true]/strip:opacity-100" />
-                </span>
-              );
-            })}
+            {/* Material's page indicator (willow/activity.css): a dot per turn on its own
+                backdrop, and the selected pill over them, placed on every scroll tick. */}
+            <span aria-hidden="true" data-minimap-track="" />
+            {items.map((item, index) => (
+              <span
+                aria-hidden="true"
+                data-hovered={index === resolvedActiveIndex ? "true" : undefined}
+                data-in-view="false"
+                data-minimap-strip
+                key={item.id}
+                ref={(node) => {
+                  if (node) {
+                    stripMap.set(item.id, node);
+                  } else {
+                    stripMap.delete(item.id);
+                  }
+                }}
+                style={{ top: `${resolveTimelineMinimapTopPercent(index, items.length)}%` }}
+              />
+            ))}
+            <span aria-hidden="true" data-minimap-selection="" ref={selectionRef} />
             {activeItem ? (
               <span
                 className="pointer-events-auto absolute left-8 w-80 cursor-text select-text"
@@ -1780,9 +1877,19 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
   const isExpandedToolGroupHeader =
     (row.kind === "work-toggle" || row.kind === "work-live" || row.kind === "thinking") &&
     row.expanded === true;
+  const motion = useRowMotion(row.id);
+  const rowMotion = use(RowMotionCtx);
 
   return (
     <div
+      onAnimationEnd={
+        motion === "arrive" || motion === "fold-enter"
+          ? (event) => {
+              // Its words and shimmers end animations too; only the row's own entrance counts.
+              if (event.target === event.currentTarget) rowMotion?.set([row.id], undefined);
+            }
+          : undefined
+      }
       className={cn(
         // Commentary (non-terminal assistant) rows carry no metadata row, so
         // they sit closer to the work that follows them.
@@ -1806,6 +1913,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       )}
       data-timeline-row-id={row.id}
       data-timeline-row-kind={row.kind}
+      data-row-motion={motion}
       data-message-id={
         row.kind === "message" || row.kind === "assistant-meta" ? row.message.id : undefined
       }
@@ -2129,46 +2237,32 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     ],
   );
 
+  // Willow's Copy prompt, then Edit, under the bubble on hover (willow/message.css); no time.
   const userActions = (
-    <div
-      data-willow-user-actions=""
-      className="flex shrink-0 items-center justify-end text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100"
-    >
-      <div className="flex shrink-0 items-center gap-2">
-        <Tooltip>
-          <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
-            {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
-          </TooltipTrigger>
-          <TooltipPopup>
-            {formatChatTimestampTooltip(row.message.createdAt, ctx.timestampFormat)}
-          </TooltipPopup>
-        </Tooltip>
-        <div className="flex items-center gap-0.5">
-          {typeof revertTurnCount === "number" && (
-            <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
-          )}
-          {resolvedContext.text && (
-            <MessageCopyButton
-              // Structured paste needs the canonical links to retain their positions.
-              text={
-                contextClipboardFragment
-                  ? resolvedContext.text
-                  : replaceComposerContextReferences(
-                      resolvedContext.text,
-                      (reference) => reference.label,
-                    )
+    <div data-willow-user-actions="">
+      {resolvedContext.text && (
+        <MessageCopyButton
+          // Structured paste needs the canonical links to retain their positions.
+          text={
+            contextClipboardFragment
+              ? resolvedContext.text
+              : replaceComposerContextReferences(
+                  resolvedContext.text,
+                  (reference) => reference.label,
+                )
+          }
+          {...(contextClipboardFragment
+            ? {
+                extraFlavors: { [COMPOSER_CONTEXT_CLIPBOARD_MIME]: contextClipboardFragment },
               }
-              {...(contextClipboardFragment
-                ? {
-                    extraFlavors: { [COMPOSER_CONTEXT_CLIPBOARD_MIME]: contextClipboardFragment },
-                  }
-                : {})}
-              copiedLabel="Prompt copied"
-              variant="ghost"
-            />
-          )}
-        </div>
-      </div>
+            : {})}
+          copiedLabel="Prompt copied"
+          variant="ghost"
+        />
+      )}
+      {typeof revertTurnCount === "number" && (
+        <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
+      )}
     </div>
   );
 
@@ -2275,84 +2369,76 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         </div>
       )}
       {/* Willow's sent message (features/chat UserMessageBubble): message.css. */}
-      {/* Codex's line: the bubble's buttons beside it on hover, so the timeline goes on 16px under it. */}
-      <div data-willow-user-line="" className="flex w-full items-center justify-end gap-1">
-        {userActions}
-        {showsBubble ? (
-          <div data-user-message-bubble="true" className="willow-user-bubble">
-            {unchippedFiles.length > 0 || unknownAttachments.length > 0 ? (
-              <div className="mb-2 flex flex-col gap-1">
-                {unchippedFiles.map((file) => {
-                  const fileIdentity = (
-                    <>
-                      <PierreEntryIcon
-                        pathValue={file.name}
-                        kind="file"
-                        theme={ctx.resolvedTheme}
-                      />
-                      <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                    </>
-                  );
-                  if (file.downloadable !== false) {
-                    return (
-                      <div key={file.id} className="flex min-w-0 items-center gap-1">
-                        <button
-                          type="button"
-                          aria-label={`Preview ${file.name}`}
-                          onClick={() => ctx.onFileOpen(file)}
-                          className="focus-visible:ring-ring/70 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 text-left text-sm hover:underline focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
-                        >
-                          {fileIdentity}
-                          <EyeIcon className="size-4 shrink-0" />
-                        </button>
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                size="icon-xs"
-                                variant="ghost-muted"
-                                aria-label={`Download ${file.name}`}
-                                onClick={() => ctx.onFileDownload(file)}
-                              />
-                            }
-                          >
-                            <DownloadIcon />
-                          </TooltipTrigger>
-                          <TooltipPopup side="top">Download {file.name}</TooltipPopup>
-                        </Tooltip>
-                      </div>
-                    );
-                  }
-
+      {showsBubble ? (
+        <div data-user-message-bubble="true" className="willow-user-bubble">
+          {unchippedFiles.length > 0 || unknownAttachments.length > 0 ? (
+            <div className="mb-2 flex flex-col gap-1">
+              {unchippedFiles.map((file) => {
+                const fileIdentity = (
+                  <>
+                    <PierreEntryIcon pathValue={file.name} kind="file" theme={ctx.resolvedTheme} />
+                    <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                  </>
+                );
+                if (file.downloadable !== false) {
                   return (
-                    <div key={file.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
-                      {fileIdentity}
+                    <div key={file.id} className="flex min-w-0 items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Preview ${file.name}`}
+                        onClick={() => ctx.onFileOpen(file)}
+                        className="focus-visible:ring-ring/70 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 text-left text-sm hover:underline focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
+                      >
+                        {fileIdentity}
+                        <EyeIcon className="size-4 shrink-0" />
+                      </button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              size="icon-xs"
+                              variant="ghost-muted"
+                              aria-label={`Download ${file.name}`}
+                              onClick={() => ctx.onFileDownload(file)}
+                            />
+                          }
+                        >
+                          <DownloadIcon />
+                        </TooltipTrigger>
+                        <TooltipPopup side="top">Download {file.name}</TooltipPopup>
+                      </Tooltip>
                     </div>
                   );
-                })}
-                {unknownAttachments.map((attachment) => (
-                  <div key={attachment.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
-                    <PierreEntryIcon
-                      pathValue={attachment.name}
-                      kind="file"
-                      theme={ctx.resolvedTheme}
-                    />
-                    <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                }
+
+                return (
+                  <div key={file.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
+                    {fileIdentity}
                   </div>
-                ))}
-              </div>
-            ) : null}
-            <div onCopyCapture={onBodyCopyCapture}>
-              <CollapsibleUserMessageBody
-                text={resolvedContext.text}
-                renderContextReference={renderContextReference}
-                skills={ctx.skills}
-                markdownCwd={ctx.markdownCwd}
-              />
+                );
+              })}
+              {unknownAttachments.map((attachment) => (
+                <div key={attachment.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
+                  <PierreEntryIcon
+                    pathValue={attachment.name}
+                    kind="file"
+                    theme={ctx.resolvedTheme}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                </div>
+              ))}
             </div>
+          ) : null}
+          <div onCopyCapture={onBodyCopyCapture}>
+            <CollapsibleUserMessageBody
+              text={resolvedContext.text}
+              renderContextReference={renderContextReference}
+              skills={ctx.skills}
+              markdownCwd={ctx.markdownCwd}
+            />
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       {row.projectedItem &&
       row.projectedItem.item.status !== "completed" &&
       row.projectedItem.item.status !== "pending" &&
@@ -2363,6 +2449,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </span>
         </div>
       ) : null}
+      {userActions}
     </div>
   );
 }
@@ -2512,18 +2599,20 @@ function TimelineRowTimestamp({
 
 function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-fold" }> }) {
   const ctx = use(TimelineRowCtx);
+  const motion = useRowMotion(row.id);
+  const expanded = row.expanded && motion !== "closing";
 
   return (
     <div className="group/timeline-row relative flex items-center gap-1 border-b border-border/60 pb-2 pe-0.5 pt-1">
       <button
         type="button"
-        aria-expanded={row.expanded}
+        aria-expanded={expanded}
         data-scroll-anchor-ignore
         onClick={() => ctx.onToggleTurnFold(row.runId)}
         className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
         <span>{row.label}</span>
-        <CodexChevron expanded={row.expanded} />
+        <CodexChevron expanded={expanded} />
       </button>
       <TimelineRowTimestamp
         createdAt={row.createdAt}
@@ -2697,7 +2786,8 @@ function AssistantMessageMeta({
       data-willow-assistant-actions=""
       className={cn(
         "flex items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
-        alwaysVisible
+        // As Willow's: the latest finished reply keeps its buttons, earlier ones show on hover.
+        alwaysVisible || ctx.latestReplyMessageId === message.id
           ? "opacity-100"
           : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
         className,

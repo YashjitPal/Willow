@@ -2388,7 +2388,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             isManualProjectSorting && "cursor-grab active:cursor-grabbing",
           )}
           aria-expanded={projectExpanded}
-          title={project.memberProjects[0]?.workspaceRoot}
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.listeners : {})}
           onPointerDownCapture={handleProjectButtonPointerDownCapture}
