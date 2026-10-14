@@ -132,7 +132,9 @@ Changes from upstream:
   away (`willow/rowMotion.ts`, `willow/rowMotionState.ts`, `activity.css`). A sent message moves
   to the top and its reply fills the space under it, kept until the next send as in Willow's chat:
   in Willow `ChatView.tsx` anchors every sent message (T3 anchors a thread's first), keeps the
-  anchor through tool activity, the end of the run and a return to the end, and moves the message
+  anchor through tool activity, the end of the run and a return to the end (the scroll-to-bottom
+  button lands at the foot of the space rather than dropping it), opens a thread on its latest
+  sent message with the space kept unless a place was remembered, and moves the message
   as Willow's chat does, drawn low by the blank space under it and eased home while the thread
   scrolls on one timeline, from its row's first paint (`willow/turnEntrance.ts`). The turn minimap
   is Material's page indicator (wear compose-material3 `PageIndicator`): a dot per turn, the

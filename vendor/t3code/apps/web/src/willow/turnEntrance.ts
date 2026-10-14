@@ -35,6 +35,23 @@ export function turnEntranceDurationMs(distance: number): number {
 
 const HANDOVER_MS = 120;
 
+/** Where the entrance brings a sent message, at once: an opened chat lands there. */
+export function placeTurnAnchor(
+  scrollNode: HTMLElement,
+  anchorItem: HTMLElement,
+  viewOffset: number,
+): void {
+  const anchorInView =
+    anchorItem.getBoundingClientRect().top - scrollNode.getBoundingClientRect().top;
+  scrollNode.scrollTop = Math.max(
+    0,
+    Math.min(
+      scrollNode.scrollTop + anchorInView - viewOffset,
+      scrollNode.scrollHeight - scrollNode.clientHeight,
+    ),
+  );
+}
+
 /**
  * Starts the entrance and returns its cancel. `anchorItem` is the list's own item holding the
  * sent message, never transformed itself: its frame and every frame after it are, including

@@ -177,7 +177,7 @@ import { useDiffPanelStore } from "../diffPanelStore";
 import { useDevLiveTimeline } from "../willow/devLiveTimeline";
 import { devTimelineFixture } from "../willow/devTimeline";
 import { ScrollToEndFab } from "../willow/ScrollToEndFab";
-import { runTurnEntrance } from "../willow/turnEntrance";
+import { placeTurnAnchor, runTurnEntrance } from "../willow/turnEntrance";
 import { isWillowEmbedded, useWillowScope, withHarnessModel } from "../willow/harness";
 import { useWillowCompact } from "../willow/viewport";
 import {
@@ -6131,6 +6131,9 @@ export default function ChatView(props: ChatViewProps) {
   const positionedTimelineAnchorRef = useRef<MessageId | null>(null);
   const settledTimelineAnchorRef = useRef<MessageId | null>(null);
   const turnEntranceCancelRef = useRef<(() => void) | null>(null);
+  // The latest sent message of a thread just opened, to land on rather than glide to.
+  const openedThreadAnchorRef = useRef<MessageId | null>(null);
+  const openedAnchorThreadKeyRef = useRef<string | null>(null);
   const activeTimelineAnchorIndexRef = useRef<number | null>(null);
   const observedTimelineActivityRef = useRef<TimelineRunObservation | null>(null);
   const anchorUserScrollGenerationRef = useRef(0);
@@ -6271,17 +6274,21 @@ export default function ChatView(props: ChatViewProps) {
   }, []);
   // Live-follow stays active after send/thread-open until an actual list scroll
   // gesture opts out.
-  const scrollToEnd = useCallback((animated = false) => {
+  // `keepAnchor`: Willow's chat keeps the space under the latest sent message until the next
+  // send, so its scroll-to-bottom button lands at the foot of that space instead of dropping it.
+  const scrollToEnd = useCallback((animated = false, keepAnchor = false) => {
     cancelPositionRestoreRef.current?.();
     isAtEndRef.current = true;
     timelineScrollModeRef.current = "following-end";
     liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
     setTimelineLiveFollowEnabled(true);
     pendingTimelineAnchorRef.current = null;
-    activeTimelineAnchorIndexRef.current = null;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
-    setTimelineAnchor(releaseChatTimelineAnchor);
+    if (!keepAnchor) {
+      activeTimelineAnchorIndexRef.current = null;
+      setTimelineAnchor(releaseChatTimelineAnchor);
+    }
     // The anchored end space must be gone before the scroll measures, or the
     // list lands short of the real end (#6519).
     requestAnimationFrame(() => {
@@ -6465,6 +6472,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
       turnEntranceCancelRef.current?.();
+      // An opened chat lands on its anchor at once, as Willow's does: nothing is entering.
+      if (openedThreadAnchorRef.current === messageId) {
+        openedThreadAnchorRef.current = null;
+        placeTurnAnchor(scrollNode, anchorItem, CHAT_LIST_ANCHOR_OFFSET);
+        void list.scrollToOffset({ offset: scrollNode.scrollTop, animated: false });
+        settledTimelineAnchorRef.current = messageId;
+        return;
+      }
       turnEntranceCancelRef.current = runTurnEntrance({
         scrollNode,
         anchorItem,
@@ -6664,6 +6679,20 @@ export default function ChatView(props: ChatViewProps) {
     setShowScrollToBottom(!followEnd);
     // Environment identity is part of the scroll session too.
   }, [activeThreadKey]);
+  // Willow's chat opens a chat on its latest sent message with the space under it kept, as the
+  // send left it (features/chat ChatView: it lands on the anchor), unless a place was remembered.
+  const latestSentMessageId =
+    serverProjection?.messages.findLast((message) => message.role === "user")?.id ?? null;
+  useEffect(() => {
+    if (!isWillowEmbedded() || latestSentMessageId === null) return;
+    if (openedAnchorThreadKeyRef.current === activeThreadKey) return;
+    openedAnchorThreadKeyRef.current = activeThreadKey;
+    if (timelineAnchorMessageId !== null || timelineScrollModeRef.current !== "following-end") {
+      return;
+    }
+    openedThreadAnchorRef.current = latestSentMessageId;
+    setTimelineAnchor({ threadKey: activeThreadKey, messageId: latestSentMessageId });
+  }, [activeThreadKey, latestSentMessageId, timelineAnchorMessageId]);
 
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
@@ -11224,7 +11253,7 @@ export default function ChatView(props: ChatViewProps) {
                 bottom={scrollToEndClearance + 36}
                 onClick={() => {
                   composerRef.current?.restoreAfterTimelineReachedEnd();
-                  scrollToEnd(true);
+                  scrollToEnd(true, isWillowEmbedded());
                 }}
               />
             </div>
