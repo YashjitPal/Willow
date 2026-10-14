@@ -429,6 +429,7 @@ export const runDotTurn = async (options: DotTurnOptions): Promise<DotTurnResult
         const toolContext: DotToolContext = {
           dotId,
           turnId,
+          step: `${turnId}:${iteration}`,
           readFiles: options.workspace.readFiles,
           writeFiles: options.workspace.writeFiles,
           signal,

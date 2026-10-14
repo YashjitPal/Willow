@@ -24,6 +24,7 @@ import { DotRoomHeader } from './DotRoomHeader';
 import { DotsDirectory } from './DotsDirectory';
 import { DotProfilePanel } from './profile/DotProfilePanel';
 import { DotTriggerCard } from './triggers/DotTriggers';
+import { DotTurnError } from './DotTurnError';
 import { DotEmailCard } from './email/DotEmailCard';
 import { DotEditCard } from './edit/DotEditCard';
 import { DotPlanCard } from './plan/DotPlanCard';
@@ -417,19 +418,8 @@ export function DotConversation({ dot, modelConfig, selectedModelId, setSelected
           </div>
 
           <div className="spark-task-detail__followup-zone">
-            {runtime?.status === 'error' && runtime.lastError && (
-              <div className="spark-dots-detail__error" role="alert">
-                <span>{runtime.lastError}</span>
-                <button type="button" onClick={() => retryDot(dot.id)}>
-                  Try again
-                </button>
-              </div>
-            )}
-            {sendProblem && (
-              <div className="spark-dots-detail__error" role="alert">
-                <span>{sendProblem}</span>
-              </div>
-            )}
+            {runtime?.status === 'error' && runtime.lastError && <DotTurnError error={runtime.lastError} onRetry={() => retryDot(dot.id)} />}
+            {sendProblem && <DotTurnError error={sendProblem} />}
             <div className="spark-task-detail__followup-composer">
               <SparkComposer
                 composerRef={composerRef}

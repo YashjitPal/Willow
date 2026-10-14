@@ -1,6 +1,7 @@
 // What the user sees while a bot uses their screen (screen-helper.cs): a glow around the edge of every monitor, a pill at
-// the top saying which bot is at the controls — its Stop button, and Esc from anywhere, end that at once — and the
-// bot's own cursor, which travels to each place it acts and shows it pressing there.
+// the top saying which bot is at the controls — its Stop button, and Esc from anywhere, end that at once; it slides to
+// the bottom edge when the bot acts where it stands — and the bot's own cursor, which travels to each place it acts
+// and shows it pressing there.
 //
 // It comes and goes in motion, never all at once: the glow blooms in from nothing and then breathes, the pill drops into
 // place a beat later and settles, and the cursor grows out of the user's own pointer. Going, the pill lifts away first
@@ -212,6 +213,12 @@ namespace WillowScreen
         const double BREATH_SECONDS = 5.5, BREATH_DEPTH = 0.22;
         const double DROP = -18, LIFT = -10, GROW_FROM = 0.35, SHRINK_TO = 0.6;
 
+        // Which edge of its screen the pill keeps to: the top, unless the bot acts where it stands there; and when it
+        // last moved, as it slides in at the other edge.
+        static bool pillLow;
+        static double flipAt = -10;
+        const double FLIP = 0.34, FLIP_SLIDE = -14;
+
         static readonly List<LayerWindow> glows = new List<LayerWindow>();
         static LayerWindow pill;
         static LayerWindow pillShadow;
@@ -219,6 +226,7 @@ namespace WillowScreen
         static readonly HashSet<IntPtr> ourWindows = new HashSet<IntPtr>();
         static IntPtr pillHandle = IntPtr.Zero;
         static Rectangle pillBounds;
+        static double pillScale = 1;
         static Rectangle stopBounds;
         static bool stopHover;
         static Font nameFont, doingFont, stopFont, keyFont, badgeFont;
@@ -398,6 +406,7 @@ namespace WillowScreen
                 lastUsed = Now();
                 if (fading) Revive();
                 if (!visible) ShowAll();
+                ClearOf(screenX, screenY);
                 status = doing ?? "";
                 pressWhenThere = press;
                 double dx = screenX - x.Value;
@@ -441,6 +450,28 @@ namespace WillowScreen
                 }
                 DrawPill();
             });
+        }
+
+        /// The bot is about to act at a point: if the pill stands there, it moves to the other edge of that screen first
+        /// — above the taskbar at the bottom — so it never takes a click meant for what is under it.
+        public static void KeepClear(int screenX, int screenY)
+        {
+            if (!active) return;
+            Send(delegate { ClearOf(screenX, screenY); });
+        }
+
+        static void ClearOf(int screenX, int screenY)
+        {
+            if (!visible || pill == null || pillBounds.Width == 0) return;
+            Monitor monitor = MonitorAt(screenX, screenY);
+            if (monitor == null) return;
+            double s = ScaleOf(monitor);
+            double ratio = s / Math.Max(0.5, pillScale);
+            Rectangle place = PillPlace(monitor, (int)Math.Round(pillBounds.Width * ratio), (int)Math.Round(pillBounds.Height * ratio), pillLow, s);
+            if (!Rectangle.Inflate(place, (int)Math.Round(24 * s), (int)Math.Round(24 * s)).Contains(screenX, screenY)) return;
+            pillLow = !pillLow;
+            flipAt = Now();
+            DrawPill();
         }
 
         /// Blocks until the cursor has arrived where the bot is acting, so the action lands as it gets there.
@@ -527,10 +558,17 @@ namespace WillowScreen
             return true;
         }
 
-        /// Still coming in or going: the pill moves, so it is drawn every frame rather than only for its shimmer.
+        /// Still coming in or going, or sliding to the other edge: the pill moves, so it is drawn every frame rather
+        /// than only for its shimmer.
         static bool Moving(double now)
         {
-            return leaveAt >= 0 || now - enterAt < Math.Max(PILL_DELAY + PILL_IN, POINTER_DELAY + POINTER_IN) + 0.05;
+            return leaveAt >= 0 || now - enterAt < Math.Max(PILL_DELAY + PILL_IN, POINTER_DELAY + POINTER_IN) + 0.05 || now - flipAt < FLIP + 0.05;
+        }
+
+        /// How far the pill has come in at the edge it moved to, 0 to 1.
+        static double FlipLevel(double now)
+        {
+            return EaseOutCubic(Clamp01((now - flipAt) / FLIP));
         }
 
         /// Everything starts from nothing: the glow dark, the pill above its place, the cursor small at the pointer.
@@ -595,6 +633,8 @@ namespace WillowScreen
         {
             visible = true;
             fading = false;
+            pillLow = false;
+            flipAt = -10;
             shownAt = Now();
             lastUsed = shownAt;
             lastFrame = shownAt;
@@ -787,7 +827,8 @@ namespace WillowScreen
             using (Bitmap picture = PillPicture(monitor, out left, out top, out scale))
             {
                 pillBounds = new Rectangle(left, top, picture.Width, picture.Height);
-                byte opacity = capturing ? (byte)0 : ToByte(pillNow);
+                pillScale = scale;
+                byte opacity = capturing ? (byte)0 : ToByte(pillNow * FlipLevel(Now()));
                 if (pillShadow != null)
                 {
                     Bitmap shadow = ShadowPicture(picture.Width, picture.Height, scale);
@@ -832,9 +873,11 @@ namespace WillowScreen
                 int square = px(9);
                 int stopWidth = px(11) + square + px(7) + (int)Math.Ceiling(stopSize.Width) + px(9) + keyWidth + px(6);
                 int width = textLeft + nameWidth + gap + doingWidth + px(18) + stopWidth + px(7);
-                int monitorWidth = monitor.Bounds.Right - monitor.Bounds.Left;
-                left = monitor.Bounds.Left + (monitorWidth - width) / 2;
-                top = monitor.Bounds.Top + px(18) + (int)Math.Round(dropNow * s);
+                Rectangle place = PillPlace(monitor, width, height, pillLow, s);
+                left = place.Left;
+                // Coming in, it drops into place from beyond its edge of the screen; moved, it slides in at the other.
+                double beyond = dropNow + (1 - FlipLevel(now)) * FLIP_SLIDE;
+                top = place.Top + (int)Math.Round((pillLow ? -beyond : beyond) * s);
 
                 Bitmap bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
                 using (Graphics graphics = Graphics.FromImage(bitmap))
@@ -985,6 +1028,16 @@ namespace WillowScreen
                 }
                 return bitmap;
             }
+        }
+
+        /// Where a pill of that size sits on `monitor`, at rest: centred, near the top edge, or near the bottom of the
+        /// part the taskbar leaves free.
+        static Rectangle PillPlace(Monitor monitor, int width, int height, bool low, double s)
+        {
+            int left = monitor.Bounds.Left + (monitor.Bounds.Right - monitor.Bounds.Left - width) / 2;
+            int bottom = monitor.Work.Bottom > monitor.Work.Top ? monitor.Work.Bottom : monitor.Bounds.Bottom;
+            int top = low ? bottom - (int)Math.Round(18 * s) - height : monitor.Bounds.Top + (int)Math.Round(18 * s);
+            return new Rectangle(left, top, width, height);
         }
 
         /// The pill's soft shadow, as a picture `shadowMargin` larger than the pill all round, kept while its size holds.

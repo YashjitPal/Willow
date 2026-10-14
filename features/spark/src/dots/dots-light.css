@@ -139,13 +139,26 @@
   color: #8c1d18;
 }
 
-:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error button {
+:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error-icon {
+  color: #b3261e;
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error-toggle {
+  text-decoration-color: rgba(140, 29, 24, 0.4);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error-retry {
   background: rgba(140, 29, 24, 0.08);
   color: #8c1d18;
 }
 
-:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error button:hover {
+:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error-retry:hover {
   background: rgba(140, 29, 24, 0.14);
+}
+
+:is(.light-theme, [data-theme="light"]) .spark-dots-detail__error-detail {
+  background: rgba(140, 29, 24, 0.06);
+  color: #6f1712;
 }
 
 :is(.light-theme, [data-theme="light"]) .spark-dots-approval {

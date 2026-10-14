@@ -148,6 +148,30 @@ it('sees the desktop as a picture, acts on it by pixel, and gets the screen each
   assert.equal(calls.filter((call) => call.path === '/desktop/drag').length, 0, 'a position off the picture never reaches the computer');
 });
 
+it('turns back a position given after an action of the same response, on its own screen as on the user\'s', async () => {
+  const dotId = await newDot();
+  const picture = { data: Buffer.from('jpeg').toString('base64'), width: 1280, height: 1024 };
+  const { bridge, calls } = fakeMachine({
+    'GET /desktop/screenshot': () => ({ status: 200, body: picture }),
+    'POST /desktop/click': (request) => ({ status: 200, body: { action: 'click', ...request.body, screenshot: picture } }),
+    'POST /desktop/key': () => ({ status: 200, body: { action: 'key', key: 'Return', screenshot: picture } }),
+    'POST /browser/navigate': () => ({ status: 200, body: { title: 'Docs', url: 'https://example.com/', text: 'Hello' } }),
+  });
+  const tools = toolsFor(dotId, bridge, true);
+  const step = (name) => ({ ...context(), step: name });
+  await tools.computer_screenshot.run({}, step('s1'));
+  assert.equal((await tools.computer_desktop_click.run({ x: 100, y: 100 }, step('s1'))).failed, undefined);
+  assert.equal((await tools.computer_desktop_key.run({ key: 'Return' }, step('s1'))).failed, undefined, 'a key needs no position');
+  const clicks = calls.filter((call) => call.path === '/desktop/click').length;
+  const second = await tools.computer_desktop_click.run({ x: 300, y: 300 }, step('s1'));
+  assert.equal(second.failed, true);
+  assert.match(second.observation, /^Not done: an action earlier in this same response may have changed the screen/);
+  assert.equal(calls.filter((call) => call.path === '/desktop/click').length, clicks, 'nothing reached the computer');
+  assert.equal((await tools.computer_desktop_click.run({ x: 300, y: 300 }, step('s2'))).failed, undefined);
+  await tools.computer_navigate.run({ url: 'https://example.com/' }, step('s3'));
+  assert.equal((await tools.computer_desktop_move.run({ x: 5, y: 5 }, step('s3'))).failed, true, 'the browser shows on the same screen, so a page moving on counts');
+});
+
 /** A renderer that draws nothing but says what it was asked: the picture's size, its crop, its marks and rulers. */
 const fakeRender = () => {
   const plans = [];

@@ -1470,6 +1470,39 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-timeline-row-kind="turn-fold"');
   });
 
+  // Codex's thinking carries no icon (ReasoningItem), so neither does the live row.
+  it("draws no icon before Thinking", () => {
+    const runId = RunId.make("run-thinking");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        runningRunId={runId}
+        timelineEntries={[
+          buildUserTimelineEntry("Weigh the two options"),
+          {
+            id: "thinking-live",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "thinking-live",
+              runId,
+              createdAt: MESSAGE_CREATED_AT,
+              label: "Thinking",
+              detail: "Comparing the two options",
+              tone: "thinking",
+              itemType: "reasoning",
+              toolLifecycleStatus: "inProgress",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Thinking");
+    expect(markup).not.toContain("data-willow-activity-icon");
+  });
+
   it("shows a collapsed disclosure for superseded attempt output", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const runId = RunId.make("run-steered");

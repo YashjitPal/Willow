@@ -5,12 +5,9 @@
  */
 
 .spark-dots-detail__error {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin: 0 auto 8px;
   max-width: 580px;
-  padding: 10px 14px;
+  padding: 9px 10px 9px 12px;
   border-radius: 16px;
   background: #3c0202;
   color: #ffdad6;
@@ -18,12 +15,42 @@
   line-height: 18px;
 }
 
-.spark-dots-detail__error span {
-  flex: 1;
-  min-width: 0;
+.spark-dots-detail__error-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.spark-dots-detail__error button {
+.spark-dots-detail__error-icon {
+  flex: none;
+  color: #ffb4ab;
+}
+
+.spark-dots-detail__error-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.spark-dots-detail__error-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 218, 214, 0.45);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.spark-dots-detail__error-toggle:hover {
+  text-decoration-color: currentColor;
+}
+
+.spark-dots-detail__error-retry {
   flex: none;
   padding: 4px 12px;
   border: 0;
@@ -35,8 +62,21 @@
   cursor: pointer;
 }
 
-.spark-dots-detail__error button:hover {
+.spark-dots-detail__error-retry:hover {
   background: rgba(255, 218, 214, 0.2);
+}
+
+.spark-dots-detail__error-detail {
+  max-height: 132px;
+  margin: 8px 2px 1px 28px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 218, 214, 0.82);
+  font: 12px/17px var(--font-mono, ui-monospace, "Cascadia Code", SFMono-Regular, Menlo, Consolas, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .spark-dots-profile__activity--link {

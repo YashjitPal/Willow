@@ -113,10 +113,15 @@ Changes from upstream:
   `ComposerPendingApprovalPanel.tsx` take Codex's plan, end-of-turn and approval cards. The
   timeline draws Codex's own icons (`MessagesTimeline.tsx` provides `CodexDrawings`; elsewhere
   `CodexIcon` draws Willow's glyph for the same meaning) and sizes its work from a reply's
-  17px/24px as Codex sizes it from its chat type, code keeping 13px. Only a turn that does some
+  17px/24px as Codex sizes it from its chat type, code keeping 13px. Its pieces meet on Codex's
+  16px alone: a reply's first and last blocks lose their margins, and T3's 2px round a reply and a
+  plan go (`activity.css`). Thinking has no icon, live or settled. Only a turn that does some
   work (a command, read, edit, search, image, tool call, subagent or worktree setup) gets the
   "Working for" header and folds behind "Worked for"; one that only thinks shows "Thinking", then
-  keeps its "Thought" over the reply.
+  keeps its "Thought" over the reply. A streaming reply reveals as Willow's does
+  (`willow/streamReveal.ts`, from platform/ui `streaming-text-reveal.ts`): `ChatMarkdown.tsx`
+  shows it a sentence or a few words at a time, catching up after the stream ends, and the words
+  each step adds fade in (`willow/streamWords.ts`).
 - Under a reply are Willow's buttons for one (features/chat `ChatResponseChrome`): Good response
   and Bad response (`willow/ResponseRating.tsx`, kept on this computer by message), Copy, then
   the branch (`arrow_split`) and the time. A sent message's buttons are Willow's Copy prompt and
@@ -128,7 +133,8 @@ Changes from upstream:
   Search chats page, `willow/search.css`), Pull requests and Usage, and the gear opening Willow's
   settings pane of T3's settings pages; `LegacySidebar.tsx` makes each project a folder row (Luminous's
   folder, open while the project is) with its working count, at the size of the tabs above, and its
-  threads' times end where that count does. In Willow `AppSidebarLayout.tsx` keeps the sidebar at Willow's 288px with no
+  threads' times end where that count does; a thread's row shows no tooltip of its name, as
+  Willow's chat list does not. In Willow `AppSidebarLayout.tsx` keeps the sidebar at Willow's 288px with no
   resize handle (its collapse button is the only control, as Willow's own), collapses it to
   Willow's 52px rail (T3's icon mode, on the page's own colour: `sidebar.css` drops T3's grain)
   instead of off the screen, drops T3's floating sidebar button (the shortcut stays),

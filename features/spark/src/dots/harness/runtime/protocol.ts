@@ -90,6 +90,8 @@ export const parseReaction = (rest: string): ParsedReaction | null => {
 export interface DotToolContext {
   dotId: string;
   turnId: string;
+  /** Which of the turn's model responses the call was written in: calls written together share it. */
+  step?: string;
   readFiles: () => Record<string, string>;
   writeFiles: (files: Record<string, string>) => void;
   signal?: AbortSignal;

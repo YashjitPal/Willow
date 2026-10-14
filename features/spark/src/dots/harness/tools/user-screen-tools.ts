@@ -21,7 +21,7 @@ import type { DotToolContext, DotToolResult } from '../runtime/protocol';
 import type { DotScreenApp, DotScreenBridge, DotScreenElement, DotScreenPlatform, DotScreenRefused, DotScreenShot, DotScreenTarget } from '../runtime/screen-bridge';
 import { activeScreen, declinedScreen, endLapsedScreen, pendingScreenRequests, requestScreen, touchScreen, type DotScreenDeps } from '../runtime/screen-control';
 import { showScreenOverlay } from '../runtime/screen-overlay';
-import { closerLook, fromScreen, howToPoint, pointsIn, regionOnScreen, toScreen, viewOf, type Mark, type ScreenGeometry } from '../runtime/screen-view';
+import { changedThisStep, closerLook, fromScreen, howToPoint, pointsIn, regionOnScreen, screenChanged, STALE_POSITION, toScreen, viewOf, type Mark, type ScreenGeometry } from '../runtime/screen-view';
 import { getDotThread } from '../thread/thread-store';
 import { fail, ok, permissionsNow, stringArg, type DotToolEntry, type DotToolEnv } from './tool-env';
 
@@ -44,13 +44,17 @@ const seen = {
 
 const spaceWords = (env: DotUserScreenEnv): string => pointsIn(env.vision?.profile.space ?? 'pixels');
 
-const REFUSALS: Record<DotScreenRefused['refused'], string> = {
+/** What the bot is told of each refusal; one not here — a window run as administrator, typing cut short — in the companion's own words, which say what happened to that window or how far the typing got. */
+const REFUSALS: Partial<Record<DotScreenRefused['refused'], string>> = {
   'user-active': 'The user kept using their computer — the mouse or the keyboard — for the last half minute, so nothing was done. Ask them in a message whether you should go on, and carry on when they say.',
   willow: 'That is Willow\'s own window, which you never act on, so nothing was done. Reach what you need another way — another window, the taskbar — or ask the user.',
   'willow-focus': 'Willow is the window in front, and you never type into it, so nothing was done. Bring the window you mean to the front first.',
   locked: 'The user\'s screen is locked, or the system is showing a prompt only they can answer, so nothing was done.',
   stopped: 'The user stopped you using their screen, so nothing was done. Leave it alone unless they ask you to use it again.',
 };
+
+/** The user's screen, as one whose positions an earlier action of the same response may have put out of date. */
+const userScreen = (env: DotUserScreenEnv): string => `user:${env.dotId}`;
 
 const refusal = (outcome: DotScreenRefused): DotToolResult => fail(REFUSALS[outcome.refused] ?? outcome.message);
 
@@ -151,9 +155,10 @@ const look = async (env: DotUserScreenEnv, shot: DotScreenShot, marks: Mark[] = 
 const isShot = (value: DotScreenShot | DotToolResult): value is DotScreenShot => 'data' in value;
 
 /** A position the bot gave on its latest picture, as a point on the user's desktop and on that monitor. */
-const onScreen = (env: DotUserScreenEnv, args: Record<string, unknown>, xName = 'x', yName = 'y') => {
+const onScreen = (env: DotUserScreenEnv, context: DotToolContext, args: Record<string, unknown>, xName = 'x', yName = 'y') => {
   const last = seen.get(env);
   if (!last) return 'Take a screenshot of the user\'s screen first: positions are on your latest one.';
+  if (changedThisStep(userScreen(env), context.step)) return STALE_POSITION;
   const given = { x: Number(args[xName]), y: Number(args[yName]) };
   if (!Number.isFinite(given.x) || !Number.isFinite(given.y)) return `Give "${xName}" and "${yName}": ${spaceWords(env)}.`;
   const local = toScreen(last.geometry, given);
@@ -165,11 +170,16 @@ const onScreen = (env: DotUserScreenEnv, args: Record<string, unknown>, xName = 
 const act = async (env: DotUserScreenEnv, context: DotToolContext, summary: string, action: Parameters<DotScreenBridge['act']>[0], monitor: number | undefined, marks: Mark[]): Promise<DotToolResult> => {
   try {
     const outcome = await quietly(env, context, () => env.screen.bridge.act({ ...action, ...(grantNow(env) ? { grant: grantNow(env) } : {}) }));
-    if (isRefused(outcome)) return refusal(outcome);
+    if (isRefused(outcome)) {
+      // Typing cut short by the user still put some of it in.
+      if (outcome.refused === 'interrupted') screenChanged(userScreen(env), context.step);
+      return refusal(outcome);
+    }
   } catch (error) {
     return fail(problem(error));
   }
   touchScreen(env.dotId, env.now());
+  screenChanged(userScreen(env), context.step);
   const after = await capture(env, monitor === undefined ? undefined : { monitor });
   if (!isShot(after)) return { observation: `${summary} The screen could not be seen afterwards: take a screenshot before you go on.` };
   const view = await look(env, after, marks);
@@ -289,7 +299,7 @@ const clickTool = (env: DotUserScreenEnv): DotToolEntry => ({
     run: async (args, context) => {
       const blocked = goAhead(env, context, reasonArg(args));
       if (blocked) return blocked;
-      const target = onScreen(env, args);
+      const target = onScreen(env, context, args);
       if (typeof target === 'string') return fail(target);
       const button = (stringArg(args, 'button') ?? 'left').toLowerCase();
       const clicks = Math.max(1, Math.min(3, Math.round(Number(args.clicks ?? 1)) || 1));
@@ -311,7 +321,7 @@ const moveTool = (env: DotUserScreenEnv): DotToolEntry => ({
     run: async (args, context) => {
       const blocked = goAhead(env, context, reasonArg(args));
       if (blocked) return blocked;
-      const target = onScreen(env, args);
+      const target = onScreen(env, context, args);
       if (typeof target === 'string') return fail(target);
       return act(env, context, `Moved the pointer to (${target.given.x}, ${target.given.y}).`, { kind: 'move', ...target.desktop }, target.monitor, [{ at: target.local, kind: 'point' }]);
     },
@@ -329,7 +339,7 @@ const scrollTool = (env: DotUserScreenEnv): DotToolEntry => ({
     run: async (args, context) => {
       const blocked = goAhead(env, context, reasonArg(args));
       if (blocked) return blocked;
-      const target = onScreen(env, args);
+      const target = onScreen(env, context, args);
       if (typeof target === 'string') return fail(target);
       const deltaY = Number(args.deltaY ?? 0);
       const deltaX = Number(args.deltaX ?? 0);
@@ -351,9 +361,9 @@ const dragTool = (env: DotUserScreenEnv): DotToolEntry => ({
     run: async (args, context) => {
       const blocked = goAhead(env, context, reasonArg(args));
       if (blocked) return blocked;
-      const from = onScreen(env, args);
+      const from = onScreen(env, context, args);
       if (typeof from === 'string') return fail(from);
-      const to = onScreen(env, args, 'toX', 'toY');
+      const to = onScreen(env, context, args, 'toX', 'toY');
       if (typeof to === 'string') return fail(to);
       return act(env, context, `Dragged from (${from.given.x}, ${from.given.y}) to (${to.given.x}, ${to.given.y}).`, { kind: 'drag', ...from.desktop, toX: to.desktop.x, toY: to.desktop.y }, from.monitor, [{ at: from.local, kind: 'from' }, { at: to.local, kind: 'point' }]);
     },
@@ -371,6 +381,7 @@ const actInApp = async (env: DotUserScreenEnv, context: DotToolContext, summary:
     return fail(problem(error));
   }
   touchScreen(env.dotId, env.now());
+  screenChanged(userScreen(env), context.step);
   const window = seen.get(env)?.window;
   if (!window) return ok(`${summary} Look at the window again to see what it did.`);
   const after = await capture(env, { window });
@@ -495,6 +506,7 @@ const elementLine = (env: DotUserScreenEnv, element: DotScreenElement): string =
   const parts = [`[${element.index}] ${element.role}${element.name ? ` "${element.name}"` : ''}`];
   if (element.value) parts.push(`value "${element.value}"`);
   if (element.state) parts.push(element.state);
+  if (element.disabled) parts.push('disabled');
   if (element.actions?.length) parts.push(element.actions.join(', '));
   return `${parts.join(' — ')}${positionOf(env, element)}`;
 };
@@ -569,6 +581,7 @@ const elementTool = (env: DotUserScreenEnv): DotToolEntry => ({
         return fail(problem(error));
       }
       touchScreen(env.dotId, env.now());
+      screenChanged(userScreen(env), context.step);
       const what = `${element.role}${element.name ? ` "${element.name}"` : ''}`;
       const done = action === 'set_value' ? `Set ${what} to ${JSON.stringify(String(args.value).slice(0, 80))}.` : `${DONE[action]} ${what}.`;
       return afterwards(env, done);
@@ -597,6 +610,7 @@ const focusTool = (env: DotUserScreenEnv): DotToolEntry => ({
         const outcome = await quietly(env, context, () => env.screen.bridge.focus(target));
         if (isRefused(outcome)) return refusal(outcome);
         touchScreen(env.dotId, env.now());
+        screenChanged(userScreen(env), context.step);
         if (env.screen.platform === 'mac') {
           if (target.pid) appBy.set(env.dotId, target.pid);
           return ok(`Brought ${outcome.title ? `"${outcome.title}"` : 'the app'} to the front.`);
@@ -627,7 +641,8 @@ const openAppTool = (env: DotUserScreenEnv): DotToolEntry => ({
         const outcome = await quietly(env, context, () => env.screen.bridge.launch(command));
         if (isRefused(outcome)) return refusal(outcome);
         touchScreen(env.dotId, env.now());
-        return ok(`Started ${outcome.started ?? command} on your desktop. Give it a moment, then take a screenshot ("wait" helps).`);
+        screenChanged(userScreen(env), context.step);
+        return ok(`Started ${outcome.started ?? command} on your desktop.${outcome.note ? ` ${outcome.note}` : ''} Give it a moment, then take a screenshot ("wait" helps).`);
       } catch (error) {
         return fail(problem(error));
       }

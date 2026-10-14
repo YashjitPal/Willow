@@ -2707,8 +2707,13 @@ const XKEY_NAMES = {
   menu: 'Menu', capslock: 'Caps_Lock', printscreen: 'Print',
   ',': 'comma', '.': 'period', '/': 'slash', ';': 'semicolon', "'": 'apostrophe', '[': 'bracketleft', ']': 'bracketright',
   '-': 'minus', '=': 'equal', '`': 'grave', '\\': 'backslash', '+': 'plus',
+  '!': 'exclam', '"': 'quotedbl', '#': 'numbersign', $: 'dollar', '%': 'percent', '&': 'ampersand', '(': 'parenleft', ')': 'parenright',
+  '*': 'asterisk', ':': 'colon', '<': 'less', '>': 'greater', '?': 'question', '@': 'at', '^': 'asciicircum', _: 'underscore',
+  '{': 'braceleft', '|': 'bar', '}': 'braceright', '~': 'asciitilde',
+  pgup: 'Prior', pgdn: 'Next', forwarddelete: 'Delete', numlock: 'Num_Lock', scrolllock: 'Scroll_Lock', pause: 'Pause',
 };
-const XMODIFIERS = { ctrl: 'ctrl', control: 'ctrl', shift: 'shift', alt: 'alt', option: 'alt', super: 'super', meta: 'super', win: 'super', windows: 'super', cmd: 'super', command: 'super' };
+// A Mac's cmd is Control here, as on any PC: cmd+c copies.
+const XMODIFIERS = { ctrl: 'ctrl', control: 'ctrl', shift: 'shift', alt: 'alt', option: 'alt', super: 'super', meta: 'super', win: 'super', windows: 'super', cmd: 'ctrl', command: 'ctrl' };
 const MODIFIER_KEYS = { ctrl: 'Control_L', shift: 'Shift_L', alt: 'Alt_L', super: 'Super_L' };
 
 const parsePoint = (body, xName = 'x', yName = 'y') => {
@@ -2736,7 +2741,9 @@ const parseDesktopKey = (raw) => {
   if (!key && /^f([1-9]|1\d|2[0-4])$/.test(lower)) key = name.toUpperCase();
   if (!key && /^[a-z0-9]$/i.test(name)) key = modifiers.length ? lower : name;
   if (!key && XMODIFIERS[lower]) key = MODIFIER_KEYS[XMODIFIERS[lower]];
-  if (!key) throw new RequestError(`"${name}" is not a key this computer knows. Use a key name such as Enter, Escape, Tab, Up or F5, or a single letter or digit.`);
+  // Any other single character by its Unicode keysym, which xdotool binds to a spare key for the press.
+  if (!key && [...name].length === 1) key = `U${name.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+  if (!key) throw new RequestError(`"${name}" is not a key this computer knows. Use a key name such as Enter, Escape, Tab, Up or F5, or a single character.`);
   return [...modifiers, key].join('+');
 };
 

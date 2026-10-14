@@ -3625,7 +3625,7 @@ function LiveActivityRow({
   shimmer = false,
 }: {
   label: ReactNode;
-  iconName?: WorkEntryIconName;
+  iconName?: WorkEntryIconName | undefined;
   /** The Codex icon for the work, drawn when it brings no logo of its own. */
   codexIcon?: CodexIconName | null | undefined;
   toolIcon?: ToolActivityIcon | undefined;
@@ -3783,7 +3783,12 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
             label
           )
         }
-        iconName={workEntryIconName(row.entry)}
+        // Codex's thinking has no icon (ReasoningItem), live or settled.
+        iconName={
+          row.entry.itemType === "reasoning" || row.entry.tone === "thinking"
+            ? undefined
+            : workEntryIconName(row.entry)
+        }
         codexIcon={workEntryKeepsT3Icon(row.entry) ? null : codexIconForEntry(row.entry)}
         toolIcon={row.entry.toolIcon ?? row.entry.toolSource?.icon}
         failed={failed}
@@ -3842,11 +3847,21 @@ function WorkGroupToggleTimelineRow({
   row: Extract<TimelineRow, { kind: "work-toggle" }>;
 }) {
   const ctx = use(TimelineRowCtx);
+  // A group of thinking alone is "Thought", without an icon (Codex's ReasoningItem).
+  const thinking = row.summaryKind === "reasoning";
   return (
     <WorkGroupHeader
       label={row.codexSummary ?? row.summary}
-      iconName={row.summaryToolIcon ?? row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)}
-      codexIcon={row.toolIcon || row.summaryToolIcon || row.toolSurface ? undefined : row.codexIcon}
+      iconName={
+        thinking
+          ? undefined
+          : (row.summaryToolIcon ?? row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind))
+      }
+      codexIcon={
+        thinking || row.toolIcon || row.summaryToolIcon || row.toolSurface
+          ? undefined
+          : row.codexIcon
+      }
       toolIcon={row.toolIcon}
       failed={row.hasFailure}
       expanded={row.expanded}
@@ -3859,7 +3874,7 @@ function WorkGroupToggleTimelineRow({
 
 function WorkGroupHeader(props: {
   label: string;
-  iconName: WorkEntryIconName;
+  iconName: WorkEntryIconName | undefined;
   codexIcon?: CodexIconName | undefined;
   toolIcon?: ToolActivityIcon | undefined;
   failed?: boolean | undefined;
@@ -3878,14 +3893,14 @@ function WorkGroupHeader(props: {
       icon={
         props.codexIcon ? (
           <CodexIcon name={props.codexIcon} className="size-4 shrink-0" />
-        ) : (
+        ) : props.iconName ? (
           <ToolActivityIconView
             icon={props.toolIcon}
             fallbackName={props.iconName}
             className="size-4 shrink-0 stroke-2 text-icon-muted"
             muted
           />
-        )
+        ) : undefined
       }
       label={
         <span className={cn("block truncate", props.active && !props.failed && "live-tool-shine")}>

@@ -309,7 +309,7 @@
 /* ── A proposed plan (SystemItems PlanCard) ───────────────────────────────── */
 
 [data-timeline-row-kind="proposed-plan"] > div {
-  padding-inline: 0;
+  padding: 0;
 }
 
 .willow-plan-card {
@@ -655,6 +655,19 @@
 /* A reply between pieces of work is a piece of the timeline too, 16px from the next. */
 [data-timeline-row-kind="message"][data-message-role="assistant"] {
   padding-bottom: var(--codex-item-gap);
+}
+
+/* Its first and last blocks sit on that 16px as Codex's do, without margins of their own. */
+[data-timeline-row-kind="message"][data-message-role="assistant"] > div {
+  padding-block: 0;
+}
+
+[data-timeline-row-kind="message"][data-message-role="assistant"] .chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+[data-timeline-row-kind="message"][data-message-role="assistant"] .chat-markdown > :last-child {
+  margin-bottom: 0;
 }
 
 /* It fades in as Willow's thinking row does when a turn starts (ChatView, 160ms). */

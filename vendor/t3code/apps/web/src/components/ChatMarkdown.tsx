@@ -98,6 +98,7 @@ import {
   renderCodexFileCitationsAsMarkdown,
 } from "@t3tools/client-runtime/codex-markdown-directives";
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
+import { useStreamReveal } from "../willow/streamReveal";
 import { useStreamWordsPlugin } from "../willow/streamWords";
 import {
   resolveMarkdownMediaPreview,
@@ -3485,13 +3486,17 @@ const CHAT_MARKDOWN_COMPONENTS = {
 } satisfies Components;
 
 function ChatMarkdown({
-  text,
+  text: source,
   className,
   lineBreaks = false,
   parseRawHtml = true,
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
   ...props
 }: ChatMarkdownProps) {
+  // A streaming reply shows as Willow's does, paced, its new words fading in, and counts as
+  // streaming until its reveal has caught up.
+  const { shown: text, revealing } = useStreamReveal(source, props.isStreaming === true);
+  const isStreaming = props.isStreaming === true || revealing;
   const {
     componentState,
     handleCopy,
@@ -3499,11 +3504,9 @@ function ChatMarkdown({
     markdownUrlTransform,
     localMediaPreview,
     setLocalMediaPreview,
-  } = useChatMarkdownState({ text, ...props });
+  } = useChatMarkdownState({ text, ...props, isStreaming });
   const incrementalParsing =
-    props.isStreaming === true &&
-    extraRemarkPlugins.length === 0 &&
-    /(?:^|\n) {0,3}(?:`{3}|~{3})/.test(text);
+    isStreaming && extraRemarkPlugins.length === 0 && /(?:^|\n) {0,3}(?:`{3}|~{3})/.test(text);
   const remarkPlugins = useMemo(
     () => [
       ...(lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS),
@@ -3512,7 +3515,7 @@ function ChatMarkdown({
     ],
     [extraRemarkPlugins, incrementalParsing, lineBreaks],
   );
-  const streamWords = useStreamWordsPlugin(props.isStreaming === true);
+  const streamWords = useStreamWordsPlugin(isStreaming);
   const rehypePlugins = useMemo(
     () => [
       ...(parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : []),

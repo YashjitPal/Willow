@@ -5,7 +5,8 @@
 // Nothing here moves the mouse or presses a key: invoking a button is Windows asking the app to do what a click would,
 // so it never fights the user for the pointer. The same guards hold as everywhere — Willow's own windows are off
 // limits — and a list of elements is numbered under a snapshot id, so an index never lands on the wrong thing once
-// the app has changed.
+// the app has changed. A window is read a level at a time, each level and everything worth knowing about its parts in
+// one question to the app, and the helper runs each request on a thread it waits on only so long (Patience).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -27,9 +28,11 @@ namespace WillowScreen
         [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+        [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr window);
         [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
         [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr window, int index);
         [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint attach, uint to, bool join);
+        [DllImport("user32.dll")] public static extern bool PeekMessage(out MSG message, IntPtr window, uint min, uint max, uint remove);
         [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
     }
 
@@ -39,7 +42,9 @@ namespace WillowScreen
         const int MAX_ELEMENTS = 120;
         const int MAX_VISITED = 6000;
 
-        // The last few element snapshots, each numbered, so an index the bot was given still points where it did.
+        // The last few element snapshots, each numbered, so an index the bot was given still points where it did. A
+        // request the helper stopped waiting on may still finish on its own thread, so they are kept under a lock.
+        static readonly object gate = new object();
         static readonly Dictionary<int, Snapshot> snapshots = new Dictionary<int, Snapshot>();
         static int snapshotCounter;
 
@@ -147,6 +152,7 @@ namespace WillowScreen
             uint pid;
             UiNative.GetWindowThreadProcessId(window, out pid);
             if (Program.IsProtectedProcess(pid, ProcessName(pid))) throw new Refusal("willow", "That is Willow's own window, which a bot never acts on.");
+            Program.CheckReachable(window);
             AutomationElement root = ElementOf(window);
             if (root == null) throw new Exception("That window could not be read.");
 
@@ -154,14 +160,18 @@ namespace WillowScreen
             List<object> described = new List<object>();
             Walk(root, collected, described);
 
-            int id = ++snapshotCounter;
-            snapshots[id] = new Snapshot { Window = window, Elements = collected };
-            // Keep only the last two snapshots: older indices are not worth the memory.
-            if (snapshots.Count > 2)
+            int id;
+            lock (gate)
             {
-                int oldest = int.MaxValue;
-                foreach (int key in snapshots.Keys) if (key < oldest) oldest = key;
-                snapshots.Remove(oldest);
+                id = ++snapshotCounter;
+                snapshots[id] = new Snapshot { Window = window, Elements = collected };
+                // Keep only the last two snapshots: older indices are not worth the memory.
+                while (snapshots.Count > 2)
+                {
+                    int oldest = int.MaxValue;
+                    foreach (int key in snapshots.Keys) if (key < oldest) oldest = key;
+                    snapshots.Remove(oldest);
+                }
             }
 
             RECT rect;
@@ -177,20 +187,33 @@ namespace WillowScreen
             };
         }
 
+        // What is read of each element, in the same question as the element itself.
+        static readonly AutomationProperty[] Read = new AutomationProperty[]
+        {
+            AutomationElement.NameProperty, AutomationElement.ControlTypeProperty, AutomationElement.IsOffscreenProperty,
+            AutomationElement.BoundingRectangleProperty, AutomationElement.IsKeyboardFocusableProperty, AutomationElement.IsEnabledProperty,
+            AutomationElement.IsInvokePatternAvailableProperty, AutomationElement.IsTogglePatternAvailableProperty,
+            AutomationElement.IsSelectionItemPatternAvailableProperty, AutomationElement.IsExpandCollapsePatternAvailableProperty,
+            AutomationElement.IsValuePatternAvailableProperty, ValuePattern.ValueProperty, ValuePattern.IsReadOnlyProperty,
+            TogglePattern.ToggleStateProperty, SelectionItemPattern.IsSelectedProperty, ExpandCollapsePattern.ExpandCollapseStateProperty,
+        };
+
+        /// An element's children in the control view, each with what is read of it, in one question to the app.
+        static CacheRequest Level()
+        {
+            CacheRequest request = new CacheRequest();
+            request.TreeFilter = Automation.ControlViewCondition;
+            request.TreeScope = TreeScope.Element | TreeScope.Children;
+            foreach (AutomationProperty property in Read) request.Add(property);
+            return request;
+        }
+
         static void Walk(AutomationElement root, List<AutomationElement> collected, List<object> described)
         {
-            TreeWalker walker = TreeWalker.ControlViewWalker;
+            CacheRequest level = Level();
             Stack<AutomationElement> stack = new Stack<AutomationElement>();
             // Depth-first from the window's own children, so reading order roughly follows the layout.
-            List<AutomationElement> children = new List<AutomationElement>();
-            try
-            {
-                AutomationElement child = walker.GetFirstChild(root);
-                while (child != null) { children.Add(child); child = walker.GetNextSibling(child); }
-            }
-            catch { }
-            for (int index = children.Count - 1; index >= 0; index--) stack.Push(children[index]);
-
+            PushChildren(stack, root, level);
             int visited = 0;
             while (stack.Count > 0 && collected.Count < MAX_ELEMENTS && visited < MAX_VISITED)
             {
@@ -198,20 +221,38 @@ namespace WillowScreen
                 visited++;
                 try
                 {
-                    if ((bool)element.GetCurrentPropertyValue(AutomationElement.IsOffscreenProperty)) continue;
+                    if (Flag(element, AutomationElement.IsOffscreenProperty)) continue;
                     object description = Describe(element, collected.Count);
                     if (description != null)
                     {
                         collected.Add(element);
                         described.Add(description);
                     }
-                    List<AutomationElement> kids = new List<AutomationElement>();
-                    AutomationElement kid = walker.GetFirstChild(element);
-                    while (kid != null) { kids.Add(kid); kid = walker.GetNextSibling(kid); }
-                    for (int index = kids.Count - 1; index >= 0; index--) stack.Push(kids[index]);
+                    PushChildren(stack, element, level);
                 }
                 catch { }
             }
+        }
+
+        static void PushChildren(Stack<AutomationElement> stack, AutomationElement element, CacheRequest level)
+        {
+            AutomationElementCollection children;
+            try { children = element.GetUpdatedCache(level).CachedChildren; } catch { return; }
+            if (children == null) return;
+            for (int index = children.Count - 1; index >= 0; index--) stack.Push(children[index]);
+        }
+
+        static object Cached(AutomationElement element, AutomationProperty property)
+        {
+            object value;
+            try { value = element.GetCachedPropertyValue(property, true); } catch { return null; }
+            return value == AutomationElement.NotSupported ? null : value;
+        }
+
+        static bool Flag(AutomationElement element, AutomationProperty property)
+        {
+            object value = Cached(element, property);
+            return value is bool && (bool)value;
         }
 
         static readonly Dictionary<int, string> ControlNames = BuildControlNames();
@@ -219,26 +260,27 @@ namespace WillowScreen
         static object Describe(AutomationElement element, int index)
         {
             List<string> actions = new List<string>();
-            object pattern;
-            if (element.TryGetCurrentPattern(InvokePattern.Pattern, out pattern)) actions.Add("invoke");
-            if (element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) actions.Add("toggle");
-            if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) actions.Add("select");
-            if (element.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern)) actions.Add("expand");
-            bool editable = element.TryGetCurrentPattern(ValuePattern.Pattern, out pattern) && !((ValuePattern)pattern).Current.IsReadOnly;
-            if (editable) actions.Add("set_value");
+            bool toggles = Flag(element, AutomationElement.IsTogglePatternAvailableProperty);
+            bool selects = Flag(element, AutomationElement.IsSelectionItemPatternAvailableProperty);
+            bool expands = Flag(element, AutomationElement.IsExpandCollapsePatternAvailableProperty);
+            bool hasValue = Flag(element, AutomationElement.IsValuePatternAvailableProperty);
+            if (Flag(element, AutomationElement.IsInvokePatternAvailableProperty)) actions.Add("invoke");
+            if (toggles) actions.Add("toggle");
+            if (selects) actions.Add("select");
+            if (expands) actions.Add("expand");
+            if (hasValue && !Flag(element, ValuePattern.IsReadOnlyProperty)) actions.Add("set_value");
 
-            ControlType type = element.Current.ControlType;
+            ControlType type = Cached(element, AutomationElement.ControlTypeProperty) as ControlType;
             int typeId = type == null ? 0 : type.Id;
-            string name = (element.Current.Name ?? "").Trim();
-            bool keyboardFocusable = element.Current.IsKeyboardFocusable;
+            string name = ((Cached(element, AutomationElement.NameProperty) as string) ?? "").Trim();
 
             // Worth listing: something the bot can do to it, or a named label/text it may need to read or point near.
             bool interactive = actions.Count > 0;
             bool readable = name.Length > 0 && (typeId == ControlType.Text.Id || typeId == ControlType.Image.Id || typeId == ControlType.ListItem.Id || typeId == ControlType.TreeItem.Id || typeId == ControlType.TabItem.Id);
             if (!interactive && !readable) return null;
-            if (name.Length == 0 && !interactive) return null;
 
-            System.Windows.Rect box = element.Current.BoundingRectangle;
+            object rect = Cached(element, AutomationElement.BoundingRectangleProperty);
+            System.Windows.Rect box = rect is System.Windows.Rect ? (System.Windows.Rect)rect : System.Windows.Rect.Empty;
             Dictionary<string, object> bounds = null;
             if (!box.IsEmpty && box.Width > 0 && box.Height > 0)
             {
@@ -261,18 +303,20 @@ namespace WillowScreen
             };
             if (actions.Count > 0) described["actions"] = actions;
             if (bounds != null) described["center"] = bounds;
-            if (keyboardFocusable) described["focusable"] = true;
+            if (Flag(element, AutomationElement.IsKeyboardFocusableProperty)) described["focusable"] = true;
+            object enabled = Cached(element, AutomationElement.IsEnabledProperty);
+            if (enabled is bool && !(bool)enabled) described["disabled"] = true;
 
-            if (element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
-                described["state"] = ((TogglePattern)pattern).Current.ToggleState.ToString().ToLowerInvariant();
-            else if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern))
-                described["state"] = ((SelectionItemPattern)pattern).Current.IsSelected ? "selected" : "not-selected";
-            else if (element.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern))
-                described["state"] = ((ExpandCollapsePattern)pattern).Current.ExpandCollapseState.ToString().ToLowerInvariant();
+            object toggle = toggles ? Cached(element, TogglePattern.ToggleStateProperty) : null;
+            object selected = selects ? Cached(element, SelectionItemPattern.IsSelectedProperty) : null;
+            object expansion = expands ? Cached(element, ExpandCollapsePattern.ExpandCollapseStateProperty) : null;
+            if (toggle is ToggleState) described["state"] = toggle.ToString().ToLowerInvariant();
+            else if (selected is bool) described["state"] = (bool)selected ? "selected" : "not-selected";
+            else if (expansion is ExpandCollapseState && (ExpandCollapseState)expansion != ExpandCollapseState.LeafNode) described["state"] = expansion.ToString().ToLowerInvariant();
 
-            if (element.TryGetCurrentPattern(ValuePattern.Pattern, out pattern))
+            if (hasValue)
             {
-                string value = ((ValuePattern)pattern).Current.Value ?? "";
+                string value = (Cached(element, ValuePattern.ValueProperty) as string) ?? "";
                 if (value.Length > 0) described["value"] = value.Length > 200 ? value.Substring(0, 199) + "\u2026" : value;
             }
             return described;
@@ -287,23 +331,35 @@ namespace WillowScreen
             int id = Program.IntOf(request, "snapshot", 0);
             int index = Program.IntOf(request, "index", -1);
             string what = Program.TextOf(request, "action").ToLowerInvariant();
-            if (!snapshots.ContainsKey(id)) throw new Exception("That list of elements is out of date. Call user_elements again for a fresh one.");
-            Snapshot snapshot = snapshots[id];
+            Snapshot snapshot;
+            lock (gate)
+            {
+                if (!snapshots.TryGetValue(id, out snapshot)) throw new Exception("That list of elements is out of date. Call user_elements again for a fresh one.");
+            }
             if (index < 0 || index >= snapshot.Elements.Count) throw new Exception("There is no element " + index + " in that list.");
 
             uint pid;
             UiNative.GetWindowThreadProcessId(snapshot.Window, out pid);
             if (Program.IsProtectedProcess(pid, ProcessName(pid))) throw new Refusal("willow", "That is Willow's own window, which a bot never acts on.");
+            Program.CheckReachable(snapshot.Window);
 
             AutomationElement element = snapshot.Elements[index];
             object pattern;
             try
             {
+                if (!element.Current.IsEnabled) throw new Exception("That control is disabled right now, so nothing was done.");
                 if (what == "invoke" || what == "")
                 {
-                    if (element.TryGetCurrentPattern(InvokePattern.Pattern, out pattern)) { ((InvokePattern)pattern).Invoke(); }
-                    else if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) { ((SelectionItemPattern)pattern).Select(); }
-                    else throw new Exception("That element cannot be invoked. Read its \"actions\" for what it takes.");
+                    // What a click would do, by the means the control has: pressed, toggled, chosen, or opened and closed.
+                    if (element.TryGetCurrentPattern(InvokePattern.Pattern, out pattern)) ((InvokePattern)pattern).Invoke();
+                    else if (element.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) ((TogglePattern)pattern).Toggle();
+                    else if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) ((SelectionItemPattern)pattern).Select();
+                    else if (element.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern))
+                    {
+                        ExpandCollapsePattern expander = (ExpandCollapsePattern)pattern;
+                        if (expander.Current.ExpandCollapseState == ExpandCollapseState.Expanded) expander.Collapse(); else expander.Expand();
+                    }
+                    else throw new Exception("That control cannot be pressed this way. Click it at its position instead.");
                 }
                 else if (what == "toggle")
                 {
@@ -334,6 +390,10 @@ namespace WillowScreen
             {
                 throw new Exception("That element is gone — the app changed. Call user_elements again.");
             }
+            catch (ElementNotEnabledException)
+            {
+                throw new Exception("That control is disabled right now, so nothing was done.");
+            }
 
             string name = "";
             try { name = (element.Current.Name ?? "").Trim(); } catch { }
@@ -352,12 +412,21 @@ namespace WillowScreen
             UiNative.GetWindowThreadProcessId(window, out pid);
             if (Program.IsProtectedProcess(pid, ProcessName(pid))) throw new Refusal("willow", "That is Willow's own window, which a bot never brings forward.");
             if (UiNative.IsIconic(window)) UiNative.ShowWindow(window, 9);
+            // A message queue of this thread's own, which borrowing another's input needs.
+            MSG message;
+            UiNative.PeekMessage(out message, IntPtr.Zero, 0, 0, 0);
             // Windows only lets the foreground thread change the foreground window; borrow its input queue to do it.
             uint current = UiNative.GetCurrentThreadId();
             uint other = UiNative.GetWindowThreadProcessId(UiNative.GetForegroundWindow(), out pid);
             bool attached = other != 0 && other != current && UiNative.AttachThreadInput(current, other, true);
-            try { UiNative.SetForegroundWindow(window); }
+            try
+            {
+                UiNative.SetForegroundWindow(window);
+                UiNative.BringWindowToTop(window);
+            }
             finally { if (attached) UiNative.AttachThreadInput(current, other, false); }
+            // Still held back by Windows' foreground lock: it gives way while Alt is down.
+            if (UiNative.GetForegroundWindow() != window) Program.WithAlt(delegate { UiNative.SetForegroundWindow(window); });
             bool now = UiNative.GetForegroundWindow() == window;
             return new Dictionary<string, object> { { "ok", true }, { "foreground", now }, { "title", Title(window) } };
         }
@@ -379,4 +448,3 @@ namespace WillowScreen
         }
     }
 }
-

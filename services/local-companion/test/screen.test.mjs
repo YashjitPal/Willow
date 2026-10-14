@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -165,11 +166,25 @@ it('builds the real helper with Windows\' own compiler, and it sees the screen i
     assert.equal(main.primary, true, 'the main screen comes first');
     assert.ok(main.width > 0 && main.height > 0 && main.scale >= 1);
     assert.equal(typeof info.locked, 'boolean');
+    assert.equal(info.watching, true, 'it tells the user\'s own hand on the mouse and keys from input a program puts in');
     // The overlay and UI Automation are built in with it: the open apps can be listed, with Willow's own left out.
     const { apps } = await screen.handle('screen.apps');
     assert.ok(Array.isArray(apps));
     assert.ok(apps.every((app) => app.process !== 'willow-desktop'));
-    assert.ok((await readdir(dir)).some((name) => /^willow-screen-[0-9a-f]{12}\.exe$/.test(name)), 'kept by its source\'s hash');
+    const exe = (await readdir(dir)).find((name) => /^willow-screen-[0-9a-f]{12}\.exe$/.test(name));
+    assert.ok(exe, 'kept by its source\'s hash');
+
+    // What key combinations come to on this keyboard, pressing nothing.
+    const plan = (key) => new Promise((resolve, reject) => {
+      execFile(path.join(dir, exe), ['--keys', key], { windowsHide: true, timeout: 20_000 }, (error, stdout) => (error ? reject(error) : resolve(JSON.parse(String(stdout)))));
+    });
+    assert.deepEqual(await plan('cmd+s'), { keys: [0x11, 0x53] }, 'a Mac\'s command key is Control on Windows');
+    assert.deepEqual(await plan('ctrl+shift+t'), { keys: [0x11, 0x10, 0x54] });
+    assert.deepEqual(await plan('F5'), { keys: [0x74] });
+    assert.deepEqual(await plan('numpad7'), { keys: [0x67] });
+    const question = await plan('ctrl+?');
+    assert.ok(question.keys?.includes(0x11) && question.keys.includes(0x10), 'a character that needs Shift gets it: "?" is Shift and a key on every common layout');
+    assert.match((await plan('bogus')).error, /not a key Windows knows/);
   } finally {
     screen.dispose();
     await new Promise((resolve) => setTimeout(resolve, 300));

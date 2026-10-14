@@ -209,7 +209,41 @@ the desktop app's pairing token. Each system its own way — `createScreen` pick
 | --- | --- | --- |
 | Windows | The one desktop the user sees, shared with them: pictures and real input, an overlay while the bot acts, UI Automation for a window's controls | `src/screen/screen-helper.cs`, `screen-overlay.cs`, `screen-ui.cs` |
 | macOS | In the background, app by app: one window's picture (`screencapture -l`), its controls through Accessibility (JXA via `osascript`), raw input posted to that app's process (`CGEventPostToPid`); nothing drawn over the screen | `src/screen/mac.mjs` |
-| Linux | A desktop of the bot's own: an Xvfb display from `:90` up (`-nolisten tcp`), apps started on it, xdotool for input, ImageMagick `import` or ffmpeg for pictures; the user's own display never touched, no accessibility reading | `src/screen/linux.mjs` |
+| Linux | A desktop of the bot's own: an Xvfb display from `:90` up (`-nolisten tcp`), apps started on it and kept to it, xdotool for input, ImageMagick `import` or ffmpeg for pictures; the user's own display never touched, no accessibility reading | `src/screen/linux.mjs` |
+
+**macOS.** A window's controls are read a level at a time — each property of all of a
+level's children in one Apple Event, child by child only where that fails — within 15 s,
+and listed in the tools' words (`button`, `checkbox`, `search box`; `invoke`, `toggle`,
+`set_value`), greyed-out ones marked `disabled`. Each is kept by its path through the
+window, and `screen.element` goes straight back along it and acts only if it finds the
+same role and name there; otherwise the app has changed and the bot is told to list
+again — a number never presses something else. Every reading sets
+`AXManualAccessibility` on the app (Electron builds its tree only when asked); one that
+finds next to nothing sets `AXEnhancedUserInterface` too, once per app, and reads again
+(Chromium). Password boxes are never filled. Keys are resolved before anything runs
+(`macKey`: ANSI key codes for letters, digits, punctuation, F1–F20, Home/End/Page
+Up/Down, forward delete and the keypad; a shifted character such as `?` adds Shift; an
+unknown name is an error, never a silent nothing). Typing goes a whole character at a
+time — both halves of an emoji together — with new lines and tabs as their keys, and
+always to one app's process, never to whatever is in front.
+
+**Linux.** Apps on the bot's desktop are kept to it: their environment loses
+`WAYLAND_DISPLAY` and the user's `DBUS_SESSION_BUS_ADDRESS`, tells GTK, Qt, Firefox,
+Electron, SDL and Clutter to draw with X, and points at a session bus of the desktop's
+own (`dbus-daemon --session`, or an address nothing listens on when there is none) — so
+an app never opens on the user's Wayland session, or hands its window to a copy already
+open on their screen. Browsers, Thunderbird, VS Code and LibreOffice, which share one
+profile with any copy of themselves, get one of the bot's own under
+`~/.cache/willow/desktop/` (a snap's under `~/snap/<name>/common/`), unless the command
+names one (`ownProfile`). The first light window manager installed (openbox, fluxbox,
+icewm, xfwm4, matchbox, marco, metacity) is started on the display, so windows can be
+brought forward; without one, focus raises the window and gives it the keys. A command
+is split as a shell would split it, with `VAR=value` settings before the program, and
+run without one (`splitCommand`); a program not installed, or one that dies at once,
+is said so. Keys map to X's names (`xKey`: `?` is `question`, any other character its
+Unicode keysym, a Mac's cmd is Control), and a name xdotool passes over is an error.
+Typing presses Return for a new line, drags are carried in steps, and each action waits
+a moment for the screen to draw before the bot looks.
 
 Requests (each backend answers those it has): `screen.info`, `screen.capture`,
 `screen.act`, `screen.apps` (open windows), `screen.elements` (a window's controls,
@@ -243,14 +277,33 @@ JSON lines both ways, started on demand and stopped after ten quiet minutes.
   `{ ok: false, refused: 'locked' }`.
 - `screen.act { kind, x?, y?, toX?, toY?, button?, clicks?, hold?, text?, key?,
   deltaX?, deltaY?, grant? }` — `click`, `move`, `scroll`, `drag` at desktop positions
-  (a monitor's own left and top added), `type` (Unicode, newlines as Enter) and `key`
-  (combinations joined by +). Only those fields reach the helper. An action under a
-  grant the user stopped from the overlay is refused (`stopped`).
+  (a monitor's own left and top added), `type` (Unicode, newlines as Enter, both
+  halves of an emoji together) and `key` (combinations joined by +). Only those fields
+  reach the helper. An action under a grant the user stopped from the overlay is
+  refused (`stopped`). The pointer goes through the input stream (an absolute
+  `SendInput` move, where hover and drag and drop listen) and then exactly onto its
+  pixel; a drag is carried in steps and stirs where it drops. Each action then waits
+  for the monitor it acted on to settle — two looks a moment apart, compared on a
+  sparse grid, alike but for a caret or a spinner — up to 1.5 s, so the screenshot
+  after it shows where it ended.
+- Keys are found on the keyboard layout of the window in front (`VkKeyScanEx`): a
+  character that needs Shift (or AltGr) gets it, so `ctrl+?` presses Ctrl, Shift and the
+  slash key; one the layout has no key for, pressed alone, is typed instead. A Mac's
+  `cmd` is Ctrl; F1–F24, the keypad, media and browser keys have names. What a
+  combination comes to is checked without pressing anything with
+  `willow-screen-<hash>.exe --keys <combination>`.
 - `screen.apps` → the open windows, front to back (Willow's own left out);
   `screen.elements` → a window's controls through UI Automation — reading needs only
   an unlocked screen; `screen.element` and `screen.focus` act, and hold off like an
   action. Invoking a control is Windows asking the app to do what a click would: no
-  mouse moves.
+  mouse moves; a control with no plain press is toggled, chosen or opened instead.
+  A window is read a level at a time, each level and what matters of its parts in one
+  question to the app (a `CacheRequest`), greyed-out controls marked `disabled`. Each
+  of these runs on a thread of its own and is waited for only so long (22, 14 and
+  10 s), so an app that has stopped answering costs that one request, never the
+  helper. Bringing a window forward borrows the foreground thread's input queue, and
+  when Windows' foreground lock still holds, tries again with Alt down (masked, so no
+  menu opens).
 
 **The overlay** (`screen-overlay.cs`) shows from `screen.begin` until `screen.end`,
 the user stopping it, or 40 quiet seconds. It has three parts:
@@ -260,7 +313,10 @@ the user stopping it, or 40 quiet seconds. It has three parts:
   shadow (a pass-through window of its own under the pill), and the bot's colour
   glows behind its badge. The badge is the bot's initial, ringed by an arc turning
   while it acts and a slow pulse while it only holds the screen. Then "{bot} is
-  clicking…", the doing shimmering, and a red-toned Stop with an Esc keycap.
+  clicking…", the doing shimmering, and a red-toned Stop with an Esc keycap. When
+  the bot is about to act where the pill stands, it slides to the bottom edge, above
+  the taskbar (and back when the bot acts there), so it never takes a click meant
+  for what is under it (`KeepClear`).
 - **The bot's own cursor.** A vector arrow in the bot's colour, it travels to each
   action on springs (an arc for a long hop), stretches along its way, breathes at
   rest, and dips with a ring where it presses. The action waits for it to arrive,
@@ -274,8 +330,8 @@ It comes and goes in motion (`Animate`):
 
 It is GDI+ in layered windows at real pixels, never activated, kept out of captures
 (`WDA_EXCLUDEFROMCAPTURE`; on older Windows it steps aside for a capture), and all
-but the pill let clicks through. A click on the pill itself is refused like
-Willow's own window. Esc is read with a low-level keyboard hook only while it shows,
+but the pill let clicks through. A click on the pill itself, should it still stand
+there, is refused like Willow's own window. Esc is read with a low-level keyboard hook only while it shows,
 and only the user's own key (not one flagged injected) counts; Stop or Esc ends the
 grant there and then, and the helper says so on its own line
 (`{"event":"stopped","how","grant","session"}`), which the companion broadcasts as
@@ -293,11 +349,20 @@ Willow's own windows (`willow`: the app's process, by name and by the companion'
 parent's id — a bot must never approve its own requests), typing or keys while
 Willow is in front (`willow-focus`; Win-key shortcuts and Alt+Tab, which Windows
 itself takes, still go), a locked screen or a sign-in or UAC prompt (`locked`: the
-lock screen's own window in front, or the input desktop not `Default`), and anything
-while the user is using the computer (`user-active`: input after the helper's own
-last action, within 1.5 s — read from `GetLastInputInfo`, with no hooks). The last
-is waited out once here, so the click with which the user allowed it does not turn
-the bot away; then it stands. Tested with a stand-in helper and by building the real
+lock screen's own window in front, or the input desktop not `Default`), a window of a
+program running as administrator — whose input and UI Automation Windows drops without
+a word — for a click, a key or its controls (`elevated`: its token's integrity level
+above the helper's), and anything while the user is using the computer (`user-active`:
+their own input within 1.5 s). Their input is told from any program's by the flag
+Windows sets on injected input, read by low-level keyboard and mouse hooks on a thread
+of their own for the helper's life, which note only when, never what (the pointer the
+helper set itself is its own, flagged or not); `GetLastInputInfo` covers only the time
+before they began, or a system where they cannot be set. `user-active` is waited out
+once here, so the click with which the user allowed it does not turn the bot away; then
+it stands. Typing stops where it got to the moment the user presses a key or a button,
+or stops the bot, rather than mix its letters with theirs (`interrupted`, saying how
+many characters went in and how the typed part ends) — never retried, which would type
+it twice. Tested with a stand-in helper and by building the real
 one (`node --test test/screen.test.mjs`); live checks against windows of their own
 are in `dots-harness-research/screen-check/`: `check.mjs` clicks and types (and stops
 before any input unless its window is in front), `uia-check.mjs` lists a form's
@@ -454,9 +519,10 @@ typed as themselves, other keys down and up by name, held keys let go when the
 wheel changes hands), and the bot sees and uses it by pixel:
 `/desktop/screenshot` and `/desktop/click | move | type | key | scroll | drag`, each
 action answering with the screen it left (`click` takes `hold`, modifier keys kept
-down through it; `move` leaves the pointer where hovering shows something). Those
-are the screen's own pixels: the window scales the picture to what the bot's model
-takes and turns its positions back (`runtime/screen-view.ts`). `/files/read` and
+down through it; `move` leaves the pointer where hovering shows something; `key`
+takes any single character, by its X name or Unicode keysym, and a Mac's cmd as
+Control). Those are the screen's own pixels: the window scales the picture to what
+the bot's model takes and turns its positions back (`runtime/screen-view.ts`). `/files/read` and
 `/files/write` also move bytes as base64 (`encoding`, 3 MB a piece), for copies to
 and from the user's computer. The bot's browser actions bring the
 browser's window to the front while the bot holds the wheel. If the desktop

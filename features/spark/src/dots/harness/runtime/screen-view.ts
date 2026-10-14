@@ -304,3 +304,25 @@ export const closerLook = async (vision: DotVision, shot: Picture, geometry: Scr
   const drawn = await vision.render(shot, { size, crop, rulers: geometry });
   return drawn ? { picture: drawn, magnified: Math.round(factor * 10) / 10 } : null;
 };
+
+/* ------------------------------------------------------------------------ */
+/* Positions out of date                                                     */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * The model response of its turn in which each screen a bot works last changed by its own hand. A position is read off
+ * a picture the model saw before the response it is given in; once an action earlier in that same response may have
+ * changed the screen — a menu opened, a page moved on — the position may point at whatever is there now, so it is not
+ * acted on: the bot looks at the screen that action left and points again.
+ */
+const changedIn = new Map<string, string>();
+
+/** An action in `step` may have changed `screen` ("user:<dot>", "computer:<dot>"). */
+export const screenChanged = (screen: string, step: string | undefined): void => {
+  if (step) changedIn.set(screen, step);
+};
+
+/** Whether `screen` changed earlier in `step`, so that a position given in it is out of date. */
+export const changedThisStep = (screen: string, step: string | undefined): boolean => step !== undefined && changedIn.get(screen) === step;
+
+export const STALE_POSITION = 'Not done: an action earlier in this same response may have changed the screen, so this position — read off the picture from before it — may no longer point where you meant. The screen that action left comes with these results: look at it, then point again.';

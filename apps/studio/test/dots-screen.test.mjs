@@ -181,6 +181,51 @@ it('says plainly what the screen turned away, and never reaches past it', async 
   assert.match((await tools.user_desktop_click.run({ x: 1200, y: 10 }, context())).observation, /is not on your screenshot/, 'past the grid is off the picture');
 });
 
+it('turns back a position given after an action of the same response, which may have moved what it pointed at', async () => {
+  const dotId = await newDot('act');
+  const { bridge, acts } = fakeScreen();
+  const tools = toolsFor(dotId, bridge, { permissions: 'act' });
+  const step = (name) => ({ ...context(), step: name });
+  await tools.user_screenshot.run({}, step('s1'));
+  assert.equal((await tools.user_desktop_click.run({ x: 678, y: 423 }, step('s1'))).failed, undefined, 'a look and then a position in one response is fine');
+  const before = acts.length;
+  const second = await tools.user_desktop_click.run({ x: 100, y: 100 }, step('s1'));
+  assert.equal(second.failed, true);
+  assert.match(second.observation, /^Not done: an action earlier in this same response may have changed the screen/);
+  assert.equal(acts.length, before, 'nothing reached the screen');
+  assert.equal((await tools.user_desktop_type.run({ text: 'May' }, step('s1'))).failed, undefined, 'typing after a click needs no position');
+  assert.equal((await tools.user_desktop_drag.run({ x: 1, y: 1, toX: 5, toY: 5 }, step('s1'))).failed, true);
+  assert.equal((await tools.user_desktop_scroll.run({ x: 1, y: 1, deltaY: 300 }, step('s1'))).failed, true);
+  assert.equal((await tools.user_desktop_click.run({ x: 100, y: 100 }, step('s2'))).failed, undefined, 'the next response points from the picture the last one left');
+});
+
+it('says what Windows kept it out of, and how far typing got when the user took the keyboard', async () => {
+  const dotId = await newDot('act');
+  const messages = {
+    elevated: '"Task Manager" belongs to a program running as administrator, and Windows keeps other programs out of it, so nothing was done. Ask the user to do this part themselves.',
+    interrupted: 'The user started using the keyboard or mouse while you were typing, so the typing stopped after 4 of 9 characters, ending "Dear". Wait for them to finish, look at the screen, and type only what is missing.',
+  };
+  let next = 'elevated';
+  const { bridge, acts } = fakeScreen({ act: () => ({ ok: false, refused: next, message: messages[next] }) });
+  const tools = toolsFor(dotId, bridge, { permissions: 'act', waitForUserMs: 10_000 });
+  await tools.user_screenshot.run({}, context());
+  const clicked = await tools.user_desktop_click.run({ x: 10, y: 10 }, context());
+  assert.equal(clicked.failed, true);
+  assert.equal(clicked.observation, messages.elevated);
+  next = 'interrupted';
+  const typed = await tools.user_desktop_type.run({ text: 'Dear Sam,' }, { ...context(), step: 's1' });
+  assert.equal(typed.observation, messages.interrupted);
+  assert.equal(acts.length, 2, 'typing cut short is never tried again by itself, which would type it twice');
+  assert.match((await tools.user_desktop_click.run({ x: 10, y: 10 }, { ...context(), step: 's1' })).observation, /^Not done: an action earlier/, 'and what it did type counts as a change');
+});
+
+it('marks a control that is there but greyed out', async () => {
+  const dotId = await newDot('act');
+  const { bridge } = fakeScreen({ elements: () => ({ snapshot: 4, window: 'Settings', process: 'SystemSettings', truncated: false, elements: [{ index: 0, role: 'button', name: 'Apply', actions: ['invoke'], disabled: true }] }) });
+  const tools = toolsFor(dotId, bridge, { permissions: 'act' });
+  assert.match((await tools.user_elements.run({}, context())).observation, /\[0\] button "Apply" — disabled — invoke/);
+});
+
 it('waits out a user at the mouse and then acts, telling the bot only if they keep at it', async () => {
   const dotId = await newDot('act');
   let tries = 0;

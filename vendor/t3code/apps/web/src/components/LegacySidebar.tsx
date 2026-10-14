@@ -782,19 +782,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               onDoubleClick={handleRenameInputClick}
             />
           ) : (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    className="min-w-0 flex-1 truncate text-sm"
-                    data-testid={`thread-title-${thread.id}`}
-                  >
-                    {thread.title}
-                  </span>
-                }
-              />
-              <TooltipPopup side="top">{thread.title}</TooltipPopup>
-            </Tooltip>
+            // As in Willow's chat list, a thread's row shows no tooltip of its own name.
+            <span
+              className="min-w-0 flex-1 truncate text-sm"
+              data-testid={`thread-title-${thread.id}`}
+            >
+              {thread.title}
+            </span>
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">

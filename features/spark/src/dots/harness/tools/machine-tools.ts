@@ -20,7 +20,7 @@
 import type { Attachment } from '@willow/ai/chat';
 import { applyPatch, parsePatch, type PatchOp } from '../../../harness/runtime/apply-patch';
 import { machineProblem, type DotMachineReply, type DotMachineRequest } from '../runtime/machine-bridge';
-import { closerLook, geometryFor, howToPoint, pointsIn, regionOnScreen, toScreen, viewOf, type Mark, type ScreenGeometry } from '../runtime/screen-view';
+import { changedThisStep, closerLook, geometryFor, howToPoint, pointsIn, regionOnScreen, screenChanged, STALE_POSITION, toScreen, viewOf, type Mark, type ScreenGeometry } from '../runtime/screen-view';
 import { patchable, patchPath } from './computer-tools';
 import type { DotToolContext, DotToolResult } from '../runtime/protocol';
 import { appendDotItem, getDotThread, updateDotRuntime } from '../thread/thread-store';
@@ -113,6 +113,12 @@ const refusal = (env: DotMachineEnv, reply: DotMachineReply<Body>): DotToolResul
   return fail(String(body.error || `Your computer could not do that (${reply.status}).`));
 };
 
+/** The bot's own screen, as one whose positions an earlier action of the same response may have put out of date. */
+const ownScreen = (env: DotMachineEnv): string => `computer:${env.dotId}`;
+
+/** What changes what is on the bot's screen: the browser shows on its desktop, so its actions do too. */
+const CHANGES_SCREEN = /^\/(browser\/(navigate|click|type|key|scroll)|desktop\/(click|move|type|key|scroll|drag))$/;
+
 const call = async (
   env: DotMachineEnv,
   context: DotToolContext,
@@ -126,7 +132,10 @@ const call = async (
   } catch (error) {
     return fail(machineProblem(error));
   }
-  if (reply.status >= 200 && reply.status < 300) return onDone(reply.body ?? {});
+  if (reply.status >= 200 && reply.status < 300) {
+    if (request.method === 'POST' && CHANGES_SCREEN.test(request.path)) screenChanged(ownScreen(env), context.step);
+    return onDone(reply.body ?? {});
+  }
   return refusal(env, reply);
 };
 
@@ -222,7 +231,8 @@ const point = (args: Record<string, unknown>, xName = 'x', yName = 'y'): { x: nu
 };
 
 /** A position the bot gave, as its screen's pixel; with what to say when it is not on its screenshot. */
-const onScreen = (env: DotMachineEnv, args: Record<string, unknown>, xName = 'x', yName = 'y'): { at: { x: number; y: number }; given: { x: number; y: number } } | string => {
+const onScreen = (env: DotMachineEnv, context: DotToolContext, args: Record<string, unknown>, xName = 'x', yName = 'y'): { at: { x: number; y: number }; given: { x: number; y: number } } | string => {
+  if (changedThisStep(ownScreen(env), context.step)) return STALE_POSITION;
   const given = point(args, xName, yName);
   if (!given) return `Give "${xName}" and "${yName}": ${spaceWords(env)}.`;
   const at = toScreen(geometryNow(env), given);
@@ -425,7 +435,7 @@ const desktopClickTool = (env: DotMachineEnv): DotToolEntry => ({
   handler: {
     id: 'computer_desktop_click',
     run: async (args, context) => {
-      const target = onScreen(env, args);
+      const target = onScreen(env, context, args);
       if (typeof target === 'string') return fail(target);
       const button = stringArg(args, 'button') ?? 'left';
       const clicks = args.clicks === undefined ? 1 : Number(args.clicks);
@@ -448,7 +458,7 @@ const desktopMoveTool = (env: DotMachineEnv): DotToolEntry => ({
   handler: {
     id: 'computer_desktop_move',
     run: async (args, context) => {
-      const target = onScreen(env, args);
+      const target = onScreen(env, context, args);
       if (typeof target === 'string') return fail(target);
       return call(env, context, { method: 'POST', path: '/desktop/move', body: target.at, timeoutMs: 30_000 }, (body) =>
         desktopResult(env, `Moved the pointer to (${target.given.x}, ${target.given.y}).`, body, [{ at: target.at, kind: 'point' }]));
@@ -500,7 +510,7 @@ const desktopScrollTool = (env: DotMachineEnv): DotToolEntry => ({
   handler: {
     id: 'computer_desktop_scroll',
     run: async (args, context) => {
-      const target = onScreen(env, args);
+      const target = onScreen(env, context, args);
       if (typeof target === 'string') return fail(target);
       const deltaY = args.deltaY === undefined ? 0 : Number(args.deltaY);
       const deltaX = args.deltaX === undefined ? 0 : Number(args.deltaX);
@@ -520,9 +530,9 @@ const desktopDragTool = (env: DotMachineEnv): DotToolEntry => ({
   handler: {
     id: 'computer_desktop_drag',
     run: async (args, context) => {
-      const from = onScreen(env, args);
+      const from = onScreen(env, context, args);
       if (typeof from === 'string') return fail(from);
-      const to = onScreen(env, args, 'toX', 'toY');
+      const to = onScreen(env, context, args, 'toX', 'toY');
       if (typeof to === 'string') return fail(to);
       return call(env, context, { method: 'POST', path: '/desktop/drag', body: { ...from.at, toX: to.at.x, toY: to.at.y }, timeoutMs: 30_000 }, (body) =>
         desktopResult(env, `Dragged from (${from.given.x}, ${from.given.y}) to (${to.given.x}, ${to.given.y}).`, body, [{ at: from.at, kind: 'from' }, { at: to.at, kind: 'point' }]));

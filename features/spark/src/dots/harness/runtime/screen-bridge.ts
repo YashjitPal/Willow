@@ -111,6 +111,8 @@ export interface DotScreenElement {
   actions?: string[];
   center?: { x: number; y: number; left: number; top: number; width: number; height: number };
   focusable?: boolean;
+  /** Greyed out: there, but not to be worked until something else changes. */
+  disabled?: boolean;
 }
 
 export interface DotScreenElements {
@@ -130,8 +132,11 @@ export interface DotScreenTarget {
   window?: number;
 }
 
-/** Why the screen turned something away. */
-export type DotScreenRefusal = 'user-active' | 'willow' | 'willow-focus' | 'locked' | 'stopped';
+/**
+ * Why the screen turned something away. "elevated": the window is a program's run as administrator, which Windows keeps
+ * other programs' input out of; "interrupted": typing stopped part way, the user having taken the keyboard or mouse.
+ */
+export type DotScreenRefusal = 'user-active' | 'willow' | 'willow-focus' | 'locked' | 'stopped' | 'elevated' | 'interrupted';
 
 export type DotScreenRefused = { ok: false; refused: DotScreenRefusal; message: string };
 
@@ -155,7 +160,7 @@ export interface DotScreenBridge {
   element: (request: { snapshot: number; index: number; action: string; value?: string }) => Promise<{ ok: true; name?: string } | DotScreenRefused>;
   focus: (target: DotScreenTarget) => Promise<{ ok: true; foreground?: boolean; title?: string } | DotScreenRefused>;
   /** Linux: opens an app on the bot's own desktop. */
-  launch: (command: string) => Promise<{ ok: true; started?: string } | DotScreenRefused>;
+  launch: (command: string) => Promise<{ ok: true; started?: string; note?: string } | DotScreenRefused>;
   /** Shows the bot at the controls (Windows' overlay), under the grant the user gave; nothing elsewhere. */
   begin: (show: { name: string; color?: string; grant: string; session: string }) => Promise<unknown>;
   /** Takes the overlay down, and on Linux the bot's desktop with it. */

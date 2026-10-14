@@ -11,6 +11,7 @@ import { formatSparkRelativeTime } from '../../spark-types';
 import { AppearancePicker } from '../character/appearance-picker/appearance-picker';
 import { dotComputerFrames, dotComputers, dotComputerView, openDotComputer, setUpDotComputer, turnOnDotComputer, type DotComputerView } from '../computer/dot-computer-store';
 import { dotWallpaperColors, dotWallpaperUrl } from '../computer/dot-wallpaper';
+import { readableTurnError } from '../dot-error';
 import { DiscordLogo, SlackLogo } from '../dot-icons';
 import { dotTintHex, useDotTint } from '../dot-tint';
 import { prefillSparkDotComposer, setSparkDotCategory, sparkDotName, sparkDots, type SparkDot } from '../dots-store';
@@ -599,7 +600,7 @@ function NowCard({ dot, name, thread, activity, now, asks, onReview }: { dot: Sp
   } else if (runtime.status === 'error') {
     card = {
       title: 'Couldn’t finish',
-      sub: runtime.lastError ?? 'Something went wrong',
+      sub: runtime.lastError ? readableTurnError(runtime.lastError).message : 'Something went wrong',
       action: (
         <button type="button" className="dot-panel__button" onClick={() => retryDot(dot.id)}>
           Try again

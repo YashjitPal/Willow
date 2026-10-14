@@ -267,7 +267,13 @@ limits, overload, outages, dropped connections (`TRANSIENT_ERROR`): after one
 minute, then four, fifteen and sixty, the error line saying when. Such a turn leaves
 its input unhandled, so the next try resumes from it (seeing whatever the failed
 one already did). Anything else stops with the error shown; Retry hands the last
-input back, so there is always something to answer.
+input back, so there is always something to answer. `runtime.lastError` keeps the
+provider's own words; the conversation's banner and the profile's Now card show them
+as a sentence of whose service it was and what to do (`dots/dot-error.ts`: a key it
+turned down, a rate limit or quota, a model it does not offer, a conversation too long,
+trouble on its side, no connection), with the original behind Details
+(`dots/DotTurnError.tsx`) and the retry note kept on the end. The harness's own
+messages show as they are.
 
 **The notebook keeps out what should not be in view on every turn**: writes drop
 zero-width and direction-changing characters (a page or an email cannot smuggle
@@ -991,9 +997,17 @@ now.
   bot asks again only once the user has written since. Allow, Don't allow and Stop
   each wake the bot; the request counts among what it waits on the user for.
 - **A shared space.** The helper refuses an action while the user is using the
-  computer (their input within 1.5 s; the companion waits out one, so the click that
-  allowed it does not count), on a locked screen, on any of Willow's own windows, and
-  typing while Willow is in front. An action turned away because the user is at the
+  computer (their own input within 1.5 s, told from injected input by the flag Windows
+  sets on it; the companion waits out one, so the click that allowed it does not
+  count), on a locked screen, on any of Willow's own windows, typing while Willow is
+  in front, and a window of a program running as administrator, which Windows keeps
+  the bot's input out of (`elevated`, in the companion's words, naming the window).
+  Typing stops where it got to when the user presses a key or a button, or stops the
+  bot (`interrupted`, saying how much went in): never waited out and retried, which
+  would type it twice, and counted as a change of the screen. A position given after
+  an action of the same response is turned back as on the bot's own computer (below).
+  Each action waits for the screen to settle before its screenshot, and the pill
+  steps aside rather than take a click. An action turned away because the user is at the
   mouse or keyboard waits where it is and goes ahead once they stop (`patiently`,
   polling every 0.6 s for up to 30 s, "Waiting for you to finish" under the bot's
   name): a refusal the bot could only answer by stopping used to end the task. Past
@@ -1079,7 +1093,18 @@ and a change of colour sends it at once (`machine.look`).
   and the rest: the picture's pixels). Each screenshot's result says which, and the
   window turns every position back into the screen's pixels; one off the picture is
   refused before anything moves. Pictures are scaled, marked and magnified with the
-  window's canvas; without one they go as they came, in their own pixels. The screen itself starts the first time something needs it —
+  window's canvas; without one they go as they came, in their own pixels.
+- **A position is good for the screen it was read from.** Calls a model writes
+  together share a `step` (`DotToolContext.step`, the turn and its iteration in
+  `dot-loop.ts`), and every action that changes a screen — a click, a key, a page
+  moving on in the browser, which shows on the same desktop — records that step for
+  it (`screenChanged`). A position given after such an action in the same response
+  was read off a picture from before it, and may point at a menu that has since
+  opened or a page that has moved: it is turned back unacted (`changedThisStep`,
+  `STALE_POSITION`), and the screen that action left comes with the results to point
+  again from. Typing and keys after a click take no position, and go. This is the
+  same for the bot's own computer (`computer:<dot>`) and the user's screen
+  (`user:<dot>`), and is where its clicks most often landed on the wrong thing. The screen itself starts the first time something needs it —
   the browser, a screenshot or desktop action, a program with a window, a
   pane watching — in about four seconds, and stays on until the computer
   turns off; commands and files never wait for it.
