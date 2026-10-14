@@ -14,7 +14,6 @@ import {
   PrStatusTooltipContent,
   terminalStatusFromRunningIds,
   synchronizeTerminalPulse,
-  ThreadStatusLabel,
   ThreadWorktreeIndicator,
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
@@ -181,7 +180,6 @@ import {
   isContextMenuPointerDown,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
-  resolveProjectStatusIndicator,
   resolveThreadRowClassName,
   resolveThreadLastVisitedAt,
   resolveThreadStatusPill,
@@ -190,7 +188,6 @@ import {
   sortProjectsForSidebar,
   useSidebarRowSubscriptionLease,
   useThreadJumpHintVisibility,
-  ThreadStatusPill,
 } from "./Sidebar.logic";
 import { sortThreads } from "../lib/threadSort";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
@@ -466,6 +463,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       lastVisitedAt,
     },
   });
+  const threadWorking =
+    threadStatus?.label === "Working" ||
+    threadStatus?.label === "Connecting" ||
+    threadStatus?.label === "Waiting";
   const linkedPullRequestStatus = useLinkedThreadPullRequest(
     thread.environmentId,
     thread.linkedPullRequest,
@@ -769,7 +770,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               <PullRequestGlyph.pullRequest className="size-3" />
             </a>
           ) : null}
-          {threadStatus && <ThreadStatusLabel status={threadStatus} />}
+          {/* Willow's chat list names no status: a working thread spins in its project's folder
+              column instead, the title staying where it is (willow/sidebar.css). */}
+          {threadWorking ? (
+            <Spinner size="lg" aria-label={threadStatus?.label} data-willow-thread-spinner="" />
+          ) : null}
           {renamingThreadKey === threadKey ? (
             <input
               ref={handleRenameInputRef}
@@ -946,7 +951,6 @@ interface SidebarProjectThreadListProps {
   projectKey: string;
   projectExpanded: boolean;
   hasOverflowingThreads: boolean;
-  hiddenThreadStatus: ThreadStatusPill | null;
   orderedProjectThreadKeys: readonly string[];
   renderedThreads: readonly SidebarThreadSummary[];
   showEmptyThreadState: boolean;
@@ -1002,7 +1006,6 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     projectKey,
     projectExpanded,
     hasOverflowingThreads,
-    hiddenThreadStatus,
     orderedProjectThreadKeys,
     renderedThreads,
     showEmptyThreadState,
@@ -1099,7 +1102,6 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             }}
           >
             <span className="flex min-w-0 flex-1 items-center gap-2">
-              {hiddenThreadStatus && <ThreadStatusLabel status={hiddenThreadStatus} compact />}
               <span>Show more</span>
             </span>
           </SidebarMenuSubButton>
@@ -1318,65 +1320,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     return counts;
   }, [memberProjectByScopedKey, project.memberProjects, projectThreads]);
 
-  const { projectStatus, workingThreadCount, visibleProjectThreads, orderedProjectThreadKeys } =
-    useMemo(() => {
-      const lastVisitedAtByThreadKey = new Map(
-        projectThreads.map((thread, index) => [
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-          resolveThreadLastVisitedAt(
-            thread.lastVisitedAt,
-            threadLastVisitedAts[index] ?? undefined,
-          ),
-        ]),
-      );
-      const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-        const lastVisitedAt = lastVisitedAtByThreadKey.get(
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        );
-        return resolveThreadStatusPill({
-          thread: {
-            ...thread,
-            ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-          },
-        });
-      };
-      const visibleProjectThreads = sortThreads(
-        projectThreads.filter((thread) => thread.archivedAt === null),
-        threadSortOrder,
-      );
-      const threadStatuses = visibleProjectThreads.map((thread) =>
-        resolveProjectThreadStatus(thread),
-      );
-      const projectStatus = resolveProjectStatusIndicator(threadStatuses);
-      return {
-        orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        ),
-        projectStatus,
-        workingThreadCount: threadStatuses.filter((status) => status?.label === "Working").length,
-        visibleProjectThreads,
-      };
-    }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
-  const pinnedCollapsedThread = useMemo(() => {
-    const activeThreadKey = activeRouteThreadKey ?? undefined;
-    if (!activeThreadKey || projectExpanded) {
-      return null;
-    }
-    return (
-      visibleProjectThreads.find(
-        (thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeThreadKey,
-      ) ?? null
-    );
-  }, [activeRouteThreadKey, projectExpanded, visibleProjectThreads]);
-
-  const {
-    hasOverflowingThreads,
-    hiddenThreadStatus,
-    renderedThreads,
-    showEmptyThreadState,
-    shouldShowThreadPanel,
-  } = useMemo(() => {
+  const { workingThreadCount, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
     const lastVisitedAtByThreadKey = new Map(
       projectThreads.map((thread, index) => [
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1394,43 +1338,64 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
-    const previewThreads =
-      isThreadListExpanded || !hasOverflowingThreads
-        ? visibleProjectThreads
-        : visibleProjectThreads.slice(0, sidebarThreadPreviewCount);
-    const visibleThreadKeys = new Set(
-      [...previewThreads, ...(pinnedCollapsedThread ? [pinnedCollapsedThread] : [])].map((thread) =>
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      ),
+    const visibleProjectThreads = sortThreads(
+      projectThreads.filter((thread) => thread.archivedAt === null),
+      threadSortOrder,
     );
-    const renderedThreads = pinnedCollapsedThread
-      ? [pinnedCollapsedThread]
-      : visibleProjectThreads.filter((thread) =>
-          visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-        );
-    const hiddenThreads = visibleProjectThreads.filter(
-      (thread) =>
-        !visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+    const threadStatuses = visibleProjectThreads.map((thread) =>
+      resolveProjectThreadStatus(thread),
     );
     return {
-      hasOverflowingThreads,
-      hiddenThreadStatus: resolveProjectStatusIndicator(
-        hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
+      orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       ),
-      renderedThreads,
-      showEmptyThreadState: projectExpanded && visibleProjectThreads.length === 0,
-      shouldShowThreadPanel: projectExpanded || pinnedCollapsedThread !== null,
+      workingThreadCount: threadStatuses.filter((status) => status?.label === "Working").length,
+      visibleProjectThreads,
     };
-  }, [
-    isThreadListExpanded,
-    pinnedCollapsedThread,
-    projectExpanded,
-    projectThreads,
-    sidebarThreadPreviewCount,
-    threadLastVisitedAts,
-    visibleProjectThreads,
-  ]);
+  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+  const pinnedCollapsedThread = useMemo(() => {
+    const activeThreadKey = activeRouteThreadKey ?? undefined;
+    if (!activeThreadKey || projectExpanded) {
+      return null;
+    }
+    return (
+      visibleProjectThreads.find(
+        (thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeThreadKey,
+      ) ?? null
+    );
+  }, [activeRouteThreadKey, projectExpanded, visibleProjectThreads]);
+
+  const { hasOverflowingThreads, renderedThreads, showEmptyThreadState, shouldShowThreadPanel } =
+    useMemo(() => {
+      const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
+      const previewThreads =
+        isThreadListExpanded || !hasOverflowingThreads
+          ? visibleProjectThreads
+          : visibleProjectThreads.slice(0, sidebarThreadPreviewCount);
+      const visibleThreadKeys = new Set(
+        [...previewThreads, ...(pinnedCollapsedThread ? [pinnedCollapsedThread] : [])].map(
+          (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+      );
+      const renderedThreads = pinnedCollapsedThread
+        ? [pinnedCollapsedThread]
+        : visibleProjectThreads.filter((thread) =>
+            visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+          );
+      return {
+        hasOverflowingThreads,
+        renderedThreads,
+        showEmptyThreadState: projectExpanded && visibleProjectThreads.length === 0,
+        shouldShowThreadPanel: projectExpanded || pinnedCollapsedThread !== null,
+      };
+    }, [
+      isThreadListExpanded,
+      pinnedCollapsedThread,
+      projectExpanded,
+      sidebarThreadPreviewCount,
+      visibleProjectThreads,
+    ]);
 
   const handleProjectButtonClick = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -2411,27 +2376,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               {project.groupedProjectCount} projects
             </span>
           ) : null}
+          {/* Its threads' status shows as their spinners and this count, never as dots. */}
           {workingThreadCount > 0 ? (
             <span className="willow-project-heading__active">{workingThreadCount} active</span>
-          ) : null}
-          {!projectExpanded && projectStatus ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    aria-label={projectStatus.label}
-                    className={`willow-project-heading__status ${projectStatus.colorClass}`}
-                  />
-                }
-              >
-                <span
-                  className={`size-2 rounded-full ${projectStatus.dotClass} ${
-                    projectStatus.pulse ? "animate-status-pulse" : ""
-                  }`}
-                />
-              </TooltipTrigger>
-              <TooltipPopup side="top">{projectStatus.label}</TooltipPopup>
-            </Tooltip>
           ) : null}
         </SidebarMenuButton>
         {/* Environment badge – visible by default, crossfades with the
@@ -2494,7 +2441,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         projectKey={project.projectKey}
         projectExpanded={projectExpanded}
         hasOverflowingThreads={hasOverflowingThreads}
-        hiddenThreadStatus={hiddenThreadStatus}
         orderedProjectThreadKeys={orderedProjectThreadKeys}
         renderedThreads={renderedThreads}
         showEmptyThreadState={showEmptyThreadState}

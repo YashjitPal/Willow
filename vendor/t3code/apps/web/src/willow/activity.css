@@ -1140,27 +1140,19 @@ a.willow-web-results__item:hover {
 /*
  * Rows coming and going as in the ChatGPT app (Codex's webview, willow/rowMotion.ts). A row that
  * arrives while a turn runs fades in as the app's streamed markdown does (`_FadeIn`: 150ms on
- * cubic-bezier(.37, .55, .86, .88)). Opening "Worked for" grows the turn's work from nothing,
- * faded and 8px up, over 300ms on the enter curve; closing takes it back over 150ms on the snappy
- * one (collapsed-turn-disclosure's motion.div). Its clip reaches 8px to the sides, like the
- * app's `-ms-2 ps-2`. With reduced motion the rows keep their height and place and only fade.
+ * cubic-bezier(.37, .55, .86, .88)). Opening and closing a disclosure is drawn frame by frame
+ * there, the rows growing and shrinking as one block; until that motion measures an opening row,
+ * the row stays shut, so it never paints open first.
  */
 [data-row-motion="arrive"] {
   animation: willow-row-arrive 150ms cubic-bezier(0.37, 0.55, 0.86, 0.88) both;
 }
 
-[data-row-motion="fold-enter"],
-[data-row-motion="fold-exit"] {
-  interpolate-size: allow-keywords;
-  clip-path: inset(0 -8px);
-}
-
-[data-row-motion="fold-enter"] {
-  animation: willow-fold-enter 300ms cubic-bezier(0.19, 1, 0.22, 1) both;
-}
-
-[data-row-motion="fold-exit"] {
-  animation: willow-fold-exit 150ms cubic-bezier(0.23, 1, 0.32, 1) both;
+[data-row-motion="fold-enter"]:not([data-motion-driven]) {
+  height: 0;
+  padding-block: 0;
+  overflow: hidden;
+  opacity: 0;
 }
 
 @keyframes willow-row-arrive {
@@ -1169,41 +1161,9 @@ a.willow-web-results__item:hover {
   }
 }
 
-@keyframes willow-row-leave {
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes willow-fold-enter {
-  from {
-    height: 0;
-    padding-block: 0;
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-}
-
-@keyframes willow-fold-exit {
-  to {
-    height: 0;
-    padding-block: 0;
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   [data-row-motion="arrive"] {
     animation: none;
-  }
-
-  [data-row-motion="fold-enter"] {
-    animation: willow-row-arrive 150ms cubic-bezier(0.19, 1, 0.22, 1) both;
-  }
-
-  [data-row-motion="fold-exit"] {
-    animation: willow-row-leave 150ms cubic-bezier(0.23, 1, 0.32, 1) both;
   }
 }
 

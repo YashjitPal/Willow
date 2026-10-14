@@ -85,18 +85,18 @@
  * it. At 960px and under that colour starts 12px above the box. The overlay's own top padding
  * (pt-1.5, sm:pt-2) is part of the fade.
  */
-[data-chat-composer-overlay="true"] {
+:root {
   --willow-dock-pad: 6px;
   --willow-dock-solid: 0px;
 }
 
 @media (min-width: 640px) {
-  [data-chat-composer-overlay="true"] {
+  :root {
     --willow-dock-pad: 8px;
   }
 }
 
-html[data-willow-compact] [data-chat-composer-overlay="true"] {
+html[data-willow-compact] {
   --willow-dock-solid: 12px;
 }
 
@@ -845,51 +845,99 @@ html[data-willow-compact] [data-chat-composer-overlay="true"] {
 /* ── Scroll to end (ChatView) ───────────────────────────────────────────── */
 
 /*
- * Codex's round jump button over the box (ThreadView's "Scroll to latest") as Willow's 36px tonal
- * icon button (settings' #282a2c / #e3e3e3, a step deeper under the pointer), no edge or shadow,
- * holding only the model pill's 24px chevron.
+ * Willow's scroll-to-bottom button (features/chat ScrollToBottomFab, Gemini's back-to-bottom-fab):
+ * a 40px round arrow centred over the box and 36px above it, on #1f1f1f (#1c1c1c under 960px,
+ * white in the light theme) with Gemini's 20px shadow. Hidden it is scaled to 0.8 and 8px down;
+ * it rises and fades in over 0.2s on Gemini's curve, and leaves on a 0.1s fade when pressed.
  */
+.willow-scroll-to-end {
+  --willow-fab-surface: #ffffff;
+  --willow-fab-ink: #1f1f1f;
+  --willow-fab-hover-ink: #1f1f1f;
+  --willow-fab-shadow: rgb(0 0 0 / 12%);
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+:root.dark .willow-scroll-to-end {
+  --willow-fab-surface: #1f1f1f;
+  --willow-fab-ink: #e3e3e3;
+  --willow-fab-hover-ink: #e6e6e6;
+  --willow-fab-shadow: rgb(0 0 0 / 40%);
+}
+
+@media (max-width: 959.98px) {
+  :root.dark .willow-scroll-to-end {
+    --willow-fab-surface: #1c1c1c;
+    --willow-fab-hover-ink: #e0e0e0;
+  }
+}
+
 [data-willow-scroll-to-end] {
-  width: 36px;
-  height: 36px;
+  display: flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
   padding: 0;
   border: 0;
   border-radius: 9999px;
-  background: #e3e3e3;
-  box-shadow: none;
-  color: #1f1f1f;
+  background-color: var(--willow-fab-surface);
+  box-shadow: 0 0 20px 0 var(--willow-fab-shadow);
+  color: var(--willow-fab-ink);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.8) translateY(8px);
+  pointer-events: none;
+  transition:
+    opacity 0.2s cubic-bezier(0.2, 0, 0, 1),
+    transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+    background-color 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-willow-scroll-to-end][data-visible] {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: auto;
+}
+
+[data-willow-scroll-to-end][data-leaving] {
+  transition-duration: 0.1s;
 }
 
 [data-willow-scroll-to-end]:hover {
-  background: #d1d5db;
+  background-color: color-mix(in srgb, var(--willow-fab-hover-ink) 8%, var(--willow-fab-surface));
 }
 
-:root.dark [data-willow-scroll-to-end] {
-  background: #282a2c;
-  color: #e3e3e3;
+[data-willow-scroll-to-end]:focus-visible {
+  outline: 2px solid #0b57d0;
+  outline-offset: 2px;
 }
 
-:root.dark [data-willow-scroll-to-end]:hover {
-  background: #323436;
-}
-
-[data-willow-scroll-to-end]::before {
-  display: none;
+:root.dark [data-willow-scroll-to-end]:focus-visible {
+  outline-color: #a8c7fa;
 }
 
 [data-willow-scroll-to-end] svg {
-  width: 24px;
-  height: 24px;
-  opacity: 1;
+  width: 20px;
+  height: 20px;
 }
 
-[data-willow-scroll-to-end] .willow-icon-glyph--luminous {
+[data-willow-scroll-to-end] .willow-icon-glyph {
   font-variation-settings:
     "FILL" 0,
-    "wght" 300,
+    "wght" 320,
     "GRAD" 0,
-    "ROND" 100,
-    "opsz" 24;
+    "opsz" 20;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-willow-scroll-to-end] {
+    transition: none;
+  }
 }
 
 /* ── Queued follow-ups (Codex's queued-message-list, a row of the rail) ──── */

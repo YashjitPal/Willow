@@ -150,7 +150,7 @@ export function CodexChevron({ expanded }: { expanded: boolean }) {
 
 /**
  * A row's words, the file it names standing out at 60% as Codex's file links do among the row's
- * dimmer words ("Read SettingsPage.tsx"), its full path as the title.
+ * dimmer words ("Read SettingsPage.tsx"). No tooltip of its path: Codex's rows show none.
  */
 export function CodexLabelView({ label }: { label: CodexLabel }) {
   return (
@@ -159,9 +159,7 @@ export function CodexLabelView({ label }: { label: CodexLabel }) {
       {label.file ? (
         <>
           {" "}
-          <span className="willow-activity-file" title={label.file.path}>
-            {label.file.name}
-          </span>
+          <span className="willow-activity-file">{label.file.name}</span>
         </>
       ) : null}
       {label.rest ? ` ${label.rest}` : null}

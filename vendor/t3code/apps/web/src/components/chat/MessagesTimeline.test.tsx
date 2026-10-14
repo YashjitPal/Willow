@@ -1567,11 +1567,7 @@ describe("MessagesTimeline", () => {
       await act(() => fold().props.onClick());
       expect(fold().props["aria-expanded"]).toBe(true);
       expect(workRow()?.props["data-row-motion"]).toBe("fold-enter");
-      // A word's fade ending inside the row leaves its entrance alone; its own ending clears it.
-      await act(() => workRow()!.props.onAnimationEnd({ target: {}, currentTarget: workRow() }));
-      expect(workRow()?.props["data-row-motion"]).toBe("fold-enter");
-      const row = {};
-      await act(() => workRow()!.props.onAnimationEnd({ target: row, currentTarget: row }));
+      await act(() => vi.advanceTimersByTimeAsync(350));
       expect(workRow()?.props["data-row-motion"]).toBeUndefined();
 
       await act(() => fold().props.onClick());

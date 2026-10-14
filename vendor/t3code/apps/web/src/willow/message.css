@@ -295,9 +295,23 @@ html[data-willow-compact] [data-timeline-row-kind="message"]:has(> * > [data-wil
   margin-inline-start: -6px;
 }
 
-/* The row's first circle reaches those 6px past the reply's edge, past each row's clip. */
-:is([data-timeline-root], :has(> .messages-timeline-row-frame)) {
-  overflow-clip-margin: 8px;
+/*
+ * The row's first circle reaches past the reply's edge. Each row's lane clips sideways (T3's
+ * overflow-x: clip, which Chromium will not widen with overflow-clip-margin unless both axes
+ * clip), so here it clips with a path 8px wider instead, and nothing past that shows.
+ */
+[data-timeline-root] {
+  overflow-x: visible;
+  clip-path: inset(-100vh -8px);
+}
+
+/*
+ * The list's rows also contain their own paint (LegendList's inline `contain: layout style paint`),
+ * which cuts the same circle where the lane meets the row's edge at narrow widths, so a row with
+ * the buttons keeps only layout and style containment.
+ */
+:has(> .messages-timeline-row-frame [data-willow-assistant-actions]) {
+  contain: layout style !important;
 }
 
 [data-willow-assistant-actions] :is(button, [role="button"]) {

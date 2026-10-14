@@ -27,12 +27,22 @@ import { willowSymbol } from "../../willow/icons";
 import { ResponseRating } from "../../willow/ResponseRating";
 import {
   createRowMotionStore,
-  FOLD_EXIT_MS,
+  GROUP_TOGGLE,
   ROW_MOTION_STALE_MS,
   RowMotionCtx,
-  takeArrivedRowIds,
+  runGroupMotion,
+  TURN_FOLD_CLOSE,
+  TURN_FOLD_OPEN,
   useRowMotion,
+  type MotionPreset,
 } from "../../willow/rowMotion";
+import {
+  initialRowMotionState,
+  nextRowMotionState,
+  withGhostRows,
+  type DisclosureMotion,
+  type RowMotionState,
+} from "../../willow/rowMotionState";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
@@ -89,6 +99,10 @@ import {
 
 const NOOP_USE_ARTIFACT_TEMPLATE = () => {};
 const NOOP_OPEN_ATTACHMENT = (_attachment: ChatFileAttachment) => {};
+
+let disclosureSerial = 0;
+/** Tells one toggle's motion from the next (willow/rowMotionState.ts). */
+const nextDisclosureSerial = () => ++disclosureSerial;
 
 import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
 import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
@@ -208,7 +222,6 @@ import {
 import { useAssistantCitationTarget, type CitationHistoryPage } from "./useAssistantCitationTarget";
 import {
   computeStableMessagesTimelineRows,
-  deriveMessagesTimelineRows,
   deriveMessagesTimelineRowsWithState,
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
@@ -348,6 +361,7 @@ interface TimelineRowSharedState {
   }) => void;
   onToggleTurnFold: (runId: RunId) => void;
   onToggleAttemptFold: (attemptId: RunAttemptId) => void;
+  onUserRowMounted: ((messageId: MessageId) => void) | null;
   onFileOpen: (attachment: ChatFileAttachment) => void;
   onFileDownload: (attachment: ChatFileAttachment) => void;
   openPullRequest: (event: MouseEvent<HTMLElement>, url: string) => void;
@@ -498,6 +512,8 @@ interface MessagesTimelineProps {
   anchorMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
+  /** A sent message's row has mounted, before it first paints (Willow's entrance starts here). */
+  onUserRowMounted?: (messageId: MessageId) => void;
   contentInsetEndAdjustment: number;
   onIsAtEndChange: (isAtEnd: boolean) => void;
   /**
@@ -574,6 +590,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   anchorMessageId,
   onAnchorReady,
   onAnchorSizeChanged,
+  onUserRowMounted,
   contentInsetEndAdjustment,
   onIsAtEndChange,
   onContentOverflowChange,
@@ -642,8 +659,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [minimapStripMap] = useState(() => new Map<string, HTMLSpanElement>());
   const minimapSelectionRef = useRef<HTMLSpanElement | null>(null);
   const [rowMotion] = useState(createRowMotionStore);
-  const knownRowIdsRef = useRef<{ readonly key: string; readonly ids: Set<string> } | null>(null);
-  const foldOpeningRef = useRef(false);
+  const [pendingDisclosure, setPendingDisclosure] = useState<DisclosureMotion | null>(null);
   const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
   const disclosureAnchorKeyRef = useRef<string | null>(null);
   const disclosureSettleFrameRef = useRef<number | null>(null);
@@ -706,62 +722,36 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     return disclosureAnchorKey === null || row.id === disclosureAnchorKey;
   }, []);
 
-  const closingRunIdsRef = useRef(new Set<RunId>());
   const onToggleTurnFold = useCallback(
     (runId: RunId) => {
-      if (closingRunIdsRef.current.has(runId)) return;
-      const toggle = () => {
-        suspendEndScrollMaintenanceForDisclosure(`turn-fold:${runId}`);
-        setExpandedRunIds((existing) => {
-          const next = new Set(existing);
-          if (next.has(runId)) {
-            next.delete(runId);
-          } else {
-            next.add(runId);
-          }
-          return next;
-        });
-      };
-      if (!expandedRunIds.has(runId)) {
-        foldOpeningRef.current = true;
-        toggle();
-        return;
-      }
-      // Codex lets a closing turn's work leave before it goes (collapsed-turn-disclosure's
-      // AnimatePresence): the rows the fold hides shrink away, then the fold closes.
-      const projection = rowsProjectionRef.current?.projection;
-      const closedRunIds = new Set(expandedRunIds);
-      closedRunIds.delete(runId);
-      const staying = new Set(
-        projection
-          ? deriveMessagesTimelineRows({ ...projection.input, expandedRunIds: closedRunIds }).map(
-              (row) => row.id,
-            )
-          : [],
-      );
-      const shown = projection?.rows ?? [];
-      const leaving = shown.filter((row) => !staying.has(row.id)).map((row) => row.id);
-      if (leaving.length === 0) {
-        toggle();
-        return;
-      }
-      const foldRowIds = shown
-        .filter((row) => row.kind === "turn-fold" && row.runId === runId)
-        .map((row) => row.id);
-      closingRunIdsRef.current.add(runId);
-      rowMotion.set(leaving, "fold-exit");
-      rowMotion.set(foldRowIds, "closing");
-      setTimeout(() => {
-        closingRunIdsRef.current.delete(runId);
-        rowMotion.set([...leaving, ...foldRowIds], undefined);
-        toggle();
-      }, FOLD_EXIT_MS);
+      suspendEndScrollMaintenanceForDisclosure(`turn-fold:${runId}`);
+      // The rows it hides leave as ghosts and shrink away (willow/rowMotionState.ts).
+      const closing = expandedRunIds.has(runId);
+      setPendingDisclosure({
+        serial: nextDisclosureSerial(),
+        kind: closing ? "close" : "open",
+        preset: closing ? TURN_FOLD_CLOSE : TURN_FOLD_OPEN,
+      });
+      setExpandedRunIds((existing) => {
+        const next = new Set(existing);
+        if (next.has(runId)) {
+          next.delete(runId);
+        } else {
+          next.add(runId);
+        }
+        return next;
+      });
     },
-    [expandedRunIds, rowMotion, suspendEndScrollMaintenanceForDisclosure],
+    [expandedRunIds, suspendEndScrollMaintenanceForDisclosure],
   );
   const onToggleWorkGroup = useCallback(
     (groupId: string, anchorKey: string) => {
       suspendEndScrollMaintenanceForDisclosure(anchorKey, expandedWorkGroupIds.has(groupId));
+      setPendingDisclosure({
+        serial: nextDisclosureSerial(),
+        kind: expandedWorkGroupIds.has(groupId) ? "close" : "open",
+        preset: GROUP_TOGGLE,
+      });
       setExpandedWorkGroupIds((existing) => {
         const next = new Set(existing);
         if (next.has(groupId)) {
@@ -777,6 +767,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const onToggleAttemptFold = useCallback(
     (attemptId: RunAttemptId) => {
       suspendEndScrollMaintenanceForDisclosure(`attempt-fold:${attemptId}`);
+      setPendingDisclosure({
+        serial: nextDisclosureSerial(),
+        kind: expandedAttemptIds.has(attemptId) ? "close" : "open",
+        preset: GROUP_TOGGLE,
+      });
       setExpandedAttemptIds((existing) => {
         const next = new Set(existing);
         if (next.has(attemptId)) {
@@ -787,7 +782,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         return next;
       });
     },
-    [suspendEndScrollMaintenanceForDisclosure],
+    [expandedAttemptIds, suspendEndScrollMaintenanceForDisclosure],
   );
 
   // An in-session interrupt leaves its turn expanded so the user keeps their
@@ -866,28 +861,86 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     supportsConversationRollback,
     worktreeSetup,
   ]);
-  const rows = useStableRows(rawRows, listIdentityKey);
-  // Before paint, so a row's first frame already carries its entrance (willow/rowMotion.ts).
+  const realRows = useStableRows(rawRows, listIdentityKey);
+  // What arrived, opened and left since the last render (willow/rowMotionState.ts), worked out
+  // while rendering, so the rows that leave are still in this render's list.
+  const [motionState, setMotionState] = useState<RowMotionState<MessagesTimelineRow>>(() =>
+    initialRowMotionState(listIdentityKey, realRows, pendingDisclosure),
+  );
+  let currentMotionState = motionState;
+  if (motionState.rows !== realRows || motionState.key !== listIdentityKey) {
+    currentMotionState = nextRowMotionState(
+      motionState,
+      realRows,
+      listIdentityKey,
+      pendingDisclosure,
+    );
+    setMotionState(currentMotionState);
+  }
+  const ghosts = currentMotionState.ghosts;
+  const rows = useMemo(() => withGhostRows(realRows, ghosts), [realRows, ghosts]);
+  const motionCancelsRef = useRef(new Map<string, () => void>());
+  const handledMotionRef = useRef(0);
+  // Before paint, so a row's first frame already carries its motion (willow/rowMotion.ts).
   useLayoutEffect(() => {
-    const ids = rows.map((row) => row.id);
-    const known = knownRowIdsRef.current;
-    const opening = foldOpeningRef.current;
-    foldOpeningRef.current = false;
-    if (known?.key !== listIdentityKey) {
-      knownRowIdsRef.current = { key: listIdentityKey, ids: new Set(ids) };
-      return;
+    const change = motionState.change;
+    if (!change || handledMotionRef.current === change.serial) return;
+    handledMotionRef.current = change.serial;
+    if (change.arrived.length > 0) {
+      const arrived = change.arrived;
+      rowMotion.set(arrived, "arrive");
+      setTimeout(() => {
+        rowMotion.set(
+          arrived.filter((rowId) => rowMotion.get(rowId) === "arrive"),
+          undefined,
+        );
+      }, ROW_MOTION_STALE_MS);
     }
-    const arrived = takeArrivedRowIds(ids, known.ids);
-    if (arrived.length === 0) return;
-    const motion = opening ? "fold-enter" : "arrive";
-    rowMotion.set(arrived, motion);
-    setTimeout(() => {
-      rowMotion.set(
-        arrived.filter((rowId) => rowMotion.get(rowId) === motion),
-        undefined,
-      );
-    }, ROW_MOTION_STALE_MS);
-  }, [listIdentityKey, rowMotion, rows]);
+    const scrollNode = listRef.current?.getScrollableNode() as HTMLElement | null | undefined;
+    const animate = (
+      rowIds: ReadonlyArray<string>,
+      direction: "enter" | "exit",
+      preset: MotionPreset,
+      onDone: () => void,
+    ) => {
+      for (const rowId of rowIds) motionCancelsRef.current.get(rowId)?.();
+      const finish = () => {
+        for (const rowId of rowIds) motionCancelsRef.current.delete(rowId);
+        onDone();
+      };
+      let cancel: () => void;
+      if (scrollNode) {
+        cancel = runGroupMotion({
+          scrollNode,
+          rowIds,
+          direction,
+          preset,
+          reducedMotion: prefersReducedMotion,
+          onDone: finish,
+        });
+      } else {
+        const timer = setTimeout(finish, preset.durationMs);
+        cancel = () => clearTimeout(timer);
+      }
+      for (const rowId of rowIds) motionCancelsRef.current.set(rowId, cancel);
+    };
+    if (change.opened) {
+      const { rowIds, preset } = change.opened;
+      rowMotion.set(rowIds, "fold-enter");
+      animate(rowIds, "enter", preset, () => rowMotion.set(rowIds, undefined));
+    }
+    for (const block of change.left) {
+      const rowIds = block.rows.map((row) => row.id);
+      rowMotion.set(rowIds, "fold-exit");
+      animate(rowIds, "exit", block.preset, () => {
+        rowMotion.set(rowIds, undefined);
+        setMotionState((current) => ({
+          ...current,
+          ghosts: current.ghosts.filter((ghost) => ghost.key !== block.key),
+        }));
+      });
+    }
+  }, [listRef, motionState.change, prefersReducedMotion, rowMotion]);
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -1297,6 +1350,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onRollbackCheckpoint,
       onToggleTurnFold,
       onToggleAttemptFold,
+      onUserRowMounted: onUserRowMounted ?? null,
       onToggleWorkGroup,
       onToggleWorkEntry: suspendEndScrollMaintenanceForDisclosure,
       onCancelWorktreeSetup: onCancelWorktreeSetup ?? null,
@@ -1333,6 +1387,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onRollbackCheckpoint,
       onToggleTurnFold,
       onToggleAttemptFold,
+      onUserRowMounted,
       onToggleWorkGroup,
       suspendEndScrollMaintenanceForDisclosure,
       onCancelWorktreeSetup,
@@ -1619,14 +1674,6 @@ function TimelineMinimap({
     resolvedActiveIndex === null
       ? 0
       : resolveTimelineMinimapTopPercent(resolvedActiveIndex, items.length);
-  const activeTooltipTranslate =
-    resolvedActiveIndex === null
-      ? "-50%"
-      : resolvedActiveIndex === 0
-        ? "0%"
-        : resolvedActiveIndex === items.length - 1
-          ? "-100%"
-          : "-50%";
   const resolvedCurrentIndex =
     currentIndex !== null && currentIndex >= 0 && currentIndex < items.length ? currentIndex : null;
   const previousItem =
@@ -1776,9 +1823,10 @@ function TimelineMinimap({
                 className="pointer-events-auto absolute left-8 w-80 cursor-text select-text"
                 data-minimap-preview
                 onMouseMove={(event) => event.stopPropagation()}
+                // Centred on its dot at either end too: the rail sits mid-height, with room both ways.
                 style={{
                   top: `${activeTopPercent}%`,
-                  transform: `translateY(${activeTooltipTranslate})`,
+                  transform: "translateY(-50%)",
                 }}
               >
                 <span className="dropdown-glass block rounded-xl p-3 text-left text-popover-foreground shadow-xl shadow-black/25">
@@ -1883,7 +1931,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
   return (
     <div
       onAnimationEnd={
-        motion === "arrive" || motion === "fold-enter"
+        motion === "arrive"
           ? (event) => {
               // Its words and shimmers end animations too; only the row's own entrance counts.
               if (event.target === event.currentTarget) rowMotion?.set([row.id], undefined);
@@ -2074,7 +2122,12 @@ function MessageAuthorHeading({ children }: { children: string }) {
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const { onImageExpand, onFileOpen } = ctx;
+  const { onImageExpand, onFileOpen, onUserRowMounted } = ctx;
+  const messageId = row.message.id;
+  // Before the first paint, so a sent message is never seen at its resting place before it moves.
+  useLayoutEffect(() => {
+    onUserRowMounted?.(messageId);
+  }, [messageId, onUserRowMounted]);
   const senderThreadId = row.message.senderThreadId;
   const resources = useMemo(
     () => selectMessageImageResources(row.message.attachments),
@@ -2599,8 +2652,7 @@ function TimelineRowTimestamp({
 
 function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-fold" }> }) {
   const ctx = use(TimelineRowCtx);
-  const motion = useRowMotion(row.id);
-  const expanded = row.expanded && motion !== "closing";
+  const expanded = row.expanded;
 
   return (
     <div className="group/timeline-row relative flex items-center gap-1 border-b border-border/60 pb-2 pe-0.5 pt-1">

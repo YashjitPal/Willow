@@ -741,6 +741,20 @@ html:not(.willow-icons-ready) .willow-glyph--google {
   line-height: 17px;
 }
 
+/*
+ * A working thread: Willow's spinner (the composer's progress_activity, a turn every 2s) at the
+ * size of its project's folder and centred in the folder's column, 20px into the row, so the
+ * title stays where it is.
+ */
+.willow-projects [data-thread-item] [data-willow-thread-spinner] {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  width: 20px;
+  height: 20px;
+  animation-duration: 2s;
+}
+
 .willow-projects [data-thread-item] .tabular-nums {
   color: rgb(0 0 0 / 55%);
   font-size: 12px;

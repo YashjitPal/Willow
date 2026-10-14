@@ -174,8 +174,10 @@ import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
+import { useDevLiveTimeline } from "../willow/devLiveTimeline";
 import { devTimelineFixture } from "../willow/devTimeline";
-import { willowSymbol } from "../willow/icons";
+import { ScrollToEndFab } from "../willow/ScrollToEndFab";
+import { runTurnEntrance } from "../willow/turnEntrance";
 import { isWillowEmbedded, useWillowScope, withHarnessModel } from "../willow/harness";
 import { useWillowCompact } from "../willow/viewport";
 import {
@@ -594,8 +596,6 @@ import {
   recallableComposerPrompt,
 } from "./chat/composerPromptHistory";
 
-/** The model pill's chevron (willow/WillowModelPill), alone in the scroll-to-end circle. */
-const ScrollToEndGlyph = willowSymbol("keyboard_arrow_down", "luminous");
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_MODELS: ServerProvider["models"] = [];
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
@@ -3899,6 +3899,7 @@ export default function ChatView(props: ChatViewProps) {
   const timelineEntries = devTimelineFixture(
     isServerThread ? serverTimelineEntries : draftTimelineEntries,
   );
+  const devLiveTimeline = useDevLiveTimeline();
   const timelineMessages = useMemo(
     () => timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
     [timelineEntries],
@@ -6129,6 +6130,7 @@ export default function ChatView(props: ChatViewProps) {
   const pendingTimelineAnchorRef = useRef<MessageId | null>(null);
   const positionedTimelineAnchorRef = useRef<MessageId | null>(null);
   const settledTimelineAnchorRef = useRef<MessageId | null>(null);
+  const turnEntranceCancelRef = useRef<(() => void) | null>(null);
   const activeTimelineAnchorIndexRef = useRef<number | null>(null);
   const observedTimelineActivityRef = useRef<TimelineRunObservation | null>(null);
   const anchorUserScrollGenerationRef = useRef(0);
@@ -6442,56 +6444,106 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [activeThread?.id, isTimelineAtLogicalEnd, timelineRealContentOverflowsViewport]);
 
-  const onTimelineAnchorReady = useCallback((messageId: MessageId, anchorIndex: number) => {
-    if (pendingTimelineAnchorRef.current === messageId) {
-      pendingTimelineAnchorRef.current = null;
-    }
-    activeTimelineAnchorIndexRef.current = anchorIndex;
-    if (positionedTimelineAnchorRef.current === messageId) {
-      return;
-    }
+  // Willow moves a sent message as its own chat does (willow/turnEntrance.ts), from the moment
+  // its row mounts or the list reports the anchor, whichever comes first, before a paint.
+  const startWillowTurnEntrance = useCallback((messageId: MessageId) => {
     positionedTimelineAnchorRef.current = messageId;
     settledTimelineAnchorRef.current = null;
-    const positionAnchor = (remainingAttempts: number) => {
-      requestAnimationFrame(() => {
-        if (positionedTimelineAnchorRef.current !== messageId) {
-          return;
+    const startEntrance = (remainingAttempts: number): void => {
+      if (positionedTimelineAnchorRef.current !== messageId) return;
+      const list = legendListRef.current;
+      const scrollNode = list?.getScrollableNode();
+      const anchorItem = scrollNode
+        ?.querySelector(
+          `[data-timeline-row-kind="message"][data-message-id="${CSS.escape(messageId)}"]`,
+        )
+        ?.closest(".messages-timeline-row-frame")?.parentElement;
+      if (!list || !scrollNode || !anchorItem) {
+        if (remainingAttempts > 0) {
+          requestAnimationFrame(() => startEntrance(remainingAttempts - 1));
         }
-        const list = legendListRef.current;
-        if (!list) {
-          if (remainingAttempts > 0) {
-            positionAnchor(remainingAttempts - 1);
-          }
-          return;
-        }
-        const scrollNode = list.getScrollableNode();
-        let finished = false;
-        const finishAnimatedPositioning = () => {
-          if (finished) {
-            return;
-          }
-          finished = true;
-          window.clearTimeout(fallbackTimer);
-          scrollNode.removeEventListener("scrollend", finishAnimatedPositioning);
+        return;
+      }
+      turnEntranceCancelRef.current?.();
+      turnEntranceCancelRef.current = runTurnEntrance({
+        scrollNode,
+        anchorItem,
+        viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+        isCurrent: () => positionedTimelineAnchorRef.current === messageId,
+        onSettled: () => {
+          void list.scrollToOffset({ offset: list.getState().scroll, animated: false });
+          settledTimelineAnchorRef.current = messageId;
+        },
+      });
+    };
+    startEntrance(12);
+  }, []);
+  const onTimelineUserRowMounted = useCallback(
+    (messageId: MessageId) => {
+      if (!isWillowEmbedded()) return;
+      if (pendingTimelineAnchorRef.current !== messageId) return;
+      if (positionedTimelineAnchorRef.current === messageId) return;
+      startWillowTurnEntrance(messageId);
+    },
+    [startWillowTurnEntrance],
+  );
+  const onTimelineAnchorReady = useCallback(
+    (messageId: MessageId, anchorIndex: number) => {
+      if (pendingTimelineAnchorRef.current === messageId) {
+        pendingTimelineAnchorRef.current = null;
+      }
+      activeTimelineAnchorIndexRef.current = anchorIndex;
+      if (positionedTimelineAnchorRef.current === messageId) {
+        return;
+      }
+      if (isWillowEmbedded()) {
+        startWillowTurnEntrance(messageId);
+        return;
+      }
+      positionedTimelineAnchorRef.current = messageId;
+      settledTimelineAnchorRef.current = null;
+      const positionAnchor = (remainingAttempts: number) => {
+        requestAnimationFrame(() => {
           if (positionedTimelineAnchorRef.current !== messageId) {
             return;
           }
-          const scrollOffset = list.getState().scroll;
-          void list.scrollToOffset({ offset: scrollOffset, animated: false });
-          settledTimelineAnchorRef.current = messageId;
-        };
-        const fallbackTimer = window.setTimeout(finishAnimatedPositioning, 750);
-        scrollNode.addEventListener("scrollend", finishAnimatedPositioning, { once: true });
-        void list.scrollToIndex({
-          index: anchorIndex,
-          animated: true,
-          viewPosition: 0,
-          viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+          const list = legendListRef.current;
+          if (!list) {
+            if (remainingAttempts > 0) {
+              positionAnchor(remainingAttempts - 1);
+            }
+            return;
+          }
+          const scrollNode = list.getScrollableNode();
+          let finished = false;
+          const finishAnimatedPositioning = () => {
+            if (finished) {
+              return;
+            }
+            finished = true;
+            window.clearTimeout(fallbackTimer);
+            scrollNode.removeEventListener("scrollend", finishAnimatedPositioning);
+            if (positionedTimelineAnchorRef.current !== messageId) {
+              return;
+            }
+            const scrollOffset = list.getState().scroll;
+            void list.scrollToOffset({ offset: scrollOffset, animated: false });
+            settledTimelineAnchorRef.current = messageId;
+          };
+          const fallbackTimer = window.setTimeout(finishAnimatedPositioning, 750);
+          scrollNode.addEventListener("scrollend", finishAnimatedPositioning, { once: true });
+          void list.scrollToIndex({
+            index: anchorIndex,
+            animated: true,
+            viewPosition: 0,
+            viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+          });
         });
-      });
-    };
-    requestAnimationFrame(() => positionAnchor(12));
-  }, []);
+      };
+      requestAnimationFrame(() => positionAnchor(12));
+    },
+    [startWillowTurnEntrance],
+  );
   const onTimelineAnchorSizeChanged = useCallback((messageId: MessageId) => {
     if (settledTimelineAnchorRef.current !== messageId) {
       return;
@@ -11048,14 +11100,26 @@ export default function ChatView(props: ChatViewProps) {
                       ...(activeProject ? { onRunShellCommand: runShellCommand } : {}),
                     }
                   : {})}
-                isWorking={!paintOnlyDisplayedTimeline && isWorking}
+                isWorking={
+                  devLiveTimeline
+                    ? devLiveTimeline.isWorking
+                    : !paintOnlyDisplayedTimeline && isWorking
+                }
                 runlessWorkActive={runlessWorkStartedAt !== null}
                 activeTurnInProgress={
-                  !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
+                  devLiveTimeline
+                    ? devLiveTimeline.isWorking
+                    : !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
                 }
                 isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
-                activeTurnStartedAt={paintOnlyDisplayedTimeline ? null : activeWorkStartedAt}
-                turnStarted={paintOnlyDisplayedTimeline || turnStarted}
+                activeTurnStartedAt={
+                  devLiveTimeline
+                    ? devLiveTimeline.startedAt
+                    : paintOnlyDisplayedTimeline
+                      ? null
+                      : activeWorkStartedAt
+                }
+                turnStarted={devLiveTimeline !== null || paintOnlyDisplayedTimeline || turnStarted}
                 worktreeSetup={paintOnlyDisplayedTimeline ? null : worktreeSetup}
                 onCancelWorktreeSetup={onCancelWorktreeSetup}
                 {...(paintOnlyDisplayedTimeline
@@ -11065,15 +11129,27 @@ export default function ChatView(props: ChatViewProps) {
                 {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 listRef={legendListRef}
-                timelineEntries={displayedTimeline.entries}
+                timelineEntries={devLiveTimeline?.entries ?? displayedTimeline.entries}
                 providerStatuses={
                   environmentById.get(
                     displayedThreadRef?.environmentId ?? activeThread.environmentId,
                   )?.serverConfig?.providers ?? EMPTY_PROVIDERS
                 }
                 runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
-                latestRun={paintOnlyDisplayedTimeline ? null : activeActivityRun}
-                runningRunId={paintOnlyDisplayedTimeline ? null : activeRunningTurnId}
+                latestRun={
+                  devLiveTimeline
+                    ? devLiveTimeline.latestRun
+                    : paintOnlyDisplayedTimeline
+                      ? null
+                      : activeActivityRun
+                }
+                runningRunId={
+                  devLiveTimeline
+                    ? devLiveTimeline.runningRunId
+                    : paintOnlyDisplayedTimeline
+                      ? null
+                      : activeRunningTurnId
+                }
                 turnDiffSummaries={
                   paintOnlyDisplayedTimeline ? EMPTY_HELD_TURN_DIFF_SUMMARIES : turnDiffSummaries
                 }
@@ -11124,6 +11200,9 @@ export default function ChatView(props: ChatViewProps) {
                 anchorMessageId={paintOnlyDisplayedTimeline ? null : timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 onAnchorSizeChanged={onTimelineAnchorSizeChanged}
+                {...(paintOnlyDisplayedTimeline
+                  ? {}
+                  : { onUserRowMounted: onTimelineUserRowMounted })}
                 contentInsetEndAdjustment={composerTimelineInset}
                 liveFollowEnabled={!paintOnlyDisplayedTimeline && timelineLiveFollowEnabled}
                 onIsAtEndChange={onIsAtEndChange}
@@ -11138,35 +11217,16 @@ export default function ChatView(props: ChatViewProps) {
                   : { historyControls: threadHistoryControls })}
               />
 
-              {/* scroll to end pill — shown when user has scrolled away from the live edge */}
-              {showScrollToBottom && (
-                <div
-                  className="chat-scroll-to-bottom pointer-events-none absolute z-30 flex justify-center py-1.5"
-                  style={{ bottom: scrollToEndClearance + 4 }}
-                >
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          aria-label="Scroll to end"
-                          data-willow-scroll-to-end=""
-                          onPointerDown={(event) => event.preventDefault()}
-                          onClick={() => {
-                            composerRef.current?.restoreAfterTimelineReachedEnd();
-                            scrollToEnd(true);
-                          }}
-                          className="pointer-events-auto"
-                          size="icon"
-                          variant="ghost"
-                        />
-                      }
-                    >
-                      <ScrollToEndGlyph />
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">Scroll to end</TooltipPopup>
-                  </Tooltip>
-                </div>
-              )}
+              {/* Willow's scroll-to-bottom button, shown when the user has scrolled away from the
+                  live edge: always mounted so it can rise in and fade out, 36px over the box. */}
+              <ScrollToEndFab
+                visible={showScrollToBottom}
+                bottom={scrollToEndClearance + 36}
+                onClick={() => {
+                  composerRef.current?.restoreAfterTimelineReachedEnd();
+                  scrollToEnd(true);
+                }}
+              />
             </div>
 
             {/* Input bar — centered for an empty draft, docked after sending. */}
