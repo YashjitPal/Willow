@@ -6,8 +6,11 @@
  */
 import { createContext, use, useSyncExternalStore } from "react";
 
-/** `fold-enter` keeps a row folded shut until the motion below measures it and takes over. */
-export type RowMotion = "arrive" | "fold-enter" | "fold-exit";
+/**
+ * `fold-enter` keeps a row folded shut until the motion below measures it and takes over;
+ * `fold-head` keeps a group's header in its layout from before the toggle while its body moves.
+ */
+export type RowMotion = "arrive" | "fold-enter" | "fold-exit" | "fold-head";
 
 /** A row that never paints, scrolled out of the list's window, drops its flag after this. */
 export const ROW_MOTION_STALE_MS = 2000;
@@ -170,7 +173,12 @@ const DRIVEN = "motionDriven";
 /**
  * Grows (`enter`) or shrinks (`exit`) rows as one block: the block's height runs on the preset's
  * curve and each row shows what of it reaches that row, so the top row fills first, as in a
- * single container. Rows the list mounts mid-flight join in. Reduced motion only fades.
+ * single container. With `keepTrailingGap` the gap under the block's last row (its bottom
+ * padding, and that of a `data-row-gap` child) stays put and empty while the block grows or
+ * shrinks above it, as a group's body does under its header in Codex, so the next row never
+ * moves. Rows the list mounts mid-flight join in; `onStart` runs in the frame that first draws
+ * one. Reduced motion only fades. The clock starts at the first frame drawn, so a long render
+ * ahead of it does not eat the motion.
  */
 export function runGroupMotion(input: {
   readonly scrollNode: HTMLElement;
@@ -178,10 +186,12 @@ export function runGroupMotion(input: {
   readonly direction: "enter" | "exit";
   readonly preset: MotionPreset;
   readonly reducedMotion: boolean;
+  readonly keepTrailingGap?: boolean;
+  readonly onStart?: (() => void) | undefined;
   readonly onDone: () => void;
 }): () => void {
   const { scrollNode, rowIds, direction, preset, reducedMotion } = input;
-  const natural = new Map<string, number>();
+  const natural = new Map<string, { readonly height: number; readonly gap: number }>();
   const find = (rowId: string) =>
     scrollNode.querySelector<HTMLElement>(`[data-timeline-row-id="${CSS.escape(rowId)}"]`);
   const clear = (element: HTMLElement) => {
@@ -190,6 +200,8 @@ export function runGroupMotion(input: {
       element.style.removeProperty(property);
     }
   };
+  const padding = (element: Element | null) =>
+    element ? Number.parseFloat(getComputedStyle(element).paddingBottom) || 0 : 0;
   const measure = (rowId: string, element: HTMLElement) => {
     const known = natural.get(rowId);
     if (known !== undefined) return known;
@@ -197,26 +209,39 @@ export function runGroupMotion(input: {
     const saved = element.style.cssText;
     clear(element);
     element.dataset[DRIVEN] = "";
-    const height = element.getBoundingClientRect().height;
+    const size = {
+      height: element.getBoundingClientRect().height,
+      gap: padding(element) + padding(element.querySelector(":scope > [data-row-gap]")),
+    };
     element.style.cssText = saved;
-    natural.set(rowId, height);
-    return height;
+    natural.set(rowId, size);
+    return size;
   };
+  let started = false;
   const draw = (progress: number) => {
     const rows = rowIds.flatMap((rowId) => {
       const element = find(rowId);
-      return element ? [{ element, height: measure(rowId, element) }] : [];
+      return element ? [{ element, ...measure(rowId, element) }] : [];
     });
-    const total = rows.reduce((sum, row) => sum + row.height, 0);
+    if (!started && rows.length > 0) {
+      started = true;
+      input.onStart?.();
+    }
+    const last = rows.at(-1);
+    const trailing = input.keepTrailingGap && last ? last.gap : 0;
+    const total = rows.reduce((sum, row) => sum + row.height, 0) - trailing;
     const visible = progress * total;
     let top = 0;
-    for (const { element, height } of rows) {
+    for (const row of rows) {
+      const { element } = row;
+      const keepsGap = row === last && trailing > 0;
+      const own = keepsGap ? row.height - trailing : row.height;
       element.dataset[DRIVEN] = "";
-      const shown = reducedMotion ? height : Math.min(height, Math.max(0, visible - top));
-      top += height;
-      element.style.setProperty("height", `${shown}px`);
+      const shown = reducedMotion ? own : Math.min(own, Math.max(0, visible - top));
+      top += own;
+      element.style.setProperty("height", `${keepsGap ? shown + trailing : shown}px`);
       element.style.setProperty("padding-bottom", "0px");
-      element.style.setProperty("clip-path", "inset(0 -8px)");
+      element.style.setProperty("clip-path", `inset(0 -8px ${keepsGap ? trailing : 0}px)`);
       element.style.setProperty("opacity", String(progress));
       if (preset.lift && !reducedMotion) {
         element.style.setProperty("transform", `translateY(${(1 - progress) * preset.lift}px)`);
@@ -228,8 +253,9 @@ export function runGroupMotion(input: {
   let frame: number | null = null;
   let done = false;
   draw(at(0));
-  const start = performance.now();
+  let start: number | null = null;
   const step = (now: number) => {
+    start ??= now;
     const t = Math.min(1, (now - start) / duration);
     draw(at(t));
     if (t < 1) {
@@ -243,6 +269,9 @@ export function runGroupMotion(input: {
         const element = find(rowId);
         if (element) clear(element);
       }
+    } else if (input.keepTrailingGap) {
+      // The kept gap goes back to the row above, which `onDone` lays out again in this frame.
+      for (const rowId of rowIds) find(rowId)?.style.setProperty("height", "0px");
     }
     input.onDone();
   };

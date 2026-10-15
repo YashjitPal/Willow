@@ -438,6 +438,8 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH = {
   ...TIMELINE_MAINTAIN_SCROLL_AT_END,
   animated: true,
 } as const satisfies MaintainScrollAtEndOptions;
+// A disclosure holds the reader's place while the rows it folds move, but never longer.
+const DISCLOSURE_MOTION_HOLD_MAX_MS = 1000;
 
 // ---------------------------------------------------------------------------
 // Props (public API)
@@ -666,6 +668,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const disclosureAnchorKeyRef = useRef<string | null>(null);
   const disclosureSettleFrameRef = useRef<number | null>(null);
   const disclosureSettleSecondFrameRef = useRef<number | null>(null);
+  const motionCancelsRef = useRef(new Map<string, () => void>());
   useEffect(() => {
     return () => {
       if (disclosureSettleFrameRef.current !== null) {
@@ -702,19 +705,32 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (disclosureSettleSecondFrameRef.current !== null) {
         cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
       }
-      disclosureSettleFrameRef.current = requestAnimationFrame(() => {
-        disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
-          disclosureAnchorKeyRef.current = null;
-          setDisclosureToggleSettling(false);
-          disclosureSettleFrameRef.current = null;
-          disclosureSettleSecondFrameRef.current = null;
-          // Wait for row measurement and the disclosure click's blur check.
-          // Closing output can reveal the end without a scroll event.
-          if (collapsed && resolveTimelineIsAtEnd(listRef.current?.getState()) === true) {
-            onToolOutputCollapsedAtEnd?.();
+      const heldSince = performance.now();
+      const settle = () => {
+        disclosureSettleFrameRef.current = requestAnimationFrame(() => {
+          // The rows it folds grow or shrink after the click's render; the clicked row stays
+          // the only anchor until they stop, or the list would scroll mid-motion.
+          if (
+            motionCancelsRef.current.size > 0 &&
+            performance.now() - heldSince < DISCLOSURE_MOTION_HOLD_MAX_MS
+          ) {
+            settle();
+            return;
           }
+          disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
+            disclosureAnchorKeyRef.current = null;
+            setDisclosureToggleSettling(false);
+            disclosureSettleFrameRef.current = null;
+            disclosureSettleSecondFrameRef.current = null;
+            // Wait for row measurement and the disclosure click's blur check.
+            // Closing output can reveal the end without a scroll event.
+            if (collapsed && resolveTimelineIsAtEnd(listRef.current?.getState()) === true) {
+              onToolOutputCollapsedAtEnd?.();
+            }
+          });
         });
-      });
+      };
+      settle();
     },
     [listRef, onToolOutputCollapsedAtEnd],
   );
@@ -881,7 +897,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }
   const ghosts = currentMotionState.ghosts;
   const rows = useMemo(() => withGhostRows(realRows, ghosts), [realRows, ghosts]);
-  const motionCancelsRef = useRef(new Map<string, () => void>());
   const handledMotionRef = useRef(0);
   // Before paint, so a row's first frame already carries its motion (willow/rowMotion.ts).
   useLayoutEffect(() => {
@@ -899,13 +914,36 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }, ROW_MOTION_STALE_MS);
     }
     const scrollNode = listRef.current?.getScrollableNode() as HTMLElement | null | undefined;
+    // A tool group's body opens and closes under its header, which keeps its layout from
+    // before the toggle until the body is drawn open or has gone, so neither the header nor
+    // the gap below the group moves.
+    const groupHeaderOf = (rowId: string | null | undefined) => {
+      const row = rows.find((candidate) => candidate.id === rowId);
+      return row?.kind === "work-toggle" || row?.kind === "work-live" || row?.kind === "thinking"
+        ? row.id
+        : null;
+    };
+    const releaseHeader = (header: string) => {
+      if (rowMotion.get(header) === "fold-head") rowMotion.set([header], undefined);
+    };
     const animate = (
       rowIds: ReadonlyArray<string>,
       direction: "enter" | "exit",
       preset: MotionPreset,
+      keepTrailingGap: boolean,
       onDone: () => void,
+      onStart?: () => void,
     ) => {
-      for (const rowId of rowIds) motionCancelsRef.current.get(rowId)?.();
+      // A motion these rows take over stops for all its rows, so none of them stays listed.
+      const superseded = new Set<() => void>();
+      for (const rowId of rowIds) {
+        const cancel = motionCancelsRef.current.get(rowId);
+        if (cancel) superseded.add(cancel);
+      }
+      for (const [rowId, cancel] of motionCancelsRef.current) {
+        if (superseded.has(cancel)) motionCancelsRef.current.delete(rowId);
+      }
+      for (const cancel of superseded) cancel();
       const finish = () => {
         for (const rowId of rowIds) motionCancelsRef.current.delete(rowId);
         onDone();
@@ -918,9 +956,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           direction,
           preset,
           reducedMotion: prefersReducedMotion,
+          keepTrailingGap,
+          onStart,
           onDone: finish,
         });
       } else {
+        onStart?.();
         const timer = setTimeout(finish, preset.durationMs);
         cancel = () => clearTimeout(timer);
       }
@@ -928,21 +969,45 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
     if (change.opened) {
       const { rowIds, preset } = change.opened;
+      const header = groupHeaderOf(rows[rows.findIndex((row) => row.id === rowIds[0]) - 1]?.id);
+      if (header !== null) rowMotion.set([header], "fold-head");
       rowMotion.set(rowIds, "fold-enter");
-      animate(rowIds, "enter", preset, () => rowMotion.set(rowIds, undefined));
+      const opened = header === null ? undefined : () => releaseHeader(header);
+      animate(
+        rowIds,
+        "enter",
+        preset,
+        header !== null,
+        () => {
+          opened?.();
+          rowMotion.set(rowIds, undefined);
+        },
+        opened,
+      );
     }
     for (const block of change.left) {
       const rowIds = block.rows.map((row) => row.id);
+      const header = groupHeaderOf(block.afterId);
       rowMotion.set(rowIds, "fold-exit");
-      animate(rowIds, "exit", block.preset, () => {
+      if (header !== null) rowMotion.set([header], "fold-head");
+      animate(rowIds, "exit", block.preset, header !== null, () => {
         rowMotion.set(rowIds, undefined);
-        setMotionState((current) => ({
-          ...current,
-          ghosts: current.ghosts.filter((ghost) => ghost.key !== block.key),
-        }));
+        const removeGhost = () =>
+          setMotionState((current) => ({
+            ...current,
+            ghosts: current.ghosts.filter((ghost) => ghost.key !== block.key),
+          }));
+        if (header === null) {
+          removeGhost();
+          return;
+        }
+        releaseHeader(header);
+        // The list measures the header taking its gap back before the body leaves its data:
+        // in one pass it would place the rows below on the header's old height for a frame.
+        requestAnimationFrame(removeGhost);
       });
     }
-  }, [listRef, motionState.change, prefersReducedMotion, rowMotion]);
+  }, [listRef, motionState.change, prefersReducedMotion, rowMotion, rows]);
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -1924,10 +1989,10 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
     row.kind === "work-live" ||
     row.kind === "work-toggle" ||
     row.kind === "thinking";
+  const motion = useRowMotion(row.id);
   const isExpandedToolGroupHeader =
     (row.kind === "work-toggle" || row.kind === "work-live" || row.kind === "thinking") &&
-    row.expanded === true;
-  const motion = useRowMotion(row.id);
+    (motion === "fold-head" ? row.expanded !== true : row.expanded === true);
   const rowMotion = use(RowMotionCtx);
 
   return (
@@ -4694,11 +4759,8 @@ function shouldCollapseUserMessage(text: string): boolean {
   );
 }
 
-/**
- * Willow's sent message folds past four lines (UserMessageBubble), here of the ChatGPT app's
- * chat type, 14px at 1.625 (activity.css `--codex-chat-line-height`).
- */
-const USER_MESSAGE_COLLAPSED_HEIGHT = 4 * 14 * 1.625;
+/** Willow's sent message folds past four of its 24px lines (UserMessageBubble), the prompt box's. */
+const USER_MESSAGE_COLLAPSED_HEIGHT = 4 * 24;
 /** Room under expanded text so the toggle never covers the last line. */
 const USER_MESSAGE_EXPANDED_CONTROL_RESERVE = 24;
 

@@ -1,9 +1,9 @@
 /*
  * A sent message as Willow's chat shows it (features/chat UserMessageBubble and ChatView): a
  * #171717 / #f2f0f0 bubble 508px wide at most, 40px corners, 20px 28px in, the text in
- * Google Sans Flex at wdth 92 in the ChatGPT app's chat type (activity.css). Past four lines it
- * folds under a round toggle in its corner. Under it, on hover, its 36px round buttons on a
- * frosted 34% / 80% fill.
+ * Google Sans Flex 17px/24px at wdth 92, as it was typed in the prompt box (composer.css). Past
+ * four lines it folds under a round toggle in its corner. Under it, on hover, its 36px round
+ * buttons on a frosted 34% / 80% fill.
  */
 
 .willow-user-bubble {
@@ -15,9 +15,9 @@
   background: #f2f0f0;
   color: #1f1f1f;
   font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
-  font-size: var(--codex-chat-font-size);
+  font-size: 17px;
   font-weight: 400;
-  line-height: var(--codex-chat-line-height);
+  line-height: 24px;
   font-variation-settings:
     "ROND" 0,
     "slnt" 0,
@@ -34,8 +34,8 @@
 .willow-user-bubble .chat-markdown,
 .willow-user-bubble .chat-markdown :is(p, li, span, a, strong, em, blockquote) {
   color: inherit;
-  font-size: var(--codex-chat-font-size);
-  line-height: var(--codex-chat-line-height);
+  font-size: 17px;
+  line-height: 24px;
   font-variation-settings:
     "ROND" 0,
     "slnt" 0,

@@ -1,3 +1,4 @@
+import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
 import {
   CheckIcon,
   CircleCheckIcon,
@@ -189,7 +190,8 @@ function ProgressDonut({
 /**
  * Codex's in-progress plan pill (its todo-plan pill, centred over the composer): the donut and
  * "Step N / M" in the secondary ink, brightening while pointed at; pointing at it or focusing it
- * opens every step in a card above.
+ * opens every step in a card above. The card sits on the page's top layer, as the app's other
+ * hover cards do, so nothing floating over the thread (the scroll-to-end arrow) covers it.
  */
 export const ComposerPlanPill = memo(function ComposerPlanPill({
   progress,
@@ -209,61 +211,62 @@ export const ComposerPlanPill = memo(function ComposerPlanPill({
   const current = (running >= 0 ? running : firstOpen >= 0 ? firstOpen : total - 1) + 1;
 
   return (
-    <div
-      className="relative"
-      data-composer-plan-pill="true"
-      onPointerEnter={() => setOpen(true)}
-      onPointerLeave={() => setOpen(false)}
-    >
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label={`Step ${current} of ${total}. Current task: ${progress.step}`}
-        className="-my-1.5 inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md py-1.5 text-[13px] leading-[18px] text-(--codex-ink-secondary) transition-colors hover:text-(--codex-ink) focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-(--codex-border-heavy)"
-        onBlur={() => setOpen(false)}
-        onClick={() => setOpen((value) => !value)}
-        onFocus={() => setOpen(true)}
-        onPointerDown={(event) => event.preventDefault()}
-      >
-        <span className="text-(--willow-settings-primary)">
-          <ProgressDonut percent={total > 0 ? (done / total) * 100 : 0} />
-        </span>
-        <span className="tabular-nums">
-          Step {current} / {total}
-        </span>
-      </button>
-      {open ? (
-        <ul
-          aria-label={`Task list. ${done} of ${total} complete.`}
-          className="absolute bottom-full left-1/2 z-30 mb-2 flex max-h-72 w-max max-w-80 -translate-x-1/2 flex-col gap-2 overflow-y-auto rounded-[20px] border border-(--willow-menu-border) bg-(--willow-menu-surface) p-3 shadow-(--willow-menu-shadow)"
-          role="list"
+    <div className="relative" data-composer-plan-pill="true">
+      <PreviewCardPrimitive.Root open={open} onOpenChange={setOpen}>
+        <PreviewCardPrimitive.Trigger
+          delay={0}
+          closeDelay={0}
+          render={<button type="button" />}
+          aria-expanded={open}
+          aria-label={`Step ${current} of ${total}. Current task: ${progress.step}`}
+          className="-my-1.5 inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md py-1.5 text-[13px] leading-[18px] text-(--codex-ink-secondary) transition-colors hover:text-(--codex-ink) focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-(--codex-border-heavy)"
+          onClick={() => setOpen((value) => !value)}
+          onPointerDown={(event) => event.preventDefault()}
         >
-          {keyedTaskSteps(steps).map(({ key, step }) => (
-            <li key={key} className="flex max-w-72 min-w-0 items-start gap-2">
-              <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4">
-                {step.status === "completed" ? (
-                  <CircleCheckIcon className="text-(--willow-muted-text)" />
-                ) : step.status === "inProgress" ? (
-                  <LoaderCircleIcon className="animate-spin text-(--willow-menu-text)" />
-                ) : (
-                  <CircleIcon className="text-(--willow-menu-text)" />
-                )}
-              </span>
-              <span
-                className={cn(
-                  "min-w-0 text-[13px] leading-4 break-words",
-                  step.status === "completed"
-                    ? "text-(--willow-muted-text)"
-                    : "text-(--willow-menu-text)",
-                )}
-              >
-                <span className="sr-only">{taskStatusLabels[step.status]}: </span>
-                {step.step}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+          <span className="text-(--willow-settings-primary)">
+            <ProgressDonut percent={total > 0 ? (done / total) * 100 : 0} />
+          </span>
+          <span className="tabular-nums">
+            Step {current} / {total}
+          </span>
+        </PreviewCardPrimitive.Trigger>
+        <PreviewCardPrimitive.Portal>
+          <PreviewCardPrimitive.Positioner className="z-[140]" side="top" sideOffset={8}>
+            <PreviewCardPrimitive.Popup
+              render={<ul />}
+              aria-label={`Task list. ${done} of ${total} complete.`}
+              className="flex max-h-72 w-max max-w-80 flex-col gap-2 overflow-y-auto rounded-[20px] border border-(--willow-menu-border) bg-(--willow-menu-surface) p-3 shadow-(--willow-menu-shadow) outline-none"
+              data-composer-plan-steps="true"
+              role="list"
+            >
+              {keyedTaskSteps(steps).map(({ key, step }) => (
+                <li key={key} className="flex max-w-72 min-w-0 items-start gap-2">
+                  <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4">
+                    {step.status === "completed" ? (
+                      <CircleCheckIcon className="text-(--willow-muted-text)" />
+                    ) : step.status === "inProgress" ? (
+                      <LoaderCircleIcon className="animate-spin text-(--willow-menu-text)" />
+                    ) : (
+                      <CircleIcon className="text-(--willow-menu-text)" />
+                    )}
+                  </span>
+                  <span
+                    className={cn(
+                      "min-w-0 text-[13px] leading-4 break-words",
+                      step.status === "completed"
+                        ? "text-(--willow-muted-text)"
+                        : "text-(--willow-menu-text)",
+                    )}
+                  >
+                    <span className="sr-only">{taskStatusLabels[step.status]}: </span>
+                    {step.step}
+                  </span>
+                </li>
+              ))}
+            </PreviewCardPrimitive.Popup>
+          </PreviewCardPrimitive.Positioner>
+        </PreviewCardPrimitive.Portal>
+      </PreviewCardPrimitive.Root>
     </div>
   );
 });

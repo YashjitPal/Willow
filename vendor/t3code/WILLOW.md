@@ -100,7 +100,8 @@ Changes from upstream:
   every notice there rather than stacking them, and `QueuedRunsControl.tsx` is a row of it as
   Codex's queued messages (its glyph, the words, Steer, bin, and a menu with Edit message and
   T3's queue / steer setting); a running plan's "Step N / M" sits centred over it as Codex's
-  in-progress strip. `ComposerControl.tsx` chips carry
+  in-progress strip, its card of steps on the page's top layer so the scroll-to-bottom button
+  never covers it (`ComposerTasksBadge.tsx`). `ComposerControl.tsx` chips carry
   `data-composer-control` and Willow's chevron; `ComposerPrimaryActions.tsx` sends with Willow's
   arrow, stops with its filled square and names Queue / Steer / Stop with their keys. The `@` and `/` suggestions are Willow's prompt-box
   menus (its mention card and slash menu) over the box rather than T3's drawer under it, by CSS
@@ -117,9 +118,9 @@ Changes from upstream:
   `ComposerPendingApprovalPanel.tsx` take Codex's plan, end-of-turn and approval cards. The
   timeline draws Codex's own icons (`MessagesTimeline.tsx` provides `CodexDrawings`; elsewhere
   `CodexIcon` draws Willow's glyph for the same meaning) and is set in the ChatGPT app's own sizes
-  (`activity.css`): its 14px chat type at a 1.625 leading for replies, sent messages and work
-  alike, headings at 1.5, 1.25 and 1.125 of it, 16px icons and 14px chevrons, code at 13px; the
-  prompt box keeps Willow's 17px. Its pieces meet on Codex's
+  (`activity.css`): its 14px chat type at a 1.625 leading for replies and work alike, headings
+  at 1.5, 1.25 and 1.125 of it, 16px icons and 14px chevrons, code at 13px; the prompt box keeps
+  Willow's 17px, and a sent message reads at the 17px / 24px it was typed in (`message.css`). Its pieces meet on Codex's
   16px alone: a reply's first and last blocks lose their margins, and T3's 2px round a reply and a
   plan go (`activity.css`). Thinking has no icon, live or settled. Only a turn that does some
   work (a command, read, edit, search, image, tool call, subagent or worktree setup) gets the
@@ -136,7 +137,9 @@ Changes from upstream:
   not in the last render fades in over 150ms, a live row coming back included, and a disclosure
   grows or shrinks its rows as one block, the top row filling first. "Worked for" opens over 300ms
   on Codex's enter curve, 8px up and faded, and closes in 150ms on its snappy one; a group of
-  calls opens and closes over 300ms. The rows a close hides, or a settling turn folds behind its
+  calls opens and closes over 300ms under its header, which keeps its layout and the gap below
+  the group until the body is drawn or gone, the clicked row holding the reader's place until the
+  rows stop. The rows a close hides, or a settling turn folds behind its
   "Worked for" (which takes "Working for"'s place unfaded), stay a moment as ghosts to shrink
   away (`willow/rowMotion.ts`, `willow/rowMotionState.ts`, `activity.css`). A sent message moves
   to the top and its reply fills the space under it, kept until the next send as in Willow's chat:

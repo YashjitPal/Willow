@@ -83,7 +83,12 @@ function WorkLogReveal({ children }: { children: ReactNode }) {
             { opacity: 0, transform: "translateY(-6px)" },
             { opacity: 1, transform: "none" },
           ],
-          { duration: EXPAND_FADE_MS, delay: EXPAND_FADE_DELAY_MS, easing: EASE_OUT, fill: "backwards" },
+          {
+            duration: EXPAND_FADE_MS,
+            delay: EXPAND_FADE_DELAY_MS,
+            easing: EASE_OUT,
+            fill: "backwards",
+          },
         ),
       ];
       return;
@@ -101,7 +106,12 @@ function WorkLogReveal({ children }: { children: ReactNode }) {
         { ...clipped, height: `${height}px` },
         { ...clipped, height: "0px" },
       ],
-      { duration: COLLAPSE_HEIGHT_MS, delay: COLLAPSE_HEIGHT_DELAY_MS, easing: EASE_IN, fill: "forwards" },
+      {
+        duration: COLLAPSE_HEIGHT_MS,
+        delay: COLLAPSE_HEIGHT_DELAY_MS,
+        easing: EASE_IN,
+        fill: "forwards",
+      },
     );
     running.current = [fade, shut];
     Promise.all([fade.finished, shut.finished]).then(
@@ -132,7 +142,11 @@ export function WorkLogBlock({
   continues?: boolean | undefined;
   children: ReactNode;
 }) {
-  return <div className={layout === "group-header" ? "pb-0" : "pb-4"}>{children}</div>;
+  return (
+    <div className={layout === "group-header" ? "pb-0" : "pb-4"} data-row-gap="">
+      {children}
+    </div>
+  );
 }
 
 /** Expanded members align with the header and use the same compact row geometry. */
