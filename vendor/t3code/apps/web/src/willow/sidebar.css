@@ -19,7 +19,11 @@
   font-style: normal;
   font-weight: 320;
   line-height: 20px;
-  font-variation-settings: "FILL" 0, "GRAD" 0, "opsz" 20, "wght" 320;
+  font-variation-settings:
+    "FILL" 0,
+    "GRAD" 0,
+    "opsz" 20,
+    "wght" 320;
   font-feature-settings: "liga";
   letter-spacing: 0;
   text-transform: none;
@@ -31,12 +35,19 @@
 
 .willow-glyph--google {
   font-family: "Google Symbols";
-  font-variation-settings: "ROND" 100, "slnt" 0, "wght" 320;
+  font-variation-settings:
+    "ROND" 100,
+    "slnt" 0,
+    "wght" 320;
 }
 
 .willow-glyph--material {
   font-family: "Material Symbols Rounded";
-  font-variation-settings: "FILL" 0, "wght" 320, "GRAD" 0, "opsz" 20;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 320,
+    "GRAD" 0,
+    "opsz" 20;
 }
 
 html:not(.willow-icons-ready) .willow-glyph--material,
@@ -91,7 +102,11 @@ html:not(.willow-icons-ready) .willow-glyph--google {
   font-size: 17px;
   font-weight: 470;
   line-height: 24px;
-  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+  font-variation-settings:
+    "ROND" 20,
+    "slnt" 0,
+    "wdth" 94,
+    "wght" 470;
   text-overflow: ellipsis;
   white-space: nowrap;
   user-select: none;
@@ -135,7 +150,12 @@ html:not(.willow-icons-ready) .willow-glyph--google {
   font-size: 24px;
   line-height: 24px;
   font-weight: 300;
-  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24, "ROND" 100;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 300,
+    "GRAD" 0,
+    "opsz" 24,
+    "ROND" 100;
 }
 
 /* On the rail the mark gives way to the expand glyph under the pointer, and the mark expands. */
@@ -171,7 +191,9 @@ html:not(.willow-icons-ready) .willow-glyph--google {
   color: #e3e3e3;
 }
 
-.willow-sidebar-header[data-collapsed="true"] .willow-sidebar-header__mark:hover .willow-sidebar-header__logo {
+.willow-sidebar-header[data-collapsed="true"]
+  .willow-sidebar-header__mark:hover
+  .willow-sidebar-header__logo {
   opacity: 0;
   transform: scale(0.75);
 }
@@ -286,7 +308,11 @@ html:not(.willow-icons-ready) .willow-glyph--google {
 }
 
 .willow-sidebar-row[data-active="true"] .willow-glyph:not(.willow-glyph--google) {
-  font-variation-settings: "FILL" 1, "GRAD" 0, "opsz" 20, "wght" 320;
+  font-variation-settings:
+    "FILL" 1,
+    "GRAD" 0,
+    "opsz" 20,
+    "wght" 320;
 }
 
 .willow-sidebar-row__label {
@@ -449,7 +475,12 @@ html:not(.willow-icons-ready) .willow-glyph--google {
   height: 18px;
   font-size: 18px;
   line-height: 18px;
-  font-variation-settings: "FILL" 0, "GRAD" 0, "opsz" 18, "wght" 320, "ROND" 100;
+  font-variation-settings:
+    "FILL" 0,
+    "GRAD" 0,
+    "opsz" 18,
+    "wght" 320,
+    "ROND" 100;
 }
 
 .willow-sidebar-empty {
@@ -616,7 +647,12 @@ html:not(.willow-icons-ready) .willow-glyph--google {
   font-family: "Luminous Symbols";
   font-size: 20px;
   line-height: 20px;
-  font-variation-settings: "FILL" 0, "wght" 330, "GRAD" 0, "opsz" 20, "ROND" 100;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 330,
+    "GRAD" 0,
+    "opsz" 20,
+    "ROND" 100;
   font-feature-settings: "liga";
   opacity: 0;
   transition: opacity 150ms var(--willow-ease);
@@ -742,16 +778,16 @@ html:not(.willow-icons-ready) .willow-glyph--google {
 }
 
 /*
- * A working thread: Willow's spinner (the composer's progress_activity, a turn every 2s) at the
- * size of its project's folder and centred in the folder's column, 20px into the row, so the
+ * A working thread: Willow's spinner (the composer's progress_activity, a turn every 2s), 16px,
+ * a step under its project's folder, centred in the folder's column 20px into the row, so the
  * title stays where it is.
  */
 .willow-projects [data-thread-item] [data-willow-thread-spinner] {
   position: absolute;
-  top: 6px;
-  left: 10px;
-  width: 20px;
-  height: 20px;
+  top: 8px;
+  left: 12px;
+  width: 16px;
+  height: 16px;
   animation-duration: 2s;
 }
 
@@ -765,7 +801,10 @@ html:not(.willow-icons-ready) .willow-glyph--google {
 }
 
 /* Show more, Show less and the empty state: Spark's muted rows. */
-.willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > [data-sidebar="menu-sub-button"],
+.willow-projects
+  [data-sidebar="menu-sub"]
+  > li:not([data-thread-item])
+  > [data-sidebar="menu-sub-button"],
 .willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > div {
   height: 32px;
   padding: 0 10px 0 40px;
@@ -776,16 +815,27 @@ html:not(.willow-icons-ready) .willow-glyph--google {
   line-height: 17px;
 }
 
-.dark .willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > [data-sidebar="menu-sub-button"],
+.dark
+  .willow-projects
+  [data-sidebar="menu-sub"]
+  > li:not([data-thread-item])
+  > [data-sidebar="menu-sub-button"],
 .dark .willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > div {
   color: rgb(255 255 255 / 55%);
 }
 
-.willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > [data-sidebar="menu-sub-button"]:hover {
+.willow-projects
+  [data-sidebar="menu-sub"]
+  > li:not([data-thread-item])
+  > [data-sidebar="menu-sub-button"]:hover {
   background: rgb(0 0 0 / 5%);
 }
 
-.dark .willow-projects [data-sidebar="menu-sub"] > li:not([data-thread-item]) > [data-sidebar="menu-sub-button"]:hover {
+.dark
+  .willow-projects
+  [data-sidebar="menu-sub"]
+  > li:not([data-thread-item])
+  > [data-sidebar="menu-sub-button"]:hover {
   background: rgb(230 230 230 / 8%);
 }
 

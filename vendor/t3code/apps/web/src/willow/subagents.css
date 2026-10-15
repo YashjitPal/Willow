@@ -1,0 +1,360 @@
+/*
+ * Subagents as the Codex app draws them (its webview's MultiAgentAction, SubagentActivity and
+ * subagents panel), in the timeline's type and Codex's inks from activity.css: "Created 2 agents"
+ * at 40% with its verb at the tertiary ink, its rows at 50%; the line after the agents at the
+ * secondary ink behind avatars that slide in as agents join; and the Subagents tab beside the chat.
+ */
+
+/* ── "Created 2 agents" ───────────────────────────────────────────────────── */
+
+[data-willow-activity-kind="subagents"] [data-willow-activity-label],
+[data-willow-activity-kind="subagents"]
+  > [data-willow-activity-line]:hover
+  [data-willow-activity-label] {
+  color: color-mix(in oklab, var(--codex-ink) 40%, transparent);
+}
+
+[data-willow-activity-kind="subagents"]
+  [data-willow-activity-label]
+  [data-subagent-spawn-verb]:not(.live-tool-shine) {
+  color: color-mix(in srgb, var(--codex-ink-tertiary) 90%, transparent);
+  transition: color 150ms;
+}
+
+@media (hover: hover) {
+  [data-willow-activity-kind="subagents"]
+    > [data-willow-activity-line]:hover
+    [data-willow-activity-label]
+    [data-subagent-spawn-verb]:not(.live-tool-shine) {
+    color: var(--codex-ink);
+  }
+}
+
+[data-subagent-spawn-rows] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--codex-grouped-gap);
+  padding-inline-start: 4px;
+}
+
+[data-subagent-spawn-row] {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 4px;
+  overflow: hidden;
+  color: color-mix(in oklab, var(--codex-ink) 50%, transparent);
+  font-size: var(--codex-chat-font-size);
+  line-height: var(--codex-chat-line-height);
+  white-space: nowrap;
+}
+
+[data-subagent-spawn-row] > span {
+  flex-shrink: 0;
+}
+
+[data-subagent-spawn-row] [data-subagent-name] {
+  font-weight: 500;
+}
+
+[data-subagent-spawn-row] [data-subagent-instructions] {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-subagent-name][data-opens] {
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+[data-subagent-name][data-opens]:focus-visible {
+  outline: 2px solid var(--codex-text-accent);
+  outline-offset: 0;
+}
+
+/* ── "Ada and Darwin started working" ─────────────────────────────────────── */
+
+[data-subagent-activity] {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--codex-ink-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--codex-chat-font-size);
+  line-height: var(--codex-chat-line-height);
+  user-select: none;
+}
+
+[data-subagent-avatars] {
+  display: inline-flex;
+  height: var(--codex-chat-line-height);
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-subagent-chip] {
+  display: inline-flex;
+}
+
+[data-subagent-chip] img {
+  width: var(--codex-icon-size);
+  height: var(--codex-icon-size);
+}
+
+[data-subagent-chip][data-animate-entrance] {
+  transform-origin: 0;
+  animation: willow-subagent-chip-enter 280ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+@keyframes willow-subagent-chip-enter {
+  0% {
+    opacity: 0;
+    transform: translate(-8px, 4px) scale(0.92);
+  }
+
+  70% {
+    opacity: 1;
+    transform: translate(1px, -1px) scale(1.02);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+[data-subagent-sentence] {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+@media (hover: hover) {
+  [data-subagent-activity] [data-subagent-name][data-opens]:hover {
+    color: var(--codex-ink);
+  }
+}
+
+/* ── The Subagents tab ────────────────────────────────────────────────────── */
+
+[data-subagents-list] {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 12px;
+}
+
+[data-subagents-section][data-later] {
+  margin-top: 24px;
+}
+
+[data-subagents-section-title] {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px;
+  padding: 0 8px;
+  color: var(--codex-ink-tertiary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  user-select: none;
+}
+
+[data-subagents-section-title] > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-subagents-section-trailing] {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-subagents-empty] {
+  padding: 4px 8px;
+  color: var(--codex-ink-tertiary);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+[data-subagents-rows] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-subagents-row] {
+  display: flex;
+  min-height: 40px;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: start;
+  user-select: none;
+}
+
+[data-subagents-row][data-with-preview] {
+  align-items: flex-start;
+}
+
+[data-subagents-row]:hover,
+[data-subagents-row]:focus-visible {
+  background: var(--codex-tertiary-hover);
+}
+
+[data-subagents-row]:focus-visible,
+[data-subagent-back]:focus-visible,
+[data-subagents-more]:focus-visible {
+  outline: 2px solid var(--codex-text-accent);
+  outline-offset: 0;
+}
+
+[data-subagents-row-text] {
+  min-width: 0;
+  flex: 1;
+}
+
+[data-subagents-row-heading] {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+[data-subagents-row-name] {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--codex-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-subagents-row-trailing] {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  color: var(--codex-ink-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-subagents-row-preview] {
+  display: block;
+  overflow: hidden;
+  color: var(--codex-ink-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-subagents-more] {
+  margin: 8px 0 0 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--codex-ink-tertiary);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+[data-subagents-more]:hover {
+  color: var(--codex-ink);
+}
+
+/* One agent: a header row that leads back, then its conversation. */
+[data-subagent-header] {
+  display: flex;
+  height: 40px;
+  min-height: 40px;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--codex-border);
+}
+
+[data-subagent-back] {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--codex-ink-secondary);
+  cursor: pointer;
+}
+
+[data-subagent-back]:hover {
+  background: var(--codex-tertiary-hover);
+  color: var(--codex-ink);
+}
+
+[data-subagent-header-name] {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--codex-ink);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-subagent-header-model] {
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--codex-ink-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  user-select: none;
+  white-space: nowrap;
+}
+
+[data-subagent-transcript-loading] {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  color: var(--codex-ink-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-subagent-chip][data-animate-entrance] {
+    animation: none;
+  }
+}

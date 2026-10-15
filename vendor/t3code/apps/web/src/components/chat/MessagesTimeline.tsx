@@ -43,6 +43,8 @@ import {
   type DisclosureMotion,
   type RowMotionState,
 } from "../../willow/rowMotionState";
+import { useReplyRevealing } from "../../willow/replyReveal";
+import { WillowSubagentNotificationLine, WillowSubagentRows } from "../../willow/SubagentRows";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
@@ -2717,6 +2719,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
             cwd={ctx.markdownCwd}
             threadRef={ctx.threadRef ?? undefined}
             isStreaming={Boolean(row.message.streaming)}
+            revealId={row.message.id}
             lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
             skills={ctx.skills}
             headingLevelOffset={MESSAGE_HEADING_LEVEL}
@@ -2732,16 +2735,40 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           onOpenTurnDiff={ctx.onOpenTurnDiff}
         />
         {row.showAssistantMeta ? (
-          <AssistantMessageMeta
-            className="mt-1.5"
-            projectedItem={row.projectedItem}
-            message={row.message}
-            showCopyButton={row.showAssistantCopyButton}
-            copyStreaming={row.assistantCopyStreaming}
-          />
+          <ReplyActionsSlot messageId={row.message.id}>
+            <AssistantMessageMeta
+              className="mt-1.5"
+              projectedItem={row.projectedItem}
+              message={row.message}
+              showCopyButton={row.showAssistantCopyButton}
+              copyStreaming={row.assistantCopyStreaming}
+            />
+          </ReplyActionsSlot>
         ) : null}
       </div>
     </>
+  );
+}
+
+/** As Willow's, a reply's buttons wait until it has finished arriving, then grow in. */
+function ReplyActionsSlot({
+  messageId,
+  className,
+  children,
+}: {
+  messageId: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const revealing = useReplyRevealing(messageId) && isWillowEmbedded();
+  return (
+    <div
+      className={className}
+      data-willow-reply-actions=""
+      data-pending={revealing ? "" : undefined}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -2797,7 +2824,7 @@ function AssistantMetaTimelineRow({
   row: Extract<TimelineRow, { kind: "assistant-meta" }>;
 }) {
   return (
-    <div className="px-1">
+    <ReplyActionsSlot messageId={row.message.id} className="px-1">
       <AssistantMessageMeta
         className="mt-0.5"
         projectedItem={row.projectedItem}
@@ -2806,7 +2833,7 @@ function AssistantMetaTimelineRow({
         copyStreaming={row.assistantCopyStreaming}
         alwaysVisible
       />
-    </div>
+    </ReplyActionsSlot>
   );
 }
 
@@ -3017,6 +3044,9 @@ function v2EventPresentation(item: OrchestrationV2TurnItem): {
 function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event" }> }) {
   const ctx = use(TimelineRowCtx);
   const { item, visibility, sourceThreadId } = row.projectedItem;
+  if (item.type === "subagent" && isWillowEmbedded()) {
+    return <WillowSubagentEventRow row={row} />;
+  }
   if (item.type === "subagent" && (row.subagents?.length ?? 1) > 1) {
     return <V2SubagentGroup key={row.id} row={row} />;
   }
@@ -3237,6 +3267,34 @@ function subagentGroupTiming(
     startedAt: startMs === null ? null : new Date(startMs).toISOString(),
     completedAt: live || endUnknown || endMs === null ? null : new Date(endMs).toISOString(),
   };
+}
+
+/** In Willow, a turn's agents as the Codex app draws them (willow/SubagentRows.tsx). */
+function WillowSubagentEventRow({ row }: { row: Extract<TimelineRow, { kind: "event" }> }) {
+  const ctx = use(TimelineRowCtx);
+  const { isWorking, latestRunId } = use(TimelineRowActivityCtx);
+  const groupId = `subagent-group:${row.id}`;
+  const [expanded, setExpanded] = useState(() =>
+    ctx.workGroupViewState.expandedEntries.has(groupId),
+  );
+  const items = (row.subagents ?? [row.projectedItem]).flatMap(({ item }) =>
+    item.type === "subagent" ? [item] : [],
+  );
+  return (
+    <WillowSubagentRows
+      parentRef={scopeThreadRef(ctx.activeThreadEnvironmentId, row.projectedItem.item.threadId)}
+      items={items}
+      providerStatuses={ctx.providerStatuses}
+      animateEntrance={isWorking && row.projectedItem.item.runId === latestRunId}
+      expanded={expanded}
+      onExpandedChange={(open) => {
+        ctx.onToggleWorkEntry(row.id, expanded);
+        if (open) ctx.workGroupViewState.expandedEntries.add(groupId);
+        else ctx.workGroupViewState.expandedEntries.delete(groupId);
+        setExpanded(open);
+      }}
+    />
+  );
 }
 
 const V2SubagentGroup = memo(function V2SubagentGroup({
@@ -4636,8 +4694,11 @@ function shouldCollapseUserMessage(text: string): boolean {
   );
 }
 
-/** Willow's sent message folds past four of its 24px lines (UserMessageBubble). */
-const USER_MESSAGE_COLLAPSED_HEIGHT = 4 * 24;
+/**
+ * Willow's sent message folds past four lines (UserMessageBubble), here of the ChatGPT app's
+ * chat type, 14px at 1.625 (activity.css `--codex-chat-line-height`).
+ */
+const USER_MESSAGE_COLLAPSED_HEIGHT = 4 * 14 * 1.625;
 /** Room under expanded text so the toggle never covers the last line. */
 const USER_MESSAGE_EXPANDED_CONTROL_RESERVE = 24;
 
@@ -5272,6 +5333,16 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEntryRowP
     item?.type === "notification" ? notificationChildThreadId(item.source) : undefined;
   if (item?.type !== "notification" || childThreadId === undefined) {
     return <WorkEntryLogRow {...props} />;
+  }
+  if (isWillowEmbedded()) {
+    return (
+      <WillowSubagentNotificationLine
+        parentRef={scopeThreadRef(ctx.activeThreadEnvironmentId, item.threadId)}
+        childThreadId={childThreadId}
+        outcome={item.outcome}
+        fallback={<WorkEntryLogRow {...props} />}
+      />
+    );
   }
   return (
     <SubagentNotificationLink

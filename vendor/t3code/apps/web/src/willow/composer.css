@@ -617,33 +617,38 @@ html[data-willow-compact] {
 }
 
 /*
- * The row under the box, before the first message only: where the chat will run and its branch,
- * centred 12px under the box as Willow's chips, the media gallery's category chips
- * (features/chat media.css `.gm-gallery__chip`): 36px pills 8px apart on the surface container,
- * #f0f4f9 / #1e1f20 and #e9eef6 / #282a2c under the pointer, in the model pill's 15px/20px with a
- * 20px glyph and chevron. The workspace strip measures the room it has, as T3's does, to drop its
- * names to glyphs alone when the row runs out, so it keeps the row's width and centres what it
- * holds. Once a thread has started the context ring sits in the box.
+ * Before the first message, the bar last on the rail over the box, as the ChatGPT app's composer
+ * has it (its action bar above the box, app-primary's `XV`): the workspace, where the chat will run
+ * and its branch from the start, the context ring at the end, 6px in from the rail's edge. Its
+ * controls are Willow's pills on the rail, 28px in the rail's 13px type and its ink, 8% of that
+ * ink under the pointer, with an 18px glyph and the chip chevron. When the bar runs out of room the
+ * strip scrolls sideways under faded edges, as Codex's does; the workspace strip still measures
+ * the room it has, as T3's does, to drop its names to glyphs. Once a thread has started the
+ * context ring sits in the box.
  */
 [data-willow-composer-utility="true"] {
   display: flex;
   min-width: 0;
-  max-width: min(660px, var(--chat-content-max-width, 660px));
-  margin-inline: auto;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 4px 0;
-  font-size: 15px;
+  gap: 2px;
+  padding: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 8px,
+    #000 calc(100% - 8px),
+    transparent
+  );
+  mask-image: linear-gradient(to right, transparent, #000 8px, #000 calc(100% - 8px), transparent);
+  color: var(--willow-utility-chip-text);
+  font-size: 13px;
   line-height: 20px;
 }
 
-[data-willow-composer-utility="true"]:not(
-  :has(
-    [data-slot="composer-context-strip"]:not(.invisible) [data-composer-context-control],
-    [data-willow-context-meter-trigger]
-  )
-) {
+[data-willow-composer-utility="true"]::-webkit-scrollbar {
   display: none;
 }
 
@@ -670,8 +675,8 @@ html[data-willow-compact] {
   min-width: 0;
   margin: 0;
   padding: 0;
-  justify-content: center;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 2px;
   overflow: visible;
   color: var(--willow-utility-chip-text);
 }
@@ -685,8 +690,8 @@ html[data-willow-compact] {
 }
 
 [data-willow-context-chips="true"] [data-slot="composer-context-strip"] > div {
-  justify-content: center;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 2px;
 }
 
 [data-willow-context-chips="true"] [data-chat-resting-composer-controls-host="true"] {
@@ -699,21 +704,21 @@ html[data-willow-compact] {
 
 [data-willow-composer-utility="true"]
   :is(button[data-composer-control], :is(button, span)[data-composer-context-control]),
-[data-willow-context-meter-trigger="true"] {
+[data-willow-composer-utility="true"] [data-willow-context-meter-trigger="true"] {
   display: inline-flex;
-  height: 36px;
-  min-height: 36px;
+  height: 28px;
+  min-height: 28px;
   max-width: none;
   flex-shrink: 0;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px;
+  gap: 4px;
+  padding: 0 8px;
   border: 0;
   border-radius: 9999px;
-  background: var(--willow-utility-chip);
+  background: transparent;
   box-shadow: none;
   color: var(--willow-utility-chip-text);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 400;
   line-height: 20px;
   transition:
@@ -725,7 +730,7 @@ html[data-willow-compact] {
   :is(button[data-composer-control], button[data-composer-context-control]):has(
     [data-composer-control-chevron]
   ) {
-  padding-inline-end: 8px;
+  padding-inline-end: 4px;
 }
 
 [data-willow-composer-utility="true"]
@@ -746,15 +751,15 @@ html[data-willow-compact] {
     [aria-expanded="true"]
   ),
 [data-willow-context-meter-trigger="true"]:is(:hover, [data-popup-open]) {
-  background: var(--willow-utility-chip-hover);
+  background: color-mix(in srgb, var(--willow-utility-chip-text) 8%, transparent);
   color: var(--willow-utility-chip-text);
 }
 
 [data-willow-composer-utility="true"]
   :is([data-composer-control], [data-composer-context-control])
   svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   margin: 0;
   color: currentColor;
   opacity: 1;
@@ -777,12 +782,12 @@ html[data-willow-compact] {
 }
 
 [data-willow-composer-utility="true"] [data-composer-control-chevron] {
-  width: 20px;
-  height: 20px;
-  flex-basis: 20px;
+  width: 18px;
+  height: 18px;
+  flex-basis: 18px;
   color: currentColor;
-  font-size: 20px;
-  line-height: 20px;
+  font-size: 18px;
+  line-height: 18px;
   font-variation-settings:
     "FILL" 0,
     "GRAD" 0,

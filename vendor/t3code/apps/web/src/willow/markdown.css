@@ -1,8 +1,9 @@
 /*
- * An agent's replies in Willow's StreamingMarkdown (platform/ui streaming-markdown-styles.ts):
- * 17px/24px #e3e3e3 with 16px between blocks, its heading scale, dotted links, 36px list indents
- * with 12px between items, a dotted quote rule, pill inline code and 40px-cornered code blocks
- * on #171717 / #f0f4f9.
+ * An agent's replies in Willow's StreamingMarkdown (platform/ui streaming-markdown-styles.ts) at
+ * the ChatGPT app's sizes: its chat type (activity.css) in #e3e3e3 with 16px between blocks, its
+ * heading scale (Codex's MarkdownRoot: 1.5, 1.25 and 1.125 of the type, on a quarter-type grid),
+ * dotted links, 36px list indents with 12px between items, a dotted quote rule, pill inline code
+ * and 40px-cornered code blocks on #171717 / #f0f4f9.
  */
 
 :root {
@@ -21,8 +22,8 @@
 
 [data-message-role="assistant"] .chat-markdown {
   color: var(--willow-md-text);
-  font-size: 17px;
-  line-height: 24px;
+  font-size: var(--codex-chat-font-size);
+  line-height: var(--codex-chat-line-height);
 }
 
 .chat-markdown :is(p, ul, ol, blockquote, pre, .chat-markdown-table-container) {
@@ -36,22 +37,22 @@
 }
 
 .chat-markdown h1 {
-  font-size: 28px;
+  font-size: calc(var(--codex-chat-font-size) * 1.5);
   font-weight: 350;
-  line-height: 36px;
+  line-height: calc(var(--codex-chat-font-size) * 2);
 }
 
 .chat-markdown h2 {
-  font-size: 24px;
+  font-size: calc(var(--codex-chat-font-size) * 1.25);
   font-weight: 380;
-  line-height: 28px;
+  line-height: calc(var(--codex-chat-font-size) * 1.75);
 }
 
 .chat-markdown :is(h3, h4, h5, h6) {
   margin-bottom: -8px;
-  font-size: 20px;
+  font-size: calc(var(--codex-chat-font-size) * 1.125);
   font-weight: 470;
-  line-height: 24px;
+  line-height: calc(var(--codex-chat-font-size) * 1.75);
 }
 
 .chat-markdown h1 + h2,
@@ -165,6 +166,11 @@
     animation: willow-stream-word-in 610ms ease-out 150ms both;
   }
 
+  /* A new item's marker comes in with its words (Willow's `li.smd-reveal-block::before`). */
+  .chat-markdown li[data-willow-stream-item]::marker {
+    animation: willow-stream-marker-in 610ms ease-out var(--willow-stream-delay, 150ms) both;
+  }
+
   .chat-markdown[data-streaming] > :is(p, ul, ol, h1, h2, h3, h4, h5, h6, blockquote) {
     transition: none;
   }
@@ -182,5 +188,11 @@
 
   to {
     opacity: 1;
+  }
+}
+
+@keyframes willow-stream-marker-in {
+  from {
+    color: transparent;
   }
 }

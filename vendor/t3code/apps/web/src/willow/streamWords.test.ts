@@ -25,13 +25,19 @@ const element = (tagName: string, offset: number, children: HastNode[]): HastNod
 });
 const root = (...children: HastNode[]): HastNode => ({ type: "root", children });
 
-/** Each fading word, with the delay it was given (none means Willow's base 150ms). */
+/**
+ * Each fading word, with the delay it was given (none means Willow's base 150ms); inline code or
+ * a link fading as one shows as its tag.
+ */
 function fadingWords(node: HastNode, found: string[] = []): string[] {
   for (const child of node.children ?? []) {
     const className = child.properties?.className;
     if (Array.isArray(className) && className.includes("willow-stream-word")) {
       const style = child.properties?.style;
-      found.push(`${child.children?.[0]?.value}${typeof style === "string" ? ` (${style})` : ""}`);
+      const inner = child.children?.[0];
+      found.push(
+        `${inner?.value ?? `<${inner?.tagName}>`}${typeof style === "string" ? ` (${style})` : ""}`,
+      );
     } else {
       fadingWords(child, found);
     }
@@ -84,6 +90,48 @@ describe("createStreamWords", () => {
     );
     words.transform(tree, "Run it:\n\n```\nnpm test\n```\n\nDone.", 1000);
     expect(fadingWords(tree)).toEqual(["Run", "it:", "Done. (animation-delay: 390ms)"]);
+  });
+
+  it("fades inline code and a link as one word, leaving their insides to their renderers", () => {
+    const words = createStreamWords();
+    const tree = root(
+      element("p", 0, [
+        text("Run ", 0),
+        element("code", 4, [text("npm test", 5)]),
+        text(" or read ", 14),
+        element("a", 23, [text("the docs", 24)]),
+      ]),
+    );
+    words.transform(tree, "Run `npm test` or read [the docs](https://nodejs.org)", 1000);
+    expect(fadingWords(tree)).toEqual(["Run", "<code>", "or", "read", "<a>"]);
+  });
+
+  it("does not fade a shown word again when the markdown rebuilds it", () => {
+    const words = createStreamWords();
+    // "**Ada" is text until its closer arrives, then strong, its word now at 5 rather than 3.
+    words.transform(root(element("p", 0, [text("Hi **Ada", 0)])), "Hi **Ada", 1000);
+    const later = root(
+      element("p", 0, [text("Hi ", 0), element("strong", 3, [text("Ada", 5)]), text(" there", 10)]),
+    );
+    words.transform(later, "Hi **Ada** there", 1100);
+    expect(fadingWords(later)).toEqual(["Hi", "there"]);
+  });
+
+  it("gives a new list item's marker its words' delay, then lets it go", () => {
+    const words = createStreamWords();
+    const tree = twoItems();
+    words.transform(tree, "- one two\n- three", 1000);
+    const items = (node: HastNode) => node.children?.[0]?.children ?? [];
+    expect(items(tree).map((item) => item.properties?.style)).toEqual([
+      "--willow-stream-delay: 150ms",
+      "--willow-stream-delay: 270ms",
+    ]);
+    const later = twoItems();
+    words.transform(later, "- one two\n- three", 2000);
+    expect(items(later).map((item) => item.properties?.dataWillowStreamItem)).toEqual([
+      undefined,
+      undefined,
+    ]);
   });
 
   it("returns faded words to text and waits for the last one to finish", () => {

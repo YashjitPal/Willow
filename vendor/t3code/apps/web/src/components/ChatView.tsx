@@ -177,6 +177,9 @@ import { useDiffPanelStore } from "../diffPanelStore";
 import { useDevLiveTimeline } from "../willow/devLiveTimeline";
 import { devTimelineFixture } from "../willow/devTimeline";
 import { ScrollToEndFab } from "../willow/ScrollToEndFab";
+import { SubagentOpenerCtx, type SubagentTarget } from "../willow/SubagentRows";
+import { SubagentsPanel } from "../willow/SubagentsPanel";
+import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
 import { placeTurnAnchor, runTurnEntrance } from "../willow/turnEntrance";
 import { isWillowEmbedded, useWillowScope, withHarnessModel } from "../willow/harness";
 import { useWillowCompact } from "../willow/viewport";
@@ -428,7 +431,7 @@ import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { isTimelineScrollTarget } from "./chat/timelineScrollTarget";
-import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
+import { DraftHeroHeadline, DraftProjectPicker } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
@@ -7249,14 +7252,38 @@ export default function ChatView(props: ChatViewProps) {
       }
     }
   }, [activeThread, environmentId, interruptThreadTurn, setThreadError]);
+  // In Willow an agent this chat started opens beside it, in the Subagents tab, as the Codex
+  // app opens its subagents; other threads open in place of this one.
+  const openSubagentBeside = useCallback(
+    (target: SubagentTarget) => {
+      if (!activeThreadRef) return;
+      useRightPanelStore.getState().openSubagents(activeThreadRef, {
+        parentThreadId: target.parentThreadId,
+        subagentId: target.subagentId,
+        title: target.name,
+      });
+    },
+    [activeThreadRef],
+  );
   const onOpenRelatedThread = useCallback(
     (threadId: ThreadId) => {
+      const agent = isWillowEmbedded()
+        ? serverProjection?.subagents.find((candidate) => candidate.childThreadId === threadId)
+        : undefined;
+      if (agent) {
+        openSubagentBeside({
+          parentThreadId: agent.threadId,
+          subagentId: agent.id,
+          name: formatSubagentDisplayTitle(agent.title ?? "Subagent"),
+        });
+        return;
+      }
       void navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
       });
     },
-    [environmentId, navigate],
+    [environmentId, navigate, openSubagentBeside, serverProjection],
   );
 
   // Commands such as /compact and /goal clear run as their own turn. The draft
@@ -10802,6 +10829,24 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : renderedRightPanelSurface?.kind === "subagents" ? (
+      <SubagentsPanel
+        threadRef={activeThreadRef}
+        selection={renderedRightPanelSurface.selection}
+        onSelect={(selection) =>
+          useRightPanelStore.getState().openSubagents(activeThreadRef, selection)
+        }
+        providerStatuses={
+          environmentById.get(activeThread.environmentId)?.serverConfig?.providers ??
+          EMPTY_PROVIDERS
+        }
+        markdownCwd={gitCwd ?? undefined}
+        workspaceRoot={activeWorkspaceRoot}
+        resolvedTheme={resolvedTheme}
+        timestampFormat={timestampFormat}
+        onOpenThread={onOpenRelatedThread}
+        onImageExpand={onExpandTimelineImage}
+      />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
         <DevicePanel
@@ -11120,131 +11165,135 @@ export default function ChatView(props: ChatViewProps) {
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
               {/* Messages — LegendList handles virtualization and scrolling internally */}
-              <MessagesTimeline
-                citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
-                citationHistoryLoading={threadDetailLoading}
-                {...(!paintOnlyDisplayedTimeline
-                  ? {
-                      onCiteAssistantText: citeAssistantText,
-                      ...(activeProject ? { onRunShellCommand: runShellCommand } : {}),
-                    }
-                  : {})}
-                isWorking={
-                  devLiveTimeline
-                    ? devLiveTimeline.isWorking
-                    : !paintOnlyDisplayedTimeline && isWorking
-                }
-                runlessWorkActive={runlessWorkStartedAt !== null}
-                activeTurnInProgress={
-                  devLiveTimeline
-                    ? devLiveTimeline.isWorking
-                    : !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
-                }
-                isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
-                activeTurnStartedAt={
-                  devLiveTimeline
-                    ? devLiveTimeline.startedAt
-                    : paintOnlyDisplayedTimeline
-                      ? null
-                      : activeWorkStartedAt
-                }
-                turnStarted={devLiveTimeline !== null || paintOnlyDisplayedTimeline || turnStarted}
-                worktreeSetup={paintOnlyDisplayedTimeline ? null : worktreeSetup}
-                onCancelWorktreeSetup={onCancelWorktreeSetup}
-                {...(paintOnlyDisplayedTimeline
-                  ? {}
-                  : { retryableWorkspacePreparationRunIds, onRetryWorkspacePreparation })}
-                {...(draftId ? { onWorktreeSetupWorkLocally } : {})}
-                {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
-                isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
-                listRef={legendListRef}
-                timelineEntries={devLiveTimeline?.entries ?? displayedTimeline.entries}
-                providerStatuses={
-                  environmentById.get(
-                    displayedThreadRef?.environmentId ?? activeThread.environmentId,
-                  )?.serverConfig?.providers ?? EMPTY_PROVIDERS
-                }
-                runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
-                latestRun={
-                  devLiveTimeline
-                    ? devLiveTimeline.latestRun
-                    : paintOnlyDisplayedTimeline
-                      ? null
-                      : activeActivityRun
-                }
-                runningRunId={
-                  devLiveTimeline
-                    ? devLiveTimeline.runningRunId
-                    : paintOnlyDisplayedTimeline
-                      ? null
-                      : activeRunningTurnId
-                }
-                turnDiffSummaries={
-                  paintOnlyDisplayedTimeline ? EMPTY_HELD_TURN_DIFF_SUMMARIES : turnDiffSummaries
-                }
-                activeThreadEnvironmentId={
-                  displayedThreadRef?.environmentId ?? activeThread.environmentId
-                }
-                routeThreadKey={displayedTimelineKey}
-                displayThreadKey={displayedTimelineKey}
-                onOpenTurnDiff={paintOnlyDisplayedTimeline ? noopHeldTurnDiff : onOpenTurnDiff}
-                onOpenThread={onOpenRelatedThread}
-                parentThreadLink={paintOnlyDisplayedTimeline ? null : parentThreadLink}
-                onForkFromRun={paintOnlyDisplayedTimeline ? async () => {} : onForkFromRun}
-                onRollbackCheckpoint={(input) => {
-                  if (!paintOnlyDisplayedTimeline) void onRollbackCheckpoint(input);
-                }}
-                supportsConversationRollback={
-                  !paintOnlyDisplayedTimeline && supportsConversationRollback
-                }
-                onRevertToTurnCount={
-                  paintOnlyDisplayedTimeline ? noopHeldRevert : onRevertTimelineTurn
-                }
-                {...(!paintOnlyDisplayedTimeline
-                  ? { onUseArtifactTemplate: useArtifactTemplate }
-                  : {})}
-                isRevertingCheckpoint={isRevertingCheckpoint}
-                onImageExpand={onExpandTimelineImage}
-                onFileOpen={paintOnlyDisplayedTimeline ? noopHeldAttachment : openFileAttachment}
-                onFileDownload={
-                  paintOnlyDisplayedTimeline ? noopHeldAttachment : downloadFileAttachment
-                }
-                markdownCwd={
-                  paintOnlyDisplayedTimeline
-                    ? (heldPaintContext?.markdownCwd ?? undefined)
-                    : (gitCwd ?? undefined)
-                }
-                resolvedTheme={resolvedTheme}
-                timestampFormat={timestampFormat}
-                workspaceRoot={
-                  paintOnlyDisplayedTimeline
-                    ? (heldPaintContext?.workspaceRoot ?? undefined)
-                    : activeWorkspaceRoot
-                }
-                skills={
-                  activeProviderStatus
-                    ? resolveProviderSkillsForCwd(activeProviderStatus, gitCwd)
-                    : EMPTY_PROVIDER_SKILLS
-                }
-                anchorMessageId={paintOnlyDisplayedTimeline ? null : timelineAnchorMessageId}
-                onAnchorReady={onTimelineAnchorReady}
-                onAnchorSizeChanged={onTimelineAnchorSizeChanged}
-                {...(paintOnlyDisplayedTimeline
-                  ? {}
-                  : { onUserRowMounted: onTimelineUserRowMounted })}
-                contentInsetEndAdjustment={composerTimelineInset}
-                liveFollowEnabled={!paintOnlyDisplayedTimeline && timelineLiveFollowEnabled}
-                onIsAtEndChange={onIsAtEndChange}
-                onContentOverflowChange={setTimelineOverflows}
-                onToolOutputCollapsedAtEnd={onToolOutputCollapsedAtEnd}
-                onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
-                cancelPositionRestoreRef={cancelPositionRestoreRef}
-                hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
-                topFadeEnabled={!hasTimelineTopBanner}
-                {...(paintOnlyDisplayedTimeline || threadHistoryControls === undefined
-                  ? {}
-                  : { historyControls: threadHistoryControls })}
-              />
+              <SubagentOpenerCtx value={openSubagentBeside}>
+                <MessagesTimeline
+                  citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
+                  citationHistoryLoading={threadDetailLoading}
+                  {...(!paintOnlyDisplayedTimeline
+                    ? {
+                        onCiteAssistantText: citeAssistantText,
+                        ...(activeProject ? { onRunShellCommand: runShellCommand } : {}),
+                      }
+                    : {})}
+                  isWorking={
+                    devLiveTimeline
+                      ? devLiveTimeline.isWorking
+                      : !paintOnlyDisplayedTimeline && isWorking
+                  }
+                  runlessWorkActive={runlessWorkStartedAt !== null}
+                  activeTurnInProgress={
+                    devLiveTimeline
+                      ? devLiveTimeline.isWorking
+                      : !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
+                  }
+                  isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
+                  activeTurnStartedAt={
+                    devLiveTimeline
+                      ? devLiveTimeline.startedAt
+                      : paintOnlyDisplayedTimeline
+                        ? null
+                        : activeWorkStartedAt
+                  }
+                  turnStarted={
+                    devLiveTimeline !== null || paintOnlyDisplayedTimeline || turnStarted
+                  }
+                  worktreeSetup={paintOnlyDisplayedTimeline ? null : worktreeSetup}
+                  onCancelWorktreeSetup={onCancelWorktreeSetup}
+                  {...(paintOnlyDisplayedTimeline
+                    ? {}
+                    : { retryableWorkspacePreparationRunIds, onRetryWorkspacePreparation })}
+                  {...(draftId ? { onWorktreeSetupWorkLocally } : {})}
+                  {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
+                  isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
+                  listRef={legendListRef}
+                  timelineEntries={devLiveTimeline?.entries ?? displayedTimeline.entries}
+                  providerStatuses={
+                    environmentById.get(
+                      displayedThreadRef?.environmentId ?? activeThread.environmentId,
+                    )?.serverConfig?.providers ?? EMPTY_PROVIDERS
+                  }
+                  runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
+                  latestRun={
+                    devLiveTimeline
+                      ? devLiveTimeline.latestRun
+                      : paintOnlyDisplayedTimeline
+                        ? null
+                        : activeActivityRun
+                  }
+                  runningRunId={
+                    devLiveTimeline
+                      ? devLiveTimeline.runningRunId
+                      : paintOnlyDisplayedTimeline
+                        ? null
+                        : activeRunningTurnId
+                  }
+                  turnDiffSummaries={
+                    paintOnlyDisplayedTimeline ? EMPTY_HELD_TURN_DIFF_SUMMARIES : turnDiffSummaries
+                  }
+                  activeThreadEnvironmentId={
+                    displayedThreadRef?.environmentId ?? activeThread.environmentId
+                  }
+                  routeThreadKey={displayedTimelineKey}
+                  displayThreadKey={displayedTimelineKey}
+                  onOpenTurnDiff={paintOnlyDisplayedTimeline ? noopHeldTurnDiff : onOpenTurnDiff}
+                  onOpenThread={onOpenRelatedThread}
+                  parentThreadLink={paintOnlyDisplayedTimeline ? null : parentThreadLink}
+                  onForkFromRun={paintOnlyDisplayedTimeline ? async () => {} : onForkFromRun}
+                  onRollbackCheckpoint={(input) => {
+                    if (!paintOnlyDisplayedTimeline) void onRollbackCheckpoint(input);
+                  }}
+                  supportsConversationRollback={
+                    !paintOnlyDisplayedTimeline && supportsConversationRollback
+                  }
+                  onRevertToTurnCount={
+                    paintOnlyDisplayedTimeline ? noopHeldRevert : onRevertTimelineTurn
+                  }
+                  {...(!paintOnlyDisplayedTimeline
+                    ? { onUseArtifactTemplate: useArtifactTemplate }
+                    : {})}
+                  isRevertingCheckpoint={isRevertingCheckpoint}
+                  onImageExpand={onExpandTimelineImage}
+                  onFileOpen={paintOnlyDisplayedTimeline ? noopHeldAttachment : openFileAttachment}
+                  onFileDownload={
+                    paintOnlyDisplayedTimeline ? noopHeldAttachment : downloadFileAttachment
+                  }
+                  markdownCwd={
+                    paintOnlyDisplayedTimeline
+                      ? (heldPaintContext?.markdownCwd ?? undefined)
+                      : (gitCwd ?? undefined)
+                  }
+                  resolvedTheme={resolvedTheme}
+                  timestampFormat={timestampFormat}
+                  workspaceRoot={
+                    paintOnlyDisplayedTimeline
+                      ? (heldPaintContext?.workspaceRoot ?? undefined)
+                      : activeWorkspaceRoot
+                  }
+                  skills={
+                    activeProviderStatus
+                      ? resolveProviderSkillsForCwd(activeProviderStatus, gitCwd)
+                      : EMPTY_PROVIDER_SKILLS
+                  }
+                  anchorMessageId={paintOnlyDisplayedTimeline ? null : timelineAnchorMessageId}
+                  onAnchorReady={onTimelineAnchorReady}
+                  onAnchorSizeChanged={onTimelineAnchorSizeChanged}
+                  {...(paintOnlyDisplayedTimeline
+                    ? {}
+                    : { onUserRowMounted: onTimelineUserRowMounted })}
+                  contentInsetEndAdjustment={composerTimelineInset}
+                  liveFollowEnabled={!paintOnlyDisplayedTimeline && timelineLiveFollowEnabled}
+                  onIsAtEndChange={onIsAtEndChange}
+                  onContentOverflowChange={setTimelineOverflows}
+                  onToolOutputCollapsedAtEnd={onToolOutputCollapsedAtEnd}
+                  onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
+                  cancelPositionRestoreRef={cancelPositionRestoreRef}
+                  hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
+                  topFadeEnabled={!hasTimelineTopBanner}
+                  {...(paintOnlyDisplayedTimeline || threadHistoryControls === undefined
+                    ? {}
+                    : { historyControls: threadHistoryControls })}
+                />
+              </SubagentOpenerCtx>
 
               {/* Willow's scroll-to-bottom button, shown when the user has scrolled away from the
                   live edge: always mounted so it can rise in and fade out, 36px over the box. */}
@@ -11463,6 +11512,28 @@ export default function ChatView(props: ChatViewProps) {
                                   />
                                 ) : null
                               }
+                              // Before the first message, which settles them: the workspace, where
+                              // the chat runs and its branch, on a bar over the box as the ChatGPT
+                              // app's composer has them.
+                              utilityBar={
+                                isDraftHeroState ? (
+                                  <div data-willow-composer-utility="true">
+                                    <DraftProjectPicker
+                                      draftId={draftId}
+                                      activeProjectRef={activeProjectRef}
+                                      activeProjectTitle={activeProject?.title ?? null}
+                                    />
+                                    <div
+                                      ref={setComposerContextChips}
+                                      data-willow-context-chips="true"
+                                    />
+                                    <div
+                                      ref={setComposerContextMeterHost}
+                                      data-willow-context-meter="true"
+                                    />
+                                  </div>
+                                ) : undefined
+                              }
                               restingControlsHaveLeadingContext={
                                 mountComposerContextStrip &&
                                 (isGitRepo || showComposerEnvironmentIndicator)
@@ -11581,14 +11652,6 @@ export default function ChatView(props: ChatViewProps) {
                         </div>
                       </div>
                     </ComposerSurface.Shell>
-                    {/* Where the chat will run and on which branch, under the box as Codex's
-                        utility bar: only before the first message, which settles both. */}
-                    {isDraftHeroState ? (
-                      <div data-willow-composer-utility="true">
-                        <div ref={setComposerContextChips} data-willow-context-chips="true" />
-                        <div ref={setComposerContextMeterHost} data-willow-context-meter="true" />
-                      </div>
-                    ) : null}
                     <div
                       aria-hidden
                       className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"

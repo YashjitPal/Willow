@@ -1621,6 +1621,8 @@ export interface ChatComposerProps {
 
   // Queued runs strip rendered above the composer (v2 queue/steer).
   queuedRunsControl?: ReactNode;
+  // Last on the rail, right over the box: a new chat's workspace, where it runs and its branch.
+  utilityBar?: ReactNode;
   // Queued-message edit mode: attachments already stored on the message being
   // edited. Rendered in the attachment strip with a remove control; removal is
   // client state in ChatView until the edit is saved.
@@ -6748,6 +6750,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               progress={activeTasksProgress}
               steps={activeTaskSteps}
             />
+          ) : null}
+          {props.utilityBar ? (
+            <ComposerBanner.Attachment>
+              <ComposerBanner.Surface>{props.utilityBar}</ComposerBanner.Surface>
+            </ComposerBanner.Attachment>
           ) : null}
         </ComposerBanner.Column>
         {!isComposerApprovalState ? (

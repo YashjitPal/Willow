@@ -8,27 +8,20 @@ import { useEffect, useState } from "react";
  * StreamingMarkdown's nextRevealBlockTiming): a paragraph, heading, code block, table or quote,
  * and every list item, whose own paragraphs share its turn. Only words still fading are
  * elements; the rest stay text. Each fading word is its own element name, so react-markdown's
- * sibling keys (`name-count`) keep pointing at the same word while older words return to text,
- * and a word the markdown rebuilds under a new parent after it has faded in (a closing `**`, a
- * link's `)`) does not fade in twice.
+ * sibling keys (`name-count`) keep pointing at the same word while older words return to text.
+ * Inline code and a link fade as one word, as Willow's `smd-inline-code smd-w` does, and a list
+ * item's marker with its words. Text the previous render already showed does not fade again when
+ * the markdown rebuilds it (a closing `**`, a link's `)`), as Willow's `settledBefore` keeps it.
  */
 const WORD_FADE_MS = 610;
 const BLOCK_DELAY_MS = 150;
 const BLOCK_STAGGER_MS = 120;
 
-/** Where words are left alone: code, links and summaries (their renderers read the text), media. */
-const UNWRAPPED_TAGS = new Set([
-  "a",
-  "code",
-  "pre",
-  "kbd",
-  "samp",
-  "summary",
-  "svg",
-  "math",
-  "script",
-  "style",
-]);
+/** Inline elements that fade as one word: their renderers read what is inside them. */
+const UNIT_TAGS = new Set(["a", "code"]);
+
+/** Where words are left alone: code blocks and summaries (their renderers read the text), media. */
+const UNWRAPPED_TAGS = new Set(["pre", "kbd", "samp", "summary", "svg", "math", "script", "style"]);
 
 /** Blocks with a turn of their own outside a list item; inside one they share its turn. */
 const BLOCK_TAGS = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "table", "blockquote"]);
@@ -61,6 +54,8 @@ const isParent = (node: Node): node is ParentNode =>
 interface RevealState {
   /** When each word, by its offset in the reply, was first painted. */
   readonly firstSeen: Map<number, number>;
+  /** When each list item, by its offset, was first painted, for its marker. */
+  readonly itemFirstSeen: Map<number, number>;
   /** Each block's delay, by the offset it starts at, fixed when it began. */
   readonly blockDelay: Map<number, number>;
   /** What the previous render showed: blocks starting before it are not new. */
@@ -90,6 +85,46 @@ function blockDelayFor(node: ParentNode, pass: Pass): number {
   return delay;
 }
 
+/**
+ * Whether what starts at `offset` is still fading in, counting from its first paint; what the
+ * previous render showed is long done, though the markdown now draws it differently.
+ */
+function fading(seen: Map<number, number>, offset: number, pass: Pass, delay: number): boolean {
+  let seenAt = seen.get(offset);
+  if (seenAt === undefined) {
+    seenAt = offset < pass.state.settledBefore ? Number.NEGATIVE_INFINITY : pass.now;
+    seen.set(offset, seenAt);
+  }
+  if (pass.now - seenAt > delay + WORD_FADE_MS) return false;
+  pass.state.settleBy = Math.max(pass.state.settleBy, seenAt + delay + WORD_FADE_MS);
+  return true;
+}
+
+function fadingWord(offset: number, delay: number, children: Node[]): ElementNode {
+  return {
+    type: "element",
+    tagName: `willow-w-${offset}`,
+    properties: {
+      className: ["willow-stream-word"],
+      ...(delay === BLOCK_DELAY_MS ? {} : { style: `animation-delay: ${delay}ms` }),
+    },
+    children,
+  };
+}
+
+/** A list item's marker fades in on its words' delay (markdown.css). */
+function markItem(item: ParentNode, pass: Pass, delay: number) {
+  const start = item.position?.start?.offset;
+  if (start === undefined || !fading(pass.state.itemFirstSeen, start, pass, delay)) return;
+  const element = item as ElementNode;
+  const style = typeof element.properties.style === "string" ? `${element.properties.style}; ` : "";
+  element.properties = {
+    ...element.properties,
+    dataWillowStreamItem: "",
+    style: `${style}--willow-stream-delay: ${delay}ms`,
+  };
+}
+
 /** `shared`: inside a list item or quote, whose blocks share its turn. */
 function wrapWords(parent: ParentNode, pass: Pass, delay: number, shared: boolean) {
   const children: Node[] = [];
@@ -106,6 +141,16 @@ function wrapWords(parent: ParentNode, pass: Pass, delay: number, shared: boolea
         // A code block takes its turn too, though it fades as a whole.
         const ownTurn = tag === "li" || (!shared && BLOCK_TAGS.has(tag));
         const childDelay = ownTurn ? blockDelayFor(child, pass) : delay;
+        if (tag === "li") markItem(child, pass, childDelay);
+        const start = child.position?.start?.offset;
+        if (UNIT_TAGS.has(tag)) {
+          children.push(
+            start !== undefined && fading(pass.state.firstSeen, start, pass, delay)
+              ? fadingWord(start, delay, [child])
+              : child,
+          );
+          continue;
+        }
         if (!UNWRAPPED_TAGS.has(tag)) {
           wrapWords(child, pass, childDelay, shared || tag === "li" || tag === "blockquote");
         }
@@ -122,24 +167,10 @@ function wrapWords(parent: ParentNode, pass: Pass, delay: number, shared: boolea
     const words = /\S+/g;
     for (let word = words.exec(child.value); word; word = words.exec(child.value)) {
       const offset = start + word.index;
-      let seenAt = pass.state.firstSeen.get(offset);
-      if (seenAt === undefined) {
-        seenAt = pass.now;
-        pass.state.firstSeen.set(offset, seenAt);
-      } else if (pass.now - seenAt > delay + WORD_FADE_MS) continue;
-      pass.state.settleBy = Math.max(pass.state.settleBy, seenAt + delay + WORD_FADE_MS);
+      if (!fading(pass.state.firstSeen, offset, pass, delay)) continue;
       text += child.value.slice(end, word.index);
       flush();
-      const element: ElementNode = {
-        type: "element",
-        tagName: `willow-w-${offset}`,
-        properties: {
-          className: ["willow-stream-word"],
-          ...(delay === BLOCK_DELAY_MS ? {} : { style: `animation-delay: ${delay}ms` }),
-        },
-        children: [{ type: "text", value: word[0] }],
-      };
-      children.push(element);
+      children.push(fadingWord(offset, delay, [{ type: "text", value: word[0] }]));
       end = word.index + word[0].length;
     }
     text += child.value.slice(end);
@@ -152,6 +183,7 @@ function wrapWords(parent: ParentNode, pass: Pass, delay: number, shared: boolea
 export function createStreamWords() {
   const state: RevealState = {
     firstSeen: new Map(),
+    itemFirstSeen: new Map(),
     blockDelay: new Map(),
     settledBefore: 0,
     settleBy: 0,
@@ -162,6 +194,7 @@ export function createStreamWords() {
       // A reply that was replaced rather than extended starts its words afresh.
       if (!source.startsWith(previousSource)) {
         state.firstSeen.clear();
+        state.itemFirstSeen.clear();
         state.blockDelay.clear();
         previousSource = "";
       }

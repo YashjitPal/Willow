@@ -33,15 +33,16 @@
   --codex-icon: color-mix(in oklab, var(--codex-ink) 60%, transparent);
   --codex-shimmer-base: color-mix(in srgb, var(--codex-ink-tertiary) 55%, transparent);
   /*
-   * Codex sizes its timeline from its chat type, so the work reads at a reply's 17px/24px here, its
-   * icons and chevrons scaled with it (16px and 14px beside Codex's 14px). Code keeps Codex's 13px,
-   * which is Willow's replies' too.
+   * The timeline at the ChatGPT app's own sizes: its chat type, the desktop window's 14px
+   * (--font-ui-size from --text-base) at its relaxed 1.625 leading, for replies, sent messages and
+   * work alike, with 16px icons (icon-xs) and 14px chevrons (icon-2xs) beside it, and 13px code.
+   * The prompt box keeps Willow's size.
    */
-  --codex-chat-font-size: 17px;
-  --codex-chat-line-height: 24px;
+  --codex-chat-font-size: 14px;
+  --codex-chat-line-height: calc(14px * 1.625);
   --codex-chat-code-font-size: 13px;
-  --codex-icon-size: 20px;
-  --codex-chevron-size: 17px;
+  --codex-icon-size: 16px;
+  --codex-chevron-size: 14px;
   --codex-item-gap: 16px;
   --codex-grouped-gap: 4px;
 }

@@ -3,7 +3,7 @@ import { useComposerDraftStore } from "~/composerDraftStore";
 import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
-import { FolderPlusIcon, MessageSquareDashedIcon } from "lucide-react";
+import { FolderIcon, FolderPlusIcon, MessageSquareDashedIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
@@ -25,8 +25,10 @@ import {
 } from "~/sidebarProjectGrouping";
 import { useProjects, useThreadShells } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
+import { ComposerContextLabel } from "../ComposerContextLabel";
 import { ProjectEnvironmentBadge } from "../ProjectEnvironmentBadge";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { ComposerControl, ComposerControlChevron, ComposerControlIcon } from "./ComposerControl";
 import { sortLogicalProjectsForSidebar } from "../Sidebar.logic";
 import {
   Menu,
@@ -52,7 +54,11 @@ interface DraftHeroHeadlineProps {
   readonly activeProjectTitle: string | null;
 }
 
-export function DraftHeroHeadline({
+/** In the hero sentence, or first on the bar above a new chat's box. */
+type ProjectPickerPlacement = "headline" | "bar";
+
+/** The draft's project and the picker that changes it. */
+function useDraftProjectPicker({
   draftId,
   activeProjectRef,
   activeProjectTitle,
@@ -231,99 +237,145 @@ export function DraftHeroHeadline({
   };
 
   const noProjectShortcut = shortcutLabelForCommand(keybindings, "chat.newWithoutProject");
-  const projectSelector = shouldShowProjectMenu ? (
-    <Menu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            // The trigger's accessible name comes from its visible text (the
-            // project title) so the hero sentence reads naturally: an
-            // aria-label here would replace the title with an action phrase
-            // mid-sentence and baffle screen-reader users.
-            <MenuTrigger
-              render={<InlineButton tone="picker" />}
-              data-draft-project-trigger=""
-              className="pointer-events-auto max-w-64 align-baseline"
-            />
-          }
+  const pickerLabel = isScratchDraft
+    ? "No project"
+    : (activeProjectDisplayName ?? "Choose a project");
+  const renderProjectSelector = (placement: ProjectPickerPlacement) =>
+    shouldShowProjectMenu ? (
+      <Menu>
+        {placement === "bar" ? (
+          <MenuTrigger
+            render={<ComposerControl size="xs" aria-label={`Project: ${pickerLabel}`} />}
+            data-composer-context-control=""
+            data-draft-project-trigger=""
+          >
+            <ComposerControlIcon icon={FolderIcon} size="xs" />
+            <ComposerContextLabel>{pickerLabel}</ComposerContextLabel>
+            <ComposerControlChevron size="xs" />
+          </MenuTrigger>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                // The trigger's accessible name comes from its visible text (the
+                // project title) so the hero sentence reads naturally: an
+                // aria-label here would replace the title with an action phrase
+                // mid-sentence and baffle screen-reader users.
+                <MenuTrigger
+                  render={<InlineButton tone="picker" />}
+                  data-draft-project-trigger=""
+                  className="pointer-events-auto max-w-64 align-baseline"
+                />
+              }
+            >
+              <span className="min-w-0 truncate">{pickerLabel}</span>
+            </TooltipTrigger>
+            {activeProjectDisplayName && !isScratchDraft ? (
+              <TooltipPopup side="top">{activeProjectDisplayName}</TooltipPopup>
+            ) : null}
+          </Tooltip>
+        )}
+        <MenuPopup
+          align={placement === "bar" ? "start" : "center"}
+          className="max-h-80 overflow-y-auto"
         >
-          <span className="min-w-0 truncate">
-            {isScratchDraft ? "No project" : (activeProjectDisplayName ?? "Choose a project")}
-          </span>
-        </TooltipTrigger>
-        {activeProjectDisplayName && !isScratchDraft ? (
-          <TooltipPopup side="top">{activeProjectDisplayName}</TooltipPopup>
-        ) : null}
-      </Tooltip>
-      <MenuPopup align="center" className="max-h-80 overflow-y-auto">
-        <MenuRadioGroup
-          value={isScratchDraft ? NO_PROJECT_VALUE : activeProjectKey}
-          onValueChange={(value) => {
-            if (value === NO_PROJECT_VALUE) {
-              void startScratch();
-              return;
-            }
-            const entry = projectEntryByKey.get(value as string);
-            if (!entry || value === activeProjectKey) {
-              return;
-            }
-            selectProject(entry.targetProject, entry.group.projectKey);
-          }}
-        >
-          {scratchWorkspaceRoot === null ? null : (
-            <MenuRadioItem value={NO_PROJECT_VALUE} closeOnClick>
-              <span className="flex min-w-0 items-center gap-2">
-                {/* Boxed like ProjectFavicon so the label lines up with project rows. */}
-                <span
-                  aria-hidden="true"
-                  className={`inline-flex size-4 shrink-0 ${projectIconColorClassName("gray")}`}
-                >
-                  <MessageSquareDashedIcon className="size-full" />
-                </span>
-                No project
-              </span>
-              {noProjectShortcut ? <MenuShortcut>{noProjectShortcut}</MenuShortcut> : null}
-            </MenuRadioItem>
-          )}
-          {menuEntries.map(({ group }) => {
-            return (
-              <MenuRadioItem key={group.projectKey} value={group.projectKey} closeOnClick>
+          <MenuRadioGroup
+            value={isScratchDraft ? NO_PROJECT_VALUE : activeProjectKey}
+            onValueChange={(value) => {
+              if (value === NO_PROJECT_VALUE) {
+                void startScratch();
+                return;
+              }
+              const entry = projectEntryByKey.get(value as string);
+              if (!entry || value === activeProjectKey) {
+                return;
+              }
+              selectProject(entry.targetProject, entry.group.projectKey);
+            }}
+          >
+            {scratchWorkspaceRoot === null ? null : (
+              <MenuRadioItem value={NO_PROJECT_VALUE} closeOnClick>
                 <span className="flex min-w-0 items-center gap-2">
-                  <ProjectFavicon project={group} className="size-4 shrink-0" />
-                  <Tooltip>
-                    <TooltipTrigger render={<span className="block min-w-0 truncate" />}>
-                      {group.displayName}
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">{group.displayName}</TooltipPopup>
-                  </Tooltip>
-                  {showProjectEnvironments ? (
-                    <ProjectEnvironmentBadge
-                      group={group}
-                      primaryEnvironmentId={primaryEnvironmentId}
-                      machineByEnvironmentId={environmentMachineById}
-                    />
-                  ) : null}
+                  {/* Boxed like ProjectFavicon so the label lines up with project rows. */}
+                  <span
+                    aria-hidden="true"
+                    className={`inline-flex size-4 shrink-0 ${projectIconColorClassName("gray")}`}
+                  >
+                    <MessageSquareDashedIcon className="size-full" />
+                  </span>
+                  No project
                 </span>
+                {noProjectShortcut ? <MenuShortcut>{noProjectShortcut}</MenuShortcut> : null}
               </MenuRadioItem>
-            );
-          })}
-        </MenuRadioGroup>
-        {projectPickerEntries.length > 0 ? <MenuSeparator /> : null}
-        <MenuItem onClick={openAddProject}>
-          <FolderPlusIcon />
-          Add project
-        </MenuItem>
-      </MenuPopup>
-    </Menu>
-  ) : (
-    <button
-      type="button"
-      onClick={openAddProject}
-      className="pointer-events-auto inline cursor-pointer border-muted-foreground/35 border-b border-dotted text-muted-foreground/60 transition-colors hover:border-muted-foreground/60 hover:text-muted-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      {activeProjectTitle ?? "Add a project"}
-    </button>
-  );
+            )}
+            {menuEntries.map(({ group }) => {
+              return (
+                <MenuRadioItem key={group.projectKey} value={group.projectKey} closeOnClick>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <ProjectFavicon project={group} className="size-4 shrink-0" />
+                    <Tooltip>
+                      <TooltipTrigger render={<span className="block min-w-0 truncate" />}>
+                        {group.displayName}
+                      </TooltipTrigger>
+                      <TooltipPopup side="top">{group.displayName}</TooltipPopup>
+                    </Tooltip>
+                    {showProjectEnvironments ? (
+                      <ProjectEnvironmentBadge
+                        group={group}
+                        primaryEnvironmentId={primaryEnvironmentId}
+                        machineByEnvironmentId={environmentMachineById}
+                      />
+                    ) : null}
+                  </span>
+                </MenuRadioItem>
+              );
+            })}
+          </MenuRadioGroup>
+          {projectPickerEntries.length > 0 ? <MenuSeparator /> : null}
+          <MenuItem onClick={openAddProject}>
+            <FolderPlusIcon />
+            Add project
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
+    ) : placement === "bar" ? (
+      <ComposerControl size="xs" data-composer-context-control="" onClick={openAddProject}>
+        <ComposerControlIcon icon={FolderPlusIcon} size="xs" />
+        <ComposerContextLabel>{activeProjectTitle ?? "Add a project"}</ComposerContextLabel>
+      </ComposerControl>
+    ) : (
+      <button
+        type="button"
+        onClick={openAddProject}
+        className="pointer-events-auto inline cursor-pointer border-muted-foreground/35 border-b border-dotted text-muted-foreground/60 transition-colors hover:border-muted-foreground/60 hover:text-muted-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {activeProjectTitle ?? "Add a project"}
+      </button>
+    );
+
+  return {
+    renderProjectSelector,
+    isScratchDraft,
+    hasResolvedProject,
+    canChooseProject,
+    activeProjectDisplayName,
+  };
+}
+
+/** The workspace, first on the bar above a new chat's box, as the ChatGPT app's project picker. */
+export function DraftProjectPicker(props: DraftHeroHeadlineProps) {
+  return useDraftProjectPicker(props).renderProjectSelector("bar");
+}
+
+export function DraftHeroHeadline(props: DraftHeroHeadlineProps) {
+  const {
+    renderProjectSelector,
+    isScratchDraft,
+    hasResolvedProject,
+    canChooseProject,
+    activeProjectDisplayName,
+  } = useDraftProjectPicker(props);
+  const projectSelector = renderProjectSelector("headline");
 
   // The composer hero is a sentence, so the heading's accessible name must be
   // a complete sentence too. The project picker is a control rendered inline

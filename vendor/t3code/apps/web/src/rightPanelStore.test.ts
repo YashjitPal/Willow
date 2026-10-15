@@ -222,6 +222,33 @@ describe("rightPanelStore", () => {
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
   });
 
+  it("opens the Subagents tab on an agent, then on their list, as one tab", () => {
+    const store = useRightPanelStore.getState();
+    const ada = { parentThreadId: "thread-A", subagentId: "node-ada", title: "Ada" };
+    store.openSubagents(refA, ada);
+    let state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.isOpen).toBe(true);
+    expect(state.activeSurfaceId).toBe("subagents");
+    expect(state.surfaces).toEqual([{ id: "subagents", kind: "subagents", selection: ada }]);
+    store.openSubagents(refA, null);
+    state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toEqual([{ id: "subagents", kind: "subagents", selection: null }]);
+  });
+
+  it("keeps a saved Subagents tab, forgetting a selection it cannot read", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "subagents",
+            surfaces: [{ id: "subagents", kind: "subagents", selection: { subagentId: 3 } }],
+          },
+        },
+      }).byThreadKey["env-1:thread-A"]?.surfaces,
+    ).toEqual([{ id: "subagents", kind: "subagents", selection: null }]);
+  });
+
   it("drops the legacy singleton terminal surface during migration", () => {
     expect(
       migratePersistedRightPanelState({

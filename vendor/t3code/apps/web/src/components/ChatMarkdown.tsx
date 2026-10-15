@@ -98,6 +98,7 @@ import {
   renderCodexFileCitationsAsMarkdown,
 } from "@t3tools/client-runtime/codex-markdown-directives";
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
+import { useMarkReplyRevealing } from "../willow/replyReveal";
 import { useStreamReveal } from "../willow/streamReveal";
 import { useStreamWordsPlugin } from "../willow/streamWords";
 import {
@@ -214,6 +215,8 @@ interface ChatMarkdownProps {
   environmentId?: EnvironmentId | undefined;
   onTaskListChange?: ((input: { markerOffset: number; checked: boolean }) => void) | undefined;
   isStreaming?: boolean;
+  /** The reply this is, counted as arriving while it reveals so its buttons wait (willow/replyReveal.ts). */
+  revealId?: string | undefined;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   className?: string;
   /** Treat single newlines as hard breaks — chat-style user input. */
@@ -3516,6 +3519,7 @@ function ChatMarkdown({
     [extraRemarkPlugins, incrementalParsing, lineBreaks],
   );
   const streamWords = useStreamWordsPlugin(isStreaming);
+  useMarkReplyRevealing(props.revealId, streamWords !== null);
   const rehypePlugins = useMemo(
     () => [
       ...(parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : []),

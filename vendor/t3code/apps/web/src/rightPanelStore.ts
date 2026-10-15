@@ -25,8 +25,16 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "pull-requests",
+  "subagents",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
+
+/** The agent the Subagents tab shows, by the thread that started it and its id there. */
+export interface SubagentPanelSelection {
+  parentThreadId: string;
+  subagentId: string;
+  title: string;
+}
 
 export interface DeviceTabTarget {
   hostId: string;
@@ -80,7 +88,9 @@ export type RightPanelSurface =
       url?: string;
     }
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
-  | { id: "pull-requests"; kind: "pull-requests" };
+  | { id: "pull-requests"; kind: "pull-requests" }
+  /** The thread's subagents: their list, or the one picked from it or from the chat. */
+  | { id: "subagents"; kind: "subagents"; selection: SubagentPanelSelection | null };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -149,6 +159,8 @@ interface RightPanelStoreState {
       url?: string;
     },
   ) => void;
+  /** Opens the Subagents tab on one agent, or on their list when `selection` is null. */
+  openSubagents: (ref: ScopedThreadRef, selection: SubagentPanelSelection | null) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -204,8 +216,20 @@ const singletonSurface = (
       return { id: "pull-requests", kind };
     case "device":
       return { id: "device", kind };
+    case "subagents":
+      return { id: "subagents", kind, selection: null };
   }
 };
+
+function persistedSubagentSelection(value: unknown): SubagentPanelSelection | null {
+  if (!value || typeof value !== "object") return null;
+  const { parentThreadId, subagentId, title } = value as Record<string, unknown>;
+  return typeof parentThreadId === "string" &&
+    typeof subagentId === "string" &&
+    typeof title === "string"
+    ? { parentThreadId, subagentId, title }
+    : null;
+}
 
 const browserSurface = (tabId: string | null): RightPanelSurface =>
   tabId
@@ -468,6 +492,15 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         }),
                       ];
                     }
+                    if (surface.kind === "subagents") {
+                      return [
+                        {
+                          id: "subagents",
+                          kind: "subagents",
+                          selection: persistedSubagentSelection(surface.selection),
+                        },
+                      ];
+                    }
                     if (surface.kind !== "terminal") return [surface];
                     if (
                       !("resourceId" in surface) ||
@@ -659,6 +692,17 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                   ),
                 }
               : next;
+          }),
+        ),
+      openSubagents: (ref, selection) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            const surface: RightPanelSurface = { id: "subagents", kind: "subagents", selection };
+            const next = upsertSurface(current, surface);
+            return {
+              ...next,
+              surfaces: next.surfaces.map((entry) => (entry.id === surface.id ? surface : entry)),
+            };
           }),
         ),
       openFile: (ref, requestedPath, line) =>

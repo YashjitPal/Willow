@@ -23,6 +23,7 @@ import {
   Globe2,
   Plus,
   TerminalSquare,
+  UsersIcon,
 } from "lucide-react";
 import { Volume2, VolumeOff } from "lucide";
 import {
@@ -597,6 +598,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return "Pull requests";
+    case "subagents":
+      return "Subagents";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -680,6 +683,8 @@ function SurfaceIcon({
       );
     case "pull-requests":
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
+    case "subagents":
+      return <UsersIcon className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -720,6 +725,8 @@ function stripTabIcon(
       return { glyph: "merge" };
     case "device":
       return { glyph: "smartphone" };
+    case "subagents":
+      return { glyph: "group" };
   }
 }
 

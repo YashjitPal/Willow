@@ -76,10 +76,14 @@ Changes from upstream:
   (`WillowComposerPlus.tsx`: Upload files, and Plan as a tool whose chip turns it off) and
   Willow's model pill and model menu at the right (`WillowModelPill.tsx`, traits as its rows,
   each opening its values; `TraitsPicker.tsx` and `composerProviderState.tsx` gained the
-  per-trait listing and a summary). The workspace and branch controls (`BranchToolbar`, "Work
-  locally" in `BranchToolbar.logic.ts`) render as Willow's chips (its media gallery's), centred
-  under a new thread's box (a portal from `ChatView.tsx`), with the context meter
-  `ChatComposer.tsx` portals beside them; the first message settles both, so in Willow
+  per-trait listing and a summary). A new thread's workspace, where it runs and its branch sit on
+  a bar over the box, last on its rail as the ChatGPT app's composer has its action bar
+  (`actionBarPosition: "above"`, app-primary's `XV`): the project picker first
+  (`DraftProjectPicker` in `DraftHeroHeadline.tsx`, the headline's own menu), then the workspace
+  and branch controls (`BranchToolbar`, "Work locally" in `BranchToolbar.logic.ts`, a portal from
+  `ChatView.tsx` through `ChatComposer.tsx`'s `utilityBar`), then the context meter
+  `ChatComposer.tsx` portals at its end, as Willow's pills on the rail that scroll sideways under
+  faded edges when the bar runs out of room. The first message settles them, so in Willow
   `ChatView.tsx` ignores `persistComposerContextStrip` and a running thread keeps the meter in the
   box's footer. The access control (`runtimeModeConfig.ts`: "Ask for approval", "Auto-accept
   edits", "Auto" with Material glyphs, "Full access" with the Luminous `lock` Willow's Spark gives
@@ -112,8 +116,10 @@ Changes from upstream:
   does; `ProposedPlanCard.tsx`, `ChangedFilesTree.tsx` (`ChangedFilesCard`) and
   `ComposerPendingApprovalPanel.tsx` take Codex's plan, end-of-turn and approval cards. The
   timeline draws Codex's own icons (`MessagesTimeline.tsx` provides `CodexDrawings`; elsewhere
-  `CodexIcon` draws Willow's glyph for the same meaning) and sizes its work from a reply's
-  17px/24px as Codex sizes it from its chat type, code keeping 13px. Its pieces meet on Codex's
+  `CodexIcon` draws Willow's glyph for the same meaning) and is set in the ChatGPT app's own sizes
+  (`activity.css`): its 14px chat type at a 1.625 leading for replies, sent messages and work
+  alike, headings at 1.5, 1.25 and 1.125 of it, 16px icons and 14px chevrons, code at 13px; the
+  prompt box keeps Willow's 17px. Its pieces meet on Codex's
   16px alone: a reply's first and last blocks lose their margins, and T3's 2px round a reply and a
   plan go (`activity.css`). Thinking has no icon, live or settled. Only a turn that does some
   work (a command, read, edit, search, image, tool call, subagent or worktree setup) gets the
@@ -122,7 +128,10 @@ Changes from upstream:
   (`willow/streamReveal.ts`, from platform/ui `streaming-text-reveal.ts`): `ChatMarkdown.tsx`
   shows it a sentence or a few words at a time, catching up after the stream ends, and the words
   each step adds fade in, blocks that begin in one step taking turns 120ms apart
-  (`willow/streamWords.ts`, StreamingMarkdown's `nextRevealBlockTiming`). Rows come and go as in
+  (`willow/streamWords.ts`, StreamingMarkdown's `nextRevealBlockTiming`). Inline code and a link
+  fade in as one word, as Willow's `smd-inline-code smd-w` does, a new list item's marker with its
+  words (`markdown.css`), and what the last step showed does not fade again when the markdown
+  redraws it, a closing `**` or a link's `)` (Willow's `settledBefore`). Rows come and go as in
   the ChatGPT app (its webview's `collapsed-turn-disclosure` and markdown fade): a row that was
   not in the last render fades in over 150ms, a live row coming back included, and a disclosure
   grows or shrinks its rows as one block, the top row filling first. "Worked for" opens over 300ms
@@ -145,10 +154,25 @@ Changes from upstream:
   In development, `sessionStorage` "willow-agents:fixture" set to "live" plays a whole turn in the
   open thread to watch this motion (`willow/devLiveTimeline.ts`; "timeline" shows every kind of
   row at rest).
+- Subagents are the Codex app's (its webview's MultiAgentAction, SubagentActivity and subagents
+  panel tab; `willow/SubagentRows.tsx`, `willow/subagents.ts`, `willow/subagents.css`). Each wears
+  one of the app's 28 gradient avatars, picked by hashing its id as the app does, in the theme's
+  variant (`willow/AgentAvatar.tsx`; `willow/agentAvatars/` and `agentAvatars.ts` are copied from
+  the app's bundle by `extract-codex-avatars.mjs`). A turn's agents read "Created 2 agents",
+  opening to "Created Ada with the instructions: …", then "Ada and Darwin started working" behind
+  their avatars, which slide in as agents join, and later "finished". Naming one, or opening a
+  subagent anywhere in the chat (`ChatView.tsx` `onOpenRelatedThread`), opens the right panel's
+  Subagents tab on it (`rightPanelStore.ts` `openSubagents`), as the app opens an agent that takes
+  no messages: its conversation under a header with its avatar, name and model, read only, and
+  Back to subagents leads to the thread's Active and Done lists (`willow/SubagentsPanel.tsx`). The
+  app's strip of background agents over the prompt box is switched off in the shipping app, so
+  there is none here.
 - Under a reply are Willow's buttons for one (features/chat `ChatResponseChrome`): Good response
   and Bad response (`willow/ResponseRating.tsx`, kept on this computer by message), Copy, then
   the branch (`arrow_split`) and the time; the latest finished reply keeps them, older ones show
-  them on hover. A sent message's buttons are Willow's Copy prompt and Edit (Edit from here),
+  them on hover. A new reply's buttons wait until it has finished arriving, its reveal and last
+  word fades done, then their row grows in over 150ms and fades in over 240ms, as Willow's
+  `actionsReady` row does (`willow/replyReveal.ts`, `ChatMarkdown.tsx`'s `revealId`). A sent message's buttons are Willow's Copy prompt and Edit (Edit from here),
   under the bubble on hover with Willow's 52px below it (44px at compact widths) and no time
   (`willow/message.css`); the row's lane clips them with a path 8px wider than itself, so the
   first circle shows whole. The scroll-to-end button is Willow's (`willow/ScrollToEndFab.tsx`,
