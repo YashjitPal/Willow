@@ -1,0 +1,542 @@
+/*
+ * Gemini's "Search chats" panel (`SearchModalDialog`), measured at 1536x826, 800x1280 and 390x844
+ * (tools/ui-research/captures/gemini/sidebar-search/). The colours are its island theme's tokens:
+ * the dark set as measured, the light set as the same stylesheet defines it.
+ */
+
+.willow-search-backdrop,
+.willow-search-positioner {
+  position: fixed;
+  inset: 0;
+  z-index: 30000;
+}
+
+.willow-search-backdrop {
+  background-color: rgba(0, 0, 0, 0.32);
+}
+
+.willow-search-positioner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The card: 660px at most, 85% of the viewport's height up to 760px, centred. */
+.willow-search-panel {
+  --willow-search-text: #e3e3e3;
+  --willow-search-muted: rgba(255, 255, 255, 0.55);
+  --willow-search-faint: rgba(255, 255, 255, 0.38);
+  --willow-search-surface: #1c1c1c;
+  /* Rows under the pointer, the chosen sort order and Clear. */
+  --willow-search-fill: #171717;
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 660px;
+  height: min(85vh, 760px);
+  flex-direction: column;
+  padding: 16px 16px 0;
+  overflow: hidden;
+  border-radius: 40px;
+  background-color: var(--willow-search-surface);
+  box-shadow: rgba(0, 0, 0, 0.04) 0 0 20px 0;
+  color: var(--willow-search-text);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  outline: none;
+}
+
+.willow-search-section {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+}
+
+.willow-search-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* The field: the 24px glyph in a 36px slot, the input, Clear while there is text, and Close. */
+.willow-search-header {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  flex-shrink: 0;
+  padding-bottom: 8px;
+}
+
+.willow-search-field {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  cursor: text;
+  font-size: 17px;
+  line-height: 24px;
+}
+
+.willow-search-field-icon {
+  display: flex;
+  width: 36px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * Gemini's input leaves the variable axes at their defaults, unlike the rest of the panel. Empty,
+ * its ink (and so its caret) is the faint 38%; with text, the panel's.
+ */
+.willow-search-input {
+  min-width: 0;
+  height: 24px;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  font-variation-settings: normal;
+  line-height: 24px;
+  outline: none;
+}
+
+.willow-search-input:placeholder-shown {
+  color: var(--willow-search-faint);
+}
+
+.willow-search-input::placeholder {
+  color: var(--willow-search-muted);
+  opacity: 1;
+}
+
+/* Gemini's island buttons: a layer of the ink at 8% hovered, 12% pressed, a 3px ring 5px out on keyboard focus. */
+.willow-search-pill,
+.willow-search-close {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  margin: 0;
+  border: 0;
+  border-radius: 9999px;
+  background-color: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  outline: none;
+  transition: border-radius 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.willow-search-close {
+  width: 36px;
+  justify-content: center;
+  padding: 0;
+}
+
+.willow-search-pill {
+  gap: 8px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.willow-search-pill--clear {
+  padding: 1px 12px;
+  background-color: var(--willow-search-fill);
+}
+
+.willow-search-pill--sort {
+  padding: 1px 12px 1px 8px;
+}
+
+.willow-search-pill-label {
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-search-pill-icon {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+.willow-search-pill::after,
+.willow-search-close::after,
+.willow-search-menu-item::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: color-mix(in srgb, currentColor 8%, transparent);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease-in-out;
+}
+
+/* Hovered, pressed and focus-visible are the island's mouse-event states (useIslandInteraction). */
+.willow-search-pill[data-hovered]::after,
+.willow-search-close[data-hovered]::after,
+.willow-search-menu-item[data-hovered]::after,
+.willow-search-pill[data-focus-visible]::after,
+.willow-search-close[data-focus-visible]::after,
+.willow-search-menu-item[data-focus-visible]::after {
+  opacity: 1;
+}
+
+.willow-search-pill[data-pressed]::after,
+.willow-search-close[data-pressed]::after,
+.willow-search-menu-item[data-pressed]::after {
+  background-color: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.willow-search-pill::before,
+.willow-search-close::before,
+.willow-search-row::before,
+.willow-search-menu-item::before {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border: 3px solid currentColor;
+  border-radius: inherit;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.willow-search-pill[data-focus-visible]::before,
+.willow-search-close[data-focus-visible]::before,
+.willow-search-menu-item[data-focus-visible]::before,
+.willow-search-row:focus-visible::before {
+  inset: -5px;
+  opacity: 1;
+}
+
+/* The list: a 48px heading, then rows in a scroller with no visible bar. */
+.willow-search-body {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+}
+
+.willow-search-heading,
+.willow-search-heading-row {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  flex-shrink: 0;
+  align-items: center;
+  margin: 0;
+  padding: 0 6px;
+}
+
+.willow-search-heading,
+.willow-search-heading--inline {
+  color: var(--willow-search-muted);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.willow-search-heading-row {
+  justify-content: space-between;
+}
+
+.willow-search-heading--inline {
+  display: block;
+  width: auto;
+  height: 20px;
+  padding: 0;
+}
+
+.willow-search-scroll {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.willow-search-viewport {
+  width: 100%;
+  height: 100%;
+  overflow-y: scroll;
+  outline: none;
+  scrollbar-width: none;
+}
+
+.willow-search-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.willow-search-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.willow-search-item {
+  width: 100%;
+  list-style: none;
+}
+
+.willow-search-sentinel {
+  width: 100%;
+  height: 1px;
+  list-style: none;
+}
+
+/* A row: 48px, 68px with a snippet; filled under the pointer or the press, at once. */
+.willow-search-row {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 24px;
+  color: inherit;
+  cursor: pointer;
+  outline: none;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.willow-search-row:hover,
+.willow-search-row:active {
+  background-color: var(--willow-search-fill);
+}
+
+.willow-search-row-icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--willow-search-muted);
+}
+
+.willow-search-row-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.willow-search-row-title,
+.willow-search-row-snippet {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-search-row-title {
+  height: 24px;
+  font-size: 17px;
+  line-height: 24px;
+}
+
+/* Gemini's snippet line is a 13px/17px box holding 15px/20px text, which its ellipsis is drawn in. */
+.willow-search-row-snippet {
+  height: 20px;
+  color: var(--willow-search-muted);
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.willow-search-row-snippet > bdi {
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.willow-search-match {
+  font-weight: 540;
+  font-variation-settings: "wdth" 92, "wght" 540;
+}
+
+.willow-search-row-end {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.willow-search-row-date {
+  color: var(--willow-search-muted);
+  font-size: 15px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+/* Loading: three bars of the ink, 12px apart, breathing between 8% and 18%. */
+.willow-search-skeleton {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.willow-search-skeleton-bar {
+  display: block;
+  border-radius: 9999px;
+  background-color: currentColor;
+  opacity: 0.08;
+  animation: willow-search-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes willow-search-pulse {
+  0% {
+    opacity: 0.08;
+  }
+  50% {
+    opacity: 0.18;
+  }
+  100% {
+    opacity: 0.08;
+  }
+}
+
+.willow-search-empty {
+  margin: 0;
+  padding: 16px;
+  color: var(--willow-search-muted);
+  font-size: 15px;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* The sort menu: 200px or more, 16px corners, 36px rows with 8px corners. */
+.willow-search-menu {
+  position: fixed;
+  z-index: 30001;
+  box-sizing: border-box;
+  min-width: 200px;
+  max-width: 340px;
+  max-height: 80vh;
+  padding: 8px;
+  overflow-y: auto;
+  border-radius: 16px;
+  background-color: var(--willow-search-surface);
+  box-shadow: rgba(0, 0, 0, 0.04) 0 0 20px 0;
+  color: var(--willow-search-text);
+  outline: none;
+}
+
+.willow-search-menu-item {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+}
+
+.willow-search-menu-item[aria-selected="true"] {
+  background-color: var(--willow-search-fill);
+}
+
+.willow-search-menu-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.willow-search-menu-item-label {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.willow-search-menu-item-check {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+}
+
+/* Phones and tablets: the whole screen, 8px in at the sides, the heading 16px in. A 960px screen still gets the card. */
+@media (max-width: 959.98px) {
+  .willow-search-panel {
+    max-width: 100%;
+    height: 100%;
+    padding: 16px 8px 0;
+    border-radius: 0;
+  }
+
+  .willow-search-heading,
+  .willow-search-heading-row {
+    padding: 0 16px;
+  }
+
+  .willow-search-heading--inline {
+    padding: 0;
+  }
+}
+
+/* Gemini's dark theme darkens the fill on phones. */
+@media (max-width: 767px) {
+  .willow-search-panel {
+    --willow-search-fill: #141414;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .willow-search-skeleton-bar {
+    animation: none;
+  }
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-search-backdrop {
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-search-panel {
+  --willow-search-text: #000000;
+  --willow-search-muted: rgba(0, 0, 0, 0.55);
+  --willow-search-faint: rgba(0, 0, 0, 0.38);
+  --willow-search-surface: #ffffff;
+  --willow-search-fill: #f2f0f0;
+}

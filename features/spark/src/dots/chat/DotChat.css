@@ -691,7 +691,121 @@ button.dot-chat__reaction-pill:hover {
 @media (prefers-reduced-motion: reduce) {
   .dot-chat__typing-dots i,
   .dot-chat__reaction-pill,
-  .dot-chat__picker {
+  .dot-chat__picker,
+  .dot-picture-viewer {
     animation: none;
   }
+}
+
+/* Pictures and files the bot sent: on its side, a picture opening whole, a file saving. */
+.dot-chat__row.is-dot .dot-chat__pictures {
+  justify-content: flex-start;
+}
+
+.dot-chat__picture-button {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 20px;
+  background: none;
+  cursor: zoom-in;
+}
+
+.dot-chat__picture-button:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.dot-chat__attachment.is-saveable {
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.dot-chat__attachment.is-saveable:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 20%, transparent);
+}
+
+.dot-chat__attachment.is-saveable:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 1px;
+}
+
+/* A picture whole, over everything, as a photo viewer shows one. */
+.dot-picture-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 64px 24px 32px;
+  background: rgba(10, 10, 12, 0.9);
+  backdrop-filter: blur(2px);
+  animation: dot-picture-viewer-in 0.18s ease-out;
+}
+
+@keyframes dot-picture-viewer-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.dot-picture-viewer__bar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #e3e3e3;
+}
+
+.dot-picture-viewer__name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot-picture-viewer__action {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.dot-picture-viewer__action:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dot-picture-viewer__action:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 1px;
+}
+
+.dot-picture-viewer__picture {
+  display: block;
+  max-width: min(1400px, 100%);
+  max-height: 100%;
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  object-fit: contain;
 }

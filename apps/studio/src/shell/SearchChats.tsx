@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X } from 'lucide-react';
 import { embedGeminiText, embedGeminiTexts } from '@willow/ai/embeddings';
 import { useUserDataContext } from '@willow/auth/UserDataContext';
 import { loadChatEmbedding, saveChatEmbedding } from '@willow/storage/indexeddb/willow-db';
@@ -7,53 +6,25 @@ import { chatDisplayName } from '@willow/storage/local-fs/chat-metadata';
 import { checkCodeChat } from '@willow/storage/code-chat-storage';
 import { requestCodeChatOpen } from '@willow/storage/code-chat-open-store';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
-import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
-import { finishTopLoadingReason, startTopLoadingReason } from '@willow/ui/top-loading-store';
-import './SearchChats.css';
-
-type SearchChatsProps = {
-  onOpenChat?: (chatId: string) => void;
-  autoFocus?: boolean;
-  compact?: boolean;
-  onClose?: () => void;
-  modelConfig: any;
-};
+import { pickSnippet, RESULTS_LIMIT, SEARCH_DEBOUNCE_MS, type ChatSnippet, type SnippetMessage } from './search/search-format';
 
 type SearchResult = {
   chatId: string;
   updatedAt: number;
 };
 
+/** A chat the search found, with the line its row shows under the title. */
+export type ChatSearchResult = SearchResult & {
+  snippet: ChatSnippet | null;
+};
+
 const normalize = (value: unknown): string => String(value ?? '').toLocaleLowerCase();
 
-const formatChatDate = (timestamp: number): string => {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
-  const now = new Date();
-
-  const isToday =
-    date.getDate() === now.getDate() &&
-    date.getMonth() === now.getMonth() &&
-    date.getFullYear() === now.getFullYear();
-
-  if (isToday) return 'Today';
-
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  const isYesterday =
-    date.getDate() === yesterday.getDate() &&
-    date.getMonth() === yesterday.getMonth() &&
-    date.getFullYear() === yesterday.getFullYear();
-
-  if (isYesterday) return 'Yesterday';
-
-  if (date.getFullYear() !== now.getFullYear()) {
-    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
-  }
-
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date);
-};
+const messagesOf = (messages: unknown): SnippetMessage[] => (Array.isArray(messages)
+  ? messages.flatMap((message: any) => (message && typeof message === 'object' && typeof message.content === 'string'
+    ? [{ role: String(message.role ?? ''), content: message.content }]
+    : []))
+  : []);
 
 const flattenMessages = (messages: unknown): string => {
   if (!Array.isArray(messages)) return '';
@@ -251,16 +222,28 @@ export const ChatEmbeddingIndexer: React.FC<{ modelConfig: any }> = ({ modelConf
   return null;
 };
 
-export const useChatSearch = (query: string, modelConfig: any): {
-  results: SearchResult[];
+/** What the search panel has to show for the query typed into it (`useChatSearch`). */
+export interface ChatSearchState {
+  /** The query the results (or the skeleton) are for; empty while the panel still shows Recents. */
+  query: string;
+  results: ChatSearchResult[];
   isSearching: boolean;
-} => {
+}
+
+const NOTHING_SEARCHED: ChatSearchState = { query: '', results: [], isSearching: false };
+
+/**
+ * The chats a typed query finds, each with its snippet: by meaning when a search embedding model is
+ * set, by the words otherwise. What the panel shows follows Gemini's. Until the debounce
+ * (`debounceMs`) has passed it keeps what it showed before (Recents, or the last results). Then it
+ * shows the skeleton while the search runs, unless the search is done within the frame, as
+ * Gemini's cached answers are. Then it shows every result at once, or none.
+ */
+export const useChatSearch = (query: string, modelConfig: any, debounceMs = SEARCH_DEBOUNCE_MS): ChatSearchState => {
   const { localChats, loadLocalFSChat, getChatTimestamp, chatScopeId } = useLocalFS();
   const { apiKeys } = useUserDataContext();
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const bodyCacheRef = useRef(new Map<string, { updatedAt: number; body: string }>());
-  const searchGenerationRef = useRef(0);
+  const [shown, setShown] = useState<ChatSearchState>(NOTHING_SEARCHED);
+  const bodyCacheRef = useRef(new Map<string, { updatedAt: number; body: string; messages: SnippetMessage[] }>());
   const queryKey = normalize(query).trim();
 
   const orderedChats = useMemo(
@@ -268,56 +251,64 @@ export const useChatSearch = (query: string, modelConfig: any): {
     [getChatTimestamp, localChats],
   );
 
-  const results = queryKey ? searchResults : orderedChats;
-
-  const loadSearchableBody = useCallback(async (candidate: SearchResult): Promise<string> => {
+  const loadSearchable = useCallback(async (candidate: SearchResult): Promise<{ body: string; messages: SnippetMessage[] }> => {
     const cached = bodyCacheRef.current.get(candidate.chatId);
-    if (cached?.updatedAt === candidate.updatedAt) return cached.body;
-    let body = '';
+    if (cached?.updatedAt === candidate.updatedAt) return cached;
+    let loaded: unknown = null;
     try {
-      body = flattenMessages(await loadLocalFSChat(candidate.chatId));
+      loaded = await loadLocalFSChat(candidate.chatId);
     } catch {
-      body = '';
+      loaded = null;
     }
-    bodyCacheRef.current.set(candidate.chatId, { updatedAt: candidate.updatedAt, body });
-    return body;
+    const entry = { updatedAt: candidate.updatedAt, body: flattenMessages(loaded), messages: messagesOf(loaded) };
+    bodyCacheRef.current.set(candidate.chatId, entry);
+    return entry;
   }, [loadLocalFSChat]);
+
+  const loadSearchableBody = useCallback(
+    async (candidate: SearchResult): Promise<string> => (await loadSearchable(candidate)).body,
+    [loadSearchable],
+  );
 
   useEffect(() => {
     if (!queryKey) {
-      setIsSearching(false);
-      setSearchResults([]);
+      setShown(NOTHING_SEARCHED);
       return;
     }
 
     let cancelled = false;
+    let settled = false;
+    let skeletonFrame = 0;
     const controller = new AbortController();
-    const searchGeneration = ++searchGenerationRef.current;
-    const loadingReason = `chat-search:${searchGeneration}`;
+    const typed = query.trim();
+    const withSnippet = async (candidate: SearchResult): Promise<ChatSearchResult> => ({
+      ...candidate,
+      snippet: pickSnippet((await loadSearchable(candidate)).messages, typed),
+    });
 
-    const runLexicalSearch = async (): Promise<SearchResult[]> => {
-      const matches: SearchResult[] = [];
+    const runLexicalSearch = async (): Promise<ChatSearchResult[]> => {
+      const matches: ChatSearchResult[] = [];
       for (const candidate of orderedChats) {
-        if (cancelled) return matches;
+        if (cancelled || matches.length >= RESULTS_LIMIT) return matches;
         const searchable = await loadSearchableBody(candidate);
-        if (normalize(candidate.chatId).includes(queryKey) || normalize(searchable).includes(queryKey)) {
-          matches.push(candidate);
-          if (!cancelled) setSearchResults([...matches]);
+        if (normalize(chatDisplayName(candidate.chatId)).includes(queryKey) || normalize(searchable).includes(queryKey)) {
+          matches.push(await withSnippet(candidate));
         }
       }
       return matches;
     };
 
-    setIsSearching(true);
     const timer = window.setTimeout(() => {
+      skeletonFrame = window.requestAnimationFrame(() => {
+        if (!settled && !cancelled) setShown({ query: typed, results: [], isSearching: true });
+      });
+      let found: ChatSearchResult[] = [];
       void (async () => {
-        startTopLoadingReason(loadingReason);
         const timeout = window.setTimeout(() => controller.abort(), CHAT_SEARCH_TIMEOUT_MS);
         try {
           const embeddingModel = resolveSearchEmbeddingModel(modelConfig, apiKeys);
           if (!embeddingModel) {
-            const matches = await runLexicalSearch();
-            if (!cancelled) setSearchResults(matches);
+            found = await runLexicalSearch();
             return;
           }
 
@@ -355,123 +346,38 @@ export const useChatSearch = (query: string, modelConfig: any): {
             }
           }
 
-          if (!cancelled) {
-            setSearchResults(
-              ranked
-                .filter((candidate) => (
-                  Number.isFinite(candidate.score) &&
-                  (candidate.lexicalMatch || candidate.score >= MIN_SEMANTIC_SCORE)
-                ))
-                .sort((left, right) => right.score - left.score)
-                .slice(0, 30)
-                .map(({ score: _score, lexicalMatch: _lexicalMatch, ...candidate }) => candidate),
-            );
-          }
-        } catch (error) {
-          if (!cancelled && (error as Error)?.name !== 'AbortError') {
-            const matches = await runLexicalSearch();
-            if (!cancelled) setSearchResults(matches);
-          }
+          const best = ranked
+            .filter((candidate) => (
+              Number.isFinite(candidate.score) &&
+              (candidate.lexicalMatch || candidate.score >= MIN_SEMANTIC_SCORE)
+            ))
+            .sort((left, right) => right.score - left.score)
+            .slice(0, RESULTS_LIMIT)
+            .map(({ score: _score, lexicalMatch: _lexicalMatch, ...candidate }) => candidate);
+          found = await Promise.all(best.map(withSnippet));
+        } catch {
+          // An embedding call that failed or ran out of time: the words still find chats.
+          if (!cancelled) found = await runLexicalSearch();
         } finally {
           window.clearTimeout(timeout);
-          finishTopLoadingReason(loadingReason);
-          if (!cancelled && searchGenerationRef.current === searchGeneration) setIsSearching(false);
+          settled = true;
+          window.cancelAnimationFrame(skeletonFrame);
+          if (!cancelled) setShown({ query: typed, results: found, isSearching: false });
         }
       })();
-    }, 120);
+    }, debounceMs);
 
     return () => {
       cancelled = true;
       controller.abort();
-      finishTopLoadingReason(loadingReason);
       window.clearTimeout(timer);
-      if (searchGenerationRef.current === searchGeneration) setIsSearching(false);
+      window.cancelAnimationFrame(skeletonFrame);
     };
-  }, [apiKeys, chatScopeId, loadSearchableBody, modelConfig, orderedChats, query, queryKey]);
+  }, [apiKeys, chatScopeId, debounceMs, loadSearchable, loadSearchableBody, modelConfig, orderedChats, query, queryKey]);
 
-  return { results, isSearching };
+  // A cleared field shows Recents at once, not the last results for a frame.
+  return queryKey ? shown : NOTHING_SEARCHED;
 };
-
-const SearchBar: React.FC<{
-  query: string;
-  onQueryChange: (value: string) => void;
-  autoFocus?: boolean;
-  compact?: boolean;
-  onClose?: () => void;
-}> = ({ query, onQueryChange, autoFocus = false, compact = false, onClose }) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (autoFocus) {
-      inputRef.current?.focus({ preventScroll: true });
-    }
-  }, [autoFocus]);
-
-  return (
-    <div className={`willow-search-bar ${compact ? 'willow-search-bar--compact' : ''}`}>
-      <span className="willow-search-bar__icon" aria-hidden="true">
-        <MaterialSymbol
-          family="luminous"
-          name="search"
-          size={24}
-          weight={320}
-          opticalSize={24}
-        />
-      </span>
-      <input
-        ref={inputRef}
-        value={query}
-        onChange={(event) => onQueryChange(event.target.value)}
-        type="text"
-        placeholder="Search chats"
-        aria-label="Search chats"
-        className="willow-search-bar__input"
-      />
-      {query && (
-        <button type="button" className="willow-search-bar__clear" aria-label="Clear search" onClick={() => onQueryChange('')}>
-          <X size={20} strokeWidth={2} />
-        </button>
-      )}
-      {onClose && (
-        <button type="button" className="willow-search-bar__close" aria-label="Close search" onClick={onClose}>
-          <X size={20} strokeWidth={2} />
-        </button>
-      )}
-    </div>
-  );
-};
-
-const SearchResults: React.FC<{
-  query: string;
-  results: SearchResult[];
-  isSearching: boolean;
-  onOpenChat?: (chatId: string) => void;
-  compact?: boolean;
-}> = ({ query, results, isSearching, onOpenChat, compact = false }) => (
-  <div className={`willow-search-results ${compact ? 'willow-search-results--compact' : ''}`}>
-    <div className="willow-search-results__header">
-      <h2 className="willow-search-results__heading">Recent</h2>
-    </div>
-    <div className="willow-search-results__list">
-      <div className="willow-search-results__inner">
-        {results.map((result) => (
-          <button
-            type="button"
-            key={result.chatId}
-            className="willow-search-result"
-            onClick={() => onOpenChat?.(result.chatId)}
-          >
-            <span className="willow-search-result__title">{chatDisplayName(result.chatId)}</span>
-            <span className="willow-search-result__date">{formatChatDate(result.updatedAt)}</span>
-          </button>
-        ))}
-        {!isSearching && query.trim() && results.length === 0 && (
-          <div className="willow-search-empty">No chats found with this keyword</div>
-        )}
-      </div>
-    </div>
-  </div>
-);
 
 /**
  * Open a chat found by search, on the surface that owns it.
@@ -487,7 +393,7 @@ const SearchResults: React.FC<{
  * would open it there regardless. A chat with no Code marker is read once when
  * nothing has read it yet (`checkCodeChat`), as the sidebar's rows are.
  */
-const openFoundChat = (
+export const openFoundChat = (
   scopeId: string,
   chatId: string,
   selectInboxChat: (chatId: string) => unknown,
@@ -502,78 +408,4 @@ const openFoundChat = (
     void selectInboxChat(chatId);
     onOpenChat?.(chatId);
   });
-};
-
-export const SearchChatsPage: React.FC<{ onOpenChat?: (chatId: string) => void; modelConfig: any }> = ({ onOpenChat, modelConfig }) => {
-  const [query, setQuery] = useState('');
-  const { results, isSearching } = useChatSearch(query, modelConfig);
-  const { chatScopeId, selectLocalFSInboxChat, loadLocalFSChat, isChatListHydrated } = useLocalFS();
-
-  useEffect(() => {
-    const loadingReason = 'search-chats-hydrating';
-    if (!isChatListHydrated) {
-      startTopLoadingReason(loadingReason);
-    } else {
-      finishTopLoadingReason(loadingReason);
-    }
-    return () => {
-      finishTopLoadingReason(loadingReason);
-    };
-  }, [isChatListHydrated]);
-
-  return (
-    <section className="willow-search-page" aria-label="Search chats">
-      <SearchBar query={query} onQueryChange={setQuery} autoFocus />
-      {isChatListHydrated ? (
-        <SearchResults
-          query={query}
-          results={results}
-          isSearching={isSearching}
-          onOpenChat={(chatId) => {
-            openFoundChat(chatScopeId, chatId, selectLocalFSInboxChat, loadLocalFSChat, onOpenChat);
-          }}
-        />
-      ) : (
-        <div className="willow-search-results" />
-      )}
-    </section>
-  );
-};
-
-export const SearchChatsDialog: React.FC<SearchChatsProps> = ({ onOpenChat, autoFocus = true, onClose, modelConfig }) => {
-  const [query, setQuery] = useState('');
-  const { results, isSearching } = useChatSearch(query, modelConfig);
-  const { chatScopeId, selectLocalFSInboxChat, loadLocalFSChat, isChatListHydrated } = useLocalFS();
-
-  useEffect(() => {
-    const loadingReason = 'search-dialog-hydrating';
-    if (!isChatListHydrated) {
-      startTopLoadingReason(loadingReason);
-    } else {
-      finishTopLoadingReason(loadingReason);
-    }
-    return () => {
-      finishTopLoadingReason(loadingReason);
-    };
-  }, [isChatListHydrated]);
-
-  return (
-    <div className="willow-search-dialog" role="dialog" aria-modal="true" aria-label="Search chats">
-      <SearchBar query={query} onQueryChange={setQuery} autoFocus={autoFocus} compact onClose={onClose} />
-      {isChatListHydrated ? (
-        <SearchResults
-          query={query}
-          results={results}
-          isSearching={isSearching}
-          onOpenChat={(chatId) => {
-            openFoundChat(chatScopeId, chatId, selectLocalFSInboxChat, loadLocalFSChat, onOpenChat);
-            onClose?.();
-          }}
-          compact
-        />
-      ) : (
-        <div className="willow-search-results willow-search-results--compact" />
-      )}
-    </div>
-  );
 };

@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { CustomizeIcon } from './CustomizeIcon';
 import { CustomizeCard } from './CustomizeCard';
+import { CustomizeMobileActions } from './CustomizeMobileActions';
+import { LmIcon } from './custom-app/LmIcon';
 import type { CustomizeItem } from './customize-data';
 
 interface CustomizeCategoryViewProps {
@@ -54,6 +56,7 @@ export const CustomizeCategoryView: React.FC<CustomizeCategoryViewProps> = ({
       ref={rootRef}
       className="customize-page-root gemini-chat-scrollbar"
     >
+      <CustomizeMobileActions variant="search" query={searchQuery} onQuery={setSearchQuery} />
       <div className="customize-category-top-nav">
         <button
           type="button"
@@ -61,7 +64,7 @@ export const CustomizeCategoryView: React.FC<CustomizeCategoryViewProps> = ({
           onClick={onBack}
           aria-label={`Back to ${backLabel}`}
         >
-          <CustomizeIcon name="arrow_back" size={16} className="back-icon" />
+          <LmIcon name="arrow_back" size={20} className="back-icon" />
           <span className="back-button-text">{backLabel}</span>
         </button>
       </div>

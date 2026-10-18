@@ -19,6 +19,7 @@
  */
 import type { Attachment } from '@willow/ai/chat';
 import { applyPatch, parsePatch, type PatchOp } from '../../../harness/runtime/apply-patch';
+import { rememberScreen } from '../runtime/last-screen';
 import { machineProblem, type DotMachineReply, type DotMachineRequest } from '../runtime/machine-bridge';
 import { changedThisStep, closerLook, geometryFor, howToPoint, pointsIn, regionOnScreen, screenChanged, STALE_POSITION, toScreen, viewOf, type Mark, type ScreenGeometry } from '../runtime/screen-view';
 import { patchable, patchPath } from './computer-tools';
@@ -206,12 +207,11 @@ const spaceWords = (env: DotMachineEnv): string => pointsIn(env.vision?.profile.
 /** A picture of the screen as the bot is sent it, marked where it just acted; its geometry becomes the bot's. */
 const look = async (env: DotMachineEnv, shot: Body, marks: Mark[] = []): Promise<{ images: Attachment[]; geometry: ScreenGeometry; marked: boolean } | null> => {
   if (!shot?.data) return null;
-  const { picture, geometry, marked } = await viewOf(env.vision, {
-    data: String(shot.data),
-    width: Number(shot.width) || MACHINE_SCREEN.width,
-    height: Number(shot.height) || MACHINE_SCREEN.height,
-  }, marks);
+  const width = Number(shot.width) || MACHINE_SCREEN.width;
+  const height = Number(shot.height) || MACHINE_SCREEN.height;
+  const { picture, geometry, marked } = await viewOf(env.vision, { data: String(shot.data), width, height }, marks);
   seen.set(env.dotId, { geometry, profile: env.vision?.profile });
+  rememberScreen(env.dotId, { data: String(shot.data), mimeType: 'image/jpeg', width, height, of: 'your own computer\'s screen', at: env.now() });
   return { images: [{ type: 'image', mimeType: picture.mimeType ?? 'image/jpeg', data: picture.data }], geometry, marked };
 };
 

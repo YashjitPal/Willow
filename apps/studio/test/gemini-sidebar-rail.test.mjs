@@ -19,6 +19,7 @@ const sidebarDir = path.join(repoRoot, 'apps', 'studio', 'src', 'shell', 'sideba
 const SIDEBAR = () => fs.readFileSync(path.join(sidebarDir, 'Sidebar.tsx'), 'utf8');
 const PRIMITIVES = () => fs.readFileSync(path.join(sidebarDir, 'SidebarPrimitives.tsx'), 'utf8');
 const SIDEBAR_CSS = () => fs.readFileSync(path.join(sidebarDir, 'Sidebar.css'), 'utf8');
+const HEADER_BUTTONS = () => fs.readFileSync(path.join(sidebarDir, 'SidebarHeaderButtons.tsx'), 'utf8');
 
 /** Strips comments so a doc block quoting a value can't satisfy an assertion. */
 const codeOnly = (source) => source
@@ -112,10 +113,14 @@ describe('the section header chevron', () => {
     // both sections: "Notebooks" ends at 80.38 with the icon at 84.38; "Recents" ends at
     // 62.28 with the icon at 66.28. A flex-1 title ate the row and pushed the chevron to
     // the far edge, which is the gap that was visible.
+    // With actions (the chat section's filter) the button itself fills the row up to them, as
+    // Gemini's 261px header button does; the title inside it still shrink-wraps.
     const s = codeOnly(PRIMITIVES());
     const header = s.match(/aria-label=\{`Toggle \$\{title\}`\}[\s\S]*?<\/button>/);
     assert.ok(header, 'could not locate the section header');
-    assert.ok(!/\bflex-1\b/.test(header[0]), 'the title must not consume the row');
+    const titleSpan = header[0].match(/<span className="sidebar-section-title[^"]*"/);
+    assert.ok(titleSpan, 'could not locate the section title');
+    assert.ok(!/\bflex-1\b/.test(titleSpan[0]), 'the title must not consume the row');
     assert.ok(!/\bgap-1\b/.test(header[0]), 'spacing comes from the icon margin, not a gap');
     assert.match(header[0], /\bml-1\b/, 'margin-inline-start: 4px');
   });
@@ -161,14 +166,17 @@ describe('the settings-menu location row', () => {
 
 describe('the rail header', () => {
   it('draws the logo at Gemini\'s sparkle size and position', () => {
-    // `.sparkle-image { height: 22px; width: 22px }`, measured at (15, 17, 22, 22) inside
-    // a 32px button at (14, 12). `ml-[10px] mt-3` on an h-8 w-8 button reproduces both,
-    // and also centres the button in the 52px rail ((10+42)/2 = 26), so the glyph does
-    // not shift between collapsed and expanded.
+    // `.sparkle-image { height: 22px; width: 22px }`, measured at (15, 17, 22, 22) in both
+    // states: expanded in the New chat link at (14, 12) with 4px above and below it, and
+    // collapsed in "Open sidebar", a 36px icon button at (8, 10) with a 24px logo box.
     const s = codeOnly(SIDEBAR());
     assert.match(s, /h-\[22px\] w-\[22px\] object-contain/, 'the measured 22px square');
     assert.ok(!/h-7 w-auto object-contain/.test(s), '28px is 6px over the measurement');
-    assert.match(s, /ml-\[10px\] mt-3 flex h-8 w-8/, 'button offset and size');
+    assert.match(s, /willow-sidenav-brand ml-\[14px\] mt-3 flex shrink-0 cursor-pointer items-start py-1/, 'the link\'s offset and padding');
+    assert.match(s, /<SidebarOpenButton onClick=\{onToggleCollapse\}>/, 'collapsed, the logo is the open button');
+    const css = codeOnly(SIDEBAR_CSS());
+    assert.match(css, /\.willow-sidenav-open-button \{\s*margin: 10px 0 0 8px;/, 'the open button\'s offset');
+    assert.match(css, /\.willow-sidenav-open-logo \{[^}]*width: 24px;\s*height: 24px;/, 'the logo box');
   });
 
   it('sets the wordmark to the measured 17px/470/24px on-surface', () => {
@@ -212,7 +220,8 @@ describe('the collapse staging', () => {
 
     const s = codeOnly(SIDEBAR());
     assert.match(s, /willow-sidenav-text\b/, 'the wordmark carries the staged class');
-    assert.match(s, /willow-sidenav-close-button\b/, 'the close button carries its class');
+    assert.match(s, /willow-sidenav-header-buttons\b/, 'search and close sit in the staged group');
+    assert.match(codeOnly(HEADER_BUTTONS()), /willow-sidenav-close-button\b/, 'the close button carries its class');
   });
 });
 

@@ -20,6 +20,8 @@ tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 base64 = "0.22"
+# Pets left zipped in the library, read where they are (pets.rs): the version png already uses.
+flate2 = "1"
 # The agents' window captures (snapshots.rs): the version Tauri already uses.
 png = "0.17"
 serde = { version = "1", features = ["derive"] }

@@ -197,6 +197,61 @@ function remoteBrowserProxy(): Plugin {
 }
 
 /*
+ * Willow's own apps for its download page (`/app/download`): the newest installer this checkout
+ * has built (apps/desktop's Tauri bundle) and apps/android's APK, at `/download/<platform>`.
+ * Dev only, because only this machine's checkout has them; anything missing says how to build it.
+ */
+function appDownloads(): Plugin {
+  const BUNDLE = 'apps/desktop/src-tauri/target/release/bundle';
+  const builds: Record<string, { name: string; dirs: string[]; match: RegExp; type: string; build: string }> = {
+    windows: { name: 'Windows', dirs: [`${BUNDLE}/nsis`, `${BUNDLE}/msi`], match: /\.(exe|msi)$/i, type: 'application/octet-stream', build: 'npm run desktop:build' },
+    macos: { name: 'macOS', dirs: [`${BUNDLE}/dmg`], match: /\.dmg$/i, type: 'application/x-apple-diskimage', build: 'npm run desktop:build, on a Mac' },
+    linux: { name: 'Linux', dirs: [`${BUNDLE}/appimage`, `${BUNDLE}/deb`], match: /\.(AppImage|deb)$/i, type: 'application/octet-stream', build: 'npm run desktop:build, on Linux' },
+    android: { name: 'Android', dirs: ['apps/android/dist'], match: /\.apk$/i, type: 'application/vnd.android.package-archive', build: 'npm --prefix apps/android run build:apk' },
+  };
+  return {
+    name: 'app-downloads',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const platform = /^\/download\/(windows|macos|linux|android)\/?$/.exec(new URL(req.url ?? '/', 'http://localhost').pathname)?.[1];
+        if (!platform || (req.method !== 'GET' && req.method !== 'HEAD')) return next();
+        const build = builds[platform];
+        const { readdir, stat } = await import('fs/promises');
+        // The first folder that has one wins (the NSIS setup before the MSI), and in it the newest.
+        let found: { file: string; size: number } | null = null;
+        for (const dir of build.dirs) {
+          const folder = path.resolve(ROOT, dir);
+          const names = (await readdir(folder).catch(() => [] as string[])).filter((name) => build.match.test(name));
+          const files = await Promise.all(names.map(async (name) => ({ file: path.join(folder, name), info: await stat(path.join(folder, name)) })));
+          const newest = files.sort((a, b) => b.info.mtimeMs - a.info.mtimeMs)[0];
+          if (newest) {
+            found = { file: newest.file, size: newest.info.size };
+            break;
+          }
+        }
+        res.setHeader('Cache-Control', 'no-store');
+        if (!found) {
+          res.statusCode = 404;
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.end(`Willow for ${build.name} hasn't been built on this computer yet. Build it with ${build.build}.\n`);
+          return;
+        }
+        res.setHeader('Content-Type', build.type);
+        res.setHeader('Content-Length', String(found.size));
+        res.setHeader('Content-Disposition', `attachment; filename="${path.basename(found.file)}"`);
+        if (req.method === 'HEAD') {
+          res.end();
+          return;
+        }
+        const { createReadStream } = await import('fs');
+        createReadStream(found.file).on('error', () => res.destroy()).pipe(res);
+      });
+    },
+  };
+}
+
+/*
  * Writes the Agent tool's model-request log to disk during dev.
  *
  * The log is gathered in the browser, where a turn's timings actually happen,
@@ -402,7 +457,7 @@ export default defineConfig(() => {
      * Plugin order is middleware order here, so going first means this one gets
      * first refusal on its own path and calls `next()` for everything else.
      */
-    plugins: [react(), remoteBrowserProxy(), sourceFetchEndpoint(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dotCharacterFrameIsolation(), dynamicLlmProxy(), agentRequestLog(), hmrResumeState()],
+    plugins: [react(), remoteBrowserProxy(), sourceFetchEndpoint(), agentBuilderBackend(), conditionalCrossOriginHeaders(), dotCharacterFrameIsolation(), dynamicLlmProxy(), agentRequestLog(), hmrResumeState(), appDownloads()],
     define: {
       // @babel/types checks these build-time flags while loading the visual editor.
       // Replace only the flags it needs instead of exposing a Node `process` shim.

@@ -8,6 +8,9 @@
  * A client is registered dynamically (RFC 7591) where the server offers it. Where it does not — some vendors ask
  * each user to make an app of their own — the user's client id, secret and redirect address are used instead.
  * Refresh keeps whatever new refresh token comes back, since servers that rotate them accept each only once.
+ *
+ * A client's secret goes in the token request's body unless the server's metadata lists only HTTP Basic for it (X),
+ * and a sign-in asks for the scopes the server names unless its host names fewer.
  */
 
 /** Where a server's sign-in lives, read from its metadata. */
@@ -20,6 +23,8 @@ export interface McpOAuthServer {
   registrationEndpoint?: string;
   /** Scopes the server asked for (WWW-Authenticate) or lists as supported. */
   scopes?: string[];
+  /** How the token endpoint takes a client's credentials (`token_endpoint_auth_methods_supported`), when it says. */
+  tokenAuthMethods?: string[];
 }
 
 /** The client Willow signs in as: registered just now, or the user's own app. */
@@ -40,6 +45,8 @@ export interface McpOAuthGrant {
   resource: string;
   clientId: string;
   clientSecret?: string;
+  /** `basic`: the secret goes as HTTP Basic, for a token endpoint that takes it no other way. Absent, in the body. */
+  clientAuth?: 'basic';
 }
 
 export class McpOAuthError extends Error {
@@ -135,6 +142,9 @@ export async function discoverOAuth(serverUrl: string, fetchImpl: typeof fetch):
   const scopes = challenge.scope ? challenge.scope.split(/\s+/).filter(Boolean) : Array.isArray(metadata?.scopes_supported) ? (metadata!.scopes_supported as unknown[]).map(text).filter((entry): entry is string => Boolean(entry)) : undefined;
 
   if (found) {
+    const tokenAuthMethods = Array.isArray(found.token_endpoint_auth_methods_supported)
+      ? (found.token_endpoint_auth_methods_supported as unknown[]).map(text).filter((entry): entry is string => Boolean(entry))
+      : [];
     return {
       resource,
       issuer: text(found.issuer) ?? issuer,
@@ -142,6 +152,7 @@ export async function discoverOAuth(serverUrl: string, fetchImpl: typeof fetch):
       tokenEndpoint: text(found.token_endpoint)!,
       ...(text(found.registration_endpoint) ? { registrationEndpoint: text(found.registration_endpoint) } : {}),
       ...(scopes?.length ? { scopes } : {}),
+      ...(tokenAuthMethods.length ? { tokenAuthMethods } : {}),
     };
   }
   if (servers.length) throw new McpOAuthError('The server names an authorization server that publishes no sign-in details.', issuer);
@@ -202,12 +213,28 @@ export function authorizationUrl(server: McpOAuthServer, client: McpOAuthClient,
   return url.toString();
 }
 
-const tokenRequest = async (endpoint: string, form: Record<string, string | undefined>, fetchImpl: typeof fetch): Promise<Record<string, unknown>> => {
+/** A client's credentials as HTTP Basic (RFC 6749 §2.3.1): each form-encoded, then the pair in base64. */
+const basicAuthorization = (clientId: string, clientSecret: string): string => {
+  const encode = (value: string) => encodeURIComponent(value).replace(/%20/g, '+');
+  return `Basic ${btoa(`${encode(clientId)}:${encode(clientSecret)}`)}`;
+};
+
+/** Whether a client's secret goes as HTTP Basic: it has one, and the token endpoint lists Basic but not the body. */
+const secretAsBasic = (server: Pick<McpOAuthServer, 'tokenAuthMethods'>, client: { clientSecret?: string }): boolean =>
+  Boolean(client.clientSecret)
+  && Boolean(server.tokenAuthMethods?.includes('client_secret_basic'))
+  && !server.tokenAuthMethods?.includes('client_secret_post');
+
+const tokenRequest = async (endpoint: string, form: Record<string, string | undefined>, fetchImpl: typeof fetch, authorization?: string): Promise<Record<string, unknown>> => {
   const body = new URLSearchParams();
   for (const [key, value] of Object.entries(form)) if (value) body.set(key, value);
   let response: Response;
   try {
-    response = await fetchImpl(endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body: body.toString() });
+    response = await fetchImpl(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', ...(authorization ? { authorization } : {}) },
+      body: body.toString(),
+    });
   } catch (error) {
     throw new McpOAuthError('The sign-in server could not be reached.', String(error));
   }
@@ -218,7 +245,7 @@ const tokenRequest = async (endpoint: string, form: Record<string, string | unde
   return parsed;
 };
 
-const grantFrom = (body: Record<string, unknown>, base: Pick<McpOAuthGrant, 'tokenEndpoint' | 'resource' | 'clientId' | 'clientSecret'>, now: number, previousRefresh?: string): McpOAuthGrant => {
+const grantFrom = (body: Record<string, unknown>, base: Pick<McpOAuthGrant, 'tokenEndpoint' | 'resource' | 'clientId' | 'clientSecret' | 'clientAuth'>, now: number, previousRefresh?: string): McpOAuthGrant => {
   const expiresIn = Number(body.expires_in);
   return {
     accessToken: text(body.access_token)!,
@@ -230,33 +257,43 @@ const grantFrom = (body: Record<string, unknown>, base: Pick<McpOAuthGrant, 'tok
     resource: base.resource,
     clientId: base.clientId,
     ...(base.clientSecret ? { clientSecret: base.clientSecret } : {}),
+    ...(base.clientAuth ? { clientAuth: base.clientAuth } : {}),
   };
 };
 
 /** Trades the code the sign-in page sent back for tokens. */
 export async function exchangeCode(server: McpOAuthServer, client: McpOAuthClient, answer: { code: string; verifier: string }, fetchImpl: typeof fetch, now = Date.now()): Promise<McpOAuthGrant> {
+  const basic = secretAsBasic(server, client);
+  // Basic says who the client is, so the body leaves its id out too (RFC 6749 §4.1.3).
   const body = await tokenRequest(server.tokenEndpoint, {
     grant_type: 'authorization_code',
     code: answer.code,
     redirect_uri: client.redirectUri,
     code_verifier: answer.verifier,
-    client_id: client.clientId,
-    client_secret: client.clientSecret,
+    client_id: basic ? undefined : client.clientId,
+    client_secret: basic ? undefined : client.clientSecret,
     resource: server.resource,
-  }, fetchImpl);
-  return grantFrom(body, { tokenEndpoint: server.tokenEndpoint, resource: server.resource, clientId: client.clientId, clientSecret: client.clientSecret }, now);
+  }, fetchImpl, basic ? basicAuthorization(client.clientId, client.clientSecret!) : undefined);
+  return grantFrom(body, {
+    tokenEndpoint: server.tokenEndpoint,
+    resource: server.resource,
+    clientId: client.clientId,
+    clientSecret: client.clientSecret,
+    ...(basic ? { clientAuth: 'basic' as const } : {}),
+  }, now);
 }
 
 /** A fresh access token from the refresh token, keeping a rotated refresh token. */
 export async function refreshGrant(grant: McpOAuthGrant, fetchImpl: typeof fetch, now = Date.now()): Promise<McpOAuthGrant> {
   if (!grant.refreshToken) throw new McpOAuthError('The sign-in has run out. Sign in again.');
+  const basic = grant.clientAuth === 'basic' && grant.clientSecret ? basicAuthorization(grant.clientId, grant.clientSecret) : undefined;
   const body = await tokenRequest(grant.tokenEndpoint, {
     grant_type: 'refresh_token',
     refresh_token: grant.refreshToken,
-    client_id: grant.clientId,
-    client_secret: grant.clientSecret,
+    client_id: basic ? undefined : grant.clientId,
+    client_secret: basic ? undefined : grant.clientSecret,
     resource: grant.resource,
-  }, fetchImpl);
+  }, fetchImpl, basic);
   return grantFrom(body, grant, now, grant.refreshToken);
 }
 
@@ -265,7 +302,8 @@ export const grantExpired = (grant: McpOAuthGrant, now = Date.now(), skewMs = 60
 
 /**
  * The whole sign-in. The host supplies the address the sign-in page sends the user back to, and the way to show that
- * page and catch the answer; a client of the user's own (`client`) skips registration.
+ * page and catch the answer; a client of the user's own (`client`) skips registration. `scopes` are asked for in place
+ * of the ones the server names, for a server that names every scope its API has.
  */
 export async function signIn(options: {
   serverUrl: string;
@@ -273,10 +311,12 @@ export async function signIn(options: {
   clientName: string;
   redirectUri: string;
   client?: { clientId: string; clientSecret?: string };
+  scopes?: string[];
   openAndWait: (url: string) => Promise<{ code?: string; state?: string; error?: string; errorDescription?: string }>;
   now?: () => number;
 }): Promise<McpOAuthGrant> {
-  const server = await discoverOAuth(options.serverUrl, options.fetchImpl);
+  const discovered = await discoverOAuth(options.serverUrl, options.fetchImpl);
+  const server = options.scopes?.length ? { ...discovered, scopes: options.scopes } : discovered;
   const client: McpOAuthClient = options.client
     ? { clientId: options.client.clientId, ...(options.client.clientSecret ? { clientSecret: options.client.clientSecret } : {}), redirectUri: options.redirectUri }
     : await registerClient(server, options.redirectUri, options.clientName, options.fetchImpl);

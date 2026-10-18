@@ -97,6 +97,13 @@ export const LABS_EXPERIMENTS: readonly LabsExperimentRow[] = [
     available: canChooseWindowButtons,
   },
   {
+    id: 'old-skills-schedules',
+    title: 'Old Skills and Schedules',
+    description:
+      'Brings back the retired Schedules, Skills and Connected apps pages: in Spark\'s sidebar, '
+      + 'the Settings menu and at /connected-apps. Skills and Connected apps now live in Customize.',
+  },
+  {
     id: null,
     staticEnabled: true,
     title: 'GitHub branch switching',

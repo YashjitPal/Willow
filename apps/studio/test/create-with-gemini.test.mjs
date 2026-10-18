@@ -400,7 +400,7 @@ describe('Create with Gemini', () => {
     const handler = read('apps/studio/src/app/ShellRequestHandler.tsx');
     const seedAt = handler.indexOf('pendingChatSeed.set(request.seed)');
     assert.ok(seedAt > 0 && seedAt < handler.indexOf('shell.onNewChat()'), 'the seed has to be waiting before the chat remounts');
-    assert.match(handler, /navigateSpark\(request\.sparkLocation as SparkLocation\)/);
+    assert.match(handler, /const location = request\.sparkLocation as SparkLocation;[\s\S]*navigateSpark\(location\);/);
     const view = read('features/chat/src/ChatView.tsx');
     assert.match(view, /const seed = takeChatSeed\(\);/);
     assert.match(view, /\{ id: assistantId, role: 'assistant', content: '', isGenerating: true, isNew: true \}/);

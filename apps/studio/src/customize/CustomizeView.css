@@ -39,14 +39,16 @@
   box-sizing: border-box;
 }
 
+/* Gemini's `.nav-button` has a 1px transparent border, inside its 36px (Discover measures 94.5, not 92.9). */
 .customize-nav-button {
+  box-sizing: border-box;
   height: 36px;
   border-radius: 9999px;
   min-width: 48px;
   padding-inline: 16px;
   background-color: transparent;
   color: #e6e6e6;
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -239,6 +241,74 @@
   height: 24px;
 }
 
+/*
+ * Connectors' "+ Custom" ("Create custom app"): gem-button `tonal`, measured 105.26x36 — 8px, the 24px `add`,
+ * 8px, "Custom" in 15/20, 12px.
+ */
+.customize-custom-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 9999px;
+  background-color: rgb(23, 23, 23);
+  color: rgb(230, 230, 230);
+  font-family: "Google Sans Flex", "Google Sans", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+}
+
+.customize-custom-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 15ms linear;
+}
+
+.customize-custom-button:hover::before {
+  opacity: 0.08;
+}
+
+.customize-custom-button:active::before {
+  opacity: 0.1;
+}
+
+.customize-custom-button:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 2px;
+}
+
+.customize-custom-button > * {
+  position: relative;
+}
+
+/* mat-menu's transparent backdrop: a press outside closes the Create menu and goes no further. */
+.customize-create-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: transparent;
+}
+
+/* The pill's "+" box, which the panel's `top: calc(100% + 4px); right: 0` then hangs from. */
+.customize-create-menu-anchor {
+  position: fixed;
+  z-index: 1000;
+}
+
 /* ── Create Dropdown Menu ────────────────────────────────────────────── */
 
 @keyframes _mat-menu-enter {
@@ -300,7 +370,7 @@
   font-size: 13px;
   font-weight: 400;
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
-  line-height: 20px;
+  line-height: 17px;
   color: rgb(230, 230, 230);
   font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
   text-align: left;
@@ -341,26 +411,40 @@
   width: 100%;
 }
 
+/*
+ * Gemini's `.category-header`: a 1px transparent border round a 17px/24px on-surface-variant title and, on Discover,
+ * the 28px chevron (29.6 tall); Connectors' and Skills' are `non-interactive`, the title alone (25.6).
+ */
 .customize-category-header {
   display: flex;
   align-items: center;
-  height: 28px;
+  box-sizing: border-box;
   margin-bottom: 0;
   cursor: pointer;
   user-select: none;
   width: fit-content;
   gap: 4px;
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 0 0 0 16px;
   transition: background-color 150ms ease;
 }
 
+.customize-category-header.non-interactive {
+  cursor: default;
+}
+
+.customize-category-header:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 2px;
+}
+
 .customize-category-title {
-  font-size: 15px;
-  line-height: 20px;
+  font-size: 17px;
+  line-height: 24px;
   font-weight: 400;
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
-  color: rgb(230, 230, 230);
+  color: rgba(255, 255, 255, 0.55);
   margin: 0;
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
 }
@@ -377,10 +461,6 @@
   transition: color 150ms ease;
 }
 
-.customize-category-header:hover .customize-category-chevron,
-.customize-category-header:focus-visible .customize-category-chevron {
-  color: #ffffff;
-}
 
 /* ── Empty Search Results State ─────────────────────────────────────── */
 
@@ -414,7 +494,8 @@
   max-width: 708px;
 }
 
-@media (max-width: 740px) {
+/* Gemini's one breakpoint for the page's layout: 768px, where every grid is one column 4px apart. */
+@media (max-width: 768px) {
   .cards-grid,
   .discover-grid,
   .connectors-grid,
@@ -422,7 +503,8 @@
   .discover-skeleton-grid,
   .connectors-skeleton-grid,
   .skills-skeleton-grid {
-    grid-template-columns: 1fr;
+    gap: 4px;
+    grid-template-columns: minmax(0, 1fr);
     width: 100%;
   }
 }
@@ -483,7 +565,7 @@
   height: 64px;
 }
 
-@media (max-width: 740px) {
+@media (max-width: 768px) {
   .placeholder-card {
     padding-block: 8px;
     padding-inline: 8px 16px;
@@ -555,7 +637,8 @@
   overflow: hidden;
   padding: 12px 16px;
   background-color: transparent;
-  border: none;
+  /* Gemini's `customize-card` host: a 1px transparent border inside its 75px. */
+  border: 1px solid transparent;
   outline: none;
   transition: background-color 200ms cubic-bezier(0.2, 0, 0, 1);
   width: 348px;
@@ -630,13 +713,11 @@
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
 }
 
+/* Always shown: Gemini's cards keep their + and ⋯ out at rest. */
 .customize-card .add-button,
 .customize-card .more-button {
   flex-shrink: 0;
-  opacity: 0;
-  pointer-events: none;
-  visibility: hidden;
-  transition: opacity 200ms cubic-bezier(0.2, 0, 0, 1), background-color 150ms ease;
+  transition: background-color 150ms ease;
   width: 36px;
   height: 36px;
   padding: 6px;
@@ -649,15 +730,6 @@
   justify-content: center;
   color: #e6e6e6;
   cursor: pointer;
-}
-
-.customize-card:hover .add-button,
-.customize-card:hover .more-button,
-.customize-card:focus-within .add-button,
-.customize-card:focus-within .more-button {
-  opacity: 1;
-  pointer-events: auto;
-  visibility: visible;
 }
 
 .customize-card .add-button:hover,
@@ -679,13 +751,15 @@
   box-sizing: border-box;
 }
 
+/* Gemini's app-details-page `.top-nav-bar`: a 36px row, 8px above it and 12px under. */
 .top-nav-bar {
   display: flex;
+  flex: none;
   align-items: center;
   width: 100%;
-  height: 60px;
-  padding: 12px 0;
-  box-sizing: border-box;
+  min-height: 36px;
+  padding: 8px 0 12px;
+  box-sizing: content-box;
 }
 
 .details-content-column {
@@ -696,26 +770,29 @@
   box-sizing: border-box;
 }
 
+/* Gemini's `.back-button` (gds-label-l): 32px, `0 16px 0 12px`, a 20px arrow 12px from its 17/24 label at 370. */
 .back-button,
-.back-to-skills-btn {
+.back-to-skills-btn,
+.customize-category-back-button {
   align-items: center;
   background-color: transparent;
   border: none;
   border-radius: 9999px;
+  box-sizing: border-box;
   color: #e6e6e6;
   cursor: pointer;
   display: inline-flex;
-  gap: 8px;
-  height: 36px;
-  padding: 0 12px;
+  gap: 12px;
+  height: 32px;
+  padding: 0 16px 0 12px;
   transition: background-color 200ms cubic-bezier(0.2, 0, 0, 1), color 200ms cubic-bezier(0.2, 0, 0, 1);
   user-select: none;
   width: fit-content;
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
-  font-size: 13px;
-  line-height: 17px;
-  font-weight: 400;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 370;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
 }
 
 .back-button:hover,
@@ -756,9 +833,9 @@
 }
 
 .app-icon-img {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
   object-fit: contain;
   display: block;
 }
@@ -793,6 +870,7 @@
 
 .app-title-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -825,28 +903,35 @@
   flex-shrink: 0;
 }
 
+/* Connect and Disconnect: a small accent gem-button, its label gds-body-m. The fill is the workspace's accent. */
 .use-in-chat-button {
   background-color: var(--studio-accent-btn-bg, rgb(31, 59, 155));
   color: #e6e6e6;
   border-radius: 9999px;
   height: 36px;
   padding: 0 12px;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 20px;
-  font-weight: 500;
-  font-variation-settings: normal;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   border: none;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-family: "Google Sans Flex", "Google Sans", sans-serif;
   transition: background-color 200ms cubic-bezier(0.2, 0, 0, 1);
+  white-space: nowrap;
   width: fit-content;
 }
 
 .use-in-chat-button:hover {
   background-color: var(--studio-accent-btn-hover, rgb(42, 75, 190));
+}
+
+.use-in-chat-button:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 2px;
 }
 
 .overflow-menu-button {
@@ -874,6 +959,7 @@
 .prompts-section {
   box-sizing: border-box;
   margin-bottom: 36px;
+  padding-inline: 16px;
   width: 100%;
 }
 
@@ -989,9 +1075,10 @@
   width: 100%;
 }
 
+/* gds-body-l in on-surface-variant, 16px over its section. */
 .section-title {
-  font-size: 15px;
-  line-height: 20px;
+  font-size: 17px;
+  line-height: 24px;
   font-weight: 400;
   color: rgba(255, 255, 255, 0.55);
   margin: 0 0 16px 0;
@@ -1015,12 +1102,17 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  min-height: 36px;
   padding: 8px 0;
+  width: 100%;
   box-sizing: border-box;
 }
 
 .info-label {
   color: #e6e6e6;
+  flex-shrink: 0;
+  margin: 0;
+  white-space: nowrap;
   font-size: 15px;
   line-height: 20px;
   font-weight: 400;
@@ -1034,14 +1126,27 @@
   line-height: 20px;
   font-weight: 400;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
+  margin: 0;
+  max-width: 70%;
+  overflow-wrap: anywhere;
+  text-align: end;
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
 }
 
+/* A category is a link to its page: on-surface over a dotted rule, primary on hover. */
 .info-interactive-text {
+  border-bottom: 1px dotted currentColor;
   color: #e6e6e6;
+  cursor: pointer;
+  transition: color 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.info-interactive-text:hover {
+  color: var(--sync-a8c7fa, #a8c7fa);
 }
 
 .details-description {
@@ -1114,9 +1219,9 @@
 }
 
 .related-app-icon-container .app-icon-img {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
   object-fit: contain;
   display: block;
 }
@@ -1132,8 +1237,8 @@
 
 .related-app-title {
   color: #e6e6e6;
-  font-size: 15px;
-  line-height: 20px;
+  font-size: 17px;
+  line-height: 24px;
   font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1156,46 +1261,40 @@
 
 /* ── Skill Editor / Detail View ──────────────────────────────────────── */
 
+/*
+ * skill-editor-container: the page fills the scroller (`flex: 1`, 8.75rem under it) and the editor card, its last
+ * section and the instructions stretch into it; `1 0 auto` here so nothing shrinks below its content.
+ */
+.customize-detail-page:has(> .skill-folder-manager) {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+
 .skill-folder-manager {
   display: flex;
+  flex: 1 0 auto;
   flex-direction: column;
   width: 100%;
-  padding-bottom: 48px;
+  padding-bottom: 140px;
   box-sizing: border-box;
 }
 
+/* The editor's top row, as the details page's: 36px, 8px above it and 12px under. */
 .manager-header {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  height: 60px;
-  padding: 12px 0;
-  box-sizing: border-box;
-}
-
-.back-to-skills-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 12px 0 8px;
-  border-radius: 9999px;
-  border: none;
-  background-color: transparent;
-  color: rgb(230, 230, 230);
-  cursor: pointer;
-  transition: background-color 150ms ease;
-  user-select: none;
-}
-
-.back-to-skills-btn:hover {
-  background-color: rgba(230, 230, 230, 0.08);
+  min-height: 36px;
+  padding: 8px 0 12px;
+  box-sizing: content-box;
 }
 
 .back-to-skills-btn .back-icon {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1203,24 +1302,30 @@
 
 .back-to-skills-btn .back-button-text {
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
-  font-size: 13px;
-  line-height: 17px;
-  font-weight: 400;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 370;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
   color: rgb(230, 230, 230);
 }
 
 .editor-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
+/* Gemini's ⋯ is followed by its (empty) mat-menu host, whose 4px gap ends the row 4px short. */
+.editor-actions .overflow-menu-button {
+  margin-inline-end: 4px;
+}
+
+/* A small accent gem-button: as wide as its label, 12px either side. */
 .save-button {
   height: 36px;
-  width: 90px;
-  padding: 0;
+  padding: 0 12px;
   border-radius: 9999px;
+  white-space: nowrap;
   background-color: var(--studio-accent-btn-bg, rgb(31, 59, 155));
   color: #ffffff;
   border: none;
@@ -1235,9 +1340,10 @@
   background-color: var(--studio-accent-btn-hover, #2948a8);
 }
 
+/* gem-button `lm` disabled: Lumi on-surface at 12% behind it, its label at 38%. */
 .save-button:disabled {
-  background-color: rgba(227, 227, 227, 0.12);
-  color: rgba(227, 227, 227, 0.38);
+  background-color: rgba(230, 230, 230, 0.12);
+  color: rgba(230, 230, 230, 0.38);
   cursor: default;
 }
 
@@ -1251,7 +1357,7 @@
   line-height: 20px;
   font-weight: 370;
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
-  color: rgb(227, 227, 227);
+  color: #e6e6e6;
 }
 
 .overflow-menu-button {
@@ -1274,8 +1380,14 @@
   background-color: rgba(230, 230, 230, 0.08);
 }
 
+/* A connector's page draws its ⋯ in Lumi's on-surface; the editor's stays gem-sys on-surface, as above. */
+.app-header-action .overflow-menu-button {
+  color: #e6e6e6;
+}
+
 .folder-manager-container {
   display: flex;
+  flex: 1 0 auto;
   flex-direction: column;
   width: 100%;
   max-width: 1060px;
@@ -1285,18 +1397,21 @@
 
 .skill-detail-panel {
   display: flex;
+  flex: 1 0 auto;
   flex-direction: column;
   width: 100%;
 }
 
 .editor-body {
   display: flex;
+  flex: 1 0 auto;
   flex-direction: column;
   width: 100%;
 }
 
 .editor-new-content {
   display: flex;
+  flex: 1 0 auto;
   flex-direction: column;
   gap: 20px;
   width: 100%;
@@ -1307,11 +1422,16 @@
   box-sizing: border-box;
 }
 
+/* The label sits straight on its field: its own 4px under it is the only gap. */
 .editor-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   width: 100%;
+  min-width: 0;
+}
+
+.editor-section:last-child {
+  flex: 1 0 auto;
 }
 
 .editor-section-label {
@@ -1323,6 +1443,17 @@
   margin-left: 16px;
   padding-bottom: 4px;
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
+}
+
+/* Under a field that cannot be saved: body-s in gem-sys error, 4px down and 16px in. */
+.skill-folder-manager .error-message {
+  color: #f2b8b5;
+  margin-top: 4px;
+  margin-inline-start: 16px;
+}
+
+:is(.light-theme, [data-theme="light"]) .skill-folder-manager .error-message {
+  color: #b3261e;
 }
 
 .editor-title-input {
@@ -1340,15 +1471,22 @@
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
   transition: border-color 150ms ease;
   width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   box-sizing: border-box;
 }
 
-.editor-title-input:focus {
-  border-color: rgba(255, 255, 255, 0.35);
+/* Gemini's fields show no focus or hover state while editing; the placeholders are on-surface-variant at 60%. */
+.editor-title-input::placeholder {
+  color: rgba(196, 199, 197, 0.6);
 }
 
-.editor-title-input::placeholder {
-  color: rgba(255, 255, 255, 0.45);
+/* The name and the messages under it stack, as `.title-container` does. */
+.title-container {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .description-text {
@@ -1362,7 +1500,8 @@
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   color: rgb(227, 227, 227);
   outline: none;
-  resize: vertical;
+  resize: none;
+  field-sizing: content;
   min-height: 73.6px;
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
   transition: border-color 150ms ease;
@@ -1370,12 +1509,8 @@
   box-sizing: border-box;
 }
 
-.description-text:focus {
-  border-color: rgba(255, 255, 255, 0.35);
-}
-
 .description-text::placeholder {
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(196, 199, 197, 0.6);
 }
 
 .content-editable {
@@ -1387,53 +1522,36 @@
   line-height: 20px;
   font-weight: 400;
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  flex: 1 0 auto;
   min-height: 431.6px;
   color: rgb(227, 227, 227);
   outline: none;
-  resize: vertical;
+  resize: none;
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
   transition: border-color 150ms ease;
   width: 100%;
   box-sizing: border-box;
 }
 
-.content-editable:focus {
-  border-color: rgba(255, 255, 255, 0.35);
-}
-
 .content-editable::placeholder {
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(196, 199, 197, 0.6);
 }
 
 /* ── Category Drilldown View ─────────────────────────────────────────── */
 
+/* customize-page's `.top-nav`: a 36px row, 8px above it and 48px (twice spacing-xxl) under. */
+/* `flex: none`: it sits straight in the page's scrolling column, which would squeeze it to its minimum. */
 .customize-category-top-nav {
+  flex: none;
   width: 100%;
-  height: 96px;
-  padding: 12px 0 48px;
+  min-height: 36px;
+  padding: 8px 0 48px;
   display: flex;
   align-items: center;
-  box-sizing: border-box;
+  box-sizing: content-box;
 }
 
 .customize-category-back-button {
-  height: 36px;
-  padding: 0 12px 0 8px;
-  border-radius: 9999px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background-color: transparent;
-  color: rgb(230, 230, 230);
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 17px;
-  font-weight: 400;
-  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
-  font-family: "Google Sans Flex", "Google Sans", sans-serif;
-  transition: background-color 150ms ease;
-  user-select: none;
   outline: none;
 }
 
@@ -1446,15 +1564,15 @@
   outline-offset: 2px;
 }
 
+/* The page header again (title only here): top-aligned, as tall as its 36px (48px below 960px) search. */
 .customize-category-page-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 0 16px;
   margin-bottom: 20px;
   width: 100%;
-  height: 36px;
   box-sizing: border-box;
 }
 
@@ -1527,6 +1645,13 @@
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
 }
 
+.customize-page-root .gds-label-l {
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 370;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+}
+
 /* ── Customize Card Actions Menu (Material 3) ────────────────────────── */
 
 .customize-card-menu-backdrop {
@@ -1536,11 +1661,12 @@
   background: transparent;
 }
 
+/* mat-menu's 112px minimum; otherwise as wide as its longest row. */
 .customize-card-menu-panel {
   position: fixed;
   z-index: 9999;
   box-sizing: border-box;
-  min-width: 132px;
+  min-width: 112px;
   max-width: 280px;
   border-radius: 20px;
   background-color: #1f1f1f;
@@ -1579,21 +1705,26 @@
   animation: willow-mat-menu-exit 100ms linear 25ms forwards;
 }
 
+/*
+ * lm-menu-item-theme: `0 8px`, 36px, 12px corners; the 16px glyph keeps mat-menu's 12px icon spacing and the
+ * label (gem-menu-item-label, body-s in Lumi on-surface) 4px more, so it starts 32px after the glyph.
+ */
 .customize-card-menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 16px;
   width: 100%;
   height: 36px;
   padding: 0 8px;
   border: none;
   border-radius: 12px;
   background: transparent;
-  color: #e3e3e3;
+  color: #e6e6e6;
   font-family: "Google Sans Flex", "Google Sans", sans-serif;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 13px;
+  line-height: 17px;
   font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   cursor: pointer;
   white-space: nowrap;
   transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
@@ -1609,7 +1740,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #e3e3e3;
+  color: #e6e6e6;
   flex-shrink: 0;
 }
 
@@ -1641,19 +1772,26 @@
   margin: 0;
 }
 
-/* ── Light Theme Scoped Rules (Google Gemini measured) ── */
+/* ── Light theme ─────────────────────────────────────────────────────── */
+
+/*
+ * Measured on gemini.google.com/customize in its light theme at 1536x826: Lumi's on-surface is black and its
+ * on-surface-variant rgba(0, 0, 0, 0.55); the page is #faf9f9 (surface), tonal fills and field rules #f2f0f0
+ * (surface-dim), menus and the editor white with a 4% shadow, and hover an 8% black layer. The editor's own text
+ * keeps gem-sys's greys (#1f1f1f, #444746, #727676). Accent fills stay the workspace's.
+ */
 
 :is(.light-theme, [data-theme="light"]) .customize-page-root {
   background-color: var(--studio-surface, #faf9f9);
-  color: #1f1f1f;
+  color: #000000;
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-nav-button {
-  color: #444746;
+  color: #000000;
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-nav-button:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: rgba(0, 0, 0, 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-nav-button:focus-visible {
@@ -1661,98 +1799,99 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-nav-button.selected {
-  background-color: #e3e3e3;
-  color: #1f1f1f;
+  background-color: #f2f0f0;
+  color: #000000;
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-header-title {
-  color: #1f1f1f;
+  color: #000000;
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-header-subtitle {
-  color: #444746;
+  color: rgba(0, 0, 0, 0.55);
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-search-container {
-  border-color: rgba(0, 0, 0, 0.15);
+  border-color: rgba(0, 0, 0, 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-search-container:hover {
-  border-color: rgba(0, 0, 0, 0.3);
+  border-color: rgba(0, 0, 0, 0.16);
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-search-container:focus-within {
-  border-color: rgba(0, 0, 0, 0.5);
+  border-color: rgba(0, 0, 0, 0.3);
   background-color: rgba(0, 0, 0, 0.02);
 }
 
-:is(.light-theme, [data-theme="light"]) .customize-search-icon {
-  color: #444746;
+:is(.light-theme, [data-theme="light"]) .customize-search-icon,
+:is(.light-theme, [data-theme="light"]) .customize-search-clear {
+  color: rgba(0, 0, 0, 0.55);
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-search-input {
-  color: #1f1f1f;
+  color: #000000;
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-search-input::placeholder {
-  color: #747775;
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-search-clear {
-  color: #444746;
+  color: rgba(0, 0, 0, 0.55);
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-search-clear:hover {
-  color: #1f1f1f;
+  color: #000000;
 }
 
-:is(.light-theme, [data-theme="light"]) .customize-create-button {
+:is(.light-theme, [data-theme="light"]) .customize-create-button,
+:is(.light-theme, [data-theme="light"]) .customize-custom-button {
   background-color: #f2f0f0;
-  color: #1f1f1f;
+  color: #000000;
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-create-button:hover,
 :is(.light-theme, [data-theme="light"]) .customize-create-button.open {
-  background-color: #e5e5e5;
+  background-color: color-mix(in srgb, #000000 8%, #f2f0f0);
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-create-arrow-icon {
-  color: #1f1f1f;
+  color: #000000;
 }
 
-:is(.light-theme, [data-theme="light"]) .customize-create-menu-panel {
+:is(.light-theme, [data-theme="light"]) .customize-custom-button:focus-visible {
+  outline-color: var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .customize-create-menu-panel,
+:is(.light-theme, [data-theme="light"]) .customize-card-menu-panel {
   background-color: #ffffff;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08);
+  box-shadow: rgba(0, 0, 0, 0.04) 0 0 20px 0;
 }
 
-:is(.light-theme, [data-theme="light"]) .customize-create-menu-item {
-  color: #1f1f1f;
+:is(.light-theme, [data-theme="light"]) .customize-create-menu-item,
+:is(.light-theme, [data-theme="light"]) .customize-create-menu-icon,
+:is(.light-theme, [data-theme="light"]) .customize-card-menu-item,
+:is(.light-theme, [data-theme="light"]) .customize-card-menu-item-icon {
+  color: #000000;
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-create-menu-item:hover,
-:is(.light-theme, [data-theme="light"]) .customize-create-menu-item:focus-visible {
-  background-color: rgba(0, 0, 0, 0.05);
+:is(.light-theme, [data-theme="light"]) .customize-create-menu-item:focus-visible,
+:is(.light-theme, [data-theme="light"]) .customize-card-menu-item:hover,
+:is(.light-theme, [data-theme="light"]) .customize-card-menu-item:focus-visible {
+  background-color: rgba(0, 0, 0, 0.08);
 }
 
-:is(.light-theme, [data-theme="light"]) .customize-create-menu-icon {
-  color: #444746;
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-category-title {
-  color: #1f1f1f;
-}
-
+:is(.light-theme, [data-theme="light"]) .customize-category-title,
 :is(.light-theme, [data-theme="light"]) .customize-category-chevron {
-  color: #444746;
+  color: rgba(0, 0, 0, 0.55);
 }
 
-:is(.light-theme, [data-theme="light"]) .customize-category-header:hover .customize-category-chevron,
-:is(.light-theme, [data-theme="light"]) .customize-category-header:focus-visible .customize-category-chevron {
-  color: #1f1f1f;
+:is(.light-theme, [data-theme="light"]) .customize-category-header:focus-visible {
+  outline-color: var(--sync-0b57d0, #0b57d0);
 }
 
-:is(.light-theme, [data-theme="light"]) .customize-no-results {
-  color: #747775;
+:is(.light-theme, [data-theme="light"]) .customize-no-results,
+:is(.light-theme, [data-theme="light"]) .customize-empty-text {
+  color: rgba(0, 0, 0, 0.55);
 }
 
 :is(.light-theme, [data-theme="light"]) .gem-shimmer-active {
@@ -1767,86 +1906,83 @@
 
 :is(.light-theme, [data-theme="light"]) .customize-card:hover,
 :is(.light-theme, [data-theme="light"]) .customize-card:focus-visible {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: rgba(0, 0, 0, 0.08);
 }
 
-:is(.light-theme, [data-theme="light"]) .customize-card .icon-wrapper {
-  color: #1f1f1f;
+:is(.light-theme, [data-theme="light"]) .customize-card .icon-wrapper,
+:is(.light-theme, [data-theme="light"]) .customize-card .title,
+:is(.light-theme, [data-theme="light"]) .customize-card .add-button,
+:is(.light-theme, [data-theme="light"]) .customize-card .more-button {
+  color: #000000;
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-card .icon-wrapper.has-icon {
-  background-color: #e9eef6;
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-card .title {
-  color: #1f1f1f;
+  background-color: #f2f0f0;
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-card .subtitle {
-  color: #444746;
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-card .add-button,
-:is(.light-theme, [data-theme="light"]) .customize-card .more-button {
-  color: #444746;
+  color: rgba(0, 0, 0, 0.55);
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-card .add-button:hover,
 :is(.light-theme, [data-theme="light"]) .customize-card .more-button:hover {
   background-color: rgba(0, 0, 0, 0.08);
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-card-menu-panel {
-  background-color: #ffffff;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08);
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-card-menu-item {
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-card-menu-item:hover,
-:is(.light-theme, [data-theme="light"]) .customize-card-menu-item:focus-visible {
-  background-color: rgba(0, 0, 0, 0.05);
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-card-menu-item-icon {
-  color: #444746;
 }
 
 :is(.light-theme, [data-theme="light"]) .back-button,
 :is(.light-theme, [data-theme="light"]) .back-to-skills-btn,
-:is(.light-theme, [data-theme="light"]) .customize-category-back-button {
-  color: #1f1f1f;
+:is(.light-theme, [data-theme="light"]) .customize-category-back-button,
+:is(.light-theme, [data-theme="light"]) .back-button .back-icon,
+:is(.light-theme, [data-theme="light"]) .back-to-skills-btn .back-icon,
+:is(.light-theme, [data-theme="light"]) .back-to-skills-btn .back-button-text {
+  color: #000000;
 }
 
 :is(.light-theme, [data-theme="light"]) .back-button:hover,
 :is(.light-theme, [data-theme="light"]) .back-to-skills-btn:hover,
 :is(.light-theme, [data-theme="light"]) .customize-category-back-button:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: rgba(0, 0, 0, 0.08);
 }
 
-:is(.light-theme, [data-theme="light"]) .back-button .back-icon,
-:is(.light-theme, [data-theme="light"]) .back-to-skills-btn .back-icon {
-  color: #1f1f1f;
+:is(.light-theme, [data-theme="light"]) .customize-category-page-title {
+  color: #000000;
 }
 
-:is(.light-theme, [data-theme="light"]) .app-icon-container {
-  border-color: #e0e0e0;
-  background: #ffffff;
+/* A connector's page. */
+
+:is(.light-theme, [data-theme="light"]) .app-icon-container,
+:is(.light-theme, [data-theme="light"]) .related-app-icon-container {
+  border-color: #f2f0f0;
+  background: #faf9f9;
 }
 
-:is(.light-theme, [data-theme="light"]) .app-icon-placeholder {
-  color: #1f1f1f;
+:is(.light-theme, [data-theme="light"]) .app-icon-placeholder,
+:is(.light-theme, [data-theme="light"]) .app-title,
+:is(.light-theme, [data-theme="light"]) .prompt-text,
+:is(.light-theme, [data-theme="light"]) .prompt-icon-container,
+:is(.light-theme, [data-theme="light"]) .prompt-icon,
+:is(.light-theme, [data-theme="light"]) .capability-item .check-icon,
+:is(.light-theme, [data-theme="light"]) .capability-text,
+:is(.light-theme, [data-theme="light"]) .info-label,
+:is(.light-theme, [data-theme="light"]) .info-interactive-text,
+:is(.light-theme, [data-theme="light"]) .related-app-title,
+:is(.light-theme, [data-theme="light"]) .app-header-action .overflow-menu-button {
+  color: #000000;
 }
 
-:is(.light-theme, [data-theme="light"]) .app-title {
-  color: #1f1f1f;
+:is(.light-theme, [data-theme="light"]) .app-subtitle,
+:is(.light-theme, [data-theme="light"]) .section-title,
+:is(.light-theme, [data-theme="light"]) .info-value,
+:is(.light-theme, [data-theme="light"]) .related-app-subtitle {
+  color: rgba(0, 0, 0, 0.55);
 }
 
-:is(.light-theme, [data-theme="light"]) .app-subtitle {
-  color: #444746;
+:is(.light-theme, [data-theme="light"]) .details-description {
+  color: rgba(0, 0, 0, 0.75);
+}
+
+:is(.light-theme, [data-theme="light"]) .info-interactive-text:hover {
+  color: var(--sync-0b57d0, #0b57d0);
 }
 
 :is(.light-theme, [data-theme="light"]) .use-in-chat-button {
@@ -1858,80 +1994,29 @@
   background-color: var(--studio-accent-btn-hover, #0842a0);
 }
 
-:is(.light-theme, [data-theme="light"]) .overflow-menu-button {
-  color: #444746;
+:is(.light-theme, [data-theme="light"]) .use-in-chat-button:focus-visible {
+  outline-color: var(--sync-0b57d0, #0b57d0);
 }
 
-:is(.light-theme, [data-theme="light"]) .overflow-menu-button:hover {
-  background-color: rgba(0, 0, 0, 0.08);
+:is(.light-theme, [data-theme="light"]) .overflow-menu-button {
   color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .overflow-menu-button:hover,
+:is(.light-theme, [data-theme="light"]) .prompt-card:hover,
+:is(.light-theme, [data-theme="light"]) .related-app-card:hover {
+  background-color: rgba(0, 0, 0, 0.08);
 }
 
 :is(.light-theme, [data-theme="light"]) .prompt-card {
-  background-color: #f0f4f9;
+  background-color: #f2f0f0;
 }
 
 :is(.light-theme, [data-theme="light"]) .prompt-card:hover {
-  background-color: #e5ebf3;
+  background-color: color-mix(in srgb, #000000 8%, #f2f0f0);
 }
 
-:is(.light-theme, [data-theme="light"]) .prompt-text {
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .prompt-icon-container,
-:is(.light-theme, [data-theme="light"]) .prompt-icon {
-  color: #444746;
-}
-
-:is(.light-theme, [data-theme="light"]) .capability-item .check-icon {
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .capability-text {
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .section-title {
-  color: #444746;
-}
-
-:is(.light-theme, [data-theme="light"]) .info-label {
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .info-value {
-  color: #444746;
-}
-
-:is(.light-theme, [data-theme="light"]) .info-interactive-text {
-  color: var(--sync-0b57d0, #0b57d0);
-}
-
-:is(.light-theme, [data-theme="light"]) .details-description {
-  color: #444746;
-}
-
-:is(.light-theme, [data-theme="light"]) .related-app-card:hover {
-  background-color: rgba(0, 0, 0, 0.05);
-}
-
-:is(.light-theme, [data-theme="light"]) .related-app-icon-container {
-  border-color: #e0e0e0;
-  background: #ffffff;
-}
-
-:is(.light-theme, [data-theme="light"]) .related-app-title {
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .related-app-subtitle {
-  color: #444746;
-}
-
-:is(.light-theme, [data-theme="light"]) .back-to-skills-btn .back-button-text {
-  color: #1f1f1f;
-}
+/* The skill editor: a white card ruled in surface-dim, gem-sys text. */
 
 :is(.light-theme, [data-theme="light"]) .save-button {
   background-color: var(--studio-accent-btn-bg, #0b57d0);
@@ -1943,7 +2028,7 @@
 }
 
 :is(.light-theme, [data-theme="light"]) .save-button:disabled {
-  background-color: rgba(0, 0, 0, 0.06);
+  background-color: rgba(0, 0, 0, 0.12);
   color: rgba(0, 0, 0, 0.38);
 }
 
@@ -1951,63 +2036,35 @@
   color: #ffffff;
 }
 
+:is(.light-theme, [data-theme="light"]) .save-button:disabled .save-label {
+  color: #000000;
+}
+
 :is(.light-theme, [data-theme="light"]) .editor-new-content {
   background-color: #ffffff;
-  border-color: #e3e3e3;
+  border-color: #f2f0f0;
 }
 
 :is(.light-theme, [data-theme="light"]) .editor-section-label {
-  color: #444746;
+  color: #727676;
+}
+
+:is(.light-theme, [data-theme="light"]) .editor-title-input,
+:is(.light-theme, [data-theme="light"]) .description-text,
+:is(.light-theme, [data-theme="light"]) .content-editable {
+  border-color: #f2f0f0;
+  background-color: transparent;
+  color: #1f1f1f;
 }
 
 :is(.light-theme, [data-theme="light"]) .editor-title-input {
-  border-color: #c4c7c5;
-  background-color: #ffffff;
-  color: #1f1f1f;
+  color: #444746;
 }
 
-:is(.light-theme, [data-theme="light"]) .editor-title-input:focus {
-  border-color: var(--sync-0b57d0, #0b57d0);
-}
-
-:is(.light-theme, [data-theme="light"]) .editor-title-input::placeholder {
-  color: #747775;
-}
-
-:is(.light-theme, [data-theme="light"]) .description-text {
-  border-color: #c4c7c5;
-  background-color: #ffffff;
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .description-text:focus {
-  border-color: var(--sync-0b57d0, #0b57d0);
-}
-
-:is(.light-theme, [data-theme="light"]) .description-text::placeholder {
-  color: #747775;
-}
-
-:is(.light-theme, [data-theme="light"]) .content-editable {
-  border-color: #c4c7c5;
-  background-color: #ffffff;
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .content-editable:focus {
-  border-color: var(--sync-0b57d0, #0b57d0);
-}
-
+:is(.light-theme, [data-theme="light"]) .editor-title-input::placeholder,
+:is(.light-theme, [data-theme="light"]) .description-text::placeholder,
 :is(.light-theme, [data-theme="light"]) .content-editable::placeholder {
-  color: #747775;
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-category-page-title {
-  color: #1f1f1f;
-}
-
-:is(.light-theme, [data-theme="light"]) .customize-empty-text {
-  color: #747775;
+  color: rgba(68, 71, 70, 0.6);
 }
 
 :is(.light-theme, [data-theme="light"]) .customize-disconnect-section-title {
@@ -2018,123 +2075,293 @@
   color: #444746;
 }
 
-/* ── Below 961px ─────────────────────────────────────────────────────── */
+/* ── 959.98px and below: Lumi's narrow tokens, under the shell's 68px bar ─ */
 
 /*
- * Gemini has no Customize surface to measure, so the narrow layout borrows from the
- * pages it does have. Every screen hangs under the shell's 68px top bar (menu button,
- * wordmark, New chat), and its first row (the Discover / Connectors / Skills pills, or
- * the back button on the screens behind them) opens the page. The menu glyph's ink ends
- * at y 36, so a 36px row there leaves 32px above it, and the 32px under it matches.
+ * Measured on gemini.google.com/customize at 800x1280 and 390x844 (dpr 1.25). Below 960px Lumi's tokens take
+ * their narrow values (#141414 surfaces, #e0e0e0 text) and gem-search-bar grows to 48px with a 24px glyph; the
+ * page's own layout changes only at 768px. A tablet is the desktop page under the 68px top bar: the tabs at y 84
+ * (16px in), the title at 192 (72px under them).
+ *
+ * The colours are the dark theme's: each colour rule is behind `:where(:root:not(.light-theme))`, which matches
+ * nothing in light and adds no specificity, so the light sheet above keeps its own at every width.
  */
-@media (max-width: 960px) {
+@media (max-width: 959.98px) {
   .customize-page-root {
     height: calc(100% - 68px);
     margin-top: 68px;
   }
 
-  /* `flex: none`: the category page's row sits straight in the scrolling flex column, which would squeeze it. */
-  .customize-page-root :is(.customize-nav-buttons, .customize-category-top-nav, .top-nav-bar, .manager-header) {
-    flex: none;
-    height: 36px;
-    margin: 0 0 32px;
-    padding-block: 0;
+  :where(:root:not(.light-theme)) .customize-page-root {
+    color: #e0e0e0;
   }
 
-  /* The row meets the scroller's top edge, which would clip a ring drawn outside it. */
-  .customize-page-root :is(.customize-nav-button, .customize-category-back-button):focus-visible {
-    outline-offset: -2px;
+  :where(:root:not(.light-theme)) .customize-page-root :is(
+    .customize-nav-button,
+    .customize-nav-button.selected,
+    .customize-header-title,
+    .customize-search-input,
+    .customize-card .title,
+    .customize-card .icon-wrapper,
+    .customize-card .add-button,
+    .customize-card .more-button,
+    .customize-create-button,
+    .customize-create-arrow-icon,
+    .customize-custom-button
+  ) {
+    color: #e0e0e0;
   }
 
-  .customize-page-root .details-content-column {
-    padding-top: 0;
+  :where(:root:not(.light-theme)) .customize-page-root :is(
+    .customize-nav-button.selected,
+    .customize-card .icon-wrapper.has-icon,
+    .customize-create-button,
+    .customize-custom-button
+  ) {
+    background-color: #141414;
   }
 
-  /* Nothing hovers on a touchscreen, so a card's add or more button stays out to tap. */
-  .customize-card .add-button,
-  .customize-card .more-button {
-    opacity: 1;
-    pointer-events: auto;
-    visibility: visible;
+  :where(:root:not(.light-theme)) .customize-page-root :is(
+    .customize-nav-button:hover,
+    .customize-card:hover,
+    .customize-card:focus-visible
+  ) {
+    background-color: rgba(224, 224, 224, 0.08);
+  }
+
+  .customize-page-root .customize-search-container {
+    height: 48px;
+  }
+
+  /* `!important`: CustomizeIcon sizes its glyph inline. */
+  .customize-page-root .customize-search-icon {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 24px !important;
+    line-height: 24px !important;
+    font-variation-settings: "FILL" 0, "GRAD" 0, "ROND" 100, "opsz" 24, "wght" 300 !important;
+  }
+
+  /* The pages behind the cards (a category, a connector, a skill, a custom app) take the same narrow tokens. */
+  :where(:root:not(.light-theme)) .customize-page-root :is(
+    .back-button,
+    .back-to-skills-btn,
+    .customize-category-back-button,
+    .back-icon,
+    .back-button-text,
+    .customize-category-page-title,
+    .app-title,
+    .prompt-text,
+    .prompt-icon-container,
+    .prompt-icon,
+    .capability-text,
+    .capability-item .check-icon,
+    .info-label,
+    .info-interactive-text,
+    .related-app-title,
+    .use-in-chat-button,
+    .app-header-action .overflow-menu-button,
+    .custom-app-action,
+    .custom-app-url-text
+  ) {
+    color: #e0e0e0;
+  }
+
+  :where(:root:not(.light-theme)) .customize-page-root :is(.app-icon-container, .related-app-icon-container) {
+    background: #000;
+    border-color: #141414;
+  }
+
+  :where(:root:not(.light-theme)) .customize-page-root :is(.prompt-card, .custom-app-handle) {
+    background-color: #141414;
+  }
+
+  :where(:root:not(.light-theme)) .customize-page-root :is(
+    .editor-new-content,
+    .editor-title-input,
+    .description-text,
+    .content-editable,
+    .custom-app-action
+  ) {
+    border-color: #141414;
+  }
+
+  :where(:root:not(.light-theme)) .customize-page-root .save-label {
+    color: #e0e0e0;
+  }
+
+  :where(:root:not(.light-theme)) .customize-page-root .save-button:disabled {
+    background-color: rgba(224, 224, 224, 0.12);
+  }
+
+  :where(:root:not(.light-theme)) .customize-page-root :is(
+    .back-button:hover,
+    .back-to-skills-btn:hover,
+    .customize-category-back-button:hover,
+    .prompt-card:hover,
+    .related-app-card:hover
+  ) {
+    background-color: rgba(224, 224, 224, 0.08);
+  }
+
+  /* The menus (the card and page ones hang off the body, outside the page root): Lumi's narrow surface-bright. */
+  :where(:root:not(.light-theme)) :is(.customize-card-menu-panel, .customize-create-menu-panel) {
+    background-color: #1c1c1c;
+  }
+
+  :where(:root:not(.light-theme)) :is(
+    .customize-card-menu-item,
+    .customize-card-menu-item-icon,
+    .customize-create-menu-item,
+    .customize-create-menu-icon
+  ) {
+    color: #e0e0e0;
+  }
+
+  :where(:root:not(.light-theme)) :is(
+    .customize-card-menu-item:hover,
+    .customize-card-menu-item:focus-visible,
+    .customize-create-menu-item:hover,
+    .customize-create-menu-item:focus-visible
+  ) {
+    background-color: rgba(224, 224, 224, 0.08);
   }
 }
 
-/* One column: the cards fill it rather than keep their two-column 348px. */
-@media (max-width: 740px) {
-  .customize-card {
-    width: 100%;
-  }
-}
+/* ── 768px and below: Gemini's narrow layout ──────────────────────────── */
 
 /*
- * A phone. Headings take the full width with their search under them (Skills' Create
- * beside it), a connector's actions drop under its title, the starter prompts become a
- * row that scrolls sideways (as the Gems manager's premade row does), related apps go
- * to one column, and the skill editor's card hands its fields more of the width.
+ * Gemini's `(max-width: 768px)` rules for customize-page and customize-card: the tabs scroll sideways in a 16px
+ * band, 40px tall, unselected ones on-surface-variant; the header loses its search field and its buttons to the
+ * top bar's search and "+" (CustomizeMobileActions); headings get a 48px row; one column of cards 4px apart, with
+ * 16px corners and `8px 16px 8px 8px`.
  */
-@media (max-width: 600px) {
-  .customize-page-root :is(.customize-page-header, .customize-category-page-header) {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 16px;
-    height: auto;
-  }
-
-  .customize-page-root .customize-header-actions .customize-search-container {
-    flex: 1 1 auto;
-    width: auto;
-    min-width: 0;
-  }
-
-  .customize-page-root .customize-category-page-header .customize-search-container {
-    width: 100%;
-  }
-
-  .customize-page-root .app-header-main {
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .customize-page-root .app-title-group {
-    flex: none;
-    width: 100%;
-  }
-
-  .customize-page-root .prompts-row {
-    display: flex;
-    width: auto;
-    margin-inline: -16px;
-    padding-inline: 16px;
+@media (max-width: 768px) {
+  .customize-nav-buttons {
+    flex-wrap: nowrap;
     overflow-x: auto;
-    overflow-y: hidden;
-    scroll-padding-inline: 16px;
-    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+    padding-block: 16px;
     scrollbar-width: none;
   }
 
-  .customize-page-root .prompts-row::-webkit-scrollbar {
+  .customize-nav-buttons::-webkit-scrollbar {
     display: none;
   }
 
-  .customize-page-root .prompt-card {
-    flex: none;
-    width: 200px;
-    scroll-snap-align: start;
+  .customize-nav-buttons .customize-nav-button {
+    flex-shrink: 0;
+    height: 40px;
+  }
+
+  /* Through the bar, to outrank the 959.98px colour list (whose `:is()` counts `.selected`). */
+  :where(:root:not(.light-theme)) .customize-page-root .customize-nav-buttons .customize-nav-button {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  :where(:root:not(.light-theme)) .customize-page-root .customize-nav-buttons :is(
+    .customize-nav-button:hover,
+    .customize-nav-button.selected
+  ) {
+    color: #e0e0e0;
+  }
+
+  :is(.light-theme, [data-theme="light"]) .customize-page-root .customize-nav-buttons .customize-nav-button {
+    color: rgba(0, 0, 0, 0.55);
+  }
+
+  :is(.light-theme, [data-theme="light"]) .customize-page-root .customize-nav-buttons :is(
+    .customize-nav-button:hover,
+    .customize-nav-button.selected
+  ) {
+    color: #000000;
+  }
+
+  .customize-page-header {
+    margin-bottom: 16px;
+    padding-inline: 8px;
+  }
+
+  .customize-header-actions :is(.customize-search-container, .customize-custom-button),
+  .customize-create-dropdown-container > .customize-create-button {
+    display: none;
+  }
+
+  .customize-category-section {
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .customize-category-header {
+    min-height: 48px;
+    padding-left: 8px;
+  }
+
+  .customize-card {
+    width: 100%;
+    border-radius: 16px;
+    padding: 8px 16px 8px 8px;
+  }
+
+  .customize-page-root .customize-category-page-header .customize-search-container {
+    display: none;
+  }
+
+  /* The back row: 16px above and below a 48px button (`min-height: calc(spacing-xxl * 2)`). */
+  .customize-page-root :is(.customize-category-top-nav, .top-nav-bar, .manager-header) {
+    padding-block: 16px;
+  }
+
+  .customize-page-root :is(.back-button, .back-to-skills-btn, .customize-category-back-button) {
+    min-height: 48px;
+  }
+
+  .customize-category-page-header {
+    margin-bottom: 16px;
+    padding-inline: 8px;
+  }
+
+  /* app-details-page: the column takes 8px a side and its header and sections give up their own 16px. */
+  .customize-page-root .details-content-column {
+    padding-inline: 8px;
+  }
+
+  .customize-page-root :is(
+    .app-header,
+    .prompts-section,
+    .capabilities-section,
+    .info-section,
+    .custom-app-actions-section,
+    .custom-app-problem,
+    .related-apps-section > .section-title
+  ) {
+    padding-inline: 0;
+  }
+
+  .customize-page-root .prompts-row {
+    grid-template-columns: 1fr;
   }
 
   .customize-page-root .related-apps-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .customize-page-root .editor-new-content {
-    padding: 16px;
+  .customize-page-root .related-app-card {
+    padding: 0;
   }
+}
 
-  .customize-page-root .content-editable {
-    min-height: 320px;
-  }
+/*
+ * Connected Apps' setup and notice banners, carried into Customize's Connectors. That sheet sizes its page root
+ * below 960px (height and top margin); here the class only wraps the banners.
+ */
+.connected-apps-container.customize-connect-extras {
+  background: transparent;
+  height: auto;
+  margin-top: 0;
+  margin-bottom: 16px;
+}
 
-  .customize-page-root .editor-title-input {
-    text-overflow: ellipsis;
-  }
+.customize-connect-extras:empty {
+  display: none;
 }

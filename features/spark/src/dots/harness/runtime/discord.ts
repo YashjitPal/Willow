@@ -30,6 +30,8 @@ export interface DiscordLink {
   dmChannelId?: string;
   /** How its picture and name there follow the bot's look here. */
   look?: DiscordLook;
+  /** The user turned off its status saying what the bot is doing. */
+  statusOff?: boolean;
   linkedAt: number;
 }
 
@@ -113,11 +115,20 @@ export interface DiscordNext {
 
 export type DiscordMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
+/** A file a message carries: its name, its type, its bytes as base64. */
+export interface DiscordFile {
+  name: string;
+  mimeType: string;
+  data: string;
+}
+
 /** Discord's API, as Willow's companion relays it. */
 export interface DiscordRelay {
-  call: <T>(token: string, method: DiscordMethod, path: string, options?: { body?: unknown; query?: Record<string, string | number> }) => Promise<{ status: number; body: T }>;
+  call: <T>(token: string, method: DiscordMethod, path: string, options?: { body?: unknown; query?: Record<string, string | number>; files?: DiscordFile[] }) => Promise<{ status: number; body: T }>;
   next: (token: string, options: { after?: number; epoch?: string; guildsVersion?: number; content: boolean; waitMs: number }) => Promise<DiscordNext>;
   close: (token: string) => Promise<void>;
+  /** The bot's status on Discord: these words, or none (`discord-presence.ts`). */
+  presence?: (token: string, status: string | null) => Promise<void>;
 }
 
 /** How far one window's gateway run got, what it last heard of the connection, and where the bot's messages went. */
@@ -131,8 +142,6 @@ export interface DiscordGatewayState {
   contentRefused?: boolean;
   /** The bot's messages on Discord, newest last, each with the item it mirrors: how a reaction there finds its message. */
   sent: [string, string][];
-  /** What the user wrote elsewhere, quoted in the DM: each item with its quote, for the bot's reactions to land on. */
-  quoted?: [string, string][];
   updatedAt: number;
 }
 
@@ -226,11 +235,6 @@ export const patchDiscordState = (dotId: string, patch: Partial<DiscordGatewaySt
 export const rememberSent = (dotId: string, messageIds: string[], itemId: string): void => {
   if (!messageIds.length) return;
   patchDiscordState(dotId, (state) => ({ sent: [...state.sent, ...messageIds.map((id): [string, string] => [id, itemId])].slice(-KEPT_SENT) }));
-};
-
-/** Remembers the DM's quote of something the user wrote elsewhere. */
-export const rememberQuoted = (dotId: string, itemId: string, messageId: string): void => {
-  patchDiscordState(dotId, (state) => ({ quoted: [...(state.quoted ?? []), [itemId, messageId] as [string, string]].slice(-KEPT_SENT) }));
 };
 
 /* ------------------------------------------------------------------------ */
@@ -645,37 +649,46 @@ export const discordMarkdown = (text: string): string => {
   return out.join('\n');
 };
 
-const QUOTE_LIMIT = 1_800;
-
-/** Something the user wrote outside Discord (`from`: "in Willow"), for the bot's DM: marked as theirs, then quoted. */
-export const quoteForDiscord = (text: string, from: string): string => {
-  const body = text.trim();
-  const shown = body.length > QUOTE_LIMIT ? `${body.slice(0, QUOTE_LIMIT - 1).trimEnd()}…` : body;
-  return `-# You, ${from}\n>>> ${shown}`;
-};
-
 /**
- * Where the bot's messages in a turn go on Discord. When the user's latest message in the turn was written in a
- * server channel, there, answering it; otherwise its DM, which mirrors the whole conversation.
+ * Where the bot's messages in a turn go on Discord: back where the user's latest message was written there — in a
+ * server channel answering it, in the DM in the DM — and nowhere when they wrote it in Willow or on Telegram, which
+ * stays where it was written. A trigger the user asked for on Discord answers in the channel or DM they asked from;
+ * one asked for on Telegram, there. Any other turn the user did not start (a routine) goes to the DM when the user
+ * last wrote from Discord, so what they asked for there comes back there.
  */
-export const discordReplyTarget = (items: readonly DotItem[], sinceSeq: number, dmChannelId: string | undefined): { channelId: string; replyTo?: string; inputId?: string } | null => {
-  for (let index = items.length - 1; index >= 0 && items[index]!.seq > sinceSeq; index -= 1) {
+export const discordReplyTarget = (items: readonly DotItem[], sinceSeq: number, dmChannelId: string | undefined): DiscordReplyTarget | null => {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index]!;
+    if (item.kind === 'event' && item.seq > sinceSeq && item.via) {
+      return item.discord ? { channelId: item.discord.channelId, ...(item.discord.guildId ? { inServer: true } : {}) } : null;
+    }
     if (item.kind !== 'user') continue;
-    if (item.discord?.guildId) return { channelId: item.discord.channelId, replyTo: item.discord.messageId, inputId: item.id };
-    if (item.discord) return { channelId: item.discord.channelId };
-    break;
+    if (!item.discord) return null;
+    if (item.seq <= sinceSeq) return dmChannelId ? { channelId: dmChannelId } : item.discord.guildId ? null : { channelId: item.discord.channelId };
+    if (item.discord.guildId) return { channelId: item.discord.channelId, replyTo: item.discord.messageId, inputId: item.id, inServer: true };
+    return { channelId: item.discord.channelId };
   }
-  return dmChannelId ? { channelId: dmChannelId } : null;
+  return null;
 };
+
+/** Where on Discord a bot's message goes: the channel, the message it answers, and whether others read it there. */
+export interface DiscordReplyTarget {
+  channelId: string;
+  replyTo?: string;
+  inputId?: string;
+  /** A server channel rather than the DM: files the bot sends go to the DM instead. */
+  inServer?: true;
+}
 
 /**
  * Posts a message, in as many pieces as it needs; the first answers `replyTo`. Only people named in it are pinged:
  * never everyone, here or a role. Resolves to the messages Discord made, or why it refused.
  */
-export const sendToDiscord = async (link: DiscordLink, relay: DiscordRelay, channelId: string, text: string, replyTo?: string): Promise<{ ids: string[] } | { problem: string }> => {
+export const sendToDiscord = async (link: DiscordLink, relay: DiscordRelay, channelId: string, text: string, replyTo?: string, files: DiscordFile[] = []): Promise<{ ids: string[] } | { problem: string }> => {
   const ids: string[] = [];
-  const pieces = splitDiscordMessage(discordMarkdown(text));
+  const written = splitDiscordMessage(discordMarkdown(text));
+  // Files go with the first piece, or on their own.
+  const pieces = written.length || !files.length ? written : [''];
   if (!pieces.length) return { problem: 'There is nothing to post.' };
   for (const [index, piece] of pieces.slice(0, MAX_PIECES).entries()) {
     const reply = await relay.call<{ id?: string } & ApiError>(link.token, 'POST', `/channels/${channelId}/messages`, {
@@ -684,6 +697,7 @@ export const sendToDiscord = async (link: DiscordLink, relay: DiscordRelay, chan
         allowed_mentions: { parse: ['users'], replied_user: false },
         ...(index === 0 && replyTo ? { message_reference: { message_id: replyTo, channel_id: channelId, fail_if_not_exists: false } } : {}),
       },
+      ...(index === 0 && files.length ? { files } : {}),
     });
     if (reply.status !== 200 || !reply.body?.id) return ids.length ? { ids } : { problem: discordProblem(reply) };
     ids.push(reply.body.id);

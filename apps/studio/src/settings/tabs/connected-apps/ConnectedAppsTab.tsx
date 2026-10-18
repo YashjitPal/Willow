@@ -159,7 +159,7 @@ const listNames = (names: string[]): string =>
  * read email contents, and make changes. Each asks Google from the click that turns it on, and nothing is
  * awaited before that request, so its window is never blocked as a popup.
  */
-const GooglePermissions: React.FC = () => {
+export const GooglePermissions: React.FC = () => {
   const { enabled } = useStore(connectionsStore);
   const { gmailContents } = useStore(connectorOptions);
   const google = enabled.filter((id) => providerOf(id) === 'google');

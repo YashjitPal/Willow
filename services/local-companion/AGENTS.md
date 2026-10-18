@@ -81,8 +81,11 @@ controls hold it in place; **do not weaken any of them without saying so explici
    a bot's patches) check the real path of the nearest existing folder, refuse to
    write through a link or onto the root, and with `expectModifiedAt` leave a file
    that changed since it was read alone (`test/workspace-write.test.mjs`).
-   `relay.telegram` reaches `api.telegram.org` only, for a bot token's own
-   `getMe`, `getUpdates`, `sendMessage` and `sendChatAction`: never a proxy.
+   `relay.telegram` (`src/telegram.mjs`) reaches `api.telegram.org` only, for a bot
+   token's own `getMe`, `getUpdates`, `sendMessage`, `sendChatAction`,
+   `setMessageReaction`, and `sendPhoto` and `sendDocument`, which carry one `file`
+   (`{ name, mimeType, data }`, base64; up to 10 MB a photo, 20 MB a file) as an
+   upload beside their params: never a proxy.
    `relay.http` carries the desktop window's MCP requests (pages cannot reach most
    MCP servers, which send no CORS headers): https only, every resolved address
    checked so nothing on this computer or its network is reachable, redirects
@@ -100,8 +103,9 @@ controls hold it in place; **do not weaken any of them without saying so explici
    never Willow's own windows, and on Windows holds off while the user is using the
    computer or it is locked ("The user's screen" below).
    `mcp.*` (desktop app) starts the MCP servers the user added as programs, exactly
-   as they typed them and never through a shell of its own, without the pairing
-   token in their environment ("MCP servers that are programs" below).
+   as they typed them — or one Willow ships, from its own copy — and never through a
+   shell of its own, without the pairing token in their environment ("MCP servers that
+   are programs" below).
 
 Also bounded on purpose: output truncated to 1 MB (per command, and kept per
 job), command length to 20 000 chars, `shell.exec` timeout clamped to
@@ -120,9 +124,11 @@ or the bot is deleted.
 headers, and its gateway — the WebSocket messages arrive over — needs a heartbeat a
 hidden page cannot keep, so both live here.
 
-- `discord.call { token, method, path, query?, body? }` → `{ status, body }`: one
-  REST request on the allowlist above; a rate limit of 10 s or less is waited out
-  (twice at most).
+- `discord.call { token, method, path, query?, body?, files? }` → `{ status, body }`:
+  one REST request on the allowlist above; a rate limit of 10 s or less is waited out
+  (twice at most). `files` (`[{ name, mimeType, data }]`, base64; 1 to 4, 8 MB in
+  all, plain names) go only with a message posted to a channel, as Discord takes an
+  upload: the body as `payload_json`, each file as `files[n]`.
 - `discord.next { token, content, after?, epoch?, guildsVersion?, waitMs? }` →
   `{ epoch, after, events, state, problem?, user, content, contentRefused,
   guildsVersion, guilds? }`: opens the token's gateway on first use, then answers
@@ -132,6 +138,12 @@ hidden page cannot keep, so both live here.
   and their channels come back only when the window's copy (`epoch` +
   `guildsVersion`) is old. The last 300 events are kept; a new `epoch` means a new
   gateway, read from its start.
+- `discord.presence { token, status }` → `{ status }`: the bot's custom status,
+  those words (128 characters at most) or none (`null`), on its gateway now or on the
+  next session it opens (identify carries it, and a resume says it again). It changes
+  on Discord at most once in five seconds, to the latest words, so with heartbeats it
+  stays far inside the 120 gateway events a minute Discord allows a connection; words
+  nobody renews within five minutes are taken down.
 - `discord.close { token }` closes it. A gateway nobody asked about for three
   minutes closes by itself, and all close on shutdown. Tokens are only in memory.
 
@@ -173,8 +185,8 @@ Connected apps as "A program on this computer" (the window's
 `platform/ai/src/mcp/program-transport.ts`, through `features/spark/src/mcp-relay.ts`).
 Only with the pairing token; the ready message lists `mcp-programs`.
 
-- `mcp.start { id, command, args?, env?, cwd? }` → `{ id, pid }`: starts the program,
-  ending one already under that id. JSON-RPC goes one message per line each way.
+- `mcp.start { id, command, args?, env?, cwd?, bundled? }` → `{ id, pid }`: starts the
+  program, ending one already under that id. JSON-RPC goes one message per line each way.
 - `mcp.send { id, message }`: one message to its input.
 - `mcp.stop { id }`: closes its input, as MCP asks, and ends it and everything it
   started (`taskkill /T`, or its process group) 1.5 s later if it has not gone.
@@ -195,6 +207,71 @@ the companion's without `WILLOW_COMPANION_*`, with the user's variables over it;
 folder is `cwd` or the user's home. Tested with `node --test test/mcp-programs.test.mjs`,
 which also runs a real `.cmd` launcher with spaces, `&`, `|`, `%` and quotes in its
 arguments on Windows.
+
+**Programs Willow ships.** `bundled` names one of `BUNDLED_PROGRAMS`, and the companion
+runs its own copy of it from `src/mcp-servers/` with the launcher it names; the `command`
+and `args` that came with it are ignored, so a saved server marked bundled cannot start
+anything else (which is why Chat reaches these programs and no other). A name it does
+not have, or a copy missing from the install, is said so. The desktop app's staging
+copies `src/` whole, so they ship with it.
+
+**X Reader** (`src/mcp-servers/x-reader.py`) is the one so far: an MCP server of Willow's
+own that reads X signed in as the user, through twscrape — 0.20.1, pinned, and
+nothing published after the day it was added (uv's `exclude-newer`). It runs as
+`uv run --quiet --script`, so uv fetches Python and its packages on the first start (a
+minute or so) and uses its cache after. Twelve tools, all reading: searching posts and
+accounts, an account, its posts, a post, its replies, its author's thread, followers and
+following, trends, a list's posts and bookmarks. MCP's stdio side is written by hand
+rather than with the MCP SDK, which brings a web server and its stack. The session comes
+in `X_COOKIES` (`auth_token` and `ct0`, from a sign-in under *Signing in to sites* or
+pasted by the user) and lives in a SQLite file in a temp folder of
+its own, removed when the program ends, or by a later start once it has gone a day
+untouched (a running one touches its folder hourly); it is never printed. The session is checked
+once, before the first call, so a logged-out one says so instead of waiting out the 15
+minutes twscrape would lock it for, and twscrape's warnings (a rate limit and when it
+lifts, a block, a ban, X changing its API) become the answer instead of an empty list.
+twscrape's telemetry is off. Tested with `node --test test/x-reader.test.mjs` — the
+handshake, the tool list and a session missing a cookie, through `mcp-programs.mjs`;
+skipped where uv is not installed. Not tested against a real account.
+
+## Signing in to sites
+
+`src/site-sign-in.mjs`, for a program that reads a site as the user (X Reader, whose
+session is two of x.com's cookies; the window's `features/spark/src/site-sign-in.ts`).
+Rather than the user copying cookies out of their browser's developer tools, a browser
+window of the companion's own opens the site's sign-in page, and once they are in, the
+cookies go back to the window that asked. Only with the pairing token; the ready message
+lists `site-sign-in`.
+
+- `site.signIn { site }` → `{ cookies }`: the names in `SITE_SIGN_INS[site].cookies` and
+  no others. `{ cancelled: true }` when the user closes the window, or the window that
+  asked cancels, asks again (one sign-in per window) or disconnects. It answers when the
+  sign-in ends, so the window asks with a timeout past the ten minutes it waits.
+- `site.cancel`: ends this window's sign-in, if one is open.
+
+The window names only the site, so nothing it sends picks the page or the cookies. The
+browser is Chrome, Edge, Brave or Chromium, the first installed (`WILLOW_CHROME_PATH`
+overrides), on a profile made in the temp folder for this one sign-in, with
+`--remote-debugging-pipe`: DevTools over two inherited pipes, so no port another program
+could reach. `--disable-blink-features=AutomationControlled` keeps `navigator.webdriver`
+false, which the pipe would otherwise set and a sign-in page may hold against the user.
+Nothing attaches to the page: the browser-level `Storage.getCookies` reads the cookies
+(HttpOnly ones too, which `auth_token` is) and `Target.getTargets` sees the last page
+closed. Once the site's `signedIn` cookie is there, it waits for the page to reach the
+site's `home`, since X replaces `ct0` on the way, or 8 s at most; then it closes the
+browser (`Browser.close`, killed after 5 s) and deletes the profile, and a profile left
+by a companion that stopped mid-sign-in goes after an hour. The user's own browser
+profile is never read: Chrome encrypts its cookies for Chrome alone (app-bound
+encryption), and a program lifting them is what cookie-stealing malware looks like.
+
+What the user gets is a session of its own, which the site lists with their others:
+signing out in their own browser leaves it, and it ends when they remove it there.
+Tested with `node --test test/site-sign-in.test.mjs`: a real Chrome, headless, against
+a stand-in site that sets an HttpOnly session cookie and replaces its CSRF cookie on the
+way home — the cookies coming back, a cancel, a second sign-in, the browser closed by
+hand and a disconnect, each leaving no browser and no profile behind; skipped where no
+browser is installed. x.com's sign-in page was checked to load in it without the
+automation flag tripping; not tried with a real account.
 
 ## The user's screen
 

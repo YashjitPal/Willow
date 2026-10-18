@@ -1,8 +1,10 @@
 import React from 'react';
 import { Terminal } from 'lucide-react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
+import type { ChatStatus } from '@willow/chat/chat-status';
 import { SidebarItem } from './SidebarPrimitives';
 import { useThemeMode } from '@willow/core/theme-mode';
+import './ChatStatusFilter.css';
 
 /**
  * One Recents row.
@@ -29,6 +31,8 @@ export interface RecentChatRowProps {
   isCollapsed: boolean;
   isActive: boolean;
   isPinned: boolean;
+  /** The chat's status mark (`chat-status.ts`), or null. */
+  status: ChatStatus | null;
   startedInCode: boolean;
   isMenuOpen: boolean;
   onSelect: (chatId: string) => void;
@@ -41,6 +45,7 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
   isCollapsed,
   isActive,
   isPinned,
+  status,
   startedInCode,
   isMenuOpen,
   onSelect,
@@ -54,69 +59,99 @@ const RecentChatRowImpl: React.FC<RecentChatRowProps> = ({
     isCollapsed={isCollapsed}
     active={isActive}
     onClick={() => onSelect(chatId)}
-    keepActionsVisible={isPinned || isMenuOpen || startedInCode}
+    keepActionsVisible={isPinned || !!status || isMenuOpen || startedInCode}
     actions={
-      <div className="relative flex h-6 w-6 max-[960px]:h-9 max-[960px]:w-9 shrink-0 items-center justify-center">
+      <>
         {/*
-         * Gemini's pinned marker, measured off its own Recents row: `push_pin`
-         * in Luminous Symbols, 16px glyph, `"FILL" 0, "GRAD" 0, "ROND" 100,
-         * "opsz" 16, "wght" 330`, in `rgb(230,230,230)` — the row's own text
-         * colour, not an accent. It sits in the exact same 24x24 trailing box
-         * flush with the row's right padding as the three-dots menu button.
-         *
-         * The pin and the three-dot menu share one trailing slot: the pin is
-         * the resting state and the menu replaces it, so the row never shows
-         * both and the icon does not shift between states.
+         * Gemini's `remy-goal-status-badge`: a #fe4a00 `flag` (Needs input), a turning
+         * `progress_activity` (In progress) or an 8px #3186ff dot (Unread), 16px glyphs at weight
+         * 330. On a desktop it rests over the menu button's slot, as the pin does, and gives way
+         * to the button on hover; on phones and tablets, where the button always shows, it has a
+         * 16px slot of its own 1px before it. A pinned chat with a mark shows the mark.
          */}
-        {isPinned && (
+        {status && (
           <span
-            className={`sidebar-row-pin-icon absolute inset-0 flex items-center justify-center pointer-events-none ${
-              isMenuOpen || startedInCode ? 'hidden' : 'group-hover/item:hidden'
+            aria-hidden="true"
+            className={`sidebar-row-status pointer-events-none order-1 -ml-6 flex h-6 w-6 shrink-0 items-center justify-center max-[960px]:order-none max-[960px]:ml-0 max-[960px]:mr-px max-[960px]:h-4 max-[960px]:w-4 ${
+              isMenuOpen || startedInCode ? 'hidden' : 'min-[961px]:group-hover/item:hidden'
             }`}
           >
-            <MaterialSymbol
-              name="push_pin"
-              family="luminous"
-              size={16}
-              weight={330}
-              roundness={100}
-              opticalSize={16}
-              className={`${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
-            />
+            <span className={`chat-status-mark chat-status-mark--${status}`}>
+              {status !== 'unread' && (
+                <MaterialSymbol
+                  name={status === 'needs-input' ? 'flag' : 'progress_activity'}
+                  family="luminous"
+                  size={16}
+                  weight={330}
+                  roundness={100}
+                  opticalSize={16}
+                />
+              )}
+            </span>
           </span>
         )}
-        <button
-          onClick={(e) => onMenuClick(e, chatId)}
-          aria-label={`More options for ${displayName}`}
-          className={`sidebar-row-menu-btn relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 ${
-            isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'
-          } before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08] ${
-            isMenuOpen || startedInCode
-              ? 'visible'
-              : 'invisible group-hover/item:visible'
-          }`}
-        >
-          {startedInCode && !isMenuOpen && (
+        <div className="relative flex h-6 w-6 max-[960px]:h-9 max-[960px]:w-9 shrink-0 items-center justify-center">
+          {/*
+           * Gemini's pinned marker, measured off its own Recents row: `push_pin`
+           * in Luminous Symbols, 16px glyph, `"FILL" 0, "GRAD" 0, "ROND" 100,
+           * "opsz" 16, "wght" 330`, in `rgb(230,230,230)` — the row's own text
+           * colour, not an accent. It sits in the exact same 24x24 trailing box
+           * flush with the row's right padding as the three-dots menu button.
+           *
+           * The pin and the three-dot menu share one trailing slot: the pin is
+           * the resting state and the menu replaces it, so the row never shows
+           * both and the icon does not shift between states.
+           */}
+          {isPinned && !status && (
             <span
-              title="Started in Code mode"
-              className="absolute inset-0 z-10 flex items-center justify-center rounded-full bg-white/10 transition-opacity group-hover/item:pointer-events-none group-hover/item:opacity-0"
+              className={`sidebar-row-pin-icon absolute inset-0 flex items-center justify-center pointer-events-none ${
+                isMenuOpen || startedInCode ? 'hidden' : 'group-hover/item:hidden'
+              }`}
             >
-              <Terminal size={14} strokeWidth={2} aria-hidden="true" />
+              <MaterialSymbol
+                name="push_pin"
+                family="luminous"
+                size={16}
+                weight={330}
+                roundness={100}
+                opticalSize={16}
+                className={`${isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}`}
+              />
             </span>
           )}
-          <MaterialSymbol
-            name="more_vert"
-            family="luminous"
-            size={20}
-            weight={320}
-            roundness={100}
-            opticalSize={20}
-            className={`relative ${
-              startedInCode && !isMenuOpen ? 'opacity-0 transition-opacity group-hover/item:opacity-100' : ''
+          <button
+            onClick={(e) => onMenuClick(e, chatId)}
+            aria-label={`More options for ${displayName}`}
+            className={`sidebar-row-menu-btn relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 ${
+              isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'
+            } before:absolute before:inset-0 before:rounded-full before:bg-[rgb(196,199,197)] before:opacity-0 before:content-[''] hover:before:opacity-[0.08] ${
+              isMenuOpen || startedInCode
+                ? 'visible'
+                : 'invisible group-hover/item:visible'
             }`}
-          />
-        </button>
-      </div>
+          >
+            {startedInCode && !isMenuOpen && (
+              <span
+                title="Started in Code mode"
+                className="absolute inset-0 z-10 flex items-center justify-center rounded-full bg-white/10 transition-opacity group-hover/item:pointer-events-none group-hover/item:opacity-0"
+              >
+                <Terminal size={14} strokeWidth={2} aria-hidden="true" />
+              </span>
+            )}
+            <MaterialSymbol
+              name="more_vert"
+              family="luminous"
+              size={20}
+              weight={320}
+              roundness={100}
+              opticalSize={20}
+              className={`relative ${
+                startedInCode && !isMenuOpen ? 'opacity-0 transition-opacity group-hover/item:opacity-100' : ''
+              }`}
+            />
+          </button>
+        </div>
+      </>
     }
   />
   );

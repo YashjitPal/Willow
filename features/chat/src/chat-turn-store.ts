@@ -87,14 +87,20 @@ export interface ChatTurnRecord {
   research?: ResearchRecord;
   /** Scheduled actions and skills this turn saved, replaced whole on every change, as `media` is. */
   created?: ChatCreatedItem[];
-  /** The connected app whose tool is running now: the thinking row's "Connecting to <app>". */
-  connectingApp?: ConnectorId;
+  /**
+   * The connected app whose tool is running now: the thinking row's "Connecting to <app>". A
+   * connector's id, or `mcp:<server>` for an MCP app (`chatApp` reads both).
+   */
+  connectingApp?: ConnectorId | `mcp:${string}`;
 
   // ── thinking row (was thinkTimer / thinkStart / thinkSecondsRef) ────────────
   phase: StreamPhase;
   isThinking: boolean;
   thinkStartedAt: number;
   thinkSeconds: number;
+  /** True once provider connection is established or the first token/chunk arrived. */
+  isConnected?: boolean;
+  connectedAt?: number;
 
   // ── lifecycle ──────────────────────────────────────────────────────────────
   abort: AbortController;

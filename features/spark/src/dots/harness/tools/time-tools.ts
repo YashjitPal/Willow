@@ -59,7 +59,7 @@ export const sleepTool = (env: DotToolEnv): DotToolEntry => ({
         upNext: upNext ?? runtime.upNext,
       }));
       context.stopTurn('sleeping');
-      return ok(`Sleeping until ${formatStamp(wakeAt, env.timeZone)} (${env.timeZone}). You will wake then, or sooner if the user writes, delegated work changes or a trigger fires.`);
+      return ok(`Sleeping until ${formatStamp(wakeAt, env.timeZone)} (${env.timeZone}). You will wake then, and sooner if the user writes or reacts, delegated work changes or a trigger fires.`);
     },
   },
 });

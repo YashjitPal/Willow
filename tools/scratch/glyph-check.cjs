@@ -1,10 +1,11 @@
 /**
  * Which icon faces Willow loads draw a ligature: one em square when they do, the name's own
  * letters when they don't. Usage: node glyph-check.cjs schedule_auto,info,more_vert
+ * (WILLOW_URL=http://localhost:3101 to read the test origin's copy).
  */
 const puppeteer = require('puppeteer-core');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.WILLOW_URL || 'http://localhost:3000';
 const NAMES = (process.argv[2] || 'schedule_auto,info,more_vert,edit,delete').split(',');
 const FACES = ['Google Symbols', 'Material Symbols Rounded', 'Luminous Symbols'];
 

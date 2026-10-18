@@ -206,11 +206,11 @@ test('Memory keeps its pill labels on one line and lists a row\'s actions in a b
   assert.match(list, /showsDropdown=\{!isCompact\}/);
 });
 
-test('Search starts under the top bar too, so its field never sits under the menu button', () => {
-  const css = settingsCss('shell', 'SearchChats.css');
-  const narrow = mediaBodies(css, NARROW);
-  assert.match(narrow, /\.willow-search-page \{[^}]*margin-top: 68px;[^}]*padding-top: 12px;/);
-  assert.match(withoutMedia(css), /\.willow-search-page \{[^}]*padding-top: 100px;/);
+test('Search is a floating card, and the whole screen below 960px, never a page under the top bar', () => {
+  const css = settingsCss('shell', 'search', 'search-panel.css');
+  const narrow = mediaBodies(css, '(max-width: 959.98px)');
+  assert.match(narrow, /\.willow-search-panel \{[^}]*max-width: 100%;[^}]*height: 100%;[^}]*padding: 16px 8px 0;[^}]*border-radius: 0;/);
+  assert.match(withoutMedia(css), /\.willow-search-panel \{[^}]*max-width: 660px;[^}]*height: min\(85vh, 760px\);[^}]*border-radius: 40px;/);
 });
 
 test('the settings modal becomes a two-level full-screen settings screen below 961px', () => {

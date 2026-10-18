@@ -1356,7 +1356,35 @@ const streamChatImpl: any = async (
   }
   throwIfAborted(signal);
 
-  onStart();
+  let hasNotifiedStart = false;
+  const notifyStart = () => {
+    if (!hasNotifiedStart) {
+      hasNotifiedStart = true;
+      onStart?.();
+    }
+  };
+
+  const rawOnToken = onToken;
+  onToken = (token: string) => {
+    notifyStart();
+    rawOnToken(token);
+  };
+
+  const rawOnThought = onThought;
+  if (rawOnThought) {
+    onThought = (thought: string) => {
+      notifyStart();
+      rawOnThought(thought);
+    };
+  }
+
+  const rawOnPhase = onPhase;
+  if (rawOnPhase) {
+    onPhase = (phase: StreamPhase) => {
+      if (phase !== 'thinking') notifyStart();
+      rawOnPhase(phase);
+    };
+  }
 
   if (usesGeminiAdapter) {
     const genAI = getGeminiClient(apiKey);
@@ -1575,6 +1603,7 @@ const streamChatImpl: any = async (
       }
       // Direct streaming generation with manual history payload (guarantees cryptographic thought_signature retention)
       const result: any = await runStreamCall(geminiModel as any, historyContents as any, signal);
+      notifyStart();
       
       let currentPhase: StreamPhase = 'thinking';
       let hasEmittedText = false;
@@ -2125,6 +2154,7 @@ const streamChatImpl: any = async (
             openaiSearchEnabled,
             signal,
           );
+          notifyStart();
 
           const startedAt = Date.now();
           const maxWaitMs = 10 * 60 * 1000;
@@ -2166,6 +2196,7 @@ const streamChatImpl: any = async (
             openaiSearchEnabled,
             signal,
           );
+          notifyStart();
 
           let hasEmittedResponseText = false;
           /* Every event this loop does not recognise is dropped on the floor, so a
@@ -2370,6 +2401,7 @@ const streamChatImpl: any = async (
           }
         };
         const stream = await openChatStream();
+        notifyStart();
 
         let hasEmittedText = false;
         let hasEmittedThought = false;
@@ -2677,6 +2709,7 @@ const streamChatImpl: any = async (
 
     for (let round = 0; ; round += 1) {
       const stream = await openAnthropicStream();
+      notifyStart();
 
       /*
        * This round's assistant turn, rebuilt block by block as it streams.

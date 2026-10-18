@@ -506,3 +506,29 @@ it('writes down what the browser cannot do, and where', () => {
     assert.match(source, /enabled: false/, `${where} must add a server switched off`);
   }
 });
+
+it('reads an event stream whose lines end in CRLF, however it is cut', async () => {
+  // DeepWiki answers `initialize` like this; split only on `\n\n`, no event was ever seen and the handshake timed out.
+  const event = 'event: message\r\ndata: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"DeepWiki"}}}\r\n\r\n';
+  // The first chunk ends on the CR of the blank line's CRLF, which the next chunk completes.
+  const cut = event.indexOf('\r\n\r\n') + 3;
+  const encoder = new TextEncoder();
+  const transport = httpTransport.createHttpTransport({
+    url: 'https://example.com/mcp',
+    fetchImpl: async (_url, init) => {
+      if (JSON.parse(init.body).method !== 'initialize') return new Response(null, { status: 202 });
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(event.slice(0, cut)));
+          controller.enqueue(encoder.encode(event.slice(cut)));
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    },
+  });
+
+  const connected = await McpClient.connect('deepwiki', transport);
+  assert.equal(connected.serverInfo?.name, 'DeepWiki');
+  await connected.close();
+});

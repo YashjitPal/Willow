@@ -386,8 +386,8 @@ const sendToJobTool = (env: DotComputerEnv): DotToolEntry => ({
 const computerFilesTool = (env: DotComputerEnv): DotToolEntry => ({
   doc: {
     name: 'user_files',
-    args: '{"action": "list" | "read" | "search", "path": ".", "query": "…", "depth": 1, "offset": 0}',
-    description: `Look at files on the user's computer, ${reach(env).where}, without asking: list a folder ("depth" up to 4), read a text file (a long one continues from "offset"), or search file names and contents under "path" for "query". "path" is ${reach(env).paths}. It never changes anything. Files that hold keys, credentials or environment secrets are off limits here.`,
+    args: '{"action": "list" | "read" | "search", "path": ".", "query": "…", "depth": 1, "offset": 0, "sort": "newest"}',
+    description: `Look at files on the user's computer, ${reach(env).where}, without asking: list a folder ("depth" up to 4; each file with its size and when it last changed; "sort": "newest" lists only its files, most recently changed first), read a text file (a long one continues from "offset"), or search file names and contents under "path" for "query". "path" is ${reach(env).paths}. It never changes anything. Files that hold keys, credentials or environment secrets are off limits here.`,
   },
   handler: {
     id: 'user_files',
@@ -404,10 +404,16 @@ const computerFilesTool = (env: DotComputerEnv): DotToolEntry => ({
           const depth = Math.max(1, Math.min(4, Math.round(Number(args.depth ?? 1)) || 1));
           const listing = await bridge.listFiles(root, path, depth);
           if (listing.entries.length === 0) return ok(`${show(path)} is empty.`);
-          const lines = listing.entries.map((entry) => entry.type === 'dir'
+          const newest = (stringArg(args, 'sort') ?? '').toLowerCase() === 'newest';
+          const entries = newest
+            ? listing.entries.filter((entry) => entry.type === 'file').sort((a, b) => (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0))
+            : listing.entries;
+          const changed = (at?: number) => (at ? `, changed ${new Intl.DateTimeFormat('en-GB', { timeZone: env.timeZone, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(at)}` : '');
+          const lines = entries.map((entry) => entry.type === 'dir'
             ? `${show(entry.path)}/${entry.skipped ? ' (not opened: dependencies or build output)' : ''}`
-            : `${show(entry.path)} — ${size(entry.size)}${isSecretPath(entry.path) ? ' (off limits)' : ''}`);
-          return ok(clip(`${show(path)}:\n${lines.join('\n')}${listing.truncated ? '\n[More entries not shown: list a subfolder.]' : ''}`));
+            : `${show(entry.path)} — ${size(entry.size)}${changed(entry.modifiedAt)}${isSecretPath(entry.path) ? ' (off limits)' : ''}`);
+          const heading = newest ? `${show(path)}, its files newest first:` : `${show(path)}:`;
+          return ok(clip(`${heading}\n${lines.join('\n')}${listing.truncated ? '\n[More entries not shown: list a subfolder.]' : ''}`));
         }
         if (action === 'read') {
           if (path === '.') return fail('Give the "path" of a file to read.');

@@ -74,9 +74,10 @@ every value in the CSS was read off gemini.google.com with `getComputedStyle`.
 Gemini's authored tooltip CSS is unreachable (4459 rules across 75 sheets, none
 matching `/tooltip/`; one gstatic sheet is CORS-blocked), so the computed
 cascade is the only ground truth and the stylesheet is that cascade written
-back out. **Do not "clean up" the values.** `letter-spacing: 0.096px`,
-`min-width: 40px`, `box-sizing: content-box` on the wrapper and
-`max-height: 40vh` (measured 330.24px against an 825.6px viewport) are all real.
+back out. **Do not "clean up" the values.** `min-width: 40px`,
+`box-sizing: content-box` on the wrapper and `max-height: 40vh` (measured 330.24px
+against an 825.6px viewport) are all real. The text is Gemini's `gds-body-s`, which is
+now 13px/17px with no tracking, so a one-line tooltip is 33px tall.
 
 ```tsx
 <Tooltip content="Open sidebar" position="right">
@@ -126,6 +127,12 @@ measured against Gemini's own rail (pane `left` == anchor `right`, gap 8,
 vertical centres equal).
 
 `apps/studio/test/tooltip-triggers.test.mjs` pins both directions.
+
+`data-tooltip-variant="island"` on a trigger draws the tooltip of Gemini's React islands
+(the "Search chats" buttons) instead of Material's. It is #e3e3e3 and sits 6.4px from the
+trigger, not 8. Its 13px/17px text sits in the line box of a 16px box in the browser's
+default font, since Gemini's page sets none, so one line is 34.6px tall. Its position is
+rounded to whole device pixels, as Base UI rounds it.
 
 `TooltipOverlay`, the floating half both share, is exported for a caller that
 decides on its own when its tooltip shows — the desktop app's rail, which hides it

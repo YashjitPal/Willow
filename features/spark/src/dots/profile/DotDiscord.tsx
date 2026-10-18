@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { DiscordLogo } from '../dot-icons';
 import { discordLookBusy, setDiscordLookOn } from '../discord-look';
-import { connectDotDiscord, disconnectDotDiscord, dotComputerReachable, refreshDotDiscord, stopDotPostingWithoutAsking } from '../harness/dot-runtime';
+import { connectDotDiscord, disconnectDotDiscord, dotComputerReachable, refreshDotDiscord, setDotDiscordStatusOn, stopDotPostingWithoutAsking } from '../harness/dot-runtime';
 import {
   DISCORD_PORTAL,
   describeDiscordLook,
@@ -233,10 +233,18 @@ function DiscordAccount({ dotId, name, thread }: { dotId: string; name: string; 
           <M3Switch selected={!link.look?.off} label={`Give ${link.botName} ${name}’s picture, banner and name on Discord`} onToggle={(on) => setDiscordLookOn(dotId, on)} />
         </div>
         <div className="dot-panel__row">
-          <MaterialSymbol name="sync" {...ICON} className="dot-panel__row-icon" />
+          <MaterialSymbol name="pending" {...ICON} className="dot-panel__row-icon" />
           <span className="dot-panel__row-copy">
-            <span className="dot-panel__row-title">Its DM mirrors this chat</span>
-            <span className="dot-panel__row-sub">What you write here shows there as a quote, and its replies go to both</span>
+            <span className="dot-panel__row-title">Status shows what it’s doing</span>
+            <span className="dot-panel__row-sub">Like “Thinking” or “Using a computer”, never what about: everyone in its servers sees it</span>
+          </span>
+          <M3Switch selected={!link.statusOff} label={`Show what ${name} is doing as ${link.botName}’s Discord status`} onToggle={(on) => setDotDiscordStatusOn(dotId, on)} />
+        </div>
+        <div className="dot-panel__row">
+          <MaterialSymbol name="forum" {...ICON} className="dot-panel__row-icon" />
+          <span className="dot-panel__row-copy">
+            <span className="dot-panel__row-title">Discord shows here too</span>
+            <span className="dot-panel__row-sub">What you write it there, and its replies, show in this chat; what you write here stays here</span>
           </span>
         </div>
         <div className="dot-panel__row">

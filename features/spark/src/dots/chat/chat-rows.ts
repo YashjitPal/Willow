@@ -27,6 +27,8 @@ export interface MessageRow {
 
 /** Calls that see or use the user's screen. */
 const SCREEN_TOOLS = new Set(['user_screenshot', 'user_zoom', 'user_apps', 'user_elements', 'user_element', 'user_focus_window', 'user_open_app']);
+/** How long after its last look or action a turn's use of the screen still shows as under way: about one step's thinking. */
+export const SCREEN_IN_USE_MS = 60_000;
 export const isScreenCall = (tool: string | undefined): boolean => Boolean(tool && (SCREEN_TOOLS.has(tool) || tool.startsWith('user_desktop_')));
 
 /**
@@ -46,15 +48,19 @@ export type ChatRow = { type: 'day'; key: string; label: string } | { type: 'car
 /**
  * The message a read receipt hangs under, if any: the user's latest, once the model has had it in hand (`readThrough`,
  * the last seq a request that has begun carried), and on through the bot thinking, working and typing — as a messenger
- * shows "Seen" above the other side's typing — until the bot's answer is written.
+ * shows "Seen" above the other side's typing — until the bot's answer is written: a message written with it in view
+ * (`saw`). A follow-up sent while the bot was already writing stands above what it was writing, which is no answer to it.
  */
 export const seenRow = (rows: ChatRow[], readThrough: number): MessageRow | null => {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
+  let latest: MessageRow | null = null;
+  for (let index = rows.length - 1; index >= 0 && !latest; index -= 1) {
     const row = rows[index]!;
-    if (row.type !== 'message' || (row.from === 'dot' && row.item.streaming)) continue;
-    return row.from === 'user' && readThrough >= row.item.seq ? row : null;
+    if (row.type === 'message' && row.from === 'user') latest = row;
   }
-  return null;
+  if (!latest || readThrough < latest.item.seq) return null;
+  const { seq } = latest.item;
+  const answered = rows.some((row) => row.type === 'message' && row.from === 'dot' && !row.item.streaming && row.item.seq > seq && (row.item.saw ?? row.item.seq) >= seq);
+  return answered ? null : latest;
 };
 
 const isMessage = (item: DotItem) => (item.kind === 'user' || item.kind === 'dot') && Boolean(item.text.trim() || item.streaming || item.attachments?.length);
@@ -104,32 +110,55 @@ export const chatRows = (
   const answered = new Set(thread.items.filter((item) => item.kind === 'result' && item.callId).map((item) => item.callId));
   const marked = new Set<string>();
 
-  // Where the screen was used, a turn at a time: the first call that saw or used it while a go-ahead held.
+  // Where the screen was used, a turn at a time: the first call that saw or used it while a go-ahead held. A call's
+  // tool settles its go-ahead as it runs — ending one that had lapsed, asking for one, being given one at once — so it
+  // counts under the go-ahead in force when its result came back (or now, while it runs); failing that, under the one
+  // it began under, unless that had lapsed: a Stop part way through still leaves it used.
   const screenUse = new Map<string, { turnId: string; request: string }>();
   const allowedRequests = new Set<string>();
   const usedRequests = new Set<string>();
   let grant: string | null = null;
   const usedTurns = new Set<string>();
+  const running = new Map<string, { call: DotItem; began: string | null; lapsed: boolean }>();
+  // When each turn last had the screen in hand: a call of its still under way, or the latest that went through. A call
+  // the screen turned away — the user at the keyboard, Willow in front — did nothing there, and is no use of it.
+  const inHandAt = new Map<string, number>();
+  const useUnder = (run: { call: DotItem; began: string | null; lapsed: boolean }, result?: DotItem) => {
+    const turnId = run.call.turnId;
+    if (!turnId || result?.failed) return;
+    const request = grant ?? (run.lapsed ? null : run.began);
+    if (!request) return;
+    inHandAt.set(turnId, result ? Math.max(inHandAt.get(turnId) ?? 0, result.at) : Infinity);
+    if (usedTurns.has(turnId)) return;
+    usedTurns.add(turnId);
+    screenUse.set(run.call.id, { turnId, request });
+    usedRequests.add(request);
+  };
   for (const item of thread.items) {
     if (item.kind === 'event' && item.event === 'screen' && item.ref) {
       if (item.screenStep === 'allowed') {
         grant = item.ref;
         allowedRequests.add(item.ref);
       } else if ((item.screenStep === 'stopped' || item.screenStep === 'ended') && grant === item.ref) {
+        if (item.screenStep === 'ended') for (const run of running.values()) if (run.began === item.ref) run.lapsed = true;
         grant = null;
       }
-    } else if (item.kind === 'call' && grant && item.turnId && isScreenCall(item.tool) && !usedTurns.has(item.turnId)) {
-      usedTurns.add(item.turnId);
-      screenUse.set(item.id, { turnId: item.turnId, request: grant });
-      usedRequests.add(grant);
+    } else if (item.kind === 'call' && item.turnId && isScreenCall(item.tool)) {
+      running.set(item.id, { call: item, began: grant, lapsed: false });
+    } else if (item.kind === 'result' && item.callId && running.has(item.callId)) {
+      useUnder(running.get(item.callId)!, item);
+      running.delete(item.callId);
     }
   }
+  for (const run of running.values()) useUnder(run);
   const grantHolds = (request: string) => Boolean(thread.runtime) && activeScreen(thread as DotThread, now)?.itemId === request;
+  // In use while the turn under way has the screen in hand, or had it a moment ago, between one step and the next.
+  const inUse = (turnId: string) => turnId === liveTurn && now - (inHandAt.get(turnId) ?? 0) < SCREEN_IN_USE_MS;
 
   /** The mark an item about the screen leaves: undefined when it is not one, null when it leaves none. */
   const screenRow = (item: DotItem): MarkRow | null | undefined => {
     const use = item.kind === 'call' ? screenUse.get(item.id) : undefined;
-    if (use) return { type: 'screen', key: `screen-use-${item.id}`, item, mark: use.turnId === liveTurn && grantHolds(use.request) ? 'using' : 'used' };
+    if (use) return { type: 'screen', key: `screen-use-${item.id}`, item, mark: inUse(use.turnId) && grantHolds(use.request) ? 'using' : 'used' };
     if (item.kind === 'event' && item.event === 'screen' && item.screenStep === 'stopped') return { type: 'screen', key: `screen-stop-${item.id}`, item, mark: 'stopped' };
     if (item.kind !== 'screen' || !thread.runtime) return undefined;
     const state = screenState(thread as DotThread, item, now);

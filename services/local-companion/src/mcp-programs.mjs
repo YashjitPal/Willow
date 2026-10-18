@@ -3,20 +3,23 @@
  * named starts with no shell between (a Windows `.cmd` launcher such as `npx` goes through cmd.exe with every argument
  * quoted, as cross-spawn does it), and speaks JSON-RPC one message per line on its input and output.
  *
- * - `mcp.start { id, command, args?, env?, cwd? }` → `{ id, pid }`: starts it, ending one already under that id.
+ * - `mcp.start { id, command, args?, env?, cwd?, bundled? }` → `{ id, pid }`: starts it, ending one already under
+ *   that id.
  * - `mcp.send { id, message }`: one message to its input.
  * - `mcp.stop { id }`: closes its input, then ends it and everything it started.
  * Its messages go to the window that started it as `mcp.message { id, message }`, and its end as
  * `mcp.exit { id, code, signal, stderr }` with the last of what it printed there. A window that goes away takes its
  * programs with it.
  *
- * What runs is what the user typed when they added the server; nothing here decides. The companion's own settings —
- * its pairing token — stay out of the program's environment.
+ * What runs is what the user typed when they added the server; nothing here decides. The exception is `bundled`, one
+ * of the programs Willow ships (`BUNDLED_PROGRAMS`), which runs from the companion's own copy whatever command came
+ * with it. The companion's own settings — its pairing token — stay out of the program's environment.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const MAX_PROGRAMS = 32;
 const MAX_LINE_BYTES = 32 * 1024 * 1024;
@@ -40,6 +43,25 @@ const COMES_WITH = {
   py: 'Python (python.org)',
   pipx: 'pipx (pipx.pypa.io)',
   docker: 'Docker Desktop (docker.com)',
+};
+
+/**
+ * The programs Willow ships, by the name a server is saved with: the file, beside this one, and what runs it. Chat
+ * reaches these and no other program, which holds because a server saved as one can only ever run this.
+ */
+export const BUNDLED_PROGRAMS = {
+  // Reads X with the user's session; its dependencies come pinned in the script, and uv fetches them.
+  'x-reader': { file: 'mcp-servers/x-reader.py', command: 'uv', args: (file) => ['run', '--quiet', '--script', file] },
+};
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+/** How a program Willow ships starts, from the companion's own copy; null for a name it does not ship. */
+export const bundledProgram = (name, dir = HERE) => {
+  const program = Object.hasOwn(BUNDLED_PROGRAMS, name) ? BUNDLED_PROGRAMS[name] : null;
+  if (!program) return null;
+  const file = path.join(dir, program.file);
+  return { file, command: program.command, args: program.args(file) };
 };
 
 const isFile = (file) => {
@@ -184,9 +206,12 @@ export function createMcpPrograms({ send, log = () => {}, platform = process.pla
   async function begin(session, payload) {
     const id = String(payload.id || '');
     if (!/^[\w.:-]{1,200}$/.test(id)) throw new Error('A program needs an id.');
-    const command = String(payload.command || '').trim();
+    const own = payload.bundled ? bundledProgram(String(payload.bundled)) : null;
+    if (payload.bundled && !own) throw new Error(`This version of Willow has no program called ${payload.bundled}.`);
+    if (own && !isFile(own.file)) throw new Error(`Willow's copy of ${payload.bundled} is missing from ${path.dirname(own.file)}. Reinstall Willow to put it back.`);
+    const command = own ? own.command : String(payload.command || '').trim();
     if (!command) throw new Error('Enter the command that starts the server.');
-    const args = Array.isArray(payload.args) ? payload.args.map(String) : [];
+    const args = own ? own.args : Array.isArray(payload.args) ? payload.args.map(String) : [];
     if (args.length > 500 || [command, ...args].join(' ').length > 32_000) throw new Error('The command is too long.');
     const key = keyOf(session, id);
     if (programs.has(key)) end(programs.get(key));

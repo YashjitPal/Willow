@@ -188,6 +188,8 @@ export const PlusDropdownMenu: React.FC<{
   sparkToolsEnabled?: boolean;
   onAddFromDrive?: () => void;
   onAddPhotos?: () => void;
+  onImportChats?: () => void;
+  onAddChats?: () => void;
   onAddAvatar?: () => void;
   onAddNotebook?: () => void;
   personalIntelligence?: boolean;
@@ -202,6 +204,8 @@ export const PlusDropdownMenu: React.FC<{
   selectedTool,
   onAddFromDrive,
   onAddPhotos,
+  onImportChats,
+  onAddChats,
   onAddAvatar,
   onAddNotebook,
   personalIntelligence = false,
@@ -209,6 +213,7 @@ export const PlusDropdownMenu: React.FC<{
   sparkMode = false,
   sparkToolsEnabled = false,
 }) => {
+  const handleChats = onImportChats ?? onAddChats ?? onAddAvatar;
   const [openSub, setOpenSub] = useState<null | 'uploads' | 'tools'>(null);
   const [subTop, setSubTop] = useState(0);
   const [side, setSide] = useState<'bottom' | 'top'>('bottom');
@@ -449,7 +454,7 @@ export const PlusDropdownMenu: React.FC<{
             ) : (
               <>
                 <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
-                <Row glyph="likeness_lumi_icon" label="Avatar" onClick={act(onAddAvatar)} />
+                <Row glyph="forum" family="google-symbols" label="Chats" onClick={act(handleChats)} />
                 <Row glyph="code" label="Import code" onClick={act(onImportCode)} />
                 <Row glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />
               </>

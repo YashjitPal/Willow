@@ -250,7 +250,7 @@ describe('the upload rows', () => {
       ['Upload files', 'attach_file'],
       ['Add from Drive', 'drive'],
       ['Photos', 'photos'],
-      ['Avatar', 'likeness_lumi_icon'],
+      ['Chats', 'forum'],
       ['Import code', 'code'],
       ['Notebooks', 'notebook'],
     ]) {
@@ -261,7 +261,7 @@ describe('the upload rows', () => {
 
   it('does not gate any of them behind a handler', () => {
     const s = codeOnly(MENU());
-    for (const gate of ['{onAddPhotos &&', '{onAddAvatar &&', '{onImportCode &&',
+    for (const gate of ['{onAddPhotos &&', '{handleChats &&', '{onImportCode &&',
                         '{onAddNotebook &&', '{onAddFromDrive && (']) {
       assert.ok(!s.includes(gate), `${gate} hides a row Gemini always shows`);
     }

@@ -37,6 +37,8 @@ import type { SparkSubAgentCall } from './spark-types';
 import { useSparkDictation } from './useSparkDictation';
 import { useSparkNow } from './useSparkNow';
 import { useCompactViewport } from '@willow/chat/use-compact-viewport';
+import { ScrollToBottomFab } from '@willow/chat/ScrollToBottomFab';
+import { useScrollToBottom } from '@willow/chat/scroll-to-bottom';
 import './SparkTaskDetail.css';
 import { SYMBOL_PROPS, SparkAttachmentPills } from './spark-composer-chips';
 import workingAnimationTemplate from './gemini-working-animation/template.svg?raw';
@@ -109,6 +111,26 @@ const measureAnchorReserve = (scroller: HTMLDivElement, turnId: string): number 
     0,
     scroller.clientHeight - composerInset - SPARK_ANCHOR_OFFSET - row.offsetHeight,
   );
+};
+
+/**
+ * Where the newest turn's content ends, in viewport px: its children's edge, not the turn's,
+ * whose `min-height` may be holding the anchored reply's area open below it. Children out of
+ * the flow are not content (the screen-reader announcement is placed away from the thread).
+ */
+const newestTurnContentBottom = (scroller: HTMLElement | null): number | null => {
+  if (!scroller) return null;
+  const turns = scroller.querySelectorAll<HTMLElement>('.spark-task-detail__conversation > article');
+  const newest = turns[turns.length - 1];
+  if (!newest) return null;
+  let bottom: number | null = null;
+  for (const child of Array.from(newest.children)) {
+    const { position } = getComputedStyle(child);
+    if (position === 'absolute' || position === 'fixed') continue;
+    const rect = child.getBoundingClientRect();
+    if (rect.height > 0) bottom = Math.max(bottom ?? rect.bottom, rect.bottom);
+  }
+  return bottom ?? newest.previousElementSibling?.getBoundingClientRect().bottom ?? null;
 };
 
 /** cubic-bezier solver, so the glide below can share Material's emphasised curve. */
@@ -2804,6 +2826,23 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
     && ['complete', 'failed', 'cancelled'].includes(taskStatus(currentTask))
     && responseActionsReady(rootRevealKey, response)
   );
+  /*
+   * Gemini's "Scroll to bottom" arrow, which its Spark tasks share with its chats. The view
+   * ends at the composer, which overlays the scroller's bottom (its `paddingBottom`).
+   */
+  const newestRevealKey = lastTurn ? lastTurn.id : rootRevealKey;
+  const newestResponse = lastTurn ? lastTurn.response || '' : response;
+  const backToBottom = useScrollToBottom({
+    scrollerRef: conversationRef,
+    contentBottom: () => newestTurnContentBottom(conversationRef.current),
+    bottomInset: () => {
+      const scroller = conversationRef.current;
+      return scroller ? parseFloat(getComputedStyle(scroller).paddingBottom) || 0 : 0;
+    },
+    empty: false,
+    replying: isTaskActive(currentTask)
+      || (Boolean(newestResponse) && !responseActionsReady(newestRevealKey, newestResponse)),
+  });
   const generatedFiles = Array.from(new Map([
     ...(currentTask.generatedFiles ?? []),
     ...(currentTask.turns ?? []).flatMap((turn) => turn.generatedFiles ?? []),
@@ -3735,6 +3774,7 @@ export const SparkTaskDetail: React.FC<SparkTaskDetailProps> = ({
 
           <div ref={followUpZoneRef} className="spark-task-detail__followup-zone">
             <div className="spark-task-detail__followup-composer">
+              <ScrollToBottomFab visible={backToBottom.visible} onClick={backToBottom.scrollToBottom} />
               {/*
                 * A pending `request_user_input` takes the composer's place.
                 *

@@ -310,7 +310,7 @@ export const runDotTurn = async (options: DotTurnOptions): Promise<DotTurnResult
           if (!message.itemId) {
             if (!message.text.trim()) return;
             message.text = message.text.replace(/^\s+/, '');
-            const item = appendDotItem(dotId, { kind: 'dot', text: message.text, turnId, streaming: true });
+            const item = appendDotItem(dotId, { kind: 'dot', text: message.text, turnId, streaming: true, saw: seenUpTo });
             message.itemId = item.id;
             onEvent({ type: 'message-start', itemId: item.id });
             onEvent({ type: 'activity', label: null });
@@ -438,7 +438,11 @@ export const runDotTurn = async (options: DotTurnOptions): Promise<DotTurnResult
           stopTurn: () => {
             sleeping = true;
           },
-          activity: (label) => onEvent({ type: 'activity', label }),
+          activity: (label) => onEvent({ type: 'activity', label, tool: call.name }),
+          delivered: (itemId) => {
+            messagesSent += 1;
+            onEvent({ type: 'message-end', itemId });
+          },
         };
         try {
           const result = await handler.run(call.args, toolContext);
@@ -477,7 +481,7 @@ export const runDotTurn = async (options: DotTurnOptions): Promise<DotTurnResult
             continue;
           }
           onEvent({ type: 'call-start', itemId: item.id, tool: call.name });
-          onEvent({ type: 'activity', label: TOOL_LABELS[call.name] ?? `Using ${call.name.replace(/^(app|mcp):/, '')}` });
+          onEvent({ type: 'activity', label: TOOL_LABELS[call.name] ?? `Using ${call.name.replace(/^(app|mcp):/, '')}`, tool: call.name });
           started.push({ call, itemId: item.id, repeats });
         }
 

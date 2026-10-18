@@ -218,8 +218,9 @@ it('brings the Recents heading in with the chats, never before them', () => {
   const source = codeOnly(SIDEBAR());
 
   // A section heading is a promise that there is a section. This gate governs
-  // the header AND the rows, so the label cannot appear over empty space.
-  const gate = source.match(/\{([^\n]*?) && \(\s*<>\s*<SectionHeader\s+title="Recents"/);
+  // the header AND the rows, so the label cannot appear over empty space. The
+  // heading names the status filter ("All", "Ready", ...), as Gemini's does.
+  const gate = source.match(/\{([^\n]*?) && \(\s*<>\s*<SectionHeader\s+title=\{chatStatusFilterLabel\(statusFilter\)\}/);
   assert.ok(gate, 'could not locate the Recents gate, or the header is no longer inside it');
   assert.match(gate[1], /isChatListHydrated/,
     'Recents no longer waits for the chat registry');

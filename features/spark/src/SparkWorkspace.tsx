@@ -204,7 +204,7 @@ const createLibraryCapability = (
       id: `created-${schedule.id}`,
       recordId: schedule.id,
       title: schedule.title,
-      frequency: schedule.frequency,
+      frequency: schedule.frequency === 'Weekly' ? 'Weekly' : 'Daily',
       weekdays: [...schedule.weekdays],
       time: schedule.time,
       instructions: schedule.instructions,
@@ -2117,14 +2117,13 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         const now = new Date();
         const currentSchedules = sparkState.get().schedules;
         for (const currentSchedule of currentSchedules) {
-          if (!currentSchedule.enabled) continue;
+          if (!currentSchedule.enabled || currentSchedule.completedAt) continue;
           const nextRunTime = currentSchedule.nextRunAt
             ? new Date(currentSchedule.nextRunAt).getTime()
             : Number.NaN;
           if (!Number.isFinite(nextRunTime)) {
-            updateSparkSchedule(currentSchedule.id, {
-              nextRunAt: getNextScheduleRunAt(currentSchedule, now),
-            });
+            const nextRunAt = getNextScheduleRunAt(currentSchedule, now);
+            updateSparkSchedule(currentSchedule.id, nextRunAt ? { nextRunAt } : { completedAt: now.toISOString() });
             continue;
           }
           if (nextRunTime > now.getTime()) continue;
@@ -2137,9 +2136,11 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
               currentSchedule,
               new Date(claimedAt.getTime() + 1000),
             );
+            // Its last run: a once-only schedule, or one whose end comes before another.
             updateSparkSchedule(currentSchedule.id, {
               lastRunLabel: 'Running...',
               nextRunAt,
+              ...(nextRunAt ? {} : { completedAt: claimedAt.toISOString() }),
             });
             // A scheduled run that needs the browser asks the same way an interactive
             // one does, and waits in "Needs input" until the user answers.
@@ -2493,7 +2494,8 @@ export const SparkWorkspace: React.FC<SparkWorkspaceProps> = ({
         isEditing={Boolean(schedule)}
         initialDraft={schedule ? {
           title: schedule.title,
-          frequency: schedule.frequency,
+          // The old editor knows only these two; the Scheduled tab edits the rest.
+          frequency: schedule.frequency === 'Weekly' ? 'Weekly' : 'Daily',
           weekdays: schedule.weekdays as SparkScheduleWeekday[],
           time: schedule.time,
           instructions: schedule.instructions,

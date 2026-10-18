@@ -16,8 +16,10 @@ behaviour that belongs to Code or Media or Agents, it goes in that feature.
 | `src/app/ShellRouteSync.tsx` | Keeps the address bar on the surface on show, and opens the surface an address names. |
 | `src/app/ShellRequestHandler.tsx` | Shows the surface a feature asked for: a Spark page, or a new chat that opens on one exchange. |
 | `src/shell/sidebar/` | Sidebar, its icons, primitives, appearance + user menus. |
-| `src/shell/SearchModal.tsx` | Global search. |
+| `src/shell/search/` | Gemini's floating "Search chats" panel and its island buttons. See *The sidebar header and Search chats*. |
+| `src/shell/SearchChats.tsx` | The chat search behind it (titles, bodies, embeddings) and the embedding indexer. |
 | `src/shell/BackgroundContext.tsx` | Which animated background is active. |
+| `src/download/` | Gemini's "Get app": the top bar's button, the phone's, and the `/app/download` page. See *Get app and the download page*. |
 | `src/settings/` | Settings modal and its eight tabs, plus the full-page settings routes. |
 | `src/settings/provider-settings.ts` | API keys and endpoints. Module scope, deliberately — see below. |
 | `scripts/lib/willow-aliases.mjs` | Reads `tsconfig.base.json` `paths`; feeds bundlers. |
@@ -78,6 +80,46 @@ conditional on the flag — that branch is what holds the Projects page on scree
 during a notebook transition, and gating it would reintroduce the dark flash the
 transition exists to prevent.
 
+`old-skills-schedules` ("Old Skills and Schedules") is the reverse case: it brings
+back retired pages rather than unfinished ones. Skills and Connected apps moved into
+Customize's tabs, so with the flag off Spark's Schedules, Skills and Connected apps
+rows and the settings menu's Scheduled actions row are hidden, the menu's Skills row
+opens Customize → Skills, and `/connected-apps` redirects to Customize → Connectors.
+Outside surfaces pick the tab with `requestCustomizeTab` (`src/customize/customize-nav.ts`)
+before changing view. Spark's `/spark/schedules`, `/spark/skills` and `/spark/apps`
+stay routable. Gemini's Scheduled tab replaced the Schedules page, so Chat's schedule card
+Edit opens `/scheduled` with that schedule's pane (`ShellRequestHandler`), and Spark's old
+editor only with the flag on. Customize →
+Connectors runs on `useConnections()` and `ConnectConsentDialog`, the same flow the
+old page used, and `src/customize/customize-connectors.ts` maps its card ids. It lists
+only cards Willow can really connect. Four have a connector of Willow's own (Google
+Workspace, YouTube, GitHub, Spotify). Fifteen name an MCP server instead, all but one
+the vendor's own (`CustomizeItem.mcp`, a preset in `@willow/spark/mcp-catalog`): Canva, Dropbox, Webflow,
+Wix, Granola, Fever, Wispr Flow and monday.com sign in from the desktop app — each lets
+Willow register itself, and most answer no web page, so a browser tab says to connect
+from the app — and Zoho CRM, Desk, Mail, Projects and Bigin take the address of a
+server the user makes in Zoho MCP, which carries its own key. X (`api.x.com/mcp`) lets
+no app register and answers no web page: in the desktop app it takes the Bearer token of
+an X developer app the user makes, which reads, or a sign-in with that app's Client ID
+(a Native App, callback `http://127.0.0.1:3334/oauth/callback`), which acts as them — a
+second form under the token's on its page. X bills every request to that app, and a
+token X turns down is replaced, not signed in again. X Reader, the card beside it, is
+Willow's own MCP server for X (`services/local-companion/src/mcp-servers/x-reader.py`), a
+program the companion runs, so it connects in the desktop app only: it reads signed in to
+the user's own X account, costs nothing and cannot post, and the page says X's rules don't
+allow it and X can limit or suspend the account. Its Connect, after the consent, opens X's
+sign-in in a browser window of the companion's own, which closes and hands back the
+session's two cookies once the user is in (`signInMcpSession`; the companion's *Signing in
+to sites*); "Paste its cookies instead" is the form with the steps to copy them by hand,
+and the only way where the companion cannot open that window. `src/customize/customize-mcp.ts` adds, signs in to and removes
+those servers, under the preset's id, so Spark → Connected
+apps and Customize show the same connection; `CustomizeMcpConnect.tsx` is the card page's
+control, drawn with the GitHub token row's classes. Gemini's other cards (Search services,
+Photos, YouTube Music, Contacts, Gemini Notebook, Google Business Profile, KBC, Verify AI)
+have neither an API Willow can reach nor a public MCP server, and are not listed rather
+than shown as dead switches. Chat reaches an MCP app on a turn that names it (see
+`features/chat/AGENTS.md`).
+
 Because the route is lazy, a user who never enables the flag never downloads the
 chunk — the experiment costs nothing to ship. Doing step 3 without step 4 would
 leave the feature's code in the initial bundle for everyone.
@@ -102,10 +144,13 @@ Gemini's where Gemini has the part, Willow's own for the rest:
 
 `src/app/shell-routes.ts` maps a surface to its address and back. `/` is the
 shell's too, and becomes the address of whatever is on show. Every other page
-keeps its own path: Gems, notebooks, the settings pages, the Media editor
+keeps its own path: Library, Scheduled (`/scheduled`, `features/spark/src/scheduled/`),
+Gems, notebooks, the settings pages, the Media editor
 (`/media`), the Code project editor (`/project1`) and Agents (`/?view=agents`).
 `<chat>` is the chat's id (its title, once it has one) with `.` escaped as well:
-the dev server reads a dot in the last segment as a file. `/code/<chat>` names
+the dev server reads a dot in the last segment as a file. `/app/download` is the
+download page, not a chat, so a chat called `download` is written `/app/%64ownload`
+(`RESERVED_CHAT_SEGMENTS`) and reads back as itself. `/code/<chat>` names
 the chat of the Code home on show until it is promoted into a project
 (`$codeScreenChats`, published by `WorkbenchSidebar`).
 
@@ -295,6 +340,11 @@ same-origin assumption both depend on that number. The plugins, all
   it keeps the page and reloads on the next change. Measure this with
   `Page.setWebLifecycleState` over CDP, and note a woken headless page stays
   `hidden` until something makes it visible, as a real click does.
+- **`appDownloads()`** — serves Willow's own apps for the download page at
+  `/download/windows`, `/download/macos`, `/download/linux` and `/download/android`:
+  the newest file in `apps/desktop`'s Tauri bundle folders (the NSIS setup before the
+  MSI) or `apps/android/dist`. A build that is not there is a 404 that names the
+  command to build it. Dev only: a static deploy has no such routes.
 - **`react()`** — standard.
 
 ## Tests
@@ -378,11 +428,17 @@ Rules:
   discarded and `editingChatId` is stranded), the row with an open menu (the menu
   renders outside the map and would float next to nothing), and the active chat
   (it would lose its highlight).
-- The window resets on `chatScopeId` and on re-expanding Recents, **never on
-  `localChats`** — a rename or a new chat would collapse a list the user had
-  scrolled open.
-- The window is `recentsLimit + pinnedChatSet.size`, because pins are all hoisted
-  ahead of the recents and would otherwise fill the whole first page.
+- The window resets on `chatScopeId`, on a new status filter and on re-expanding
+  Recents, **never on `localChats`** — a rename or a new chat would collapse a
+  list the user had scrolled open.
+- The window is `recentsLimit + visiblePinnedCount` (the pins among the rows
+  listed), because pins are all hoisted ahead of the recents and would otherwise
+  fill the whole first page.
+- The rows are `listedChats`: `sortedChats` (notebook-filtered) narrowed by the
+  status filter (`@willow/chat/chat-status`, see `features/chat/AGENTS.md`). The
+  marks are one `chatStatuses` map per render, recomputed on `chatStatusVersion`
+  and `chatTurnsVersion`, never a per-row lookup. The heading's gate stays on
+  `sortedChats`, so the funnel stays over a filter with no matches.
 - The "loading more" spinner has a deliberate `RECENTS_SPINNER_MIN_MS` floor. The
   rows are already in memory, so appending is synchronous — without the floor the
   spinner would mount and unmount inside one frame and never be seen.
@@ -708,8 +764,8 @@ measured at 390x844 and 800x1280. The desktop rules are untouched: every change 
 | `/activity` | `myactivity.google.com/product/gemini` |
 
 The pages Gemini has no counterpart for take the narrow treatment of the page they are
-drawn after, Personal Intelligence: Labs (`/labs`), Models & API (`/models-settings`),
-Memory (`/memory`) and Search chats (`/search`). The rules are the same as below:
+drawn after, Personal Intelligence: Labs (`/labs`), Models & API (`/models-settings`)
+and Memory (`/memory`). The rules are the same as below:
 
 - The page starts under the 68px bar on black and drops the 68px it held inside.
 - Headings take Gemini's narrow axes: display `"ROND" 100, "wdth" 100, "wght" 360`,
@@ -805,43 +861,55 @@ temporary-chat button and avatar. See
 
 ## Customize at 960px and below
 
-Gemini has no Customize surface to measure, so `/customize` borrows from the narrow
-pages that do. The desktop is untouched: the rules live in `(max-width: 960px)`, `740px`
-and `600px` blocks at the end of `CustomizeView.css`, and the menus switch on
-`useCompactViewport()`.
+Gemini's Customize has a narrow layout of its own, measured at 800x1280 and 390x844, and
+`/customize` follows it. Gemini changes two things at two widths, and so do the blocks at
+the end of `CustomizeView.css`:
 
-- **The top bar.** `StudioLayout` gives the `customize` view the Notebooks bar above:
-  the wordmark beside the menu button and New chat at the right, on every Customize
-  screen.
-- **The first row.** The Discover / Connectors / Skills pills, and the back row of a
-  category page, a connector's details or the skill editor, open the page at y 68 as a
-  36px row with 32px under it. That matches the space above it: the menu glyph's ink ends
-  at y 36. The row needs `flex: none`, because the category page's sits straight in the
-  scrolling flex column, which would squeeze it. Its focus rings are drawn inset, since
-  the scroller's top edge clips one drawn outside.
-- **Cards.** Nothing hovers on a touchscreen, so a card's + and ⋯ stay visible. Once
-  the grid is one column (740px), the cards fill it rather than keep their 348px.
-- **Under 600px:**
-  - Headings stack over a full-width search, with Skills' Create beside it.
-  - A connector's Use in chat and ⋯ drop under its title.
-  - Related apps go to one column.
-  - The skill editor's card pads 16px, and its instructions start at 320px.
-  - The three starter prompts become 200px cards in a row that scrolls sideways, edge
-    to edge as the Gems premade row does.
-- **Menus.** A card's ⋯ menu and the Create menu are `GeminiBottomSheet`s:
-  - The card menu stays mounted for `cardMenuExitMs(true)`, 200ms, so the sheet's 180ms
-    exit plays out.
-  - The Create menu's click-outside handler stands down. Otherwise the tap on a sheet
-    item counts as a click outside and closes the menu before the click lands.
-- **Confirmations.** Disconnect and "Leave without saving / creating" are `message`
-  dialogs, so they take the 332px mobile panel.
+- **Below 960px (`max-width: 959.98px`), Lumi's narrow tokens.** Surfaces turn #141414,
+  text #e0e0e0, menus #1c1c1c, and the logo tiles #000 ruled #141414. The search field
+  grows to 48px with a 24px glyph, and the page hangs under the shell's 68px bar. These
+  colours are the dark theme's. Each colour rule sits behind
+  `:where(:root:not(.light-theme))`, which adds no specificity, so the light sheet keeps
+  its own colours at every width. Gemini's light tokens don't change with width.
+- **At 768px and below, the layout.**
+  - The tabs scroll sideways in a 16px band, 40px tall; unselected ones are
+    on-surface-variant.
+  - The header's search, "+ Custom" and Create move to the top bar
+    (`CustomizeMobileActions`). Discover gets a lone search button; Connectors and Skills
+    get a search + "+" pill. Search opens a 48px bar from x 64. For Customize the shell
+    drops its wordmark and New chat.
+  - Category headings get a 48px row. Cards make one column with 16px corners.
+  - Every page behind a card opens with a 48px back button, 16px above and below it.
+    Above 768px it is 32px, in a 36px row with 8px over it and 12px under. These rows are
+    `flex: none`: the category page's sits straight in the scrolling flex column, which
+    would squeeze it.
+  - A connector's page (`app-details-page`) pads its column 8px a side, and its header
+    and sections give up their own 16px. Its prompts go to one column.
+- **Menus stay dropdowns at every size.** They follow Gemini's lm-menu: 36px rows padded
+  `0 8px`, body-s labels starting 32px after the 16px glyph, and panels sized by their
+  rows from 112px. On an item's own page the ⋯ menu leaves out Disconnect (`onPage`),
+  because the header already has it.
+- **A connector's page.** When connected, the header shows an accent Disconnect and ⋯,
+  and the ⋯ menu holds only Use now. When not connected, it shows Connect. Capabilities
+  come before the prompts.
+- **The skill editor.** It fills the page down to 140px above its end, and the
+  instructions box is at least 431.6px tall. Create is always pressable. The first press
+  that can't save shows Gemini's messages under each field (`skill-name.ts`), and the name
+  field rewrites what's typed into a slug.
 - **Scoping.** The detail and editor views use generic class names (`.top-nav-bar`,
-  `.app-header`, `.prompts-row`), so their narrow rules are scoped under
-  `.customize-page-root`.
+  `.app-header`, `.prompts-row`), so their narrow rules sit under `.customize-page-root`.
 
-`apps/studio/test/customize-responsive.test.mjs` pins all of this.
-`tools/scratch/customize-walk.cjs` walks every screen, sheet and dialog with touch taps
-and reports anything that scrolls sideways, sits past the edge, or overflows the screen.
+**"+ Custom".** Connectors' "Create custom app" opens Gemini's three dialogs
+(`custom-app/CustomAppDialogs.tsx`): the address, the consent, then the review. A custom
+app is a server in the one MCP store (`@willow/ai/mcp/mcp-store`), so Chat and Spark use
+its tools too. It is staged switched off while the dialogs run, and turned on by the
+review's Connect. Its id never takes a catalog preset's: `suggestMcpServerId` is given the
+preset ids. What the store has no field for (description, tools, last synced) lives under
+`willow:customize:custom-apps`. Saved apps list under "Custom apps", with Gemini's card
+menu (Use now, Disconnect, Delete), their own page, and a "Remove …?" dialog.
+
+`apps/studio/test/customize-responsive.test.mjs` and `customize-custom-app.test.mjs` pin
+this.
 
 ## Code at 960px and below
 
@@ -849,6 +917,132 @@ The Code tab's narrow layout belongs to the feature and is documented in
 [`features/code`](../../features/code/AGENTS.md#phones-and-tablets). The shell's part
 is one condition: the narrow account avatar is not drawn while `isSidebarHidden` is
 set. The Code workspace and Design set it, and their own headers own that corner.
+
+## Get app and the download page
+
+Gemini's `desktop-get-app-button`, its phone `get-app-button` and its `/app/download`
+page (`app-download-page`), measured at 1536x826, 800x1280 and 390x844. They offer
+Willow's apps rather than Gemini's.
+
+- **The desktop pill** ("Get app") shows on a new chat, temporary or not, in a Mac or
+  Windows browser above 960px. It is never shown inside Willow's desktop or Android
+  app (`showsDesktopGetApp`). It sits 24px before the temporary-chat button
+  (`top-[14px] right-[72px]`). Its JSX comes before that button's, so Tab reaches it
+  first, as in Gemini's bar. A click opens `/app/download` in place.
+- **The phone's "Try the app"** shows on a new chat and on the download page, in an
+  Android phone's browser only (user agent `Android` + `Mobile`; Willow has no iPhone
+  app). Below 480px it is an icon, from 480px a pill reading "App", and from 600px
+  "Try app". It downloads the APK in a new tab, where Gemini's opens its own app.
+- **The page** has two rows. The desktop row (`desktopOffer`) shows above 960px on a
+  Mac or a Windows PC only, as in Gemini. The phone row has a QR card above 960px and
+  the blue "Download for mobile" button at 960px and below. The pictures in
+  `assets/app-download/` are Gemini's own mockups. The QR code is drawn the way
+  Gemini's is (`styled-qr.ts`: rounded dots and finders, 37 modules, no quiet zone).
+  It encodes `<the page's origin>/download/android`, so a phone can only use it if it
+  can reach that origin (a LAN address, not `localhost`).
+- **Downloads** come from the `appDownloads()` dev plugin (see *Dev server and
+  plugins*).
+
+Deliberate differences from Gemini:
+- The wording says Willow. At 1536px the phone row's text wraps to two lines, where
+  Gemini's wraps to three, so that row's text and QR card sit 10px higher.
+- The narrow layout starts at 960px, the shell's convention. Gemini's stops at
+  959.98px, so at exactly 960px Gemini is still desktop.
+- The light theme uses the Library's light tokens, unmeasured.
+- Gemini's signed-out sidebar row "Get Gemini App" is not cloned: Willow has no
+  signed-out layout.
+
+Measuring lessons:
+- The emulator's user-agent override does not reach the page. The probes set
+  `Emulation.setUserAgentOverride` in their own session
+  (`tools/ui-research/scrapers/gemini/download/05-ua-probe.cjs` for Gemini, `w-ua.cjs`
+  for Willow).
+- A held touch shows only the ripple in both apps: Chrome applies no `:hover` or
+  `:active` during it. A "held" capture taken after a mouse phase keeps that phase's
+  hover, so compare touch states on a clean page.
+- The `:3101` test server runs with HMR off, so reload with `ignoreCache` after an edit.
+
+`apps/studio/test/app-download.test.mjs` pins the rules, the measured CSS, the
+placement and the addresses. Captures are in
+`tools/ui-research/captures/gemini/download/`.
+
+## The sidebar header and Search chats
+
+Gemini's sidebar header, its collapsed rail's search and its `SearchModalDialog`
+island, measured at 1536x826, 800x1280 and 390x844. Search is a floating panel over
+whatever is on show, not a page or a sidebar row.
+
+- **The header.** Expanded, the logo and wordmark are the New chat link
+  (`willow-sidenav-brand`). "Search chats" and "Close sidebar" sit in
+  `.willow-sidenav-header-buttons` at the top right. That group appears 250ms into an
+  expand (`show-close-button`, 50ms) and goes at once on a collapse. Collapsed, "Open
+  sidebar" shows the logo and swaps it for `side_nav_expand` on hover or keyboard focus.
+  In the drawer the close button is 48px with a 28px `close`. The drawer's search is
+  48px with a 24px glyph up to 768px wide, and 36px from 769px.
+- **The rail's search** (`.willow-rail-search`) sits under New chat while collapsed. It
+  fades in over 150ms as the rail collapses and out as it expands, with `display` held
+  until the fade ends (`transition-behavior: allow-discrete`, `@starting-style`). The
+  list under it fades with the Web Animations API.
+- **Island buttons** (`search/IslandButton.tsx`) take hover, press and keyboard focus from
+  mouse and focus events, as Gemini's Luminous library does, not from `:hover` or
+  `:active`. So a held touch shows nothing until the mouse events after it, a press
+  dragged off a button ends, and Space doesn't press. The stylesheets read
+  `data-hovered`, `data-pressed` and `data-focus-visible`. The search button, Clear,
+  Close, the sort button and the sort menu's items use them; result rows use `:hover`,
+  as Gemini's do. The search button's tooltip is the island kind
+  (`data-tooltip-variant="island"`), below it in the header and to its right on the rail.
+- **The panel** (`search/SearchPanel.tsx`) is a 660px card over a 32% backdrop, and the
+  whole screen below 960px (959.98px, Gemini's breakpoint, not the shell's 960). It opens
+  and closes in one frame. Focus starts in the field and goes back to the button that
+  opened it. That happens while the panel is still in the page, so the button shows a
+  focus ring only if the control focused in the panel did. Escape closes the sort menu
+  first, then the panel. A press that starts and ends outside the card closes it. Tab
+  stays inside. A modified or middle click on a row is left to the browser.
+- **What it lists.** With no query, recents arrive 13 at a time as the list scrolls,
+  pinned chats left out. A query runs after 200ms (270ms on phones and tablets) and shows
+  up to 20 results. Through that wait the panel keeps what it showed, Recents or the last
+  results. Then it shows the "Searching chats" skeleton while the search runs, skipped when
+  the search is done within the frame, as Gemini skips it for a cached answer. Then it shows
+  every result at once, or "No results found" (`useChatSearch`). Each has a snippet: the first message that matches, cut to 200
+  characters, a prompt in quotes, the matches at weight 540. Dates read Today, Yesterday,
+  2d, 1w, 1mo, 1y. The query is kept for the tab's session
+  (`sessionStorage['willow.search.last_query']`), as Gemini keeps it. The pure parts are
+  in `search/search-format.ts`.
+- **The sort menu** behaves as Gemini's Base UI menu. Opened with a click, it focuses
+  itself and highlights nothing. Enter, Space or ArrowDown on its button highlights the
+  first item, and ArrowUp the last. The pointer highlights the item under it. The arrows
+  wrap, letters jump, and Tab leaves for the stop after the button. The chosen order keeps
+  its fill and check whatever is highlighted. The menu sits 4px under its button, right
+  edges aligned, on whole device pixels.
+- **Colours** are the island theme's tokens: the dark set as measured, the light set as
+  Gemini's stylesheet defines it. Gemini's dark theme darkens the fill (rows under the
+  pointer, the chosen order, Clear) to #141414 at 767px and below. Layers are
+  `color-mix(in srgb, currentColor 8% / 12%, transparent)`, which is why they read as
+  `color(srgb …)` floats.
+- **Addresses.** `/search` opens the panel and replaces the address with `/app`;
+  `handleViewChange('search')` opens it too.
+
+Deliberate differences from Gemini:
+- The shell's drawer layout starts at 960px. Gemini's starts at 959.98px, so at exactly
+  960px Gemini shows the rail. The panel itself follows Gemini's breakpoint.
+- Willow's rail has the Chat/Spark switcher, so everything from New chat down sits 40px
+  lower than in Gemini.
+- Snippets and dates come from the chats on this device. Gemini's server ranks and
+  picks its snippets; Willow's dates are the chat's last update.
+- The narrow drawer's open button is labelled "Open sidebar" where Gemini's is "Main menu".
+
+Measuring lessons:
+- The machine's own cursor resting over a window is re-sent by Windows whenever the
+  cursor's shape changes. That lands a second pointer move where it rests, so a scripted
+  hover over a link or button drops at once. Park the cursor off the page (the window's
+  title bar) before capturing hover states.
+- Gemini's island states are class swaps made from JavaScript, so `CSS.forcePseudoState`
+  doesn't show them. Compare a control's class list at rest and hovered instead.
+- The island's colour tokens are in its stylesheet: the dark set on `.xwrljdp`, the light
+  set on `:root`, and a `@media (width<=767px)` override.
+
+`apps/studio/test/search-panel.test.mjs` pins the logic, the measured CSS and the wiring.
+Captures are in `tools/ui-research/captures/gemini/sidebar-search/`.
 
 ## Related packages
 

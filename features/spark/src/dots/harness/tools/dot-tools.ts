@@ -17,6 +17,7 @@ import { FILE_TOOLS } from '../../../harness/runtime/tools';
 import { createSparkSkill, sparkSkills, updateSparkSkill } from '../../../spark-store';
 import type { DotToolDoc, DotToolHandler } from '../runtime/protocol';
 import { computerTools } from './computer-tools';
+import { sendFileTool } from './send-tools';
 import { transferTool } from './transfer-tools';
 import { userScreenTools } from './user-screen-tools';
 import { discordTools } from './discord-tools';
@@ -97,6 +98,7 @@ export const createDotToolset = async (env: DotToolEnv): Promise<DotToolset> => 
   if (env.computer) entries.push(...computerTools({ ...env, computer: env.computer }));
   if (env.computer && env.screen) entries.push(...userScreenTools({ ...env, screen: env.screen }));
   if (env.computer && env.machine) entries.push(transferTool({ ...env, computer: env.computer, machine: env.machine }));
+  entries.push(sendFileTool(env));
   if (env.mail) entries.push(...emailTools(env));
   if (env.discord) entries.push(...discordTools(env));
   if (env.web) entries.push(...webTools(env));

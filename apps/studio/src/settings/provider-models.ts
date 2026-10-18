@@ -234,6 +234,14 @@ export const MOONSHOT_MODELS: ProviderModelOption[] = [
 
 export const SPACEXAI_MODELS: Array<ProviderModelOption & { defaultThinkingLevel: number }> = [
   {
+    id: 'grok-4.7',
+    name: 'Grok 4.7',
+    maxLevels: 3,
+    hasNone: false,
+    defaultThinkingLevel: 3,
+    levelLabels: { 1: 'Low', 2: 'Medium', 3: 'High' },
+  },
+  {
     id: 'grok-4.6',
     name: 'Grok 4.6',
     maxLevels: 3,
@@ -341,6 +349,8 @@ const MODEL_PRICES: Record<string, string> = {
   'kimi-k3': '$3.00/$15.00',
 
   // ── xAI ───────────────────────────────────────────────────────────────────
+  // Not yet priced on xAI's list.
+  'grok-4.7': '',
   'grok-4.6': '$2.00/$6.00',
   'grok-voice': '$0.08/min',
   'grok-imagine': '$0.04/image',

@@ -2,6 +2,7 @@ import { atom, computed } from 'nanostores';
 import { publishSkills } from '@willow/core/skill-library';
 import { publishSchedules, type LibrarySchedule } from '@willow/core/spark-library';
 import { readLiveBackgroundJob } from '@willow/core/background-jobs';
+import { conflictCopyForkedAt } from '@willow/storage/local-fs/folder-sync-engine';
 import type {
   SparkConnectedAppId,
   SparkCustomApp,
@@ -165,6 +166,12 @@ export const toLibrarySchedule = (schedule: SparkSchedule): LibrarySchedule => (
   instructions: schedule.instructions,
   enabled: schedule.enabled,
   nextRunAt: schedule.nextRunAt,
+  completedAt: schedule.completedAt,
+  minute: schedule.minute,
+  dayOfMonth: schedule.dayOfMonth,
+  month: schedule.month,
+  date: schedule.date,
+  endsAt: schedule.endsAt,
 });
 
 /*
@@ -1252,15 +1259,25 @@ const normalizeTask = (value: unknown): SparkTask | null => normalizeTaskRecord(
  * disk lags this tab's own record, so a run that has just finished can still
  * read as "running" there, and rewriting that as interrupted in every open tab
  * replaced the finished answer with the interrupted notice.
+ *
+ * A conflict copy the sync engine made mid-run is read as interrupted from
+ * anywhere, summary or disk: it holds a snapshot of a run that carried on under
+ * the original's name, so no tab is running it and no job will ever settle it.
+ * That holds until something is done in it, since every change stamps
+ * `updatedAt` past the moment in its name (recorded to the second). It keeps its
+ * own time, so every copy of Willow settles it to the same file.
  */
 const normalizeTaskRecord = (value: unknown, recoverInterrupted: boolean): SparkTask | null => {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.prompt !== 'string') return null;
   const now = new Date().toISOString();
   const bodyLoaded = value.bodyLoaded !== false;
-  const wasInterrupted = recoverInterrupted
+  const midRun = value.status === 'running' || value.status === 'queued';
+  const forkedAt = conflictCopyForkedAt(value.id);
+  const strandedCopy = midRun && forkedAt !== null && Date.parse(asString(value.updatedAt)) < forkedAt + 1000;
+  const wasInterrupted = strandedCopy || (recoverInterrupted
     && bodyLoaded
-    && (value.status === 'running' || value.status === 'queued')
-    && !readLiveBackgroundJob(sparkRunJobId(activeSparkStorageScope, value.id));
+    && midRun
+    && !readLiveBackgroundJob(sparkRunJobId(activeSparkStorageScope, value.id)));
   const turns = Array.isArray(value.turns)
     ? value.turns.map(normalizeTurn).filter((item): item is SparkTaskTurn => Boolean(item))
     : [];
@@ -1353,25 +1370,38 @@ const normalizeTaskRecord = (value: unknown, recoverInterrupted: boolean): Spark
     hasUnreadCompletion: Boolean(value.hasUnreadCompletion),
     isPinned: Boolean(value.isPinned),
     createdAt: asString(value.createdAt, now),
-    updatedAt: wasInterrupted ? now : asString(value.updatedAt, now),
+    updatedAt: wasInterrupted && !strandedCopy ? now : asString(value.updatedAt, now),
     bodyLoaded,
     isNaming: Boolean(value.isNaming),
   };
 };
 
+const SCHEDULE_FREQUENCIES: readonly SparkSchedule['frequency'][] = ['Hourly', 'Daily', 'Weekly', 'Monthly', 'Yearly', 'Once'];
+
+const wholeNumberIn = (value: unknown, min: number, max: number): number | undefined =>
+  typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max ? value : undefined;
+
 const normalizeSchedule = (value: unknown): SparkSchedule | null => {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.title !== 'string') return null;
   const now = new Date().toISOString();
+  const frequency = SCHEDULE_FREQUENCIES.find((candidate) => candidate === value.frequency) ?? 'Weekly';
+  const date = asString(value.date);
   return {
     id: value.id,
     title: value.title,
-    frequency: value.frequency === 'Daily' ? 'Daily' : 'Weekly',
+    frequency,
     weekdays: Array.isArray(value.weekdays)
       ? value.weekdays.filter((weekday): weekday is string => typeof weekday === 'string')
       : [],
     time: asString(value.time, '09:00'),
     instructions: asString(value.instructions),
     enabled: value.enabled !== false,
+    minute: wholeNumberIn(value.minute, 0, 59),
+    dayOfMonth: wholeNumberIn(value.dayOfMonth, 1, 31),
+    month: wholeNumberIn(value.month, 0, 11),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined,
+    endsAt: asString(value.endsAt) || undefined,
+    completedAt: asString(value.completedAt) || undefined,
     taskId: asString(value.taskId) || undefined,
     lastRunLabel: asString(value.lastRunLabel) || undefined,
     lastRunAt: asString(value.lastRunAt) || undefined,

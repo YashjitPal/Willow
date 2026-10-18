@@ -42,17 +42,3 @@ export const messageExcerpt = (markdown: string): string => {
   const text = plainMessageText(markdown);
   return text.length > EXCERPT_CHARS ? `${text.slice(0, EXCERPT_CHARS - 1).trimEnd()}…` : text;
 };
-
-/** The emoji that says the user is unsure about a message — worth the bot's attention whatever it said. */
-const UNSURE = '🤔';
-
-/**
- * Whether a reaction may be the user's answer, and so should wake the dot: the message asks the
- * user something and they have not written since, or the emoji says they are unsure. Anything
- * else is an acknowledgement, which the bot reads the next time it acts.
- */
-export const reactionMayAnswer = (thread: Pick<DotThread, 'items'>, message: DotItem, emoji: string): boolean => {
-  if (emoji === UNSURE) return true;
-  if (!plainMessageText(message.text).includes('?')) return false;
-  return !thread.items.some((item) => item.kind === 'user' && item.seq > message.seq);
-};

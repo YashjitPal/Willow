@@ -67,6 +67,17 @@ import { MediaIcon, SidebarItem, SidebarSkeleton, SectionHeader, UserMenu, Recen
 import { SettingsSheet, type SettingsSheetRow } from './SettingsSheet';
 import { isCompactViewport, useCompactViewport } from '@willow/chat/use-compact-viewport';
 import { $chatCreationPage, $chatCreationPageRequest, type ChatCreationPage } from '@willow/chat/chat-page-store';
+import {
+  $chatStatusFilter,
+  chatStatusFilterLabel,
+  chatStatusOf,
+  chatStatusVersion,
+  matchesChatStatusFilter,
+  type ChatStatus,
+} from '@willow/chat/chat-status';
+import { chatTurnsVersion } from '@willow/chat/chat-turn-store';
+import { ChatStatusFilterButton } from './ChatStatusFilter';
+import { SidebarCloseButton, SidebarOpenButton, SidebarSearchButton } from './SidebarHeaderButtons';
 import { NotebooksSection } from '@willow/notebooks/NotebooksSection';
 import { $chatDialogRequest, consumeChatDialogRequest } from '@willow/notebooks/chat-dialog-requests';
 import { MoveChatDialog } from '@willow/notebooks/MoveChatDialog';
@@ -178,7 +189,7 @@ const GEMINI_SETTINGS_ITEMS: GeminiSettingsItem[] = [
   { id: 'memory', label: 'Import memory to Gemini', icon: 'upload_file', iconFamily: 'google-symbols', action: 'settings' },
   { id: 'labs', label: 'Labs', icon: 'experiment', iconFamily: 'material-rounded', action: 'settings' },
   { id: 'limits', label: 'Usage limits', icon: 'donut_large', iconFamily: 'google-symbols', action: 'settings' },
-  { id: 'scheduled', label: 'Scheduled actions', icon: 'schedule', iconFamily: 'luminous', action: 'settings' },
+  { id: 'scheduled', label: 'Scheduled actions', icon: 'schedule', iconFamily: 'luminous', action: 'settings', requiresExperiment: 'old-skills-schedules' },
   { id: 'skills', label: 'Skills', icon: 'contract', iconFamily: 'luminous', action: 'settings' },
   { id: 'gems', label: 'Gems', icon: 'gems', iconFamily: 'luminous', action: 'settings' },
   { id: 'links', label: 'Your public links', icon: 'link', iconFamily: 'google-symbols', action: 'settings' },
@@ -828,7 +839,7 @@ const GeminiSettingsMenu: React.FC<GeminiSettingsMenuProps> = ({ isOpen, isColla
   );
 };
 
-export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'import-memory' | 'connected-apps' | 'customize' | 'models-api' | 'labs' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook' | 'usage' | 'gemini-spark' | 'waifu';
+export type ViewType = 'home' | 'search' | 'agents' | 'design' | 'projects' | 'workbench' | 'personal-intelligence' | 'activity' | 'saved-info' | 'memory' | 'import-memory' | 'connected-apps' | 'customize' | 'models-api' | 'labs' | 'gems' | 'notebooks' | 'notebook-create' | 'notebook' | 'usage' | 'gemini-spark' | 'waifu' | 'library' | 'scheduled' | 'download';
 
 const SparkSidebarItem: React.FC<{
   label: string;
@@ -1256,6 +1267,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onModeChange?.('chat');
     $chatCreationPageRequest.set(page);
   };
+  // The New chat row, and the logo and wordmark, which are Gemini's "New chat" link too.
+  const startNewChat = () => {
+    if (isChatOngoing) {
+      selectLocalFSInboxChat(null);
+      if (onNewChat) {
+        onNewChat();
+      }
+    }
+    if (creationPage) $chatCreationPageRequest.set('none');
+    onViewChange('home');
+    onModeChange?.('chat');
+  };
 
   /*
    * Every Spark page renders at `currentView === 'home'`, and the rail keeps
@@ -1291,6 +1314,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [chatScopeId]);
   const [isAtScrollEnd, setIsAtScrollEnd] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * Gemini's rail cross-fades two lists on a toggle: collapsing fades the icon list (search at its
+   * top) in over 150ms, expanding fades the labelled one in over 150ms after 100ms, both linear.
+   * Willow's rows are one list that moves when the rail's search comes or goes, so the list fades
+   * in on its new place by the same numbers. The drawer slides instead.
+   */
+  const railListRef = useRef<HTMLDivElement>(null);
+  const railWasCollapsedRef = useRef(isCollapsed);
+  useLayoutEffect(() => {
+    if (railWasCollapsedRef.current === isCollapsed) return;
+    railWasCollapsedRef.current = isCollapsed;
+    const list = railListRef.current;
+    if (!list || isCompactViewport() || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    list.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, delay: isCollapsed ? 0 : 100, easing: 'linear', fill: 'backwards' });
+  }, [isCollapsed]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -1656,6 +1695,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return [...pinned, ...rest];
   }, [localChats, pinnedChatSet, notebookChatIds]);
 
+  // Each chat's status mark and the section's filter by them (Gemini's All, Ready, Needs attention,
+  // In progress: `chat-status.ts`). A mark moves with turns and research runs, so both versions count.
+  const statusFilter = useStore($chatStatusFilter);
+  const chatStatusTick = useStore(chatStatusVersion);
+  const chatTurnTick = useStore(chatTurnsVersion);
+  const chatStatuses = useMemo(() => {
+    const statuses = new Map<string, ChatStatus>();
+    for (const chat of sortedChats) {
+      const status = chatStatusOf(chatScopeId, chat);
+      if (status) statuses.set(chat, status);
+    }
+    return statuses;
+    // The two ticks are what change when a mark does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedChats, chatScopeId, chatStatusTick, chatTurnTick]);
+  const listedChats = useMemo(
+    () => (statusFilter === 'ALL'
+      ? sortedChats
+      : sortedChats.filter((chat) => matchesChatStatusFilter(chatStatuses.get(chat) ?? null, statusFilter))),
+    [sortedChats, chatStatuses, statusFilter],
+  );
+
   const [recentsLimit, setRecentsLimit] = useState(RECENTS_INITIAL_COUNT);
   const [isGrowingRecents, setIsGrowingRecents] = useState(false);
   const growRecentsTimerRef = useRef<number | undefined>(undefined);
@@ -1667,21 +1728,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // scrolled open.
   useEffect(() => {
     setRecentsLimit(RECENTS_INITIAL_COUNT);
-  }, [chatScopeId]);
+  }, [chatScopeId, statusFilter]);
 
   // Pins are all hoisted to the front, so a user with 40 pins would otherwise see
   // a first window made entirely of pins and no actual recents. Counted over the
   // filtered list: a pinned chat that is now in a notebook is not hoisted here, so
   // it must not buy a slot either. Its pin is untouched and comes back with it.
   const visiblePinnedCount = useMemo(
-    () => sortedChats.reduce((count, chat) => (pinnedChatSet.has(chat) ? count + 1 : count), 0),
-    [sortedChats, pinnedChatSet],
+    () => listedChats.reduce((count, chat) => (pinnedChatSet.has(chat) ? count + 1 : count), 0),
+    [listedChats, pinnedChatSet],
   );
   const effectiveRecentsLimit = recentsLimit + visiblePinnedCount;
-  const hasMoreRecents = effectiveRecentsLimit < sortedChats.length;
+  const hasMoreRecents = effectiveRecentsLimit < listedChats.length;
 
   const windowedChats = useMemo(() => {
-    if (!hasMoreRecents) return sortedChats;
+    if (!hasMoreRecents) return listedChats;
     // Rows that must stay mounted regardless of where they sort:
     //   editingChatId  — the row being renamed. The rename dialog is a portal so
     //                    it would survive the row unmounting, but the row is what
@@ -1694,9 +1755,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const forced = new Set(
       [editingChatId, menuActiveChat, activeChatId].filter((id): id is string => !!id)
     );
-    // filter, not slice+concat: it preserves the context-owned order with no re-sort.
-    return sortedChats.filter((chat, index) => index < effectiveRecentsLimit || forced.has(chat));
-  }, [sortedChats, effectiveRecentsLimit, hasMoreRecents, editingChatId, menuActiveChat, activeChatId]);
+    // filter, not slice+concat: it preserves the context-owned order with no re-sort. A forced
+    // row the status filter leaves out stays out: the filter is what the user asked to see.
+    return listedChats.filter((chat, index) => index < effectiveRecentsLimit || forced.has(chat));
+  }, [listedChats, effectiveRecentsLimit, hasMoreRecents, editingChatId, menuActiveChat, activeChatId]);
 
   const growRecents = useEventCallback(() => {
     if (!hasMoreRecents || growRecentsTimerRef.current !== undefined) return;
@@ -1773,12 +1835,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // and every chat open queued behind it. Chats below the fold are scanned when
   // the user scrolls to them.
   const scanCandidates = useMemo(() => {
-    const visible = sortedChats.slice(0, effectiveRecentsLimit);
+    const visible = listedChats.slice(0, effectiveRecentsLimit);
     if (activeChatId && !visible.includes(activeChatId) && sortedChats.includes(activeChatId)) {
       visible.push(activeChatId);
     }
     return visible;
-  }, [sortedChats, effectiveRecentsLimit, activeChatId]);
+  }, [listedChats, sortedChats, effectiveRecentsLimit, activeChatId]);
 
   useEffect(() => {
     if (isInitializingLocalFS) return;
@@ -1932,114 +1994,56 @@ export const Sidebar: React.FC<SidebarProps> = ({
         *
         * This was a 36px button centred in a 52px box with a 28px glyph — 1px left and
         * 2px high of Gemini, with the wordmark 4px further right and half a pixel large.
+        *
+        * Expanded, the logo and the wordmark are Gemini's "New chat" link, and the header's
+        * buttons (Search chats, then Close sidebar) sit 8px from the top and the edge.
+        * Collapsed, the logo is Gemini's 36px "Open sidebar" at (8, 10), whose 6px padding
+        * keeps the glyph at the same (15, 17).
         */}
       <div className="relative flex h-[52px] min-w-[52px] shrink-0 items-start max-[960px]:h-[48px] max-[960px]:mt-2 max-[960px]:px-2">
-        <button
-          onClick={onToggleCollapse}
-          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          /*
-           * Collapsed, this is a row of the 52px rail, so it places `right`
-           * like every other rail row (measured on Gemini: surface x=284
-           * against a trigger ending at 276, gap 8, vertically centred).
-           * Inferred for this particular button rather than measured — Gemini
-           * shows no tooltip on its expanded sidebar at all, so the collapsed
-           * top button could not be sampled directly. Left `below` when
-           * expanded, where that is what was measured.
-           */
-          data-tooltip-position={isCollapsed ? 'right' : 'below'}
-          className="group/logo relative ml-[10px] mt-3 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-200 active:scale-95 max-[960px]:ml-3 max-[960px]:mt-2 max-[960px]:h-8 max-[960px]:w-8"
-        >
-          {/*
-           * `opacity-100 scale-100` are UNCONDITIONAL on purpose. They used to sit only in
-           * the expanded branch, so collapsing dropped `scale-100` and the computed
-           * transform went `matrix(1, 0, 0, 1, 0, 0)` -> `none`. That is geometrically
-           * nothing — this logo's rect measures [15, 17, 22] before and after — but it is
-           * still a transform transition, so Chrome composited the subtree for 200ms and
-           * then tore the layer down at the end.
-           *
-           * At the 1.25 device pixel ratio this display runs, `left: 15px` is 18.75 device
-           * px, so the composited raster and the repainted-on-grid version do not land in
-           * the same place. Measured: the painted logo shifted -0.311 device px at its left
-           * edge, -1.220 at its right and -0.592 at its centroid the instant the layer went
-           * away — a frame AFTER the collapse had already finished, which is exactly what
-           * made it read as a jump. None of it is visible at a ratio of 1, where the two
-           * grids coincide, so this hid from every layout-rect and 1x pixel measurement.
-           *
-           * Holding the values constant means no transform transition is created at all,
-           * and the measured shift is 0.000 on all three metrics. The hover pair below is
-           * the only transform this element ever actually needed.
-           */}
-          <div className={`transition-[opacity,transform] duration-200 flex items-center justify-center opacity-100 scale-100
-            ${isCollapsed ? 'group-hover:opacity-0 group-hover:scale-75' : ''}`}>
-            {/* 22x22, matching `.sparkle-image`. logo.png is 683x683, so squaring it
-                does not distort. */}
+        {isCollapsed ? (
+          <SidebarOpenButton onClick={onToggleCollapse}>
             <img
               src={logo}
               alt="Logo"
-              className="h-[22px] w-[22px] object-contain shrink-0 transition-[filter,transform] duration-300 max-[960px]:!h-[28px] max-[960px]:!w-[28px]"
+              className="h-[22px] w-[22px] object-contain shrink-0"
               style={{ filter: getLogoFilter(workspaceColor) }}
             />
-          </div>
-          {isCollapsed && (
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 transform scale-90 group-hover:scale-110 pointer-events-none">
-              <span
-                className={`luminous-symbols text-[24px] leading-none select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
-                style={{
-                  fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
-                  fontWeight: 300,
-                  fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24, "ROND" 100'
-                }}
-              >
-                side_nav_expand
-              </span>
-            </div>
-          )}
-        </button>
-
-        {!isCollapsed && (
-          <span
-            className={`willow-sidenav-text ml-1 mt-4 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[17px] leading-6 text-[#e6e6e6] max-[960px]:text-[#e0e0e0] max-[960px]:!text-[20px] max-[960px]:!leading-6 max-[960px]:ml-2 max-[960px]:mt-3 ${isLight ? '!text-[#1f1f1f]' : ''}`}
-            style={{
-              fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
-              fontWeight: 470
+          </SidebarOpenButton>
+        ) : (
+          <button
+            type="button"
+            aria-label="New chat"
+            onClick={() => {
+              if (studioExperience === 'spark') onStudioExperienceChange('chat');
+              startNewChat();
             }}
+            className="willow-sidenav-brand ml-[14px] mt-3 flex shrink-0 cursor-pointer items-start py-1 outline-none focus-visible:ring-2 focus-visible:ring-white/25 max-[960px]:ml-4 max-[960px]:mt-2"
           >
-            Willow
-          </span>
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+              <img
+                src={logo}
+                alt="Logo"
+                className="h-[22px] w-[22px] object-contain shrink-0 transition-[filter,transform] duration-300 max-[960px]:!h-[28px] max-[960px]:!w-[28px] max-[960px]:max-w-none"
+                style={{ filter: getLogoFilter(workspaceColor) }}
+              />
+            </span>
+            <span
+              className={`willow-sidenav-text ml-2 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[17px] leading-6 text-[#e6e6e6] max-[960px]:ml-3 max-[960px]:text-[#e0e0e0] max-[960px]:!text-[20px] max-[960px]:!leading-6 ${isLight ? '!text-[#1f1f1f]' : ''}`}
+              style={{
+                fontFamily: '"Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif',
+                fontWeight: 470
+              }}
+            >
+              Willow
+            </span>
+          </button>
         )}
 
         {!isCollapsed && (
-          <div className="absolute right-[14px] top-1.5 max-[960px]:right-[9px] max-[960px]:top-0">
-            <button
-              onClick={onToggleCollapse}
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar"
-              className={`willow-sidenav-close-button flex h-10 w-10 max-[960px]:h-12 max-[960px]:w-12 items-center justify-center rounded-full ${
-                isLight ? 'text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#e3e3e3] hover:bg-white/[0.08]'
-              } transition-colors`}
-            >
-              <span
-                className={`hidden min-[961px]:inline-flex luminous-symbols text-[24px] leading-none select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}
-                style={{
-                  fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
-                  fontWeight: 300,
-                  fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24, "ROND" 100'
-                }}
-              >
-                side_nav
-              </span>
-              <span
-                className={`inline-flex min-[961px]:hidden luminous-symbols text-[24px] max-[960px]:!text-[28px] leading-none select-none ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3] max-[960px]:text-[#e0e0e0]'}`}
-                style={{
-                  fontFamily: "'Luminous Symbols', 'Google Symbols', 'Material Symbols Rounded', sans-serif",
-                  fontWeight: 260,
-                  fontVariationSettings: '"FILL" 0, "wght" 260, "GRAD" 0, "opsz" 28, "ROND" 100'
-                }}
-              >
-                close
-              </span>
-            </button>
+          <div className="willow-sidenav-header-buttons">
+            <SidebarSearchButton placement="header" onClick={() => onSearchClick?.()} />
+            <SidebarCloseButton onClick={onToggleCollapse} />
           </div>
         )}
       </div>
@@ -2310,6 +2314,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               goToAllSparkTasks();
             }}
           />
+          <div className="willow-rail-search">
+            <SidebarSearchButton placement="rail" onClick={() => onSearchClick?.()} />
+          </div>
           <SparkSidebarItem
             label="Pages"
             icon={
@@ -2348,8 +2355,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
           )}
 
-          <SparkSidebarHeading label="Customise" isCollapsed={isCollapsed} />
+          {(experiments['old-skills-schedules'] || isDesktopApp()) && (
+            <SparkSidebarHeading label="Customise" isCollapsed={isCollapsed} />
+          )}
 
+          {/* Retired into Customize; Labs' "Old Skills and Schedules" brings these three back. */}
+          {experiments['old-skills-schedules'] && (
+          <>
           <SparkSidebarItem
             label="Schedules"
             symbol="schedule"
@@ -2383,6 +2395,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               goToSparkApps();
             }}
           />
+          </>
+          )}
           {/* The desktop pet lives in the desktop app only. */}
           {isDesktopApp() && (
             <SparkSidebarItem
@@ -2483,7 +2497,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       ) : (
         <>
-      {/* Fixed top-level navigation: Home & Search */}
+      {/* Fixed top-level navigation: New chat, and the rail's search under it */}
       <div className="pt-0 space-y-0 shrink-0">
         <SidebarItem 
           symbol="gemini_chat" 
@@ -2491,26 +2505,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           shortcut="Ctrl+Shift+O"
           isCollapsed={isCollapsed} 
           active={currentView === 'home' && studioMode === 'chat' && !isChatOngoing && !creationPage}
-          onClick={() => {
-            if (isChatOngoing) {
-              selectLocalFSInboxChat(null);
-              if (onNewChat) {
-                onNewChat();
-              }
-            }
-            if (creationPage) $chatCreationPageRequest.set('none');
-            onViewChange('home');
-            onModeChange?.('chat');
-          }}
+          onClick={startNewChat}
         />
-        <SidebarItem 
-          symbol="search" 
-          label="Search chats"
-          shortcut="Ctrl+Shift+K"
-          isCollapsed={isCollapsed} 
-          active={currentView === 'search'}
-          onClick={onSearchClick}
-        />
+        <div className="willow-rail-search">
+          <SidebarSearchButton placement="rail" onClick={() => onSearchClick?.()} />
+        </div>
       </div>
 
       {/*
@@ -2520,13 +2519,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
         * row was dimmed twice: once by a mask fading it to 20% over the final 10px, and
         * again by the overlay.
         */}
-      <div className="flex-1 relative min-h-0">
+      <div ref={railListRef} className="flex-1 relative min-h-0">
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
           className="h-full overflow-y-auto pt-0 pb-0 gemini-chat-scrollbar"
         >
           <div className="space-y-0">
+            {/* Gemini's Library comes first under its search: Luminous `features`, at /library. */}
+            <SidebarItem
+              flushRight
+              symbol="features"
+              label="Library"
+              isCollapsed={isCollapsed}
+              active={currentView === 'library'}
+              onClick={() => onViewChange('library')}
+            />
             {/* Gemini's Images and Videos, under its search: Luminous `image_create` and
                 `movie`, each a new chat with the tool picked, at /images and /videos. */}
             <SidebarItem
@@ -2544,6 +2552,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               isCollapsed={isCollapsed}
               active={currentView === 'home' && studioMode === 'chat' && creationPage === 'videos'}
               onClick={() => openCreationPage('videos')}
+            />
+            {/* Gemini's Scheduled: Luminous `schedule`, at /scheduled — the schedules Spark runs. */}
+            <SidebarItem
+              flushRight
+              symbol="schedule"
+              label="Scheduled"
+              isCollapsed={isCollapsed}
+              active={currentView === 'scheduled'}
+              onClick={() => onViewChange('scheduled')}
             />
             {/* The desktop app reaches Code and Media from its rail, and only there. */}
             {!isDesktopApp() && (
@@ -2711,11 +2728,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             * The **filtered** count, not `localChats.length`: a workspace whose
             * every chat is filed into a notebook has chats but no recents, and
             * the unfiltered count would put the heading back over nothing.
+            * But not `listedChats`: the heading carries the status filter's
+            * funnel, so it stays over a filter with no matches, as Gemini's does.
             */}
           {isChatListHydrated && isLocalFolderConnected && sortedChats.length > 0 && (
             <>
               <SectionHeader
-                title="Recents"
+                title={chatStatusFilterLabel(statusFilter)}
+                actions={<ChatStatusFilterButton />}
                 isCollapsed={isCollapsed}
                 isExpanded={recentsExpanded}
                 onToggle={() => {
@@ -2758,6 +2778,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           isCollapsed={isCollapsed}
                           isActive={currentView === 'home' && studioMode === 'chat' && activeChatId === chat}
                           isPinned={pinnedChatSet.has(chat)}
+                          status={chatStatuses.get(chat) ?? null}
                           startedInCode={codeChats[chat] === true}
                           isMenuOpen={menuActiveChat === chat}
                           onSelect={handleSelectChat}

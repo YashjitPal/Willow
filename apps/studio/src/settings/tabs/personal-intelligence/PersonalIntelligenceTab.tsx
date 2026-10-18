@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@nanostores/react';
 import { profileStore, setProfileEnabled } from '@willow/personal';
+import { requestCustomizeTab } from '../../../customize/customize-nav';
 import './PersonalIntelligenceTab.css';
 
 export const PersonalIntelligenceTab: React.FC = () => {
@@ -167,7 +168,8 @@ export const PersonalIntelligenceTab: React.FC = () => {
             className="section-link-overlay cursor-pointer"
             onClick={(e) => {
               e.preventDefault();
-              navigate('/connected-apps');
+              requestCustomizeTab('connectors');
+              navigate('/customize');
             }}
           ></a>
         </div>

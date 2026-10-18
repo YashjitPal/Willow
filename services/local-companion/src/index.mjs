@@ -10,8 +10,10 @@ import { chromium } from 'playwright-core';
 import { createComputers } from './computers/manager.mjs';
 import { createDiscord } from './discord.mjs';
 import { createScreen } from './screen.mjs';
+import { relayTelegram } from './telegram.mjs';
 import { createOAuth } from './oauth.mjs';
 import { createMcpPrograms } from './mcp-programs.mjs';
+import { createSiteSignIn } from './site-sign-in.mjs';
 import { createSparkRuntime } from './spark-runtime.mjs';
 
 const HOST = '127.0.0.1';
@@ -52,6 +54,10 @@ const oauth = configuredToken ? createOAuth({ broadcast: (name, payload) => broa
 const mcpPrograms = configuredToken
   ? createMcpPrograms({ send: (session, name, payload) => event(session.socket, name, payload), log: (...parts) => console.log('[Willow companion]', ...parts) })
   : null;
+// Signing in to a site for a program Willow ships that reads it as the user (X Reader): a browser window of its own,
+// whose cookies go back to the window that asked (services/local-companion/src/site-sign-in.mjs). Only behind the
+// pairing token.
+const siteSignIn = configuredToken ? createSiteSignIn({ log: (...parts) => console.log('[Willow companion]', ...parts) }) : null;
 
 function readArg(name) {
   const index = process.argv.indexOf(name);
@@ -717,34 +723,6 @@ async function relayHttp(payload) {
   }
 }
 
-/**
- * Telegram's Bot API for a bot's Telegram chat. The API sends no CORS headers and refuses browsers, so the window
- * asks here. A relay for one host and four methods only: never a general proxy.
- */
-const TELEGRAM_METHODS = new Set(['getMe', 'getUpdates', 'sendMessage', 'sendChatAction', 'setMessageReaction']);
-
-async function relayTelegram(payload) {
-  const token = String(payload.token || '');
-  if (!/^\d{5,}:[A-Za-z0-9_-]{30,}$/.test(token)) throw new Error('That is not a Telegram bot token.');
-  const method = String(payload.method || '');
-  if (!TELEGRAM_METHODS.has(method)) throw new Error('That Telegram request is not allowed.');
-  const params = payload.params && typeof payload.params === 'object' ? { ...payload.params } : {};
-  if (method === 'getUpdates') params.timeout = Math.min(Math.max(Number(params.timeout) || 0, 0), 25);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ((params.timeout || 0) + 15) * 1_000);
-  try {
-    const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(params),
-      signal: controller.signal,
-    });
-    return await response.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function searchWorkspace(session, payload) {
   const { root, target, relative } = await confinedPath(session, payload);
   const query = String(payload.query || '').trim();
@@ -809,6 +787,7 @@ async function handle(socket, request) {
           ...(screen ? screen.requests : []),
           ...(oauth ? oauth.requests : []),
           ...(mcpPrograms ? mcpPrograms.requests : []),
+          ...(siteSignIn ? siteSignIn.requests : []),
         ],
       });
     }
@@ -824,6 +803,10 @@ async function handle(socket, request) {
     if (type.startsWith('mcp.')) {
       if (!mcpPrograms) throw new Error('MCP servers that are programs on this computer run in the Willow desktop app.');
       return result(socket, requestId, await mcpPrograms.handle(session, type, payload));
+    }
+    if (type.startsWith('site.')) {
+      if (!siteSignIn) throw new Error('Signing in to a site for a program on this computer is part of the Willow desktop app.');
+      return result(socket, requestId, await siteSignIn.handle(session, type, payload));
     }
     if (type.startsWith('machine.')) {
       if (!computers) throw new Error("Bots' own computers are part of the Willow desktop app.");
@@ -856,6 +839,7 @@ async function handle(socket, request) {
 async function disposeSession(session) {
   computers?.release(session);
   mcpPrograms?.release(session);
+  siteSignIn?.release(session);
   await closeBrowser(session);
   sessions.delete(session.socket);
 }
@@ -888,7 +872,7 @@ wss.on('connection', (socket, request) => {
     frameTimer: null,
   };
   sessions.set(socket, session);
-  send(socket, { type: 'ready', version: 1, sessionId: session.id, capabilities: ['shell', 'jobs', 'files', 'browser', ...(computers ? ['computers'] : []), ...(sparkRuntime ? ['spark-native'] : []), ...(screen ? ['screen', `screen:${screen.platform}`] : []), ...(oauth ? ['oauth'] : []), ...(mcpPrograms ? ['mcp-programs'] : [])] });
+  send(socket, { type: 'ready', version: 1, sessionId: session.id, capabilities: ['shell', 'jobs', 'files', 'browser', ...(computers ? ['computers'] : []), ...(sparkRuntime ? ['spark-native'] : []), ...(screen ? ['screen', `screen:${screen.platform}`] : []), ...(oauth ? ['oauth'] : []), ...(mcpPrograms ? ['mcp-programs'] : []), ...(siteSignIn ? ['site-sign-in'] : [])] });
   socket.on('message', (raw) => {
     try { void handle(socket, JSON.parse(raw.toString())); }
     catch (error) { failure(socket, null, error); }
@@ -912,6 +896,7 @@ async function shutdown() {
   screen?.dispose();
   oauth?.dispose();
   mcpPrograms?.dispose();
+  await siteSignIn?.dispose();
   await Promise.all([...sessions.values()].map(disposeSession));
   await new Promise((resolve) => httpServer.close(resolve));
   process.exit(0);

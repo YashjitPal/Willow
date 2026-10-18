@@ -20,6 +20,27 @@ const MINIMUM_HEADING_HOLD_MS = 3000;
 /** The heading a connected app's running tool gets: "Connecting to YouTube". */
 export const connectingHeading = (label: string): string => `Connecting to ${label}`;
 
+/** Progressive status lines displayed for non-Gemini models that lack thought signatures. */
+export const NON_GEMINI_THOUGHT_STEPS = [
+  'Thinking about it...',
+  'Gathering information...',
+  'Thinking a bit longer...',
+  'Preparing response...',
+  'Thinking a bit longer...',
+  'Polishing the output...',
+  'Thinking a bit longer...',
+] as const;
+
+/** Resolves the heading for non-Gemini models, cycling steps 1..6 after the initial pass. */
+export function getNonGeminiThoughtHeading(stepIndex: number): string {
+  if (stepIndex <= 0) return NON_GEMINI_THOUGHT_STEPS[0];
+  if (stepIndex < NON_GEMINI_THOUGHT_STEPS.length) {
+    return NON_GEMINI_THOUGHT_STEPS[stepIndex];
+  }
+  const cycleIndex = 1 + ((stepIndex - 1) % (NON_GEMINI_THOUGHT_STEPS.length - 1));
+  return NON_GEMINI_THOUGHT_STEPS[cycleIndex];
+}
+
 /**
  * Gemini's one-line thought summary, with its exact wipe.
  *

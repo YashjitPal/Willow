@@ -1,9 +1,11 @@
 import React from 'react';
 import { useStore } from '@nanostores/react';
 import { clearShellRequest, pendingChatSeed, pendingShellRequest } from '@willow/core/shell-request';
+import { isExperimentEnabled } from '@willow/core/experiments-store';
 import type { StudioExperience } from '@willow/core/types';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { navigateSpark } from '@willow/spark/spark-store';
+import { requestScheduledPane } from '@willow/spark/scheduled/schedule-actions';
 import type { SparkLocation } from '@willow/spark/spark-types';
 import type { ViewType } from '../shell/sidebar/Sidebar';
 
@@ -16,8 +18,9 @@ interface ShellRequestHandlerProps {
 /**
  * Carries out what a feature asked the shell for (`@willow/core/shell-request`), once each:
  *
- * - **A Spark page**, such as a chat's scheduled-action card asking for its schedule in
- *   Spark's editor. The same three steps as the sidebar's Spark rows.
+ * - **A Spark page**: the same three steps as the sidebar's Spark rows. A chat's scheduled-action
+ *   card asking for its schedule's editor gets the Scheduled tab with that schedule open instead,
+ *   as Gemini's card does now; with Old Skills and Schedules on, Spark's old editor.
  * - **A seeded chat**: Spark's Skills page "Create with Gemini" leaves Spark for a new chat
  *   already holding Gemini's question. The seed is set before the chat is reset, and the
  *   new ChatView takes it as it mounts, so the chat that was open never sees it.
@@ -37,9 +40,16 @@ export const ShellRequestHandler: React.FC<ShellRequestHandlerProps> = ({
     clearShellRequest(request.id);
     const shell = handlers.current;
     if (request.surface === 'spark') {
+      const location = request.sparkLocation as SparkLocation;
+      // A view of its own, shown in either experience; changing the experience first would go home.
+      if (location.page === 'schedule-editor' && !isExperimentEnabled('old-skills-schedules')) {
+        if (location.scheduleId) requestScheduledPane(location.scheduleId);
+        void shell.onViewChange('scheduled');
+        return;
+      }
       void shell.onStudioExperienceChange('spark');
       void shell.onViewChange('home');
-      navigateSpark(request.sparkLocation as SparkLocation);
+      navigateSpark(location);
       return;
     }
     pendingChatSeed.set(request.seed);

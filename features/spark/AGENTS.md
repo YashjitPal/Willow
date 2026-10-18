@@ -31,7 +31,8 @@ at 9am, check my inbox and summarise") and Spark executes them on a schedule.
 | `src/spark-open-file.ts` | Which created file each task's side panel shows. |
 | `src/spark-create-with.ts` | What "Create with Gemini" opens on, on the Schedules and Skills pages: Gemini's texts. |
 | `src/spark-task-layout.ts` | A task to open with its list collapsed and Progress showing. |
-| `src/spark-schedule-time.ts` | When a schedule next runs. |
+| `src/spark-schedule-time.ts` | When a schedule next runs, for all six repeats and an end; undefined when it never will again. |
+| `src/scheduled/` | Gemini's Scheduled tab (`/scheduled`, a shell view): the list, its filter and composer, the side pane that creates and edits schedules, their menus, calendar and discard dialog. See *The Scheduled tab*. |
 | `src/attachment-storage.ts` | File attachment persistence. |
 | `src/spark-disk.ts` · `src/spark-task-files.ts` | Each task's files beside `Spark/Tasks/<task>.json` in the user's folder: its attachments, and the remote browser's screenshots. See *The history is kept for good*. |
 | `src/spark-folder-files.ts` | The pass that keeps Spark's files in the user's folder both ways — task attachments, bots' attachments (`src/dots/dot-attachment-files.ts`) and what runs and bots made (`src/spark-workspace-files.ts`) — written from this browser and read back into one whose storage lacks them. Asked for by the tasks folder's passes, at most every 30s, one tab at a time. |
@@ -1145,6 +1146,31 @@ The texts are in `spark-create-with.ts`.
 
 The **"Create manually"** editors on both pages are matched to Gemini exactly — see above.
 
+### Scroll to bottom
+
+Gemini's task page uses its chat window and its chat input container, so a scrolled-up task gets
+the chat's "Scroll to bottom" arrow. Willow uses Chat's own (`@willow/chat/scroll-to-bottom` and
+`ScrollToBottomFab`; the rule and the measurements are in `features/chat/AGENTS.md`). It is the
+first child of `.spark-task-detail__followup-composer`, so one Shift+Tab from the box reaches it.
+It sits 36px above the pill, centred on the composer box. On a tablet that box is 660px with
+12px and 16px insets, which puts the arrow 2px right of the pill's centre. That follows from
+Gemini centring it on its input container; Gemini Spark itself was not measured at that width.
+
+What it measures is Spark's:
+
+- **The content** is the newest turn's children, not the turn, whose `min-height` may be holding
+  an anchored reply's area open (see *Sending a follow-up anchors it…*). Out-of-flow children are
+  skipped, because the screen-reader announcement is absolutely placed far below the thread on
+  narrow layouts and would otherwise read as content.
+- **The view ends at the composer.** The composer overlays the scroller, so the scroller's
+  `paddingBottom` (`--spark-followup-inset`) is taken off its bottom edge.
+- **A reply is coming in** while the task is queued or running, or while the newest response
+  that streamed this session is still revealing.
+
+`tools/scratch/willow-spark-fab.cjs [desktop|tablet|phone]` checks it on the test origin. It
+seeds two tasks through the app's spark-store and deletes them again, and it refuses to run if
+the origin has a writable folder connected.
+
 ### Known remaining differences
 
 - Gemini has **no search input** on `/spark/tasks`; Willow's "Search tasks" is an
@@ -1208,6 +1234,67 @@ That migration was deliberately not attempted alongside the visual work:
 delete, and filter state, and `SparkTaskDetail` is 2200+ lines. Matching the visuals in
 place carried none of that risk. `59-verify-dialogs.cjs` pins the All-Tasks dialogs
 against the measured surface so a future migration can be checked against it.
+
+## The Scheduled tab
+
+Gemini replaced its Schedules pages with a **Scheduled** row in the main sidebar
+(`/scheduled`, Angular `scheduled-tasks-tab`, its title "Gemini Spark"). Willow's is
+`src/scheduled/`, a shell view the chat sidebar opens like Library; the old
+`/spark/schedules` pages stay behind *Old Skills and Schedules*. Measured at 1536x826,
+800x1280 and 390x844 in both themes and read from its chunk
+(`tools/ui-research/captures/gemini/scheduled/`, scrapers beside them, `w-*.cjs` for Willow);
+`apps/studio/test/scheduled-tab.test.mjs` pins the rules and values.
+
+- **It lists Spark's schedules**: Active, Paused and Completed (`completedAt`), and Gemini's
+  Suggested under All. The status filter (All, Active, Paused, Completed) is page state, not
+  saved. Under All a section shows only with rows; under its own filter it shows its empty
+  text ("You don't have any paused tasks"). The page waits on `sparkHydrationScope` with
+  Material's 32px spinner.
+- **Six repeats and an end.** `SparkSchedule` gained Gemini's Hourly (`minute`), Monthly
+  (`dayOfMonth`), Yearly (`month` + `dayOfMonth`) and Once (`date`), and `endsAt`. A
+  shorter month runs on its last day, 29 February on the 28th. A once-only schedule, or a run
+  past `endsAt`, is the last: the scheduler sets `completedAt` and skips it from then on. A
+  once-only moment that has just passed when saved still runs (`getFirstScheduleRunAt`).
+  The old editor shows only Daily and Weekly, so it maps the rest to Daily.
+- **Its chats are Spark tasks.** "Go to chat" opens the task the schedule last ran in
+  (`taskId`); before a first run it is "Available when schedule runs", `aria-disabled` rather
+  than disabled so its tooltip still shows. Run now starts a run through the task host
+  (`spark-task-host.ts`) and points `taskId` at it; the schedule keeps its next regular run.
+  The composer and the Suggested rows start a Spark task with the text and open it, as
+  Gemini's start a Spark chat — so never press either in a test origin with keys.
+- **Chat's card Edit lands here**: `ShellRequestHandler` turns its `schedule-editor` request
+  into the Scheduled view with `scheduledPaneRequest` set, unless the old pages are on. It
+  changes only the view: changing the experience first goes home and races the change.
+- **The pane follows Gemini's rules**: Cancel resets (and closes when creating), Save keeps it
+  open, Create closes it, the close button asks "Discard changes?" / "Discard new task?" only
+  when something changed (only what the current Repeat uses counts), and opening another row
+  or Create switches without asking. Completed schedules open read-only with Delete alone.
+- **Two kinds of menu.** The row, pane and dropdown menus are `gem-menu`s: they open and
+  close in one frame with no backdrop, so a press outside closes them *and* reaches what it
+  lands on (another row opens). The filter is a `mat-menu`: a transparent backdrop eats that
+  press, and it grows in over 120ms and fades out over 100ms after 25ms.
+- **Below 960px the pane is a sheet over the shell**: a body-level layer at z-index 40 —
+  above the shell's floating sidebar button (35, outside `main`'s stacking context, so a
+  layer inside the page could never cover it), below the drawer (50). It rises over 300ms and
+  the list underneath goes `display: none` 300ms in. The form lives in the page, so crossing
+  960px keeps an edit. Above 960px the host animates its flex, width, margin and opacity
+  together, 0 to 400px.
+- **Tokens are Luminous's**: #0f0f0f / #171717 / #1f1f1f, and #000 / #141414 / #1c1c1c with
+  #e0e0e0 ink below 960px in dark; #faf9f9 / #f2f0f0 / #fff in light. The composer turns into
+  Gemini's mobile one below 960px whatever the device (72px inside, a 20px placeholder, a
+  28px mic at weight 260), and its phone one below 600px (80px, 40px corners, pinned to the
+  bottom over a fade). Phones also get the fixed 64px title bar with an icon-only filter.
+- **Small things that are measured, not mistakes**: menu labels sit in a 16px Times New Roman
+  line box (Gemini's page sets no font), which puts them 0.8px lower than a centred 13px line;
+  Create is 16 + label + 16 although Gemini authors a 5.25rem minimum; the calendar's rows are
+  as tall as its day columns are wide (25.9px), and its year grids keep that height at 4
+  columns; past days and a back step that cannot be taken look no different, they just do
+  nothing; the page's own tooltips are Material's older 4px, 12px ones, the composer's the
+  sidebar's.
+- **Deliberate differences**: Gemini lists a stored time twice ("7:00 PM" and its en-IN
+  "7:00 pm"); Willow lists it once. Gemini's time windows, "Only notify me if", event and
+  Gmail triggers, limit banners and upgrade prompts have no Willow counterpart. Willow's
+  deletes are instant, so their busy spinner never shows.
 
 ## Phones and tablets (960px and below)
 

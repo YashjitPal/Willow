@@ -1,33 +1,29 @@
-// Prints the rules of a stylesheet whose selector contains every given fragment.
-// Usage: node tools/scratch/css-rules.cjs <css file> <fragment> [fragment ...] [--max=400]
+/**
+ * Every rule in a captured stylesheet dump whose selector matches <regex>, with its @media wrapper, one per line.
+ *
+ *   node tools/scratch/css-rules.cjs <dump file in captures/gemini/customize> <selector regex> [max=80]
+ */
 const fs = require('fs');
+const path = require('path');
 
-const args = process.argv.slice(2);
-const file = args.shift();
-const max = Number((args.find((a) => a.startsWith('--max=')) || '--max=600').slice(6));
-const fragments = args.filter((a) => !a.startsWith('--'));
-const css = fs.readFileSync(file, 'utf8');
-
-// Walks the sheet brace by brace so rules inside @media blocks come out with their query.
-let depth = 0;
-let start = 0;
-const stack = [];
-for (let i = 0; i < css.length; i += 1) {
-  const ch = css[i];
-  if (ch === '{') {
-    const head = css.slice(start, i).trim();
-    stack.push(head);
-    depth += 1;
-    start = i + 1;
-  } else if (ch === '}') {
-    const head = stack.pop() || '';
-    const body = css.slice(start, i).trim();
-    depth -= 1;
-    start = i + 1;
-    if (head.startsWith('@')) continue;
-    if (fragments.every((f) => head.includes(f))) {
-      const media = stack.filter((h) => h.startsWith('@media')).join(' ');
-      console.log(`${media ? `${media} :: ` : ''}${head} { ${body.slice(0, max)}${body.length > max ? ' …' : ''} }`);
-    }
+const [file, pattern, max = '80'] = process.argv.slice(2);
+const css = fs.readFileSync(path.join(__dirname, '..', 'ui-research', 'captures', 'gemini', 'customize', file), 'utf8');
+const re = new RegExp(pattern);
+const out = [];
+const walk = (text, wrap) => {
+  let i = 0;
+  while (i < text.length && out.length < Number(max)) {
+    const open = text.indexOf('{', i);
+    if (open === -1) break;
+    const head = text.slice(i, open).trim();
+    let depth = 1;
+    let j = open + 1;
+    while (j < text.length && depth > 0) { if (text[j] === '{') depth += 1; else if (text[j] === '}') depth -= 1; j += 1; }
+    const body = text.slice(open + 1, j - 1);
+    if (/^@(media|supports|container|layer)/.test(head)) walk(body, head);
+    else if (re.test(head)) out.push(`${wrap ? `${wrap} ` : ''}${head.replace(/\[_ng(content|host)-ng-c\d+\]/g, '')} { ${body.trim().replace(/\s+/g, ' ')} }`);
+    i = j;
   }
-}
+};
+walk(css, '');
+console.log(out.join('\n'));

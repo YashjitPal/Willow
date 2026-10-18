@@ -44,9 +44,11 @@
   overflow-y: scroll !important;
 }
 
-/* Task detail and Pages scroll inside their own panes, so the workspace keeps no track of its own. */
-.spark-studio-scroll:has(.spark-task-detail),
-.spark-studio-scroll:has(.spaces-shell) {
+/* Task detail and Pages scroll inside their own panes, so the workspace keeps no track of its own.
+ * Only the one on show counts: a page kept behind another (`inert`), such as a bot's conversation
+ * left open in Bots, must not take the track from the page in front. */
+.spark-studio-scroll:has(.spark-task-detail:not([inert] *)),
+.spark-studio-scroll:has(.spaces-shell:not([inert] *)) {
   overflow: hidden !important;
   scrollbar-gutter: auto !important;
 }

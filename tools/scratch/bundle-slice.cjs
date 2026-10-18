@@ -1,9 +1,13 @@
-// Prints [from, to) of a captured Flow bundle, with `;` and `{` line breaks for reading.
-//   node tools/scratch/bundle-slice.cjs <bundle file> <from> <to> [--raw]
+/**
+ * Prints characters <from> to <to> of one cached Gemini bundle (by file name prefix).
+ *
+ *   node tools/scratch/bundle-slice.cjs <file prefix> <from> <to>
+ */
 const fs = require('fs');
 const path = require('path');
 
-const [file, from, to] = process.argv.slice(2);
-const src = fs.readFileSync(path.join(__dirname, '../ui-research/captures/flow/tools/bundles', file), 'utf8');
-const text = src.slice(Number(from), Number(to));
-console.log(process.argv.includes('--raw') ? text : text.replace(/;(?=\S)/g, ';\n').replace(/\{(?=\S)/g, '{\n'));
+const [prefix, from, to] = process.argv.slice(2);
+const dir = path.join(__dirname, '..', 'ui-research', 'captures', 'gemini', 'bundles');
+const name = fs.readdirSync(dir).find((n) => n.startsWith(prefix));
+if (!name) throw new Error(`no bundle ${prefix}`);
+process.stdout.write(fs.readFileSync(path.join(dir, name), 'utf8').slice(Number(from), Number(to)));

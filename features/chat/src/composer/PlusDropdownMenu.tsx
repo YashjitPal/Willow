@@ -274,42 +274,6 @@ const Divider: React.FC = () => {
 };
 
 /**
- * Gemini's Avatar icon (likeness), captured from live SVG on Gemini.
- */
-const LikenessAvatarIcon: React.FC<{ size?: number; className?: string }> = ({ size = 26, className = '' }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 28 28"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    className={className}
-    aria-hidden="true"
-  >
-    <path
-      d="M14,24.5C8.201,24.5 3.5,19.799 3.5,14C3.5,8.201 8.201,3.5 14,3.5"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-    />
-    <circle cx="17.281" cy="11.666" r="1" fill="currentColor" />
-    <circle cx="19.25" cy="4.907" r="1" fill="currentColor" />
-    <circle cx="23.093" cy="8.751" r="1" fill="currentColor" />
-    <circle cx="24.499" cy="14" r="1" fill="currentColor" />
-    <circle cx="23.092" cy="19.249" r="1" fill="currentColor" />
-    <circle cx="19.249" cy="23.091" r="1" fill="currentColor" />
-    <circle cx="10.719" cy="11.666" r="1" fill="currentColor" />
-    <path
-      d="M17.5,16.916C15.469,18.472 12.531,18.472 10.5,16.916"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-/**
  * THE TOUCH LAYOUT, at 960px and below. Gemini keeps the same menu there but draws it as
  * `gem-menu.is-mobile`, measured at 390x844 and 800x1280 in both Chat and Spark, opened by
  * a real touch:
@@ -584,6 +548,8 @@ export const PlusDropdownMenu: React.FC<{
    */
   onAddFromDrive?: () => void;
   onAddPhotos?: () => void;
+  onImportChats?: () => void;
+  onAddChats?: () => void;
   onAddAvatar?: () => void;
   onAddNotebook?: () => void;
   personalIntelligence?: boolean;
@@ -598,6 +564,8 @@ export const PlusDropdownMenu: React.FC<{
   selectedTool,
   onAddFromDrive,
   onAddPhotos,
+  onImportChats,
+  onAddChats,
   onAddAvatar,
   onAddNotebook,
   personalIntelligence = false,
@@ -606,6 +574,7 @@ export const PlusDropdownMenu: React.FC<{
   sparkToolsEnabled = false,
 }) => {
   const { isLight } = useThemeMode();
+  const handleChats = onImportChats ?? onAddChats ?? onAddAvatar;
   const [openSub, setOpenSub] = useState<null | 'uploads' | 'tools'>(null);
   // Vertical offset of whichever row opened the submenu, measured from the positioning
   // wrapper. The submenus render as SIBLINGS of the card rather than inside it — see the
@@ -834,11 +803,6 @@ export const PlusDropdownMenu: React.FC<{
       setTouchSubPos(null);
       setOpenSub(which);
     };
-    const touchAvatarIcon = (
-      <span className={`flex h-6 w-6 shrink-0 items-center justify-center ${isLight ? 'text-[#1f1f1f]' : 'text-[#e3e3e3]'}`}>
-        <LikenessAvatarIcon size={24} />
-      </span>
-    );
 
     const toolRows: { key: string; node: React.ReactNode }[] = sparkMode
       ? (sparkToolsEnabled
@@ -874,7 +838,7 @@ export const PlusDropdownMenu: React.FC<{
         ]
       : [
           <TouchRow key="photos" glyph="photos" label="Google Photos" onClick={act(onAddPhotos)} />,
-          <TouchRow key="avatar" icon={touchAvatarIcon} label="Avatar" onClick={act(onAddAvatar)} />,
+          <TouchRow key="chats" glyph="forum" family="google-symbols" label="Chats" onClick={act(handleChats)} />,
           <TouchRow key="notebook" glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />,
           <TouchRow key="code" glyph="code" label="Import code" onClick={act(onImportCode)} />,
         ];
@@ -1028,7 +992,7 @@ export const PlusDropdownMenu: React.FC<{
               ) : (
                 <>
                   <Row glyph="photos" family="google-symbols" label="Photos" onClick={act(onAddPhotos)} />
-                  <Row glyph="likeness_lumi_icon" label="Avatar" onClick={act(onAddAvatar)} />
+                  <Row glyph="forum" family="google-symbols" label="Chats" onClick={act(handleChats)} />
                   <Row glyph="code" label="Import code" onClick={act(onImportCode)} />
                   <Row glyph="notebook" label="Notebooks" onClick={act(onAddNotebook)} />
                 </>

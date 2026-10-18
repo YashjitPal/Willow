@@ -19,6 +19,7 @@ import { resolveChatModel } from './chat-model';
 import { getChatTurn, registerChatTurn, type ChatTurnRecord } from './chat-turn-store';
 import { runChatTurn, type ChatTurnRunnerDeps } from './chat-turn-runner';
 import { buildChatTurnSetup, resolveChatTurnGrounding, type ChatTurnChoices } from './chat-turn-setup';
+import { connectNamedMcpServers, mcpTurnTexts } from './mcp-chat';
 
 /**
  * A chat reply that carries on in another tab.
@@ -151,6 +152,7 @@ export const resumeChatTurn = async (job: BackgroundJob<ChatTurnJob>, env: ChatT
       modelConfig,
       apiKeys,
     });
+    await connectNamedMcpServers(mcpTurnTexts(question.content, historyBefore));
     await runChatTurn(record, {
       ...buildChatTurnSetup({
         model,
@@ -163,6 +165,7 @@ export const resumeChatTurn = async (job: BackgroundJob<ChatTurnJob>, env: ChatT
         apiKeys,
         notebookGrounding,
         gemPrompt,
+        messageText: question.content,
         libraryScopeId: env.scopeId() || 'guest',
       }),
       history,

@@ -72,7 +72,7 @@ describe('the multiline test', () => {
     // It must sit inside reposition(), after the box has been placed — measuring
     // before placement reads the pane at its previous position and can report a
     // squeezed width (the same trap reposition() already documents).
-    const repo = s.match(/const reposition = React\.useCallback\([\s\S]*?\}, \[anchor, position\]\);/);
+    const repo = s.match(/const reposition = React\.useCallback\([\s\S]*?\}, \[anchor, position, variant\]\);/);
     assert.ok(repo, 'could not locate reposition()');
     assert.ok(repo[0].includes('isMultiline(surface)'), 'the test belongs inside reposition');
     assert.ok(

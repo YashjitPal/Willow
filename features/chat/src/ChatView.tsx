@@ -24,6 +24,10 @@ import { CanvasPromptFab } from './canvas/CanvasPrompt';
 import { floatingTurns } from './canvas/canvas-floating';
 import { GeneratedMediaCard } from './media/GeneratedMediaCard';
 import { SentImageViewer } from './media/SentImageViewer';
+import { ScrollToBottomFab } from './ScrollToBottomFab';
+import { useScrollToBottom } from './scroll-to-bottom';
+import { $libraryOpenRequest, pendingLibraryOpen } from './library-page/library-open';
+import { reportChatOnScreen, trackResearchChat } from './chat-status';
 import { isThreadImage, newestThreadImage } from './media/previous-image';
 import { shareMedia } from './media/GeneratedImage';
 import { MediaGallery } from './media/MediaGallery';
@@ -65,11 +69,17 @@ import { RichResource, RichResourcePanel } from '@willow/ui/RichResourcePreview'
 import { MobileModelPicker } from './MobileModelPicker';
 import { ResponseActions, ShowCodeToggle, SourcesSidebar, ThinkingStepsSidebar } from './ChatResponseChrome';
 import { GeminiThinkingVisualizer } from './GeminiThinkingVisualizer';
-import { ThoughtSummaryLine, connectingHeading, latestThoughtHeading } from './ThoughtSummaryLine';
+import {
+  ThoughtSummaryLine,
+  connectingHeading,
+  latestThoughtHeading,
+  getNonGeminiThoughtHeading,
+} from './ThoughtSummaryLine';
 import { ChatMentions } from './composer/mentions/ChatMentions';
 import { useChatMentionOptions } from './composer/mentions/use-chat-mention-options';
 import { mentionsIn, type MentionOption } from './composer/mentions/mentions';
 import { chatApp } from './composer/mentions/chat-apps';
+import { connectNamedMcpServers, mcpTurnTexts } from './mcp-chat';
 import { skillLibrary } from '@willow/core/skill-library';
 import { takeChatSeed } from '@willow/core/shell-request';
 import { ChatCreatedCard } from './library/ChatCreatedCards';
@@ -593,6 +603,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (turnId && listener) detachChatTurnListener(turnId, listener);
     attachedListenerRef.current = null;
     attachedTurnIdRef.current = null;
+    setIsTurnConnected(false);
+    setNonGeminiStep(0);
   });
 
   const attachTurn = useEventCallback((turnId: string) => {
@@ -674,6 +686,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       isThinkingRef.current = false;
       setThinkSeconds(0);
       thinkSecondsRef.current = 0;
+      setIsTurnConnected(false);
+      setNonGeminiStep(0);
       return false;
     }
 
@@ -762,6 +776,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     isThinkingRef.current = record.isThinking;
     setThinkSeconds(record.thinkSeconds);
     thinkSecondsRef.current = record.thinkSeconds;
+    setIsTurnConnected(!!record.isConnected || !!record.content || !!record.thinkingText);
+    setNonGeminiStep(0);
     generationAbortRef.current = record.abort;
     sendInFlightRef.current = true;
     attachTurn(record.turnId);
@@ -1110,6 +1126,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [thinkSeconds, setThinkSeconds] = useState(0);
   // The connected app whose tool the attached turn is running: "Connecting to <app>".
   const [connectingApp, setConnectingApp] = useState<string | null>(null);
+  // True once the attached turn connects to upstream or receives its first chunk.
+  const [isTurnConnected, setIsTurnConnected] = useState(false);
+  // Progressive thought step index for non-Gemini models that lack native thought signatures.
+  const [nonGeminiStep, setNonGeminiStep] = useState(0);
   // The composer's "@" menu (models, apps) and "/" menu (enabled skills).
   const mentionOptions = useChatMentionOptions({ modelConfig, scopeId: chatScopeId, personalize: !isIncognito });
   const mentionOptionsRef = useRef(mentionOptions);
@@ -1503,6 +1523,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
       version: Number.isFinite(version) ? Math.max(0, Math.min(version, newest)) : newest,
     });
   }, [isSidebarCollapsed, onCollapseSidebar, canvasDocsInChat]);
+
+  // A document opened from the Library: once its chat's messages are in, open it.
+  const libraryOpen = useStore($libraryOpenRequest);
+  useEffect(() => {
+    const request = pendingLibraryOpen(libraryOpen, activeChatId);
+    if (!request) return;
+    if (request.docId) {
+      if (!canvasDocsInChat.has(request.docId)) return;
+      handleOpenCanvas(request.docId);
+    } else if (request.researchMessageId) {
+      if (!messages.some((m) => m.id === request.researchMessageId && m.research)) return;
+      setOpenResource(null);
+      $openCanvas.set(null);
+      setOpenResearchId(request.researchMessageId);
+    }
+    $libraryOpenRequest.set(null);
+  }, [libraryOpen, activeChatId, canvasDocsInChat, messages, handleOpenCanvas]);
+
+  // The chat on screen counts as seen: its Unread or Needs input mark in the drawer goes
+  // (`chat-status.ts`; App says whether Chat is the surface on show).
+  useEffect(() => {
+    reportChatOnScreen(chatScopeId, [activeChatId, chatTitle, chatSessionId]);
+  }, [chatScopeId, activeChatId, chatTitle, chatSessionId]);
+  useEffect(() => () => reportChatOnScreen(chatScopeId, []), [chatScopeId]);
 
   const handleOpenThinking = useCallback((messageId: string) => {
     setOpenResource(null);
@@ -2327,6 +2371,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
+  // Gemini's "Scroll to bottom" arrow measures to the newest content, never to the
+  // response reserve held open under the turn on screen (`scroll-to-bottom.ts`).
+  const threadContentBottom = useCallback(() => {
+    const last = messagesRef.current[messagesRef.current.length - 1];
+    if (!last) return null;
+    const el = (last.role === 'assistant' ? lastAssistantContentRef.current : null) ?? messageRefs.current[last.id];
+    return el ? el.getBoundingClientRect().bottom : null;
+  }, []);
+  const backToBottom = useScrollToBottom({
+    scrollerRef: chatScrollRef,
+    contentBottom: threadContentBottom,
+    empty: !hasStarted,
+    replying: isGenerating || isResponseRevealing || isLive,
+  });
+
   useLayoutEffect(() => {
     const c = chatScrollRef.current;
     if (!c) return;
@@ -2578,6 +2637,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
     [modelConfig, selectedModelId, apiKeys],
   );
 
+  // Step progressive status lines for non-Gemini models that lack native thought signatures
+  useEffect(() => {
+    if (!isGenerating || !isThinking || !isTurnConnected) {
+      return;
+    }
+    const activeTurn = attachedTurnIdRef.current ? getChatTurn(attachedTurnIdRef.current) : null;
+    const isGeminiTurn = activeTurn
+      ? activeTurn.modelSnapshot?.provider === 'gemini'
+      : resolveModel().provider === 'gemini';
+    if (isGeminiTurn) return;
+
+    const interval = setInterval(() => {
+      setNonGeminiStep((s) => s + 1);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, [isGenerating, isThinking, isTurnConnected, resolveModel]);
+
   const newId = () => crypto.randomUUID?.() || Math.random().toString(36).slice(2);
 
   const finalizeAssistant = (
@@ -2624,6 +2700,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const buildTurnListener = useCallback((turnId: string): ChatTurnListener => ({
     onText: (content) => {
       if (attachedTurnIdRef.current !== turnId) return;
+      setIsTurnConnected(true);
       if (isThinkingRef.current) {
         const record = getChatTurn(turnId);
         if (record) {
@@ -2639,6 +2716,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     },
     onThinking: (record) => {
       if (attachedTurnIdRef.current !== turnId) return;
+      setIsTurnConnected(true);
       setMessages((prev) => prev.map((message) =>
         message.id === record.assistantId
           ? { ...message, thinkingText: record.thinkingText }
@@ -2647,6 +2725,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     },
     onPhase: (record) => {
       if (attachedTurnIdRef.current !== turnId) return;
+      if (record.isConnected) setIsTurnConnected(true);
       // Keep the shimmer row live with the right label until real text streams.
       // 'responding' is handled by the onText branch above.
       if (record.phase !== 'responding') setThinkingPhase(record.phase);
@@ -2872,6 +2951,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
       thinkSecondsRef.current = 0;
       setStreaming('');
       setRevealingResponseId(null);
+      setIsTurnConnected(false);
+      setNonGeminiStep(0);
       // The elapsed-seconds ticker lives on the turn record now, driven by the
       // runner: two concurrent turns would otherwise share one interval handle,
       // and stopping either would kill the other's thinking row.
@@ -2918,6 +2999,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         isThinking: true,
         thinkStartedAt: Date.now(),
         thinkSeconds: 0,
+        isConnected: false,
         abort: new AbortController(),
         status: 'running',
         settledBy: null,
@@ -2981,6 +3063,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
         const mentionedSkillIds = new Set(mentioned.filter((option) => option.kind === 'skill').map((option) => option.value));
         const mentionedSkills = skillLibrary.get().filter((skill) => skill.enabled && mentionedSkillIds.has(skill.id));
         const mentionedApps = mentioned.filter((option) => option.kind === 'app').map((option) => option.label);
+        // The MCP apps this conversation names connect now if they are not up, so their tools make this turn.
+        if (!isIncognito) await connectNamedMcpServers(mcpTurnTexts(trimmed, prevMessages));
         await runChatTurn(record, {
           ...buildChatTurnSetup({
             model: resolvedModel,
@@ -2999,6 +3083,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             mediaInputImages,
             mediaPreviousImage,
             researchQuery: trimmed,
+            messageText: trimmed,
             libraryScopeId: chatScopeIdRef.current || 'guest',
             mentionedSkills,
             mentionedApps,
@@ -3172,12 +3257,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setOpenResource(null);
     $openCanvas.set(null);
     setOpenResearchId(replyId);
+    trackResearchChat(replyId, chatScopeId, chatTitle || chatSessionId);
     startResearch(replyId, run, {
       apiKey: geminiKey,
       model: resolved.provider === 'gemini' ? resolved.model : 'gemini-3.5-flash-lite',
       baseUrl: binding.baseUrl,
     });
-  }, [messages, modelConfig, apiKeys, resolveModel]);
+  }, [messages, modelConfig, apiKeys, resolveModel, chatScopeId, chatTitle, chatSessionId]);
 
   const editResearchPlan = useCallback(() => {
     composerHandleRef.current?.setPrompt('Change the research plan: ');
@@ -4588,29 +4674,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       : thinkingPhase === 'executing' ? 'Running code'
                       : null
                     : null);
+                  const isGemini = msg.modelSnapshot?.provider === 'gemini';
+                  const isConnected = isLastAssistant && generating
+                    ? isTurnConnected
+                    : !!(msg.content || msg.thinkingText || msg.media?.length || msg.codeExecutions?.length);
                   /* `tooling` reads the heading too, so the row holds the last
                      thought heading while the tool runs rather than falling back
                      to bare dots for the seconds a document takes to write. */
                   const thoughtHeading = active && (thinkingPhase === 'thinking' || thinkingPhase === 'tooling')
-                    ? latestThoughtHeading(msg.thinkingText || '')
+                    ? (isGemini
+                        ? latestThoughtHeading(msg.thinkingText || '')
+                        : (isConnected ? getNonGeminiThoughtHeading(nonGeminiStep) : null))
                     : null;
                   // Gemini replaces the label with the newest section heading of
-                  // its own thought stream. Only a stream that actually arrives
-                  // sectioned can do that, so a provider emitting bare prose
-                  // (Grok, Claude — measured) keeps the shimmering label.
-                  // Tool states use the same animated status channel in Gemini;
-                  // they are app-generated labels, not model-written thoughts.
+                  // its own thought stream. Non-Gemini models without native thought
+                  // signatures cycle through hardcoded progressive status lines once
+                  // connected. Tool states use the same animated status channel in both.
                   const summaryHeading = statusHeading ?? thoughtHeading;
                   // Gemini shows no generic label at any point: its row is the
                   // dots alone until the first heading arrives, then the heading.
-                  // Keyed off the turn's own recorded provider rather than off
-                  // "no heading yet", because those two differ precisely in the
-                  // window this controls — a Gemini stream that has not emitted
-                  // its first heading is indistinguishable from a Grok one.
-                  // Scoped to the thinking phase: tool states have their own
-                  // animated headings and therefore never reach this fallback.
+                  // Non-Gemini models similarly suppress labels until connection is
+                  // established or the first token arrives.
                   const suppressLabel =
-                    msg.modelSnapshot?.provider === 'gemini' && thinkingPhase === 'thinking';
+                    (isGemini && thinkingPhase === 'thinking') ||
+                    (!isGemini && !isConnected && !statusHeading);
                   return (
                     <motion.div
                       initial={{ opacity: 0 }}
@@ -5267,6 +5354,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 centre-to-dock projection remains a pure translate. */}
             {!isThreadDocked && !imagesPage && (
               <PinnedChatGreeting isIncognito={isIncognito} isAuthenticated={isAuthenticated} />
+            )}
+            {isThreadDocked && !imagesPage && (
+              <ScrollToBottomFab visible={backToBottom.visible} onClick={backToBottom.scrollToBottom} />
             )}
             <InputBar
               chatVariant

@@ -21,8 +21,13 @@ const CDP_URL = 'http://[::1]:9222';
 const PORT = Number(process.env.RB_EMULATOR_PORT || 9341);
 const WILLOW = process.env.WILLOW_URL || 'http://localhost:3101';
 
+// RB_GEMINI_MATCH: what the Gemini window's address contains, e.g. an own-window.cjs marker.
+const GEMINI_MATCH = process.env.RB_GEMINI_MATCH || '';
 const TABS = [
-  { name: 'gemini', matches: (url) => url.startsWith('https://gemini.google.com/spark') },
+  {
+    name: 'gemini',
+    matches: (url) => (GEMINI_MATCH ? url.startsWith('https://gemini.google.com/') && url.includes(GEMINI_MATCH) : url.startsWith('https://gemini.google.com/spark')),
+  },
   { name: 'willow', matches: (url) => url.startsWith(`${WILLOW}/`) },
 ];
 

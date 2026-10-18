@@ -72,7 +72,7 @@ import {
 } from './runtime/computer-access';
 import { companionComputer, companionReachable, companionRequest, computerProblem, type DotComputerBridge } from './runtime/computer-bridge';
 import { phonePush, pushToPhone } from './runtime/phone-push';
-import { reactOnTelegram, readTelegram, sendTelegram, setTelegramLink, showTelegramTyping, telegramLink, type TelegramRelay } from './runtime/telegram';
+import { reactOnTelegram, readTelegram, sendTelegram, sendTelegramFile, setTelegramLink, showTelegramTyping, telegramLink, type TelegramLink, type TelegramRelay } from './runtime/telegram';
 import {
   classifyDiscordEvent,
   describeDiscordMessage,
@@ -83,20 +83,20 @@ import {
   discordUnreachable,
   openDiscordDm,
   patchDiscordState,
-  quoteForDiscord,
   reactOnDiscord,
   readAppSettings,
   readDiscordChannel,
-  rememberQuoted,
   rememberSent,
   sendToDiscord,
   setDiscordLink,
   setDiscordProfile,
   showDiscordTyping,
   unreactOnDiscord,
+  updateDiscordLink,
   verifyDiscordToken,
   whereOf,
   type DiscordEvent,
+  type DiscordFile,
   type DiscordLink,
   type DiscordMethod,
   type DiscordNext,
@@ -104,12 +104,14 @@ import {
   type DiscordProfileRefusal,
   type DiscordRelay,
 } from './runtime/discord';
+import { createDiscordPresence } from './runtime/discord-presence';
 import { applyProposedEdit, declineProposedEdit, pendingEdits, settleInterruptedEdits } from './runtime/edits';
 import { canvasRender, visionProfile } from './runtime/screen-view';
 import { companionScreen, type DotScreenBridge } from './runtime/screen-bridge';
 import { allowScreen, declineScreen, onScreenGrantEnded, pendingScreenRequests, stopScreen, type DotScreenDeps } from './runtime/screen-control';
 import { forgetScreenOverlay, hideScreenOverlay } from './runtime/screen-overlay';
 import { CONTINUE_EVENT, planNext, reflectEvent } from './runtime/plan';
+import { afterTurn } from './runtime/turn-end';
 import {
   declineOutgoing,
   describeOutgoing,
@@ -148,9 +150,9 @@ import type { DotDiscordAccess, DotToolEnv } from './tools/tool-env';
 import { latestSparkResponse } from './tools/spark-task-tools';
 import { normalizeReactionEmoji } from './runtime/protocol';
 import { allowedInResearch, inQuietHours, isResearchTurn, quietHoursOf, RESEARCH_EVENT, researchDue } from './runtime/proactive';
-import { readDotAttachments } from './runtime/dot-attachments';
+import { dotAttachmentData, readDotAttachments } from './runtime/dot-attachments';
 import { withSentFiles } from './runtime/sent-files';
-import { messageExcerpt, plainMessageText, reactionMayAnswer, userReactionsByMessage } from './thread/reactions';
+import { messageExcerpt, plainMessageText, userReactionsByMessage } from './thread/reactions';
 import {
   appendDotItem,
   deleteDotThread,
@@ -161,7 +163,7 @@ import {
   updateDotRuntime,
   type DotItemDraft,
 } from './thread/thread-store';
-import { wakesDot, type DotDiscordPost, type DotDiscordSource, type DotItem, type DotPermissionMode, type DotPlan, type DotThread, type DotTriggerType } from './thread/thread-types';
+import { wakesDot, type DotAttachmentRef, type DotDiscordPost, type DotDiscordSource, type DotItem, type DotPermissionMode, type DotPlan, type DotThread, type DotTriggerType } from './thread/thread-types';
 
 /* ------------------------------------------------------------------------ */
 /* Live activity (what the UI shows while a bot works)                       */
@@ -175,13 +177,20 @@ export interface DotActivity {
   typingItemId: string | null;
   /** The status line the bot set this turn (`*** Status:`), shown under its name while it works. */
   status?: string | null;
+  /** The tool behind `label`, when it is one. */
+  tool?: string | null;
 }
 
 export const dotActivity = atom<Record<string, DotActivity>>({});
 
+/** What a bot linked to Discord is doing, as its status there. */
+const discordPresence = createDiscordPresence({ relay: () => config.discord, linkFor: discordLinkFor });
+
 const setActivity = (dotId: string, patch: Partial<DotActivity>) => {
   const current = dotActivity.get()[dotId] ?? { working: false, label: null, typingItemId: null, status: null };
-  dotActivity.set({ ...dotActivity.get(), [dotId]: { ...current, ...patch } });
+  const next = { ...current, ...patch };
+  dotActivity.set({ ...dotActivity.get(), [dotId]: next });
+  discordPresence.update(dotId, next);
 };
 
 /* ------------------------------------------------------------------------ */
@@ -209,11 +218,14 @@ interface RuntimeConfig {
 }
 
 const companionDiscord: DiscordRelay = {
-  call: <T>(token: string, method: DiscordMethod, path: string, options?: { body?: unknown; query?: Record<string, string | number> }) =>
-    companionRequest<{ status: number; body: T }>('discord.call', { token, method, path, ...(options ?? {}) }, 45_000),
+  call: <T>(token: string, method: DiscordMethod, path: string, options?: { body?: unknown; query?: Record<string, string | number>; files?: DiscordFile[] }) =>
+    companionRequest<{ status: number; body: T }>('discord.call', { token, method, path, ...(options ?? {}) }, options?.files?.length ? 120_000 : 45_000),
   next: (token, options) => companionRequest<DiscordNext>('discord.next', { token, ...options }, options.waitMs + 20_000),
   close: async (token) => {
     await companionRequest('discord.close', { token }, 10_000);
+  },
+  presence: async (token, status) => {
+    await companionRequest('discord.presence', { token, status }, 10_000);
   },
 };
 
@@ -362,7 +374,9 @@ const screenEvent: ScreenEvent = async (condition, happened) => {
 
 /** A trigger fired: its event goes in the inbox, and the bot wakes for it, from a sleep too. */
 const postTrigger: FireTrigger = (dotId, trigger, text) => {
-  if (!postEvent(dotId, { event: 'trigger', ref: trigger.id, text })) return;
+  // Its run answers where it was asked for (`discordReplyTarget`, `viaTelegram`).
+  const from = trigger.from ? { via: trigger.from.via, ...(trigger.from.discord ? { discord: trigger.from.discord } : {}) } : {};
+  if (!postEvent(dotId, { event: 'trigger', ref: trigger.id, text, ...from })) return;
   updateDotRuntime(dotId, (runtime) => (runtime.status === 'sleeping' ? { ...runtime, status: 'idle' } : runtime));
   kick(dotId);
 };
@@ -851,13 +865,21 @@ const retryAfterFailure = (dotId: string, message: string): number | undefined =
 };
 
 const telegramRelay: TelegramRelay = {
-  call: (token, method, params) => companionRequest('relay.telegram', { token, method, params }, 45_000),
+  call: (token, method, params, file) => companionRequest('relay.telegram', { token, method, params, ...(file ? { file } : {}) }, file ? 120_000 : 45_000),
+};
+
+/** A bot's message with files, to its Telegram chat: each file in turn, the message's words with the first. */
+const sendFilesToTelegram = async (link: TelegramLink, message: DotItem): Promise<void> => {
+  for (const [index, ref] of (message.attachments ?? []).entries()) {
+    const data = await dotAttachmentData(ref).catch(() => null);
+    if (!data) continue;
+    await sendTelegramFile(link, telegramRelay, { name: ref.name, mimeType: ref.mimeType ?? 'application/octet-stream', data }, index === 0 ? plainMessageText(message.text) : '');
+  }
 };
 
 const deliverFromTelegram = (dotId: string, text: string, messageId?: number): void => {
   if (!getDotThread(dotId)) return;
-  const item = appendDotItem(dotId, { kind: 'user', text, via: 'telegram', ...(messageId !== undefined ? { telegram: { messageId } } : {}) });
-  quoteOnDiscord(dotId, item, 'on Telegram');
+  appendDotItem(dotId, { kind: 'user', text, via: 'telegram', ...(messageId !== undefined ? { telegram: { messageId } } : {}) });
   kick(dotId);
 };
 
@@ -918,19 +940,6 @@ const discordInputsSince = (dotId: string, sinceSeq: number): DotItem[] =>
 /** One bot's posts to Discord go one after another, so they arrive in the order they were written. */
 const enqueueDiscord = (dotId: string, post: () => Promise<void>): void => {
   discordQueues.set(dotId, (discordQueues.get(dotId) ?? Promise.resolve()).then(post).catch(() => undefined));
-};
-
-/** What the user wrote outside Discord, quoted in the bot's DM there, so the DM reads as the whole conversation. */
-const quoteOnDiscord = (dotId: string, item: DotItem, from: string): void => {
-  const link = discordLinkFor(dotId);
-  const channelId = link?.dmChannelId;
-  if (!link || !channelId || (!item.text.trim() && !item.attachments?.length)) return;
-  const files = item.attachments?.length ? `${item.text.trim() ? '\n' : ''}(attached: ${item.attachments.map((file) => file.name).join(', ')})` : '';
-  const text = quoteForDiscord(`${item.text}${files}`, from);
-  enqueueDiscord(dotId, async () => {
-    const sent = await sendToDiscord(link, config.discord, channelId, text);
-    if ('ids' in sent && sent.ids[0]) rememberQuoted(dotId, item.id, sent.ids[0]);
-  });
 };
 
 /** The user wrote to the bot on Discord: their message, as if written here, and the bot wakes for it as it would here. */
@@ -1048,31 +1057,65 @@ const syncDiscordGateways = (links: Record<string, DiscordLink>): void => {
 };
 
 /**
- * A message the bot wrote, on Discord too (`discordReplyTarget`): in the server channel the user is writing to it
- * from — answering their message there the first time — and otherwise in its DM, which mirrors the conversation.
+ * A message the bot wrote, on Discord too when the user is talking to it there (`discordReplyTarget`): in the server
+ * channel they wrote from — answering their message there the first time — or in its DM.
  */
 const mirrorToDiscord = (dotId: string, message: DotItem, sinceSeq: number, answered: Set<string>): void => {
   const link = discordLinkFor(dotId);
-  if (!link || !message.text.trim()) return;
+  const attached = message.attachments ?? [];
+  if (!link || (!message.text.trim() && !attached.length)) return;
   const target = discordReplyTarget(getDotThread(dotId)?.items ?? [], sinceSeq, link.dmChannelId);
   if (!target) return;
   const replyTo = target.inputId && !answered.has(target.inputId) ? target.replyTo : undefined;
   if (target.inputId) answered.add(target.inputId);
   enqueueDiscord(dotId, async () => {
-    const sent = await sendToDiscord(link, config.discord, target.channelId, message.text, replyTo);
-    if ('ids' in sent) rememberSent(dotId, sent.ids, message.id);
+    // Files go to the DM, never into a server channel others read; what is more than Discord takes stays in Willow.
+    const files = attached.length ? await uploadable(attached) : { files: [], left: [] };
+    const dm = target.inServer ? link.dmChannelId : target.channelId;
+    const notes = [
+      target.inServer && files.files.length && dm ? `${files.files.map((file) => file.name).join(', ')} — sent to you in a DM` : '',
+      files.left.length || (target.inServer && files.files.length && !dm) ? `${[...files.left, ...(dm ? [] : files.files.map((file) => file.name))].join(', ')} — in Willow` : '',
+    ].filter(Boolean).map((note) => `-# ${note}`).join('\n');
+    const text = [message.text.trim(), notes].filter(Boolean).join('\n');
+    const here = target.inServer ? [] : files.files;
+    if (text || here.length) {
+      const sent = await sendToDiscord(link, config.discord, target.channelId, text, replyTo, here);
+      if ('ids' in sent) rememberSent(dotId, sent.ids, message.id);
+    }
+    if (target.inServer && dm && files.files.length) await sendToDiscord(link, config.discord, dm, '', undefined, files.files);
   });
 };
 
-/** The bot reacted to the user's message: on Discord too, on that message there or on its quote in the DM. */
+// What Discord takes in one message from a bot whose server is not boosted.
+const DISCORD_FILES_BYTES = 8 * 1024 * 1024;
+
+/** A message's files as Discord takes them, up to its limit together, and the names of those left over. */
+const uploadable = async (refs: DotAttachmentRef[]): Promise<{ files: DiscordFile[]; left: string[] }> => {
+  const files: DiscordFile[] = [];
+  const left: string[] = [];
+  let total = 0;
+  for (const ref of refs.slice(0, 4)) {
+    const data = (ref.size ?? 0) <= DISCORD_FILES_BYTES - total ? await dotAttachmentData(ref).catch(() => null) : null;
+    const bytes = data ? Math.floor((data.length * 3) / 4) : 0;
+    if (!data || total + bytes > DISCORD_FILES_BYTES) {
+      left.push(ref.name);
+      continue;
+    }
+    total += bytes;
+    files.push({ name: ref.name, mimeType: ref.mimeType ?? 'application/octet-stream', data });
+  }
+  left.push(...refs.slice(4).map((ref) => ref.name));
+  return { files, left };
+};
+
+/** The bot reacted to a message the user wrote on Discord: on that message there too. */
 const mirrorReactionToDiscord = (dotId: string, reactionId: string): void => {
   const link = discordLinkFor(dotId);
   const thread = getDotThread(dotId);
   const reaction = thread?.items.find((item) => item.id === reactionId);
   const target = reaction?.target ? thread?.items.find((item) => item.id === reaction.target) : undefined;
   if (!link || !reaction?.emoji || !target) return;
-  const quote = new Map(discordStateFor(dotId).quoted ?? []).get(target.id);
-  const place = target.discord ?? (quote && link.dmChannelId ? { channelId: link.dmChannelId, messageId: quote } : undefined);
+  const place = target.discord;
   if (!place) return;
   const earlier = thread!.items.filter((item) => item.kind === 'reaction' && item.target === target.id && item.seq < reaction.seq).at(-1)?.emoji;
   enqueueDiscord(dotId, async () => {
@@ -1159,9 +1202,10 @@ const runTurnNow = async (dotId: string): Promise<void> => {
   const budgets = budgetsFor(model.provider, model.model);
   const dotName = sparkDotName(dot);
   // What this turn is for: answering the user (they hear about it even in quiet hours), or a research moment.
-  const answering = thread.items.some((item) => item.seq > thread.runtime.lastActedSeq && (item.kind === 'user' || (item.kind === 'user-reaction' && Boolean(item.wakes))));
+  const answering = thread.items.some((item) => item.seq > thread.runtime.lastActedSeq && (item.kind === 'user' || item.kind === 'user-reaction'));
   const research = isResearchTurn(thread);
-  const viaTelegram = thread.items.some((item) => item.seq > thread.runtime.lastActedSeq && item.kind === 'user' && item.via === 'telegram');
+  // Answering what the user wrote on Telegram, or a trigger they asked for there.
+  const viaTelegram = thread.items.some((item) => item.seq > thread.runtime.lastActedSeq && (item.kind === 'user' || item.kind === 'event') && item.via === 'telegram');
   // What the user writes on Discord from here on is answered there.
   const startActed = thread.runtime.lastActedSeq;
   const turnStartedAt = config.now();
@@ -1194,7 +1238,7 @@ const runTurnNow = async (dotId: string): Promise<void> => {
   const abort = new AbortController();
   entry.abort = abort;
   updateDotRuntime(dotId, { status: 'working', lastError: undefined });
-  setActivity(dotId, { working: true, label: 'Thinking', typingItemId: null, status: null });
+  setActivity(dotId, { working: true, label: 'Thinking', typingItemId: null, status: null, tool: null });
 
   try {
     // Only when the tail is far past its budget, nearing what a request can carry, does compaction hold up a turn —
@@ -1317,7 +1361,7 @@ const runTurnNow = async (dotId: string): Promise<void> => {
       signal: abort.signal,
       onEvent: (event: DotHarnessEvent) => {
         if (event.type === 'read') updateDotRuntime(dotId, (runtime) => (event.seq > (runtime.readSeq ?? 0) ? { ...runtime, readSeq: event.seq } : runtime));
-        else if (event.type === 'activity') setActivity(dotId, { label: event.label });
+        else if (event.type === 'activity') setActivity(dotId, { label: event.label, tool: event.tool ?? null });
         else if (event.type === 'status') setActivity(dotId, { status: event.text });
         else if (event.type === 'message-start') {
           setActivity(dotId, { typingItemId: event.itemId, label: null });
@@ -1327,10 +1371,14 @@ const runTurnNow = async (dotId: string): Promise<void> => {
           stopTyping();
           const message = getDotThread(dotId)?.items.find((item) => item.id === event.itemId);
           if (message) {
-            notifyUser(dotId, plainMessageText(message.text), answering);
+            const files = message.attachments ?? [];
+            notifyUser(dotId, plainMessageText(message.text) || `Sent ${files.map((file) => file.name).join(', ')}`, answering);
             const link = telegramLink.get();
             const away = config.notifier.inBackground() && !inQuietHours(quietHoursOf(getDotThread(dotId)!.runtime), config.now(), timeZone);
-            if (link?.chatId !== undefined && link.dotId === dotId && (viaTelegram || away)) void sendTelegram(link, telegramRelay, plainMessageText(message.text));
+            if (link?.chatId !== undefined && link.dotId === dotId && (viaTelegram || away)) {
+              if (files.length) void sendFilesToTelegram(link, message);
+              else void sendTelegram(link, telegramRelay, plainMessageText(message.text));
+            }
             mirrorToDiscord(dotId, message, startActed, answeredOnDiscord);
           }
         } else if (event.type === 'reaction') {
@@ -1407,7 +1455,7 @@ const runTurnNow = async (dotId: string): Promise<void> => {
       ...runtime,
       // A turn that will be tried again leaves its input unhandled, so the next try resumes from it.
       lastActedSeq: retryIn ? runtime.lastActedSeq : lastSeq,
-      status: result.reason === 'sleeping' ? 'sleeping' : result.reason === 'error' ? 'error' : runtime.status === 'paused' ? 'paused' : 'idle',
+      ...afterTurn(runtime, result.reason, turnStartedAt),
       lastError: result.reason === 'error' ? withRetryNote(result.error ?? 'The turn failed.', retryIn) : undefined,
       usage: { ...runtime.usage, turns: runtime.usage.turns + 1 },
     }));
@@ -1430,7 +1478,7 @@ const runTurnNow = async (dotId: string): Promise<void> => {
     stopTyping();
     // Between turns the bot is not at the controls: its overlay comes down, and its next use brings it back.
     void hideScreenOverlay(config.screen, dotId);
-    setActivity(dotId, { working: false, label: null, typingItemId: null, status: null });
+    setActivity(dotId, { working: false, label: null, typingItemId: null, status: null, tool: null });
     armTimer(dotId);
     compactInBackground(dotId, model, budgets);
   }
@@ -1653,7 +1701,6 @@ export const sendDotMessage = async (dotId: string, text: string, attachments?: 
   if ((!body && !attachments?.length) || !dot) return null;
   await ensureLoaded(dot);
   const item = appendDotItem(dotId, { kind: 'user', text: body, ...(attachments?.length ? { attachments } : {}) });
-  quoteOnDiscord(dotId, item, 'in Willow');
   const thread = getDotThread(dotId)!;
   // Writing to a bot wakes it, from sleep or from an error.
   if (thread.runtime.status === 'sleeping' || thread.runtime.status === 'error') {
@@ -1665,7 +1712,7 @@ export const sendDotMessage = async (dotId: string, text: string, attachments?: 
 
 /**
  * The user reacted to one of the bot's messages, changed their reaction, or took it back (`null`).
- * The bot hears every change; only a reaction that may answer it wakes it (`reactionMayAnswer`).
+ * Each change wakes the bot, which judges what it means, as with a message.
  */
 export const reactToDotMessage = async (dotId: string, messageId: string, emoji: string | null): Promise<void> => {
   const dot = findDot(dotId);
@@ -1679,13 +1726,9 @@ export const reactToDotMessage = async (dotId: string, messageId: string, emoji:
   const current = userReactionsByMessage(thread).get(messageId) ?? null;
   if (current === next) return;
   const text = messageExcerpt(message.text);
-  if (next === null) {
-    appendDotItem(dotId, { kind: 'user-reaction', target: messageId, emoji: current!, removed: true, text });
-    return;
-  }
-  const wakes = reactionMayAnswer(thread, message, next);
-  appendDotItem(dotId, { kind: 'user-reaction', target: messageId, emoji: next, text, ...(wakes ? { wakes } : {}) });
-  if (!wakes) return;
+  appendDotItem(dotId, next === null
+    ? { kind: 'user-reaction', target: messageId, emoji: current!, removed: true, text }
+    : { kind: 'user-reaction', target: messageId, emoji: next, text });
   if (thread.runtime.status === 'sleeping' || thread.runtime.status === 'error') {
     updateDotRuntime(dotId, { status: 'idle', lastError: undefined });
   }
@@ -1888,6 +1931,14 @@ export const disconnectDotDiscord = (dotId: string): void => {
 
 /** Looks again at what the Discord application allows, after the user changed it in Discord. */
 export const refreshDotDiscord = (dotId: string): Promise<void> => refreshDiscordContent(dotId);
+
+/** Whether the bot's Discord status says what it is doing. Off takes it down at once, wherever the bot is working. */
+export const setDotDiscordStatusOn = (dotId: string, on: boolean): void => {
+  const link = updateDiscordLink(dotId, ({ statusOff: _off, ...rest }) => (on ? rest : { ...rest, statusOff: true }));
+  if (!link) return;
+  if (!on) void config.discord.presence?.(link.token, null).catch(() => undefined);
+  discordPresence.update(dotId, dotActivity.get()[dotId]);
+};
 
 /** Gives the bot's Discord bot a new picture or banner (data URLs) or name: what it wears there now, or why not. */
 export const setDotDiscordProfile = async (

@@ -116,6 +116,71 @@
   width: 100%;
 }
 
+/*
+ * Nothing in Willow covers the frame. A layer fixed over the whole window lies over the page
+ * instead, inside its outline and clipped to its corners, so the rail, the gap round the page and
+ * the page's stroke stay as they are. This covers a dim behind a dialog, a sheet or the search
+ * panel, the layer a dialog is centred in (so the dialog sits in the middle of the page), and a
+ * full-window viewer. Layers built in stylesheets are named here. Tailwind-built ones are caught
+ * by their classes: a dark or blurring `fixed inset-0`, a centring one, and what one of those
+ * holds. One that also carries another position (`relative`, or a responsive one) is left alone:
+ * moving its inset would shift it. apps/studio/test/frame-layers.test.mjs fails on a full-window
+ * layer that is neither caught here nor set aside there with its reason. The list is in `:where()`
+ * so the rule stays at the specificity of its `:root` part and a layer's own frame rule (below)
+ * can follow it.
+ */
+:root:has(.willow-frame) :where(
+  /* The shell and its settings */
+  .willow-search-backdrop, .willow-search-positioner,
+  .cc-host, .cc-backdrop,
+  .mem-container .mem-dialog-backdrop, .mem-container .mem-dialog-overlay,
+  .saved-info-container .dialog-backdrop, .saved-info-container .dialog-overlay-wrapper,
+  .spark-dialog-backdrop,
+  /* platform/ui */
+  .willow-gdlg-backdrop, .willow-gdlg-host, .gemini-bottom-sheet-layer,
+  /* Chat: the Library, the image viewers, discovery */
+  .gm-library-layer, .gm-library-scrim,
+  .gm-library-lightbox-ambient, .gm-library-lightbox-scrim, .gm-library-lightbox-stage,
+  .gm-viewer, .gm-viewer__mesh, .gm-sent-viewer,
+  .gm-discovery-backdrop, .gm-images-dialog-layer,
+  /* Gems, Media, Notebooks */
+  .gem-nb-dialog-layer,
+  .ie-settings-backdrop, .ie-dialog-backdrop, .ie-dialog-wrap,
+  .media-drawer-scrim, .media-sheet-backdrop,
+  .sb-rename-backdrop, .sb-dialog-backdrop, .sb-dialog-wrap, .sb-popover-backdrop,
+  .nb-sheet-scrim, .nb-set-scrim, .nb-move-scrim, .nb-sub-scrim,
+  /* Spark */
+  .dot-picture-viewer, .codex-dialog-overlay, .willow-spaces ._ModalPortal_ovjjw_2,
+  .spark-all-tasks__dialog-backdrop, .spark-upload-dialog-backdrop, .spark-customise-dialog-backdrop,
+  .spark-schedule-editor__dialog-backdrop, .spark-skill-editor__dialog-backdrop,
+  .spark-task-detail__dialog-backdrop, .spark-task-detail__progress-overlay, .spark-task-dialog-backdrop,
+  .sched-pane-layer, .sched-dialog-host, .sched-dialog-backdrop,
+  /* Tailwind: a dim, a centring layer, the sheet's layer, and a layer one of those holds */
+  .fixed.inset-0:is([class*="bg-black/"], [class*="backdrop-blur"]),
+  .fixed.inset-0.flex.items-center.justify-center,
+  .fixed.inset-0:has(> .willow-settings-sheet-backdrop),
+  .fixed.inset-0.flex.items-center.justify-center .fixed.inset-0
+):where(:not(.relative, .absolute, .sticky, [class*=":relative"], [class*=":absolute"], [class*=":static"], [class*=":inset-auto"])) {
+  inset: var(--willow-frame-inset) !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border-radius: var(--willow-frame-page-radius) !important;
+  clip-path: inset(0 round var(--willow-frame-page-radius));
+}
+
+/* The Library's blurred copy is a picture, whose auto size would be its own: it takes the page's. */
+:root:has(.willow-frame) .gm-library-lightbox-ambient {
+  width: calc(100vw - var(--willow-frame-left) - var(--willow-frame-right)) !important;
+  height: calc(100vh - var(--willow-frame-top) - var(--willow-frame-bottom)) !important;
+}
+
+/* A card centred with `inset: 0; margin: auto` keeps its own size: only the box it centres in moves. */
+:root:has(.willow-frame) .gm-discovery {
+  inset: var(--willow-frame-inset);
+}
+
 .willow-rail {
   position: relative;
   display: flex;

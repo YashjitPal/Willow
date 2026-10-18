@@ -24,8 +24,8 @@ const FATAL = [
   ['google oauth client secret', /GOCSPX-[A-Za-z0-9_-]{20,}/],
   ['google oauth client id', /[0-9]{9,}-[a-z0-9]{20,}\.apps\.googleusercontent\.com/],
   ['google api key', /AIza[0-9A-Za-z_-]{35}/],
-  ['anthropic api key', /sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{30,}/],
-  ['openai api key', /sk-(?:proj-)?[A-Za-z0-9_-]{40,}/],
+  ['anthropic api key', /\bsk-ant-api[0-9]{2}-[A-Za-z0-9_-]{30,}/],
+  ['openai api key', /\bsk-(?:proj-)?[A-Za-z0-9_-]{40,}/],
   ['github token', /gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}/],
   ['aws access key id', /AKIA[0-9A-Z]{16}/],
   ['slack token', /xox[baprs]-[A-Za-z0-9-]{20,}/],
@@ -59,7 +59,7 @@ const ALLOW = [
     ['google api key', 'openai api key', 'anthropic api key', 'github token', 'slack token'],
   ],
   // Fixtures and setup docs are where placeholder secrets live by definition.
-  [/^services\/[^/]+\/test\//, ['hardcoded secret']],
+  [/^(?:services\/[^/]+|apps\/studio)\/test\//, ['hardcoded secret']],
   [/^services\/[^/]+\/README\.md$/, ['hardcoded secret']],
   [/^tools\/scripts\/backup-guard\.mjs$/, null], // this file is all patterns
 ];

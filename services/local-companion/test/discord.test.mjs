@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { it } from 'node:test';
 import { WebSocketServer } from 'ws';
-import { botToken, createDiscord, discordCall } from '../src/discord.mjs';
+import { botToken, createDiscord, discordCall, statusWords } from '../src/discord.mjs';
 
 // A made-up bot token, joined at run time so secret scanners don't take the source for a real one.
 const TOKEN = ['MTA5ODc2NTQzMjEwOTg3NjU0Mw', 'GaBcDe', 'abcdefghijklmnopqrstuvwxyz0123456789AB'].join('.');
@@ -50,6 +50,36 @@ it('relays the routes on its list for a bot token, and nothing else', async () =
   });
   assert.equal(limited.status, 204, 'a short rate limit is waited out');
   assert.equal(attempts, 2);
+});
+
+it('posts a message with files as an upload: its JSON as one part, each file as another', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return json(200, { id: '77' });
+  };
+  const picture = Buffer.from('PNGBYTES').toString('base64');
+  const sent = await discordCall({
+    token: TOKEN,
+    method: 'POST',
+    path: '/channels/123456789012/messages',
+    body: { content: 'Here it is.' },
+    files: [{ name: 'shot.png', mimeType: 'image/png', data: picture }],
+  }, { fetchImpl });
+  assert.deepEqual(sent, { status: 200, body: { id: '77' } });
+  const { init } = calls[0];
+  assert.ok(init.body instanceof FormData, 'multipart, as Discord takes uploads');
+  assert.equal(init.headers['content-type'], undefined, 'the form sets its own boundary');
+  assert.deepEqual(JSON.parse(init.body.get('payload_json')), { content: 'Here it is.', attachments: [{ id: 0, filename: 'shot.png' }] });
+  const file = init.body.get('files[0]');
+  assert.equal(file.name, 'shot.png');
+  assert.equal(file.type, 'image/png');
+  assert.equal(Buffer.from(await file.arrayBuffer()).toString(), 'PNGBYTES');
+
+  await assert.rejects(discordCall({ token: TOKEN, method: 'POST', path: '/users/@me/channels', body: {}, files: [{ name: 'a.png', data: picture }] }, { fetchImpl }), /Only a message can carry files/);
+  await assert.rejects(discordCall({ token: TOKEN, method: 'POST', path: '/channels/123456789012/messages', body: {}, files: [{ name: '../a.png', data: picture }] }, { fetchImpl }), /plain name/);
+  await assert.rejects(discordCall({ token: TOKEN, method: 'POST', path: '/channels/123456789012/messages', body: {}, files: [{ name: 'big.bin', data: Buffer.alloc(9 * 1024 * 1024).toString('base64') }] }, { fetchImpl }), /at most 8 MB/);
+  assert.equal(calls.length, 1, 'nothing refused reached Discord');
 });
 
 it('lets a bot change its own picture, banner and name, and nothing else about itself', async () => {
@@ -132,8 +162,8 @@ const ready = (socket, url) => {
   });
 };
 
-const waitFor = async (check, label) => {
-  for (let tries = 0; tries < 100; tries += 1) {
+const waitFor = async (check, label, tries = 100) => {
+  for (; tries > 0; tries -= 1) {
     const value = await check();
     if (value) return value;
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -242,6 +272,59 @@ it('carries on without Message Content when Discord refuses it, and stops on a r
     assert.equal(gateway.connections(), before, 'a refused token is not tried again');
 
     assert.deepEqual(await discord.handle('discord.close', { token: TOKEN }), { closed: true });
+  } finally {
+    discord.dispose();
+    await gateway.close();
+  }
+});
+
+it('shows what the bot is doing as its status: the latest words, never two changes close together, until they run out', async () => {
+  assert.equal(statusWords('  Writing\na reply '), 'Writing a reply');
+  assert.equal(statusWords(''), null);
+  assert.equal(statusWords(null), null);
+  assert.throws(() => statusWords('x'.repeat(129)), /at most 128/);
+  assert.throws(() => statusWords({ text: 'hi' }), /a few words/);
+
+  const at = [];
+  const gateway = await fakeGateway((socket, packet, connection, url) => {
+    if (packet.op === 3) at.push(Date.now());
+    if (packet.op === 2) ready(socket, url);
+    if (packet.op === 6) dispatch(socket, 'RESUMED', {});
+  });
+  const gap = 300;
+  const discord = createDiscord({ gateway: gateway.url, idleMs: 60_000, presenceGapMs: gap, presenceTtlMs: 3_000 });
+  const shown = () => gateway.packets.filter((packet) => packet.op === 3).map((packet) => packet.d.activities[0]?.state ?? null);
+  const set = (status) => discord.handle('discord.presence', { token: TOKEN, status });
+  try {
+    // Set before the gateway opens: its session starts with it.
+    assert.deepEqual(await set('Thinking'), { status: 'Thinking' });
+    await waitFor(async () => (await discord.handle('discord.next', { token: TOKEN, content: false, waitMs: 100 })).state === 'online', 'a connection');
+    assert.deepEqual(gateway.packets.find((packet) => packet.op === 2).d.presence, { since: null, activities: [{ name: 'Custom Status', type: 4, state: 'Thinking' }], status: 'online', afk: false });
+
+    // Changes in quick succession are one change, to the latest words.
+    await set('Writing a reply');
+    await set('Using a computer');
+    await waitFor(() => shown().length === 1, 'the change');
+    assert.deepEqual(shown(), ['Using a computer']);
+    await set('Using a computer');
+    await set(null);
+    await waitFor(() => shown().length === 2, 'the status taken down');
+    assert.deepEqual(shown(), ['Using a computer', null], 'the same words again are no change');
+    assert.ok(at[1] - at[0] >= gap - 30, `${at[1] - at[0]} ms between two changes`);
+
+    // A dropped connection resumes, and says the words again.
+    const setAt = Date.now();
+    await set('Thinking');
+    await waitFor(() => shown().length === 3, 'the new words');
+    gateway.socket().send(JSON.stringify({ op: 7, d: null }));
+    await waitFor(() => gateway.packets.some((packet) => packet.op === 6), 'a resume');
+    await waitFor(() => shown().length === 4, 'the words after the resume');
+    assert.equal(shown()[3], 'Thinking');
+
+    // Words nobody renews come down.
+    await waitFor(() => shown().length === 5, 'the words running out', 200);
+    assert.equal(shown()[4], null);
+    assert.ok(at[4] - setAt >= 3_000 - 50, `taken down ${at[4] - setAt} ms after they were set, when they ran out`);
   } finally {
     discord.dispose();
     await gateway.close();

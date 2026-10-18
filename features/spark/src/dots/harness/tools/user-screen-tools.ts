@@ -20,6 +20,7 @@ import type { Attachment } from '@willow/ai/chat';
 import type { DotToolContext, DotToolResult } from '../runtime/protocol';
 import type { DotScreenApp, DotScreenBridge, DotScreenElement, DotScreenPlatform, DotScreenRefused, DotScreenShot, DotScreenTarget } from '../runtime/screen-bridge';
 import { activeScreen, declinedScreen, endLapsedScreen, pendingScreenRequests, requestScreen, touchScreen, type DotScreenDeps } from '../runtime/screen-control';
+import { rememberScreen } from '../runtime/last-screen';
 import { showScreenOverlay } from '../runtime/screen-overlay';
 import { changedThisStep, closerLook, fromScreen, howToPoint, pointsIn, regionOnScreen, screenChanged, STALE_POSITION, toScreen, viewOf, type Mark, type ScreenGeometry } from '../runtime/screen-view';
 import { getDotThread } from '../thread/thread-store';
@@ -149,6 +150,14 @@ const capture = async (env: DotUserScreenEnv, target?: { monitor?: number; windo
 const look = async (env: DotUserScreenEnv, shot: DotScreenShot, marks: Mark[] = []): Promise<{ images: Attachment[]; geometry: ScreenGeometry; marked: boolean }> => {
   const { picture, geometry, marked } = await viewOf(env.vision, { data: shot.data, width: shot.width, height: shot.height }, marks);
   seenBy.set(env.dotId, { geometry, monitor: shot.monitor ?? 1, ...(shot.window ? { window: shot.window } : {}), left: shot.left ?? 0, top: shot.top ?? 0, profile: env.vision?.profile });
+  rememberScreen(env.dotId, {
+    data: shot.data,
+    mimeType: shot.format === 'png' ? 'image/png' : 'image/jpeg',
+    width: shot.width,
+    height: shot.height,
+    of: env.screen.platform === 'mac' ? 'a window on the user\'s Mac' : env.screen.platform === 'linux' ? 'your desktop on the user\'s computer' : 'the user\'s screen',
+    at: env.now(),
+  });
   return { images: [{ type: 'image', mimeType: picture.mimeType ?? 'image/jpeg', data: picture.data }], geometry, marked };
 };
 

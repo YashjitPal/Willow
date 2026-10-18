@@ -49,11 +49,12 @@ it('renders a window over Recents rather than every chat', () => {
     'the Recents list no longer slices to a window');
   // The window must be measured against the pinned partition, or a user with
   // many pins sees a first page made entirely of pins and no actual recents.
-  // Counted over the notebook-filtered list, not `pinnedChatSet.size`: a pinned
-  // chat that is now in a notebook is not hoisted, so it must not buy a slot.
+  // Counted over the list that renders (notebook-filtered, then status-filtered), not
+  // `pinnedChatSet.size`: a pinned chat that is in a notebook or filtered out is not
+  // hoisted, so it must not buy a slot.
   assert.match(source, /effectiveRecentsLimit = recentsLimit \+ visiblePinnedCount/,
     'the window ignores pinned chats, which are all hoisted ahead of the recents');
-  assert.match(source, /visiblePinnedCount = useMemo\(\s*\(\) => sortedChats\.reduce/,
+  assert.match(source, /visiblePinnedCount = useMemo\(\s*\(\) => listedChats\.reduce/,
     'the hoisted-pin count is not derived from the list Recents actually renders');
 });
 

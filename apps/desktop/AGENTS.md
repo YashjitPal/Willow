@@ -140,6 +140,17 @@ agent tab's side-panel tabs for it, below).
   Tools), the Design canvas and Spark's taken-over browser keep to the page with
   `--willow-frame-inset` and `--willow-frame-page-radius` (`AppRail.css`). From
   there the rail takes the shell's own steps (`rail-navigation.ts`), through `/`.
+- **Nothing covers the frame**: a layer fixed over the whole window lies over the page
+  instead, inside its outline and clipped to its corners, so the rail, the gap round the
+  page and its stroke stay as they are, and usable, while a dialog is up. That covers a dim
+  behind a dialog, a sheet or the search panel, the layer a dialog is centred in (so the
+  dialog sits in the middle of the page), and a full-window viewer such as the Library's
+  lightbox. One rule in `AppRail.css` does it: stylesheet-built layers are named there, and
+  Tailwind-built ones are caught by their classes (a dark or blurring `fixed inset-0`, a
+  centring one, and what one of those holds). `apps/studio/test/frame-layers.test.mjs` finds
+  every full-window layer in the sources and fails on one the rule misses, unless it is set
+  aside there with its reason: tooltips and toasts, transparent click-catchers, layers that
+  place things in window coordinates, and full-screen panels that are not dims.
 - **Places are kept**: every rail destination is a tab of its own, kept mounted once
   opened, so going back to one finds it exactly as it was — its draft, its scroll, its
   open panels — rather than built again. In the shell the chat, Spark, Media's landing,
@@ -284,10 +295,17 @@ the desktop. `pets.rs` is the host side of BetterGravity's `plugin.overlay` and
   on Windows, while solid, so clicks land). The pet's context menu is a native
   one. Messages from the surface go to the page that opened it.
 - **The library** is `Pets/` in the Willow folder (`local_folder::folder`), beside
-  the chats and projects: `Pets/<id>/pet.json`
-  and a 1536 × 2288 PNG or WebP sheet, validated here (id, version 2 manifest,
-  paths that stay in the package, the sheet's size read from its header), and
-  `Pets/.hatching/<run>/progress.json` for a creation and its working files. It was
+  the chats and projects. A pet there is a folder or a zip, named anything, with
+  `pet.json` and a 1536 × 2288 PNG or WebP sheet at its top or in folders one
+  down. Zips are read where they are, by the small reader in `pets.rs` (stored
+  or deflated files). A pet is known by the id its `pet.json` gives, or one made
+  from that or its folder's name. One pet in two places, such as a zip kept after
+  unpacking it, is listed once; two pets given one id are both listed, the second
+  under an id made from its folder's or zip's name. Everything is validated here
+  (version 2 manifest, paths that stay in the package, the sheet's size read from
+  its header), and what cannot be used is named in the page's notice with why, a
+  version 1 pet for one. `Pets/.hatching/<run>/progress.json` is a creation and
+  its working files. It was
   `pets/` in the app's data directory; what is there moves over once, on the first
   read (`move_old_library`). The page's sync never scans `Pets/`. The page is
   told when anything there changes (polled once a second). Creation runs' images can

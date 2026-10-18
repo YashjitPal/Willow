@@ -95,7 +95,7 @@ export const SUBSCRIPTIONS_URL = 'https://myaccount.google.com/subscriptions?utm
  * data URI needs (`#` in particular) makes the markup unreadable, and unreadable
  * markup is markup nobody will ever correct.
  */
-const SPOTIFY_MARK = `data:image/svg+xml,${encodeURIComponent(
+export const SPOTIFY_MARK = `data:image/svg+xml,${encodeURIComponent(
   [
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">',
     '<circle cx="48" cy="48" r="48" fill="#1ED760"/>',

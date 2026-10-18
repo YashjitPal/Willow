@@ -50,15 +50,20 @@ export const listenerFor = (redirect?: string): { port?: number; path?: string; 
 
 /**
  * Signs in to a server and connects it. `client` and `redirect` are the user's own app, for services that do not let
- * apps register themselves; the redirect is the address that app was registered with.
+ * apps register themselves; the redirect is the address that app was registered with. `scopes`, where given, are what
+ * the sign-in asks for instead of everything the server names.
  */
-export async function signInFromDesktop(config: McpServerConfig, options: { client?: { clientId: string; clientSecret?: string }; redirect?: string } = {}): Promise<void> {
+export async function signInFromDesktop(
+  config: McpServerConfig,
+  options: { client?: { clientId: string; clientSecret?: string }; redirect?: string; scopes?: string[] } = {},
+): Promise<void> {
   if (!(await canSignIn())) throw new Error('Signing in to apps works in the Willow desktop app.');
   const { id, redirectUri } = await localCompanion.request<{ id: string; redirectUri: string }>('oauth.listen', listenerFor(options.redirect), 15_000);
   try {
     await signInMcpServer(config, {
       redirectUri,
       ...(options.client ? { client: options.client } : {}),
+      ...(options.scopes?.length ? { scopes: options.scopes } : {}),
       openAndWait: (url) => new Promise<Answer>((resolve, reject) => {
         const off = localCompanion.onMessage((message) => {
           if (message.type !== 'event' || message.event !== 'oauth.callback') return;

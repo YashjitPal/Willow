@@ -1,0 +1,880 @@
+/*
+ * Gemini's Library: the `/library` React island (StyleX on Base UI and Luminous), measured at
+ * 1536×826, 800×1280 and 390×844 and read out of its stylesheet
+ * (tools/ui-research/captures/gemini/library/). Spacing is Luminous's: xs 4, s 8, m 12, l 16,
+ * xl 20, xxl 24, 3xl 28. Icons are Luminous Symbols at s 20 / 320, m 24 / 300, l 32 / 240.
+ */
+/* The page and its portalled overlays share the tokens. */
+.gm-library,
+.gm-library-layer {
+  --gm-lib-surface: #0f0f0f;
+  --gm-lib-surface-dim: #171717;
+  --gm-lib-surface-bright: #1c1c1c;
+  --gm-lib-surface-highest: #353637;
+  --gm-lib-on-surface: #e3e3e3;
+  --gm-lib-on-surface-variant: #e6e6e6;
+  --gm-lib-muted: rgba(255, 255, 255, 0.55);
+  --gm-lib-primary: var(--sync-a8c7fa, #a7c7fa);
+  --gm-lib-scrim: rgba(0, 0, 0, 0.32);
+  --gm-lib-text: "Google Sans Flex", "Google Sans Text", "Google Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.gm-library {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--gm-lib-surface);
+  color: var(--gm-lib-on-surface);
+  font-family: var(--gm-lib-text);
+  font-size: 16px;
+  font-weight: 400;
+}
+
+/* Below 961px Gemini's app bar takes the top 68px and the island starts under it. */
+@media (max-width: 960px) {
+  .gm-library {
+    height: calc(100% - 68px);
+    margin-top: 68px;
+  }
+}
+
+/* Below 768px Luminous's surface-dim is #141414 and its variant ink #e0e0e0. */
+@media (max-width: 767px) {
+  .gm-library,
+  .gm-library-layer {
+    --gm-lib-surface-dim: #141414;
+    --gm-lib-on-surface-variant: #e0e0e0;
+  }
+}
+
+.gm-library *,
+.gm-library-layer * {
+  box-sizing: border-box;
+}
+
+/* Type, as Luminous's variants compute. */
+.gm-library-headline {
+  margin: 0;
+  color: var(--gm-lib-on-surface);
+  font-family: "Google Sans Flex", "Google Sans Display", "Google Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 24px;
+  font-weight: 380;
+  line-height: 28px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 380;
+}
+
+.gm-library-title-large {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 470;
+}
+
+.gm-library-body {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gm-library-body--emphasized {
+  font-weight: 470;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 470;
+}
+
+.gm-library-small {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.gm-library-muted {
+  color: var(--gm-lib-muted);
+}
+
+.gm-library-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gm-library-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-family: "Luminous Symbols", "Google Symbols", "Material Symbols Outlined", "Material Symbols Rounded", sans-serif;
+  font-weight: 400;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/*
+ * Luminous's interactive surface: an 8% layer of the ink on hover and 12% pressed (the
+ * `::after`), a 3px ring of the ink for keyboard focus (the `::before`), both fading in 150ms.
+ */
+.gm-library-press {
+  position: relative;
+  isolation: isolate;
+  cursor: pointer;
+}
+
+.gm-library-press::before,
+.gm-library-press::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.gm-library-press::before {
+  border: 3px solid currentColor;
+}
+
+.gm-library-press::after {
+  background-color: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.gm-library-press:hover::after {
+  opacity: 1;
+}
+
+.gm-library-press:active::after {
+  background-color: color-mix(in srgb, currentColor 12%, transparent);
+  opacity: 1;
+}
+
+.gm-library-press:focus-visible::before {
+  opacity: 1;
+}
+
+.gm-library-press:focus-visible {
+  outline: none;
+}
+
+.gm-library-press:disabled,
+.gm-library-press[aria-disabled="true"] {
+  cursor: default;
+}
+
+.gm-library-press:disabled::after,
+.gm-library-press[aria-disabled="true"]::after {
+  opacity: 0;
+}
+
+/* Luminous icon buttons: round, transparent unless a variant fills them. */
+.gm-library-icon-button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--gm-lib-on-surface);
+  font: inherit;
+  text-decoration: none;
+  transition: border-radius 0.2s, box-shadow 0.2s, background-color 0.2s, color 0.2s;
+}
+
+.gm-library-icon-button--s {
+  width: 36px;
+  height: 36px;
+}
+
+.gm-library-icon-button--m {
+  width: 48px;
+  height: 48px;
+}
+
+.gm-library-icon-button--tonal {
+  background-color: var(--gm-lib-surface-dim);
+  color: var(--gm-lib-on-surface-variant);
+}
+
+.gm-library-icon-button--variant {
+  color: var(--gm-lib-on-surface-variant);
+}
+
+.gm-library-icon-button--translucent {
+  background-color: rgba(15, 15, 15, 0.6);
+  color: var(--gm-lib-on-surface);
+  -webkit-backdrop-filter: blur(50px);
+  backdrop-filter: blur(50px);
+}
+
+.gm-library-icon-button:disabled {
+  color: color-mix(in srgb, var(--gm-lib-on-surface) 38%, transparent);
+}
+
+/* Luminous buttons with a label: 48px pills (xs is 24px). */
+.gm-library-button {
+  display: flex;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 1px 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--gm-lib-on-surface);
+  font: inherit;
+  white-space: nowrap;
+}
+
+.gm-library-button--tonal {
+  background-color: var(--gm-lib-surface-dim);
+}
+
+.gm-library-button--s {
+  height: 36px;
+  padding: 1px 12px;
+}
+
+.gm-library-button--xs {
+  height: 24px;
+  padding: 1px 8px;
+  gap: 4px;
+}
+
+/* The page: header, then a scroller whose column is 800px with 20px sides. */
+.gm-library-guard {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.gm-library-header {
+  flex-shrink: 0;
+  padding: 20px 0;
+  background: var(--gm-lib-surface);
+}
+
+.gm-library-header-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.gm-library-back {
+  margin-left: -8px;
+}
+
+/* Base UI's scroll area: no scrollbar, and each edge fades over as much as it has scrolled, at most 40px. */
+.gm-library-scroll {
+  position: relative;
+  min-height: 0;
+  flex-grow: 1;
+  overflow: hidden;
+}
+
+.gm-library-viewport {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  outline: none;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black min(40px, var(--gm-lib-overflow-start, 0px)), black calc(100% - min(40px, var(--gm-lib-overflow-end, 0px))), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, black min(40px, var(--gm-lib-overflow-start, 0px)), black calc(100% - min(40px, var(--gm-lib-overflow-end, 0px))), transparent 100%);
+}
+
+.gm-library-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.gm-library-content {
+  padding-bottom: 20px;
+}
+
+.gm-library-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* The 4px indeterminate bar along the top while the first page loads. */
+.gm-library-progress {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  height: 4px;
+  overflow: hidden;
+  background-color: var(--gm-lib-surface-highest);
+}
+
+.gm-library-progress-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background-color: var(--gm-lib-primary);
+  animation: gm-library-progress 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes gm-library-progress {
+  0% { transform: translate(-100%); }
+  50% { transform: translate(25%) scaleX(0.5); }
+  to { transform: translate(100%); }
+}
+
+/* Luminous's skeleton: the ink at 8%, pulsing to 18% and back every 1.2s. */
+.gm-library-skeleton {
+  display: block;
+  border-radius: 9999px;
+  background-color: currentColor;
+  opacity: 0.08;
+  animation: gm-library-glimmer 1.2s ease-in-out infinite;
+}
+
+.gm-library-skeleton--square {
+  border-radius: 0;
+}
+
+@keyframes gm-library-glimmer {
+  0% { opacity: 0.08; }
+  50% { opacity: 0.18; }
+  to { opacity: 0.08; }
+}
+
+/* A section: its title row (4px above and below), then the content 8px under it. */
+.gm-library-section {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gm-library-section-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.gm-library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  text-align: center;
+}
+
+.gm-library-empty--page {
+  gap: 12px;
+  padding: 24px 16px;
+}
+
+/* Documents: rows of surface-dim, 16px corners, 20px in, 8px apart. */
+.gm-library-list {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gm-library-row {
+  width: 100%;
+  border-radius: 16px;
+  background-color: var(--gm-lib-surface-dim);
+}
+
+.gm-library-row-link {
+  display: block;
+  width: 100%;
+  padding: 20px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--gm-lib-on-surface-variant);
+  font: inherit;
+  text-align: inherit;
+  text-decoration: none;
+}
+
+.gm-library-row-body {
+  display: flex;
+  width: 100%;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+}
+
+.gm-library-row-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.gm-library-row-text > span {
+  display: block;
+}
+
+/* The documents page's skeleton rows: a 40px square in an 8px-cornered box, two pills beside it. */
+.gm-library-skeleton-row {
+  width: 100%;
+  padding: 20px;
+  border-radius: 16px;
+  background-color: var(--gm-lib-surface-dim);
+}
+
+.gm-library-skeleton-icon {
+  overflow: hidden;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+
+.gm-library-skeleton-lines {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+/* Media: square tiles, as many 140px columns as fit, 1px apart. */
+.gm-library-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
+.gm-library-tile {
+  position: relative;
+}
+
+.gm-library-tile-card {
+  display: flex;
+  width: 100%;
+  aspect-ratio: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background-color: var(--gm-lib-surface-highest);
+  color: var(--gm-lib-on-surface);
+  font: inherit;
+  text-align: inherit;
+}
+
+.gm-library-tile-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+.gm-library-tile-loading {
+  position: absolute;
+  inset: 0;
+  background-color: var(--gm-lib-surface-highest);
+}
+
+.gm-library-tile-loading > .gm-library-skeleton {
+  width: 100%;
+  height: 100%;
+}
+
+.gm-library-tile-text {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.gm-library-clamp-2,
+.gm-library-clamp-3 {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}
+
+.gm-library-clamp-2 {
+  -webkit-line-clamp: 2;
+}
+
+.gm-library-clamp-3 {
+  -webkit-line-clamp: 3;
+}
+
+.gm-library-muted-icon {
+  opacity: 0.38;
+}
+
+.gm-library-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: var(--gm-lib-surface-bright);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Delete on hover from 769px; More options always below that. */
+.gm-library-tile-delete,
+.gm-library-tile-more {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.gm-library-tile-delete {
+  display: none;
+}
+
+.gm-library-tile-more {
+  display: flex;
+}
+
+@media (min-width: 769px) {
+  .gm-library-tile-delete {
+    display: flex;
+  }
+
+  .gm-library-tile-more {
+    display: none;
+  }
+}
+
+.gm-library-more {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  padding: 12px;
+}
+
+/* Overlays share one layer and stack in the order they open. */
+.gm-library-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30000;
+  color: var(--gm-lib-on-surface);
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+}
+
+.gm-library-scrim {
+  position: fixed;
+  inset: 0;
+  background-color: var(--gm-lib-scrim);
+  transition: opacity 0.2s;
+}
+
+.gm-library-scrim[data-state="entering"],
+.gm-library-scrim[data-state="leaving"] {
+  opacity: 0;
+}
+
+/* The tooltip: inverted, 12px corners, 6px under its control, growing in from 0.8 over 150ms. */
+.gm-library-tooltip {
+  position: fixed;
+  z-index: 30001;
+  max-width: 200px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background-color: #e3e3e3;
+  color: #171717;
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 16px;
+  /*
+   * Gemini portals its overlays into an unstyled body, so their boxes' line height is Times New
+   * Roman's at 16px (18.4px) while the labels set their own font: hence the 34.6px tooltip.
+   */
+  line-height: 18.4px;
+  pointer-events: none;
+  transform-origin: center top;
+  animation: gm-library-tooltip-in 0.15s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+@keyframes gm-library-tooltip-in {
+  0% { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.gm-library-tooltip > span {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+/* The confirmation: 420px of surface-bright, 40px corners, 28px in, buttons 20px in. */
+.gm-library-dialog-layer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+.gm-library-dialog {
+  position: relative;
+  display: flex;
+  width: 420px;
+  max-width: 100%;
+  flex-direction: column;
+  border-radius: 40px;
+  background-color: var(--gm-lib-surface-bright);
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.04);
+}
+
+.gm-library-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 28px 28px 0;
+}
+
+/* The body text's box carries the portal's 18.4px line too (see the tooltip), so two lines are 40px. */
+.gm-library-dialog-body > div {
+  line-height: 18.4px;
+}
+
+.gm-library-dialog-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
+.gm-library-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 20px;
+}
+
+/* Phones' item menu: a bottom sheet with a handle, rising over 300ms. */
+.gm-library-sheet-layer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.gm-library-sheet-layer > .gm-library-scrim {
+  transition: opacity 0.3s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.gm-library-sheet {
+  position: relative;
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  flex-direction: column;
+  border-radius: 28px 28px 0 0;
+  background-color: var(--gm-lib-surface);
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.04);
+  transform: translateY(var(--gm-lib-sheet-drag, 0px));
+  transition: transform 0.3s cubic-bezier(0.2, 0, 0, 1);
+  touch-action: none;
+}
+
+.gm-library-sheet[data-swiping] {
+  transition: none;
+  user-select: none;
+}
+
+.gm-library-sheet[data-state="entering"],
+.gm-library-sheet[data-state="leaving"] {
+  transform: translateY(100%);
+}
+
+.gm-library-sheet-handle {
+  display: flex;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.gm-library-sheet-handle > span {
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: 9999px;
+  background-color: var(--gm-lib-muted);
+}
+
+.gm-library-sheet-content {
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px 16px;
+}
+
+.gm-library-sheet-item {
+  display: flex;
+  width: 100%;
+  height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 12px 8px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--gm-lib-on-surface);
+  font: inherit;
+  text-align: start;
+}
+
+/* The lightbox: the picture blurred behind a 90% scrim, the picture itself, its actions under it. */
+.gm-library-lightbox-ambient {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  filter: blur(24px);
+  transform: scale(1.1);
+  pointer-events: none;
+}
+
+/* No transitions: Gemini's lightbox comes and goes in one frame. */
+.gm-library-lightbox-scrim {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(30, 30, 30, 0.9);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.gm-library-lightbox-stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px;
+}
+
+.gm-library-lightbox-media {
+  display: flex;
+  max-width: 100%;
+  max-height: calc(100vh - 180px);
+  align-items: center;
+  justify-content: center;
+}
+
+.gm-library-lightbox-media > img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 180px);
+  object-fit: contain;
+}
+
+.gm-library-lightbox-loading {
+  width: min(calc(100vh - 180px), calc(100vw - 128px));
+  max-width: 100%;
+  height: min(calc(100vh - 180px), calc(100vw - 128px));
+  max-height: 100%;
+  overflow: hidden;
+  aspect-ratio: 1;
+}
+
+.gm-library-lightbox-loading > .gm-library-skeleton {
+  width: 100%;
+  height: 100%;
+}
+
+.gm-library-lightbox-broken {
+  display: flex;
+  width: 320px;
+  height: 320px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--gm-lib-surface-dim);
+}
+
+.gm-library-lightbox-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  background-color: var(--gm-lib-surface);
+}
+
+.gm-library-lightbox-close {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gm-library-progress-bar,
+  .gm-library-skeleton,
+  .gm-library-tooltip {
+    animation: none;
+  }
+
+  .gm-library-press::before,
+  .gm-library-press::after,
+  .gm-library-scrim,
+  .gm-library-sheet {
+    transition: none;
+  }
+}
+
+/* Gemini's account is dark, so the light theme follows Luminous's light tokens, unmeasured. */
+:is(.light-theme, [data-theme="light"]) .gm-library,
+:is(.light-theme, [data-theme="light"]) .gm-library-layer {
+  --gm-lib-surface: #ffffff;
+  --gm-lib-surface-dim: #f0f4f9;
+  --gm-lib-surface-bright: #ffffff;
+  --gm-lib-surface-highest: #dde3e9;
+  --gm-lib-on-surface: #1f1f1f;
+  --gm-lib-on-surface-variant: #1f1f1f;
+  --gm-lib-muted: rgba(0, 0, 0, 0.55);
+  --gm-lib-primary: var(--sync-0b57d0, #0e57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-library-tooltip {
+  background-color: #1f1f1f;
+  color: #ffffff;
+}

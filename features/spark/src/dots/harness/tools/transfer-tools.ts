@@ -21,7 +21,7 @@ const SIDES: Record<string, 'yours' | 'theirs'> = {
 };
 
 /** A path in the bot's folder, as its own computer takes it. */
-const ownPath = (raw: string): string | null => {
+export const ownPath = (raw: string): string | null => {
   const value = raw.trim().replace(/\\/g, '/').replace(/^~\/workspace\/?/, '').replace(/^workspace\//, '');
   if (!value || value.startsWith('/') || value.startsWith('~') || value.split('/').includes('..')) return null;
   return value;

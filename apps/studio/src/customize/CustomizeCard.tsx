@@ -56,9 +56,11 @@ export const CustomizeCard: React.FC<CustomizeCardProps> = ({
         <div className="title gds-body-l">
           {item.title}
         </div>
-        <div className="subtitle gds-body-s">
-          {item.subtitle}
-        </div>
+        {item.subtitle ? (
+          <div className="subtitle gds-body-s">
+            {item.subtitle}
+          </div>
+        ) : null}
       </div>
 
       {item.hasAddButton ? (

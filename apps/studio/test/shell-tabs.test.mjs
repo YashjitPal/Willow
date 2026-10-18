@@ -75,6 +75,13 @@ it('leaves the window\'s files, Escape and Settings to the tab on show', () => {
   assert.match(spark('spaces', 'willow', 'SpacesSidePanel.tsx'), /if \(panelRef\.current\?\.closest\('\[inert\]'\)\) return;/);
 });
 
+it('lets only the page on show take the workspace\'s scroll away', () => {
+  // A bot's conversation or Pages kept behind the page on show (Pets, Skills...) would leave it unable to scroll.
+  const css = read('features', 'spark', 'src', 'SparkWorkspace.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(css, /\.spark-studio-scroll:has\(\.spark-task-detail:not\(\[inert\] \*\)\),\s*\.spark-studio-scroll:has\(\.spaces-shell:not\(\[inert\] \*\)\) \{\s*overflow: hidden !important;/);
+  assert.doesNotMatch(css, /\.spark-studio-scroll:has\((?![^)]*:not\(\[inert\] \*\))/, 'a page kept behind another can take the scroll');
+});
+
 it('opens Customize where it was left, after a reload too', () => {
   const view = read('apps', 'studio', 'src', 'customize', 'CustomizeView.tsx');
   assert.match(view, /const LEFT_KEY = 'willow:customize-left';/);

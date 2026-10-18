@@ -1,0 +1,93 @@
+/*
+ * Gemini's `back-to-bottom-fab`, from its own stylesheet and measured at 1536×826, 800×1280 and
+ * 390×844 (tools/ui-research/captures/gemini/scroll-to-bottom/). Its bottom edge is 36px above
+ * the composer's at every width, centred on it.
+ */
+.gm-back-to-bottom {
+  --gm-back-to-bottom-surface: #1f1f1f;
+  --gm-back-to-bottom-on-surface: #e3e3e3;
+  /* The hover is mixed from a different ink, Luminous's on-surface: measured color(srgb 0.184). */
+  --gm-back-to-bottom-hover-ink: #e6e6e6;
+  position: absolute;
+  bottom: calc(100% + 36px);
+  left: 0;
+  right: 0;
+  z-index: 2;
+  width: fit-content;
+  margin-inline: auto;
+  pointer-events: none;
+}
+
+/* Below 960px Gemini's surface-bright is #1c1c1c (it is still #1f1f1f at 960), and that ink #e0e0e0. */
+@media (max-width: 959.98px) {
+  .gm-back-to-bottom {
+    --gm-back-to-bottom-surface: #1c1c1c;
+    --gm-back-to-bottom-hover-ink: #e0e0e0;
+  }
+}
+
+/* Hidden: scaled to 0.8 and 8px down; it rises and fades in over 0.2s on Gemini's curve. */
+.gm-back-to-bottom__button {
+  display: flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background-color: var(--gm-back-to-bottom-surface);
+  color: var(--gm-back-to-bottom-on-surface);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.8) translateY(8px);
+  pointer-events: none;
+  transition:
+    opacity 0.2s cubic-bezier(0.2, 0, 0, 1),
+    transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+    background-color 0.15s cubic-bezier(0.2, 0, 0, 1);
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.4);
+}
+
+.gm-back-to-bottom__button.is-visible {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: auto;
+}
+
+.gm-back-to-bottom__button.is-leaving {
+  opacity: 0;
+  transform: scale(0.8) translateY(8px);
+  pointer-events: none;
+  transition-duration: 0.1s;
+}
+
+.gm-back-to-bottom__button:hover {
+  background-color: color-mix(in srgb, var(--gm-back-to-bottom-hover-ink) 8%, var(--gm-back-to-bottom-surface));
+}
+
+.gm-back-to-bottom__button:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 2px;
+}
+
+/* Gemini's account is dark, so the light theme follows Gemini's light surfaces, unmeasured. */
+:is(.light-theme, [data-theme="light"]) .gm-back-to-bottom {
+  --gm-back-to-bottom-surface: #ffffff;
+  --gm-back-to-bottom-on-surface: #1f1f1f;
+  --gm-back-to-bottom-hover-ink: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-back-to-bottom__button {
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.12);
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-back-to-bottom__button:focus-visible {
+  outline-color: var(--sync-0b57d0, #0b57d0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gm-back-to-bottom__button {
+    transition: none;
+  }
+}

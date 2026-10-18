@@ -158,10 +158,8 @@
  *
  * `max-height` measured 330.24px against an 825.6px viewport — exactly 40%, so
  * it is 40vh expressed in the px the viewport happened to be. Every other value
- * is literal.
- *
- * `letter-spacing: 0.096px` is 0.008em at 12px; kept in px because px is what
- * was measured and em would re-derive it if the size ever changed.
+ * is literal: Gemini's `gds-body-s` is now 13px/17px with no tracking, so a
+ * one-line tooltip is 33px tall ("Close sidebar", "Turn on temporary chat").
  */
 .willow-tooltip-surface {
   display: block;
@@ -176,12 +174,12 @@
   box-shadow: none;
 
   font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
   font-optical-sizing: auto;
-  line-height: 16px;
-  letter-spacing: 0.096px;
+  line-height: 17px;
+  letter-spacing: normal;
   word-spacing: 0;
   text-align: center;
   text-transform: none;
@@ -231,6 +229,41 @@
  */
 .willow-tooltip-surface--multiline {
   text-align: left;
+}
+
+/*
+ * `data-tooltip-variant="island"`: the tooltip of Gemini's React islands (Base UI, the search
+ * buttons), not Material's. #e3e3e3 rather than #e6e6e6, 6.4px from the trigger rather than 8, and
+ * its 13px/17px text sits in the line box of a 16px box in the browser's default font (Gemini's
+ * page sets none), so one line is 34.6px tall rather than 33.
+ */
+.willow-tooltip-pane--island.willow-tooltip-pane--below {
+  transform: translateY(6.4px);
+}
+
+.willow-tooltip-pane--island.willow-tooltip-pane--above {
+  transform: translateY(-6.4px);
+}
+
+.willow-tooltip-pane--island.willow-tooltip-pane--right {
+  transform: translateX(6.4px);
+}
+
+.willow-tooltip-pane--island.willow-tooltip-pane--left {
+  transform: translateX(-6.4px);
+}
+
+.willow-tooltip-surface--island {
+  background-color: rgb(227, 227, 227);
+  font-family: initial;
+  font-size: 16px;
+  line-height: normal;
+}
+
+.willow-tooltip-island-text {
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  line-height: 17px;
 }
 
 [dir="rtl"] .willow-tooltip-surface--multiline {

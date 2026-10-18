@@ -31,6 +31,7 @@ harness/
     protocol.ts         The wire format: Spark's call/patch envelopes plus message/react/status actions.
     stream-parser.ts    Fork of Spark's ResponseStreamParser with the action envelopes.
     dot-loop.ts         One turn: stream → actions applied live → calls (look-ups at once) → steering → repeat.
+    turn-end.ts         Where a bot stands after a turn: its status, and the wake-up it set.
     helpers.ts          Background helpers: headless runs of Spark's harness, reporting to the dot.
     computer-bridge.ts  How a dot reaches the user's computer: the local companion's requests.
     computer-access.ts  The user's side of it: connecting a folder, approvals, background jobs.
@@ -64,7 +65,7 @@ harness/
                         the user's computer, the dot's own computer (machine-tools.ts); assembly.
   thread/
     thread-types.ts     The thread: items, episodes, notebook, runtime state.
-    reactions.ts        Reactions both ways, folded from the record; which of the user's may answer.
+    reactions.ts        Reactions both ways, folded from the record.
     thread-store.ts     The live copy (nanostore) and every mutation; cross-tab sync.
     thread-persistence.ts  IndexedDB (and in-memory, for tests).
 ```
@@ -119,6 +120,12 @@ next iteration. Two consequences are load-bearing:
   prose were the reply, a model that only wanted to acknowledge would still emit
   text, and the filler "Got it!" is the failure this design exists to prevent.
 
+Closers are read as models also write them (`stream-parser.ts`): asterisks escaped
+as Markdown or written as lookalikes, spaced or cased otherwise, with an invisible
+character or a stray asterisk in or after them, glued to the last sentence or to
+the next marker. Streaming holds back whatever may still grow into one, so the
+user never sees "End Message" flash by, or stay.
+
 A reaction is any single emoji (`normalizeReactionEmoji`: Unicode's RGI emoji —
 skin tones, ZWJ sequences, flags — with a text-style symbol like `❤` given its emoji
 form), targets only the user's messages, and carries a two-to-five-word label: the
@@ -155,11 +162,10 @@ wider set, as in a messenger: one reaction per message, a new emoji replacing th
 again taking it back. Each change is a `user-reaction` item — an input, appended
 by `reactToDotMessage`, never an edit — whose `text` is the start of the message
 it is on (`messageExcerpt`), because the bot's own output carries no ids in its
-view: the bot reads "The user reacted 👍 to your message “…”". A reaction wakes the
-bot only when it may answer something (`reactionMayAnswer`: the message asked a
-question the user has not written back about since, or the emoji is 🤔);
-anything else is an acknowledgement the bot reads the next time it acts, and the
-`<now>` block counts it as news. The prompt tells the bot never to answer a
+view: the bot reads "The user reacted 👍 to your message “…”". Every change wakes
+the bot, as a message does — taking a reaction back too — and what it means is the
+bot's to judge; nothing in the code guesses it. The `<now>` block counts it as news,
+and the prompt tells the bot never to answer a
 reaction just to acknowledge it, to take a clear reaction to its question as the
 answer, and to look again at what it said when a reaction signals doubt.
 `thread/reactions.ts` folds both directions from the record for the UI.
@@ -173,7 +179,7 @@ the inbox has something and the bot is not already working. What fills it:
 | Source | How |
 | --- | --- |
 | The user writing | `sendDotMessage` appends a `user` item and kicks the bot |
-| The user reacting in a way that may answer | `reactToDotMessage`, when `reactionMayAnswer` (any other reaction waits for the next turn) |
+| The user reacting, or taking a reaction back | `reactToDotMessage`, for every change |
 | A sleep ending | A timer armed from `runtime.wakeAt`; late wakes say how late |
 | A time trigger coming due | The same timer, armed from the soonest trigger (`nextTimeTriggerAt`); late runs say how late, once |
 | An event trigger finding something new | The trigger engine's look every 30 s at due triggers (mail, calendar, GitHub, a page, a folder) |
@@ -236,11 +242,20 @@ successful `computer_apply_patch`. A later `user_run_command`, `user_start_job`
 or `computer_run_command` counts as the check. The bot may still end its turn
 again; the notice asks, it does not insist.
 
+**The bot ends its own turn.** A response with no call in it ends the turn, whatever
+its messages say: the loop never reads the bot's words to judge whether it meant to
+go on. Carrying on is the bot's to do — the call that does what a message says goes
+in the same response, as the prompt's rules put it — and work longer than a turn
+continues from its own plan (below).
+
 **Sleep ends the turn.** `sleep` records a wake time and the turn stops; waking is
 a new turn that reads exactly what happened, because every step was recorded.
 Nothing is held open in memory across a sleep, which is what lets a sleep survive
 a reload — and why there is no blocking "wait for task" tool: the bot ends its
-turn and is told.
+turn and is told. Woken early — the user wrote or reacted, work it handed off moved —
+the bot keeps the wake-up it set until it comes or the bot sleeps again
+(`runtime/turn-end.ts`); one already past when the turn began never came, and is
+dropped.
 
 **Stop means stop.** An interrupted turn marks its inputs handled; otherwise the
 bot would start straight back up on the message that triggered it.
@@ -314,8 +329,14 @@ one run — in Willow's own types (`thread-types.ts`, `DotTrigger`):
   trigger's `problem`, shown in the profile, and the look backs off.
 - **Firing** records the run (ending a `once`, or one at its `max_runs` or
   `until`) and posts a `trigger` event: what happened, the instruction, and how
-  the user wants to hear about it (`notify`: always, when it matters, or never).
-  It wakes the bot from a sleep; a paused bot hears nothing until it resumes.
+  the user wants to hear about it (`notify`: always, when it matters, or never —
+  never for a run whose work is to say something, the tool says). It wakes the bot
+  from a sleep; a paused bot hears nothing until it resumes.
+- **A run answers where it was asked for.** A trigger made while the user's latest
+  message came from Discord or Telegram keeps where (`from`: the channel or DM), its
+  `trigger` events carry it (`via`, `discord`), the transcript says it, and the
+  run's messages go there — into the server channel it was asked for in, as a reply
+  would (`discordReplyTarget`), or to Telegram (`viaTelegram`).
 - **One window looks.** Looks run under the Web Lock `willow-dot-triggers:<id>`.
 - **What a window can watch** is worked out every turn (`triggerLimits` in
   `dot-runtime.ts`) and written into the tool's documentation, so the bot knows
@@ -383,14 +404,21 @@ Spark's Connected apps page opens with a catalog of remote MCP servers ready to 
 (thousands of apps each, through the user's own server address); for code GitHub,
 Context7, DeepWiki, Microsoft Learn, Hugging Face, Sentry, Neon, Supabase, Postman,
 Cloudflare, Cloudflare Docs and AWS Knowledge; for search and research Exa, Tavily,
-Firecrawl, Jina AI and Apify; for work Linear, Atlassian (Jira, Confluence — when the
-admin allows API tokens) and monday.com; and Stripe. Only those that take no sign-in, a
+Firecrawl, Jina AI, Apify, Fever and X; for work Linear, Atlassian (Jira, Confluence — when the
+admin allows API tokens), monday.com, Granola, Wispr Flow, Dropbox and Zoho Projects;
+for business Stripe, HubSpot, Zoho CRM, Bigin, Zoho Desk and Zoho Mail; and for design
+and websites Canva, Webflow and Wix. Only those that take no sign-in, a
 pasted key or a pasted address, checked against each vendor's docs (October 2026);
 a key goes under the vendor's own scheme (`Bearer`, Sentry's `Sentry-Bearer`, or
-`Basic` for Atlassian's `email:token`, encoded). Servers that take only OAuth are
-signed in to from the desktop app — Notion, which lets Willow register itself, and
-Asana and HubSpot, which ask the user to make an app of their own (its client ID and
+`Basic` for Atlassian's `email:token`, encoded). Zoho's apps take the address of a
+server the user makes in Zoho MCP (`https://<name>.zohomcp.<domain>/mcp/message?key=…`,
+one domain per data centre). Servers that take only OAuth are
+signed in to from the desktop app — Notion, Canva, Dropbox, Webflow, Wix, Granola, Fever
+and Wispr Flow, which let Willow register itself (each tried with Willow's own request),
+and Asana and HubSpot, which ask the user to make an app of their own (its client ID and
 secret, with `http://localhost:3334/oauth/callback` registered as its redirect).
+Customize → Connectors shows the consumer apps among them as cards on the same presets
+(`apps/studio/src/customize/customize-mcp.ts`).
 Servers that admit only clients they approved (Figma, Vercel) are left out. The
 protocol is `platform/ai/src/mcp/mcp-oauth.ts` (discovery from the server's 401 or
 its well-known metadata, dynamic registration, PKCE S256, the `resource` binding,
@@ -400,7 +428,13 @@ config. The browser half is `features/spark/src/mcp-signin.ts` with the companio
 `oauth.*` (its AGENTS.md). Ten of the key apps also take a sign-in that registers
 Willow (Sentry, Neon, Supabase, Postman, Cloudflare, Apify, Linear, Atlassian,
 monday.com, Stripe — each checked live), offered as "Sign in instead" beside the key;
-an app whose sign-in ended offers "Sign in again". A server added by address that
+an app whose sign-in ended offers "Sign in again". X's (`api.x.com/mcp`, which X bills
+to the user's own X developer app per request) registers no apps: its key is that app's
+Bearer token, which reads, and "Sign in with your app instead" signs in as the user with
+the app's Client ID — `http://127.0.0.1:3334/oauth/callback` as its callback, since X
+wants a loopback one as 127.0.0.1, and only reading and bookmark scopes asked for
+(`McpOwnApp.scopes`), where X's server names every scope its API has. Signing in again
+uses the app a server signed in with (`signedInClient`). A server added by address that
 answers 401 (`needs-sign-in`) offers Sign in too, falling back to the user's own app
 where the server does not let apps register (`McpOAuthError` code `no-registration`).
 Whatever a server offers reaches every bot as `mcp:` tools. In the desktop app, MCP
@@ -417,10 +451,14 @@ it when the server is turned on (`mcp.*`, its AGENTS.md). The window's transport
 handshake allowed five minutes because a first `npx -y` downloads the server, and a
 program that ends failing what was waiting at once with what it printed. One that
 ends after connecting is shown failed and started again once a minute at most. The
-catalog's "On this computer" group, shown only where programs can run, adds five in a
+catalog's "On this computer" group, shown only where programs can run, adds six in a
 click, each started and listed here (October 2026): Playwright and Chrome DevTools
 (`npx`), Files (`npx`, in a folder picked with the system's dialog), Git and Fetch
-(`uvx`). A server added by hand never takes a catalog app's id.
+(`uvx`), and X Reader (`uv`), Willow's own: it reads X signed in as the user, with the
+`auth_token` and `ct0` cookies of a sign-in to X in a window the companion opens
+(`site-sign-in.ts`) or pasted into its row (`McpSession`, passed as `X_COOKIES`), and the
+companion runs its own copy whatever command was saved (`bundled`; the companion's
+AGENTS.md). A server added by hand never takes a catalog app's id.
 `settings.json` keeps a server's sign-in and its program fields.
 
 ### Email
@@ -641,8 +679,12 @@ a token, a thought or usage), not when the request was sent: the loop reports a
 `read` event and the runtime keeps `runtime.readSeq` (threads from before it read
 `lastActedSeq`). It stays there while the bot thinks, works and types (a message
 still being written does not count as the latest), and goes once the bot's answer
-is written, the reply saying it was seen (`seenRow` in `chat/chat-rows.ts`). A
-message handled without being read — a stop, a pause — is not "Seen".
+is written, the reply saying it was seen (`seenRow` in `chat/chat-rows.ts`). The
+answer is a message written with that one in view: each bot message keeps the last
+seq its request had (`saw`), so a follow-up sent while the bot was already writing
+stands above what it was writing without that counting as its answer, and keeps
+"Seen" once a later request reads it. A message handled without being read — a
+stop, a pause — is not "Seen".
 
 **Writing while the bot works steers it, never interrupts it.** The message joins
 the thread at once. The response the model is writing, and the calls in it, finish
@@ -663,15 +705,35 @@ each came from (`withSentFiles` in `runtime/sent-files.ts`); after it, `open_att
 opens a message's files again. The bubble draws a picture as itself, above any words,
 and any other file as a chip (`SentPicture` in `DotChat.tsx`).
 
+**The bot sends files too** (`send_file`, `tools/send-tools.ts`): one on the user's
+computer, in its folder on its own, in its workspace, or the screen it last took a
+picture of — kept as it was captured, at its own size (`runtime/last-screen.ts`, which
+`user-screen-tools.ts` and `machine-tools.ts` feed) — up to 25 MB, as a `dot` message of
+its own with the file on it and any words it says with it (`keepSentFile`, a payload
+like the user's, without Spark's per-task limit). What holds secrets is never sent. A
+picture comes back to the bot with the result, as it is or drawn to its model's size,
+so it sees what it sent. The call tells the loop the message is out (`delivered`), so
+it goes where the bot's messages go: notified, to Telegram as a photo or a document,
+and to Discord with the message — in the DM, never into a server channel others read,
+where a line says it went to the DM instead; what is more than Discord takes stays in
+Willow, and the line says so. In the conversation a picture opens whole
+(`PictureViewer`), and a file's chip saves it, the user's own included. The
+transcript tells a file sent with no words by its call and result alone.
+
 **Marks.** A line of the conversation's own, centred and the size of a day label
 (`chat/chat-rows.ts`): "Connecting to <logo> Gmail" while a turn's first call to an app
 runs, as Willow's chat names an app, and "Connected to" after — once an app a turn,
 for connected apps (`app:*`), the bot's email and MCP servers (`chat/app-marks.ts`) —
 and the user's screen in the bot's hands. Each turn that used the screen gets a line
-at its first look under a go-ahead. While that turn is under way and the go-ahead
-holds, the line is a capsule: "Pip is using your screen", with Stop (`ScreenMark` in
-`DotChat.tsx`). Once the turn is over it reads "Pip used your screen", however long
-the go-ahead still holds; it is never live after the work. A go-ahead not used yet
+at its first look under a go-ahead. A call counts under the go-ahead in force when
+its result came back — its tool ends one that lapsed and takes a new one as it runs —
+or the one it began under, unless that had lapsed (a Stop part way still leaves it
+used); a call the screen turned away did nothing there and does not count. While
+that turn is under way, the go-ahead holds and the screen was in its hands within
+the last minute (`SCREEN_IN_USE_MS`: a call running, or one that went through), the
+line is a capsule: "Pip is using your screen", with Stop (`ScreenMark` in
+`DotChat.tsx`). Otherwise it reads "Pip used your screen", however long the go-ahead
+still holds; it is never live after the work. A go-ahead not used yet
 is a line of its own ("You let Pip use your screen"). A declined request, and the
 user taking the screen back, are lines where they happened. A request for the screen
 still waiting on the user stays a card.
@@ -905,15 +967,17 @@ where nothing waits for approval.
   user's (`via: 'discord'`, with `discord: { channelId, messageId, guildId?, where? }`;
   the transcript, `<now>` and the chat's meta line say where — and `<now>` that a
   server channel is public). What anyone else writes is heard only by `discord`
-  triggers and the `discord` tool, as information. Its DM mirrors the conversation:
-  what the user writes in Willow (or on Telegram) is quoted there, marked as theirs
-  (`quoteForDiscord`), and every message of the bot's goes there too — unless the
-  user's latest message was written in a server channel, when it goes to that
-  channel, the first answering it (`discordReplyTarget`). Posts go one after another
+  triggers and the `discord` tool, as information. What they write on Discord shows in
+  Willow too, but not the other way round: the bot's messages go to Discord only when
+  the user's latest message was written there — back in that DM, or in that server
+  channel, the first answering it — and what they wrote in Willow or on Telegram is
+  answered there alone (`discordReplyTarget`). A turn the user did not start (a
+  reminder, a routine) goes to the DM when they last wrote from Discord, never to a
+  server channel. Posts go one after another
   per bot (`enqueueDiscord`), so they keep their order, and tables become code blocks
   (`discordMarkdown`). "Typing…" shows where the answer will land; its reactions land
-  on the user's Discord messages or their quotes (`quoted`), and the user's reactions
-  on its mirrored messages arrive as theirs (`sent` maps Discord messages to items).
+  on the user's Discord messages, and the user's reactions on its messages there
+  arrive as theirs (`sent` maps Discord messages to items).
   The `discord` tool lists servers and channels, reads a channel, and posts or
   reacts: at once in the DM or where the user is writing from this turn, in a channel
   they allowed for good (`runtime.discordChannels`, a standing card as the record),
@@ -945,6 +1009,16 @@ where nothing waits for approval.
   on every page, under `willow-dot-discord-look:<id>`. The bot's Discord page says
   where it stands under "Looks like {bot}", with a switch to keep whatever it wears
   there instead; turned back on, everything is sent again.
+- **Its status says what it is doing** (`runtime/discord-presence.ts`): a few words
+  while it works and none between turns, by the kind of thing it is doing — thinking,
+  writing a reply, using a computer, running a command (`discordStatusOf`, from the
+  activity's tool) — never what about: not its status line, a tool's own words or an
+  app's name, as the status is the bot's in every server it is in, and everyone there
+  sees it. A change shows once it has held 1.5 s; words still up are said again every
+  two minutes, since the companion takes down words nobody renews for five (the window
+  that set them is gone) and sends Discord at most one change in five seconds
+  (`discord.presence`, see its AGENTS.md), far inside the 120 gateway events a minute
+  Discord allows. A switch on the Discord page turns it off (`statusOff`), at once.
 
 ## The user's screen
 

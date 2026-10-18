@@ -495,10 +495,12 @@
   margin-bottom: 4px;
 }
 
-.connected-apps-container .ca-token-scopes code {
-  /* The permission names are GitHub's, typed exactly as they appear on their page,
-     so they are set apart from the sentence around them — a name the user has to
-     find in a list of thirty is worth being able to pick out. */
+.connected-apps-container .ca-token-scopes code,
+.connected-apps-container .ca-token-steps code {
+  /* GitHub's permission names, and addresses the user types into another site,
+     are written exactly as that site wants them, so they are set apart from the
+     sentence around them — a name the user has to find in a list of thirty is
+     worth being able to pick out. */
   font-family: 'Roboto Mono', ui-monospace, monospace;
   font-size: 12px;
   color: var(--ca-on-surface);

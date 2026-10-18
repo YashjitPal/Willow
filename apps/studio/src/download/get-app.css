@@ -1,0 +1,216 @@
+/*
+ * Gemini's top-bar "Get app" (`desktop-get-app-button`) and its phone counterpart
+ * (`get-app-button`), measured at 1536x826 and 390x844 (tools/ui-research/captures/gemini/download/).
+ */
+
+/* The desktop pill: tonal, 36px, the 24px `download` glyph 8px before "Get app". */
+.gm-get-app {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 9999px;
+  background-color: #171717;
+  color: #e6e6e6;
+  cursor: default;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  outline: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Material's persistent state layer: 8% of the ink hovered or focused, 12% pressed. */
+.gm-get-app::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: #e6e6e6;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gm-get-app:hover::before,
+.gm-get-app:focus-visible::before {
+  opacity: 0.08;
+}
+
+.gm-get-app:active::before {
+  opacity: 0.12;
+}
+
+.gm-get-app:focus-visible {
+  outline: 3px solid #e6e6e6;
+  outline-offset: 2px;
+}
+
+.gm-get-app-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 24px;
+  align-items: center;
+  gap: 8px;
+}
+
+.gm-get-app-label {
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.gm-get-app-ripples {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* `.mat-ripple-element`: launchMaterialRipple sets the geometry and the durations inline. */
+.gm-get-app-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background-color: rgba(230, 230, 230, 0.1);
+  pointer-events: none;
+  transform: scale3d(0, 0, 0);
+  transition-property: opacity, transform;
+  transition-timing-function: ease, cubic-bezier(0, 0, 0.2, 1);
+}
+
+.gm-get-app-ripple--icon,
+.gm-get-app-ripple--pill {
+  background-color: rgba(196, 199, 197, 0.12);
+}
+
+@media (max-width: 960px) {
+  .gm-get-app {
+    display: none;
+  }
+}
+
+/* The phone's: a 40px icon button, `install_mobile` from Google Symbols at 87% white. */
+.gm-phone-get-app {
+  display: flex;
+  align-items: center;
+}
+
+.gm-phone-get-app-icon {
+  position: relative;
+  display: inline-flex;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.87);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gm-phone-get-app-glyph {
+  position: relative;
+  z-index: 1;
+}
+
+.gm-phone-get-app-pill {
+  position: relative;
+  display: none;
+  box-sizing: border-box;
+  height: 40px;
+  min-width: 64px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background-color: #333537;
+  color: #c4c7c5;
+  cursor: pointer;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  outline: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gm-phone-get-app-pill-icon {
+  position: relative;
+  z-index: 1;
+  margin: 0 8px 0 -8px;
+}
+
+.gm-phone-get-app-label {
+  position: relative;
+  z-index: 1;
+  display: none;
+  font-size: 15px;
+  font-weight: 370;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+@media (min-width: 480px) {
+  .gm-phone-get-app-icon {
+    display: none;
+  }
+
+  .gm-phone-get-app-pill {
+    display: flex;
+  }
+
+  .gm-phone-get-app-label--medium {
+    display: inline-block;
+  }
+}
+
+@media (min-width: 600px) {
+  .gm-phone-get-app-label--medium {
+    display: none;
+  }
+
+  .gm-phone-get-app-label--long {
+    display: inline-block;
+  }
+}
+
+/* Gemini's account is dark; the light values follow the shell's light controls, unmeasured. */
+:is(.light-theme, [data-theme="light"]) .gm-get-app {
+  background-color: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-get-app::before {
+  background-color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-get-app:focus-visible {
+  outline-color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-get-app-ripple {
+  background-color: rgba(31, 31, 31, 0.1);
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-phone-get-app-icon {
+  color: rgba(0, 0, 0, 0.87);
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-phone-get-app-pill {
+  background-color: #dde3e9;
+  color: #444746;
+}

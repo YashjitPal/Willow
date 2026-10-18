@@ -69,6 +69,13 @@ export const customizeSkills = atom<CustomizeSkillsState>(readState());
 const slugify = (value: string): string =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
 
+/**
+ * A skill's name in the library, which is also its "/" token in chat. The page
+ * shows built-ins by slug once added, so the library uses the same name.
+ */
+export const customizeSkillName = (item: CustomizeItem, edits?: SkillEdits): string =>
+  (edits?.title || item.slug || item.title || item.id).trim();
+
 /** The page's active and inactive skills, as library entries. */
 export function toLibrarySkills(state: CustomizeSkillsState): LibrarySkill[] {
   const byId = new Map<string, CustomizeItem>();
@@ -81,7 +88,7 @@ export function toLibrarySkills(state: CustomizeSkillsState): LibrarySkill[] {
     const item = byId.get(id);
     if (!item) return;
     const edits = state.edits[id];
-    const name = (edits?.title || item.title || item.slug || id).trim();
+    const name = customizeSkillName(item, edits);
     const instructions = (edits?.instructions ?? item.instructions ?? '').trim();
     const description = (edits?.description ?? item.description ?? item.subtitle ?? '').trim();
     if (!name || !instructions) return;

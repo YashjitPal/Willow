@@ -42,7 +42,7 @@ export const shareMedia = async (url: string, name: string, mimeType: string): P
   downloadMedia(url, name);
 };
 
-const copyImage = async (url: string): Promise<void> => {
+export const copyImage = async (url: string): Promise<void> => {
   try {
     const blob = await fetch(url).then((res) => res.blob());
     const png = blob.type === 'image/png' ? blob : await new Promise<Blob>((resolve, reject) => {

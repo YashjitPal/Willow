@@ -283,9 +283,10 @@ describe('trigger placement', () => {
     // The one placement in this feature that is Willow's rather than upstream's.
     // Read out of StudioLayout rather than written down twice, so moving Willow's
     // top-right chrome fails here instead of silently splitting the two apart.
-    const temporaryChat = layoutSource.match(
-      /absolute top-\[(\d+)px\] right-\[(\d+)px\][\s\S]*?w-\[(\d+)px\] h-\[(\d+)px\]/,
-    );
+    // From the button's own block: "Get app" is placed the same way ahead of it.
+    const temporaryChat = layoutSource
+      .slice(layoutSource.indexOf('Top-right: Temporary Chat button'))
+      .match(/absolute top-\[(\d+)px\] right-\[(\d+)px\][\s\S]*?w-\[(\d+)px\] h-\[(\d+)px\]/);
     assert.ok(temporaryChat, 'the temporary chat button should still be placed with literals');
     const [, top, right, width, height] = temporaryChat.map(Number);
 

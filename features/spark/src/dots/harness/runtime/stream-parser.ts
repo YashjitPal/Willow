@@ -46,6 +46,35 @@ const MARKER_PREFIX = '***';
 const OPENERS = [MESSAGE_BEGIN, REACT_BEGIN, STATUS_BEGIN, PATCH_BEGIN, CALL_BEGIN] as const;
 const STRAY_CLOSERS = new Set([CALL_END, PATCH_END, MESSAGE_END]);
 
+// A closer as models also write it: its asterisks escaped as Markdown or written as lookalikes, spaced or cased
+// otherwise, with invisible characters in it or a stray asterisk after. Matched as it stands in the line, so what is
+// before and after it is kept.
+const ASTERISK = '(?:\\\\?[*\\u2217\\uFF0A\\u2731\\uFE61])';
+const GAP = '[\\s\\u00A0\\u200B-\\u200D\\uFEFF]';
+const closer = (word: string) => new RegExp(`${ASTERISK}${GAP}?${ASTERISK}${GAP}?${ASTERISK}${GAP}*end${GAP}+${word}(?![a-z])`, 'i');
+const MESSAGE_CLOSER = closer('message');
+const CALL_CLOSER = closer('call');
+// What may trail a closer to the end of its line and mean nothing: a stray asterisk, a full stop, something invisible.
+const TRAILING = /^[\s*\\\u2217\uFF0A\u2731\uFE61.!\u00A0\u200B-\u200D\uFEFF]*$/;
+
+/** Where a closer stands in a line, and the line on either side of it; null when there is none. */
+const findCloser = (raw: string, pattern: RegExp): { before: string; after: string } | null => {
+  const match = pattern.exec(raw);
+  if (!match) return null;
+  const after = raw.slice(match.index + match[0].length);
+  return { before: raw.slice(0, match.index), after: TRAILING.test(after) ? '' : after };
+};
+
+const isBareCloser = (raw: string): boolean =>
+  [MESSAGE_CLOSER, CALL_CLOSER].some((pattern) => {
+    const found = findCloser(raw, pattern);
+    return found !== null && found.before.trim() === '' && found.after.trim() === '';
+  });
+
+// What may still grow into a marker, which streaming text holds back until its line is whole.
+const MARKER_START = new RegExp(`^(?:${ASTERISK}${GAP}?){3}`);
+const MARKER_GROWING = new RegExp(`^(?:${ASTERISK}${GAP}?){0,2}\\\\?$`);
+
 export class DotStreamParser {
   #buffer = '';
   #mode: Mode = 'text';
@@ -99,12 +128,13 @@ export class DotStreamParser {
     return found;
   }
 
-  /** Every marker begins `***`; nothing from there on may be flushed until the line is whole. */
+  /** Every marker begins `***`, however it is written; nothing from there on may be flushed until the line is whole. */
   #flushBoundary(buffer: string): number {
     for (let i = 0; i < buffer.length; i += 1) {
       const suffix = buffer.slice(i);
       if (suffix.startsWith(MARKER_PREFIX)) return i;
       if (suffix.length < MARKER_PREFIX.length && MARKER_PREFIX.startsWith(suffix)) return i;
+      if (MARKER_START.test(suffix) || MARKER_GROWING.test(suffix)) return i;
     }
     return buffer.length;
   }
@@ -113,14 +143,12 @@ export class DotStreamParser {
     const trimmed = raw.trim();
 
     if (this.#mode === 'message') {
-      // `endsWith`, because the closer is often glued to the last sentence.
-      if (trimmed.endsWith(MESSAGE_END)) {
-        const at = raw.lastIndexOf(MESSAGE_END);
-        const tail = raw.slice(0, at);
-        if (tail.trim() !== '') this.handlers.onMessageText(tail);
+      // Wherever it stands, because the closer is often glued to the last sentence.
+      const closed = findCloser(raw, MESSAGE_CLOSER);
+      if (closed) {
+        if (closed.before.trim() !== '') this.handlers.onMessageText(closed.before);
         this.#closeMessage();
-        const after = raw.slice(at + MESSAGE_END.length);
-        if (after.trim() !== '') this.#line(after);
+        if (closed.after.trim() !== '') this.#line(closed.after);
         return;
       }
       // A new envelope inside a message (another message included) means the
@@ -139,7 +167,7 @@ export class DotStreamParser {
     }
 
     if (this.#mode === 'text') {
-      if (STRAY_CLOSERS.has(trimmed)) return;
+      if (STRAY_CLOSERS.has(trimmed) || isBareCloser(raw)) return;
       const found = this.#findOpener(raw);
       if (!found) {
         this.handlers.onText(`${raw}\n`);
@@ -194,10 +222,11 @@ export class DotStreamParser {
     }
 
     // mode === 'call'
-    if (trimmed.endsWith(CALL_END)) {
-      const tail = trimmed.slice(0, trimmed.length - CALL_END.length);
-      if (tail.trim() !== '') this.#callBody.push(tail);
+    const ended = findCloser(raw, CALL_CLOSER);
+    if (ended) {
+      if (ended.before.trim() !== '') this.#callBody.push(ended.before.trim());
       this.#closeCall();
+      if (ended.after.trim() !== '') this.#line(ended.after);
       return;
     }
     this.#callBody.push(raw);

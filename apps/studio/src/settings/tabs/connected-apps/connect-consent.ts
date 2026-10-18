@@ -61,6 +61,22 @@ export const GENERIC_CONSENT_APPS: Record<string, GenericConsentApp> = {
     items: 'your top artists and tracks, saved music, and playlists',
     privacyUrl: 'https://www.spotify.com/legal/privacy-policy/',
   },
+  // The apps Customize connects as their vendors' MCP servers (`customize-mcp.ts`).
+  canva: { items: 'designs, folders, and brand templates', privacyUrl: 'https://www.canva.com/policies/privacy-policy/' },
+  dropbox: { items: 'files, folders, and shared links', privacyUrl: 'https://www.dropbox.com/privacy' },
+  webflow: { items: 'sites, pages, CMS collections, and assets', privacyUrl: 'https://webflow.com/legal/privacy' },
+  wix: { items: 'sites, stores, bookings, and payments', privacyUrl: 'https://www.wix.com/about/privacy' },
+  granola: { items: 'meeting notes, transcripts, and action items', privacyUrl: 'https://www.granola.ai/privacy' },
+  fever: { items: 'events, venues, and tickets', privacyUrl: 'https://feverup.com/legal/privacy_en.html' },
+  wispr: { items: 'meetings and notes', privacyUrl: 'https://wisprflow.ai/privacy-policy' },
+  'monday-com': { items: 'boards, items, and updates', privacyUrl: 'https://monday.com/l/privacy/privacy-policy/' },
+  'zoho-crm': { items: 'leads, contacts, and deals', privacyUrl: 'https://www.zoho.com/privacy.html' },
+  'zoho-desk': { items: 'tickets, replies, and help center articles', privacyUrl: 'https://www.zoho.com/privacy.html' },
+  'zoho-mail': { items: 'emails and folders', privacyUrl: 'https://www.zoho.com/privacy.html' },
+  'zoho-projects': { items: 'projects, milestones, and tasks', privacyUrl: 'https://www.zoho.com/privacy.html' },
+  bigin: { items: 'pipelines, deals, and contacts', privacyUrl: 'https://www.bigin.com/privacy.html' },
+  x: { items: 'posts, accounts, bookmarks, and trends', privacyUrl: 'https://x.com/en/privacy' },
+  'x-reader': { items: 'posts, threads, accounts, lists, bookmarks, and trends', privacyUrl: 'https://x.com/en/privacy' },
 };
 
 export const consentVariant = (cardId: string): ConsentVariant =>

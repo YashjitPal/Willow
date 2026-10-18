@@ -65,13 +65,12 @@ const QUIET_MACHINE_STEPS: ReadonlySet<DotMachineStep> = new Set(['allowed', 'ta
  * approved email being sent (whether it went follows),
  * its computer being set up (it hears when it is ready), the user taking the
  * wheel (it hears when they hand it back), and changes the user made to its
- * computer that ask nothing of it. A reaction from the user wakes the bot only
- * when it may answer something (`DotItem.wakes`); any other is an
- * acknowledgement the bot reads the next time it acts.
+ * computer that ask nothing of it. A reaction from the user, or taking one
+ * back, wakes it as a message does: what it means is the bot's to judge.
  */
 export const wakesDot = (item: DotItem): boolean =>
   item.kind === 'user'
-  || (item.kind === 'user-reaction' && Boolean(item.wakes))
+  || item.kind === 'user-reaction'
   || (item.kind === 'event' && !item.quiet && item.approvalStep !== 'approved' && item.outgoingStep !== 'sending' && item.editStep !== 'applying' && !(item.machineStep && QUIET_MACHINE_STEPS.has(item.machineStep)));
 
 export type DotEventKind =
@@ -326,19 +325,13 @@ export interface DotItem {
   label?: string;
   /** `user-reaction`: the user took this emoji back. */
   removed?: boolean;
-  /**
-   * `user-reaction`: it may answer the bot — the message it is on asked the
-   * user something they have not written back about, or the emoji says they
-   * are unsure — so it wakes the bot.
-   */
-  wakes?: boolean;
   /** `event`: what kind of event. */
   event?: DotEventKind;
   /** `event`: what it is about, e.g. a Spark task id. */
   ref?: string;
-  /** `user`: files that came with the message. */
+  /** `user`: files that came with the message. `dot`: files the bot sent with it (`send_file`). */
   attachments?: DotAttachmentRef[];
-  /** `user`: written somewhere other than Willow, where the bot's answer goes too. */
+  /** `user`: written somewhere other than Willow, where the bot's answer goes too. `event`: a trigger asked for there. */
   via?: 'telegram' | 'discord';
   /** `user` written on Discord: where. */
   discord?: DotDiscordSource;
@@ -350,6 +343,11 @@ export interface DotItem {
    * the user sees stays in `seq` order.
    */
   order?: number;
+  /**
+   * `dot`: the last seq the request that wrote it had in view. A message of the user's after that one stands above
+   * it in the conversation without being what it answers — and keeps its read receipt.
+   */
+  saw?: number;
   /** `bot`: still being written. Only ever true in memory, never persisted. */
   streaming?: boolean;
   /**
@@ -529,6 +527,11 @@ export interface DotTrigger {
   problem?: string;
   /** Why it ended, when it did. */
   endedBecause?: string;
+  /**
+   * Where the user asked for it, when not in Willow: its runs answer there — on Telegram, or in that Discord channel
+   * or DM — as a reply to them would.
+   */
+  from?: { via: 'telegram' | 'discord'; discord?: DotDiscordSource };
 }
 
 export type DotDelegationKind = 'spark-task' | 'helper';

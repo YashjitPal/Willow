@@ -229,20 +229,35 @@ it('sets the row gap to Gemini\'s 12px only when the summary is showing', () => 
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
 
-it('falls back to the shimmer only for a provider that cannot section', () => {
+it('uses progressive status lines for non-Gemini models once connected', async () => {
+  const { NON_GEMINI_THOUGHT_STEPS, getNonGeminiThoughtHeading } = await importTs(chatSrc('ThoughtSummaryLine.tsx'));
+  assert.equal(NON_GEMINI_THOUGHT_STEPS[0], 'Thinking about it...');
+  assert.equal(NON_GEMINI_THOUGHT_STEPS[1], 'Gathering information...');
+  assert.equal(NON_GEMINI_THOUGHT_STEPS[2], 'Thinking a bit longer...');
+  assert.equal(NON_GEMINI_THOUGHT_STEPS[3], 'Preparing response...');
+  assert.equal(NON_GEMINI_THOUGHT_STEPS[4], 'Thinking a bit longer...');
+  assert.equal(NON_GEMINI_THOUGHT_STEPS[5], 'Polishing the output...');
+  assert.equal(NON_GEMINI_THOUGHT_STEPS[6], 'Thinking a bit longer...');
+
+  // Step progression
+  assert.equal(getNonGeminiThoughtHeading(0), 'Thinking about it...');
+  assert.equal(getNonGeminiThoughtHeading(1), 'Gathering information...');
+  assert.equal(getNonGeminiThoughtHeading(2), 'Thinking a bit longer...');
+  assert.equal(getNonGeminiThoughtHeading(3), 'Preparing response...');
+  assert.equal(getNonGeminiThoughtHeading(4), 'Thinking a bit longer...');
+  assert.equal(getNonGeminiThoughtHeading(5), 'Polishing the output...');
+  assert.equal(getNonGeminiThoughtHeading(6), 'Thinking a bit longer...');
+  // Cycling beyond step 6
+  assert.equal(getNonGeminiThoughtHeading(7), 'Gathering information...');
+  assert.equal(getNonGeminiThoughtHeading(8), 'Thinking a bit longer...');
+});
+
+it('routes thought headings through Gemini section parser for Gemini and progressive lines for non-Gemini', () => {
   const view = codeOnly(VIEW());
 
-  // The summary is only attempted while actually thinking — plus `tooling`,
-  // which is a declared function running (Canvas, personalization). That phase
-  // has no app-written label of its own, so without it here the row would drop
-  // to bare dots for the seconds a document takes to write. `executing` and
-  // `searching` are excluded because they DO have labels, and those win.
-  assert.match(
-    view,
-    /const thoughtHeading = active && \(thinkingPhase === 'thinking' \|\| thinkingPhase === 'tooling'\)\s*\?\s*latestThoughtHeading\(msg\.thinkingText \|\| ''\)\s*:\s*null;/,
-  );
-  // ...and a null heading falls through to TextShimmer, not to a blank row —
-  // but only once `suppressLabel` has had its say.
+  // Gemini uses its section parser; non-Gemini uses the progressive stepper once connected.
+  assert.match(view, /latestThoughtHeading\(msg\.thinkingText \|\| ''\)/);
+  assert.match(view, /getNonGeminiThoughtHeading\(nonGeminiStep\)/);
   assert.match(
     view,
     /summaryHeading \? \(\s*<ThoughtSummaryLine[\s\S]{0,300}?heading=\{summaryHeading\}\s*\/>\s*\) : suppressLabel \? null : active \? \(\s*<TextShimmer/,
@@ -281,12 +296,10 @@ it('does not guess image analysis from an attached image', () => {
 it('never shows a generic label on a Gemini turn, before the heading or after', () => {
   const view = codeOnly(VIEW());
 
-  // Read off the turn's own recorded provider. Inferring "Gemini" from the
-  // absence of a heading cannot work: the pre-first-heading window is exactly
-  // where a Gemini stream and a Grok one look identical.
+  // Read off the turn's own recorded provider.
   assert.match(
     view,
-    /const suppressLabel =\s*msg\.modelSnapshot\?\.provider === 'gemini' && thinkingPhase === 'thinking';/,
+    /const suppressLabel =\s*\(isGemini && thinkingPhase === 'thinking'\)/,
   );
 
   // `modelSnapshot` is stamped onto the assistant placeholder at send time, so
@@ -304,6 +317,7 @@ it('never shows a generic label on a Gemini turn, before the heading or after', 
     'suppressLabel would also blank the Searching / Running code labels',
   );
 });
+
 
 it('holds the row height across the silent window, so the dots do not shift', () => {
   const view = codeOnly(VIEW());

@@ -141,20 +141,28 @@ export const SectionHeader: React.FC<{
   isExpanded: boolean;
   onToggle: () => void;
   controlsId: string;
-}> = ({ title, isCollapsed, isExpanded, onToggle, controlsId }) => {
+  /**
+   * Controls at the end of the heading, Gemini's `.expandable-section-header-actions` (4px in from
+   * the row's end): the chats' filter. The row then holds the toggle, which takes the rest, so the
+   * funnel stands over the rows' trailing buttons as it does in Gemini.
+   */
+  actions?: React.ReactNode;
+}> = ({ title, isCollapsed, isExpanded, onToggle, controlsId, actions }) => {
   const { isLight } = useThemeMode();
   if (isCollapsed) {
     return <div aria-hidden="true" className="h-3 shrink-0" />;
   }
 
-  return (
+  const toggle = (
     <button
       type="button"
       aria-label={`Toggle ${title}`}
       aria-expanded={isExpanded}
       aria-controls={controlsId}
       onClick={onToggle}
-      className={`sidebar-section-header group/section mt-3 flex h-8 w-[calc(100%-12px)] max-[960px]:ml-2 items-center overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal ${
+      className={`sidebar-section-header group/section flex h-8 items-center overflow-hidden pl-[14px] pr-1.5 text-left text-[13px] leading-[17px] font-normal ${
+        actions ? 'min-w-0 flex-1' : 'mt-3 w-[calc(100%-12px)] max-[960px]:ml-2'
+      } ${
         isLight ? 'text-[rgba(0,0,0,0.55)]' : 'text-white/55'
       } outline-none`}
     >
@@ -186,5 +194,12 @@ export const SectionHeader: React.FC<{
         {isExpanded ? 'keyboard_arrow_down' : 'keyboard_arrow_right'}
       </span>
     </button>
+  );
+  if (!actions) return toggle;
+  return (
+    <div className="sidebar-section-header-row mt-3 flex h-8 w-[calc(100%-2px)] max-[960px]:ml-2 items-center">
+      {toggle}
+      <div className="sidebar-section-header-actions mr-1 flex shrink-0 items-center">{actions}</div>
+    </div>
   );
 };

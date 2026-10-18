@@ -12,9 +12,11 @@
 //!   the cursor every 25 ms because a click-through window hears no pointer
 //!   moves, carried to the display under the cursor while the pet is dragged,
 //!   and given a native context menu.
-//! - **The library.** Pets live in `Pets/<id>/pet.json` and a 1536 × 2288 sprite
-//!   sheet in the Willow folder (`local_folder.rs`); `Pets/.hatching/<run>/progress.json`
-//!   is a creation and its working files. Pages are told when anything there changes.
+//! - **The library.** Pets live in `Pets/` in the Willow folder (`local_folder.rs`),
+//!   each a folder or a zip named anything, holding `pet.json` and a 1536 × 2288
+//!   sprite sheet at its top or one folder down, and known by the id in its
+//!   `pet.json`; `Pets/.hatching/<run>/progress.json` is a creation and its working
+//!   files. Pages are told when anything there changes.
 //! - **The routing.** Messages from the pet go to the page that opened it; the
 //!   strip's paw goes to the page running the pet's sensor.
 
@@ -22,6 +24,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     fs,
     hash::{Hash, Hasher},
+    io::{Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
     sync::Mutex,
     thread,
@@ -51,6 +54,7 @@ const SHEET_WIDTH: u32 = 1536;
 const SHEET_HEIGHT: u32 = 2288;
 const MAX_JSON_BYTES: u64 = 64 * 1024;
 const MAX_IMAGE_BYTES: u64 = 12 * 1024 * 1024;
+const MAX_ZIP_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_PACKAGES: usize = 100;
 const STAGES: [&str; 6] = ["preparing", "imagining", "posing", "hatching", "ready", "error"];
 
@@ -584,7 +588,7 @@ fn skill_file(app: &AppHandle) -> Option<PathBuf> {
     file.exists().then_some(file)
 }
 
-/// Lowercase words joined by single hyphens: the only folder names that are pets.
+/// Lowercase words joined by single hyphens: a pet's id, and the name of a creation's folder.
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.split('-').all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()))
 }
@@ -623,8 +627,12 @@ fn read_json(file: &Path) -> Result<serde_json::Map<String, Value>, String> {
     if size > MAX_JSON_BYTES {
         return Err("The pet metadata is too large.".into());
     }
-    let text = fs::read_to_string(file).map_err(|error| error.to_string())?;
-    match serde_json::from_str::<Value>(&text).map_err(|error| error.to_string())? {
+    json_object(&fs::read(file).map_err(|error| error.to_string())?)
+}
+
+/// A JSON object, which may begin with the byte order mark Notepad saves.
+fn json_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, String> {
+    match serde_json::from_slice::<Value>(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes)).map_err(|error| error.to_string())? {
         Value::Object(map) => Ok(map),
         _ => Err("Expected a JSON object.".into()),
     }
@@ -674,7 +682,6 @@ fn check_image(file: &Path) -> Result<(&'static str, fs::Metadata), String> {
 }
 
 fn header(file: &Path) -> Result<Vec<u8>, String> {
-    use std::io::Read;
     let mut bytes = vec![0; 32];
     let mut handle = fs::File::open(file).map_err(|error| error.to_string())?;
     let read = handle.read(&mut bytes).map_err(|error| error.to_string())?;
@@ -686,44 +693,384 @@ fn chars(text: &str, limit: usize) -> String {
     text.chars().take(limit).collect()
 }
 
-/// A pet package, validated: its manifest, and the sheet it names.
-fn load_record(library: &Path, id: &str) -> Result<(PetRecord, PathBuf, &'static str), String> {
-    if !valid_id(id) {
-        return Err("Invalid pet id.".into());
+/// A pet in the library, and where its sheet is.
+struct Pet {
+    /// Where it is: the folder or zip in the library, then the folder in that holding it, if one does.
+    name: String,
+    zipped: bool,
+    record: PetRecord,
+    sheet: Sheet,
+}
+
+/// A pet's sprite sheet and its type: a file, or a file in a zip.
+enum Sheet {
+    File(PathBuf, &'static str),
+    Zipped(PathBuf, String, &'static str),
+}
+
+/// Every pet in the library, each with an id of its own, and why anything there that should be a
+/// pet cannot be used. One pet in two places, such as a zip kept after unpacking it, is listed
+/// once. Two pets given one id are both listed: the one kept second takes an id made from where it is.
+fn scan(library: &Path) -> (Vec<Pet>, Vec<String>) {
+    let (found, issues) = packages(library);
+    let (mut pets, mut others): (Vec<Pet>, Vec<Pet>) = (Vec::new(), Vec::new());
+    for pet in found {
+        match pets.iter().find(|known| known.record.id == pet.record.id) {
+            None => pets.push(pet),
+            Some(known) if matches!((sheet_bytes(&known.sheet), sheet_bytes(&pet.sheet)), (Ok(a), Ok(b)) if a == b) => {}
+            Some(_) => others.push(pet),
+        }
     }
-    let folder = beneath(library, id)?;
+    for mut pet in others {
+        let base = package_id("", &pet.name);
+        let (mut id, mut suffix) = (base.clone(), 1);
+        while pets.iter().any(|known| known.record.id == id) {
+            suffix += 1;
+            id = format!("{base}-{suffix}");
+        }
+        pet.record.id = id;
+        pets.push(pet);
+    }
+    pets.sort_by(|a, b| a.record.id.cmp(&b.record.id));
+    (pets, issues)
+}
+
+/// The pets in the library, and why anything there that should be one cannot be used. A pet is a
+/// folder or a zip, named anything, with its `pet.json` at the top or in folders one down; Willow's
+/// own folders begin with a dot. Of pets given one id, the first is the one that keeps it: a folder
+/// before a zip, and the folder its id names before a copy.
+fn packages(library: &Path) -> (Vec<Pet>, Vec<String>) {
+    let mut entries: Vec<(String, bool)> = fs::read_dir(library)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|entry| Some((entry.file_name().into_string().ok()?, entry.file_type().ok()?.is_dir())))
+                .filter(|(name, _)| !name.starts_with('.'))
+                .collect()
+        })
+        .unwrap_or_default();
+    entries.sort();
+    let (mut pets, mut issues) = (Vec::new(), Vec::new());
+    for (name, is_dir) in entries {
+        if pets.len() + issues.len() >= MAX_PACKAGES {
+            break;
+        }
+        let found = if is_dir {
+            folder_pets(library, &name)
+        } else if name.to_ascii_lowercase().ends_with(".zip") {
+            zip_pets(library, &name)
+        } else {
+            continue;
+        };
+        for pet in found {
+            match pet {
+                Ok(pet) => pets.push(pet),
+                Err(issue) => issues.push(issue),
+            }
+        }
+    }
+    pets.sort_by_cached_key(|pet| (pet.zipped, pet.name != pet.record.id, pet.name.clone()));
+    (pets, issues)
+}
+
+/// The pets in the library's folder `name`: the folder itself, or each folder in it holding a
+/// `pet.json`. A folder with none is not a pet, or not yet: a copy still arriving.
+fn folder_pets(library: &Path, name: &str) -> Vec<Result<Pet, String>> {
+    let holds_pet = |folder: &Path| fs::symlink_metadata(library.join(folder).join("pet.json")).is_ok();
+    let top = PathBuf::from(name);
+    let folders = if holds_pet(&top) {
+        vec![top]
+    } else {
+        let mut inner: Vec<PathBuf> = fs::read_dir(library.join(name))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                    .map(|entry| top.join(entry.file_name()))
+                    .filter(|folder| holds_pet(folder))
+                    .collect()
+            })
+            .unwrap_or_default();
+        inner.sort();
+        inner
+    };
+    folders
+        .iter()
+        .map(|folder| {
+            let label = folder.to_string_lossy().replace('\\', "/");
+            folder_pet(library, folder, &label).map_err(|error| format!("{label}: {error}"))
+        })
+        .collect()
+}
+
+/// A pet in a folder: the manifest there, and the sheet that names.
+fn folder_pet(library: &Path, folder: &Path, label: &str) -> Result<Pet, String> {
+    let folder = beneath(library, &folder.to_string_lossy())?;
     let manifest_file = beneath(&folder, "pet.json")?;
     let manifest = read_json(&manifest_file)?;
-    let text = |key: &str| manifest.get(key).and_then(Value::as_str);
-    let valid = text("id") == Some(id)
-        && manifest.get("spriteVersionNumber").and_then(Value::as_u64) == Some(2)
-        && text("displayName").is_some_and(|name| !name.trim().is_empty())
-        && text("description").is_some()
-        && text("spritesheetPath").is_some();
-    if !valid {
-        return Err("The pet needs a version 2 manifest with its id, name, description, and sprite sheet.".into());
-    }
-    let sheet = beneath(&folder, text("spritesheetPath").unwrap_or_default())?;
+    check_manifest(&manifest)?;
+    let sheet = beneath(&folder, field(&manifest, "spritesheetPath"))?;
     let (mime, metadata) = check_image(&sheet)?;
-    match image_size(&header(&sheet)?) {
-        Some((SHEET_WIDTH, SHEET_HEIGHT)) => {}
-        Some(_) => return Err("The version 2 sprite sheet must be 1536 × 2288 pixels.".into()),
-        None => return Err("The pet image could not be decoded.".into()),
-    }
+    check_sheet(&header(&sheet)?)?;
     let manifest_metadata = fs::metadata(&manifest_file).map_err(|error| error.to_string())?;
-    let record = PetRecord {
-        id: id.to_string(),
-        display_name: chars(text("displayName").unwrap_or_default().trim(), 100),
-        description: chars(text("description").unwrap_or_default(), 500),
-        sprite_version_number: 2,
-        stamp: format!("{}:{}:{}", modified_ms(&manifest_metadata), modified_ms(&metadata), metadata.len()),
+    let stamp = format!("{}:{}:{}", modified_ms(&manifest_metadata), modified_ms(&metadata), metadata.len());
+    Ok(Pet { name: label.to_string(), zipped: false, record: record_of(&manifest, label, stamp), sheet: Sheet::File(sheet, mime) })
+}
+
+/// The pets in the library's zip `name`, read where they are: at its top, or each in a folder there.
+fn zip_pets(library: &Path, name: &str) -> Vec<Result<Pet, String>> {
+    let opened = beneath(library, name).and_then(|file| Ok((Zip::open(&file)?, file)));
+    let (zip, file) = match opened {
+        Ok(opened) => opened,
+        Err(error) => return vec![Err(format!("{name}: {error}"))],
     };
-    Ok((record, sheet, mime))
+    let roots = zip.roots();
+    if roots.is_empty() {
+        return vec![Err(format!("{name}: There is no pet.json in this zip, at its top or one folder down."))];
+    }
+    roots
+        .iter()
+        .map(|root| {
+            let label = format!("{name}/{root}").trim_end_matches('/').to_string();
+            zip_pet(&zip, &file, root, &label).map_err(|error| format!("{label}: {error}"))
+        })
+        .collect()
+}
+
+/// A pet in a zip: the manifest in its folder `root`, and the sheet that names.
+fn zip_pet(zip: &Zip, file: &Path, root: &str, label: &str) -> Result<Pet, String> {
+    let manifest = json_object(&zip.read(&format!("{root}pet.json"), MAX_JSON_BYTES)?)?;
+    check_manifest(&manifest)?;
+    let sheet = zip_path(root, field(&manifest, "spritesheetPath"))?;
+    let (head, size) = zip.head(&sheet)?;
+    let mime = mime_of(Path::new(&sheet)).filter(|_| size <= MAX_IMAGE_BYTES).ok_or("Pets need a PNG or WebP image of at most 12 MB.")?;
+    check_sheet(&head)?;
+    let metadata = fs::metadata(file).map_err(|error| error.to_string())?;
+    let stamp = format!("{}:{}", modified_ms(&metadata), metadata.len());
+    Ok(Pet { name: label.to_string(), zipped: true, record: record_of(&manifest, label, stamp), sheet: Sheet::Zipped(file.to_path_buf(), sheet, mime) })
+}
+
+/// What a pet's manifest must say: that it is a version 2 pet, its name, and where its sheet is.
+fn check_manifest(manifest: &serde_json::Map<String, Value>) -> Result<(), String> {
+    match manifest.get("spriteVersionNumber").map_or(Some(1), Value::as_u64) {
+        Some(2) => {}
+        Some(version) => {
+            return Err(format!("This is a version {version} pet. Willow can use only version 2 pets, whose sprite sheet is 1536 × 2288 pixels."));
+        }
+        None => return Err("Its spriteVersionNumber must be 2.".into()),
+    }
+    let has = |key: &str| manifest.get(key).is_some_and(Value::is_string);
+    if field(manifest, "displayName").trim().is_empty() || !has("description") || !has("spritesheetPath") {
+        return Err("Its pet.json needs a displayName, a description, and a spritesheetPath.".into());
+    }
+    Ok(())
+}
+
+fn check_sheet(head: &[u8]) -> Result<(), String> {
+    match image_size(head) {
+        Some((SHEET_WIDTH, SHEET_HEIGHT)) => Ok(()),
+        Some(_) => Err("The version 2 sprite sheet must be 1536 × 2288 pixels.".into()),
+        None => Err("The pet image could not be decoded.".into()),
+    }
+}
+
+fn record_of(manifest: &serde_json::Map<String, Value>, label: &str, stamp: String) -> PetRecord {
+    PetRecord {
+        id: package_id(field(manifest, "id"), label),
+        display_name: chars(field(manifest, "displayName").trim(), 100),
+        description: chars(field(manifest, "description"), 500),
+        sprite_version_number: 2,
+        stamp,
+    }
+}
+
+fn field<'a>(manifest: &'a serde_json::Map<String, Value>, key: &str) -> &'a str {
+    manifest.get(key).and_then(Value::as_str).unwrap_or_default()
+}
+
+/// The id a manifest gives, made into one if it is not one; or else one made from the name of the
+/// folder or zip the pet is in.
+fn package_id(given: &str, label: &str) -> String {
+    if valid_id(given) {
+        return given.to_string();
+    }
+    let name = label.rsplit('/').next().unwrap_or(label).to_ascii_lowercase();
+    let stem = name.strip_suffix(".zip").unwrap_or(&name);
+    let stem = stem.strip_suffix(".codex-pet").unwrap_or(stem);
+    [slug(given), slug(stem)].into_iter().find(|id| !id.is_empty()).unwrap_or_else(|| "pet".into())
+}
+
+/// Lowercase words joined by hyphens, as a creation makes its pet's id (`scripts/pet_bridge.py`).
+fn slug(text: &str) -> String {
+    let mut slug = text.to_lowercase().split(|c: char| !c.is_ascii_alphanumeric()).filter(|word| !word.is_empty()).collect::<Vec<_>>().join("-");
+    slug.truncate(60);
+    slug.trim_end_matches('-').to_string()
+}
+
+const UNREADABLE_ZIP: &str = "This zip could not be read.";
+
+/// A zip, as much of the format as pets need: files stored or deflated, without ZIP64 or encryption.
+struct Zip {
+    file: fs::File,
+    entries: Vec<ZipEntry>,
+}
+
+/// A file in a zip, as the zip's directory describes it.
+struct ZipEntry {
+    name: String,
+    flags: usize,
+    method: usize,
+    crc: u32,
+    compressed: usize,
+    size: usize,
+    /// Where its local header starts.
+    header: usize,
+}
+
+/// A little-endian number of `width` bytes at `at`.
+fn le(bytes: &[u8], at: usize, width: usize) -> Result<usize, String> {
+    let field = bytes.get(at..at + width).ok_or(UNREADABLE_ZIP)?;
+    Ok(field.iter().rev().fold(0, |value, &byte| value << 8 | byte as usize))
+}
+
+/// `count` bytes of a zip from `at`.
+fn read_at(mut file: &fs::File, at: u64, count: usize) -> Result<Vec<u8>, String> {
+    file.seek(SeekFrom::Start(at)).map_err(|_| UNREADABLE_ZIP.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(count as u64).read_to_end(&mut bytes).map_err(|_| UNREADABLE_ZIP.to_string())?;
+    if bytes.len() != count {
+        return Err(UNREADABLE_ZIP.into());
+    }
+    Ok(bytes)
+}
+
+impl Zip {
+    fn open(path: &Path) -> Result<Self, String> {
+        let file = fs::File::open(path).map_err(|error| error.to_string())?;
+        let length = file.metadata().map_err(|error| error.to_string())?.len();
+        if length > MAX_ZIP_BYTES {
+            return Err("The zip is too large to be a pet.".into());
+        }
+        // The record ending the zip's directory: its last 22 bytes, or before a comment of up to 64 KB.
+        let start = length.saturating_sub(22 + 0xffff);
+        let tail = read_at(&file, start, (length - start) as usize)?;
+        let last = tail.len().checked_sub(22).ok_or(UNREADABLE_ZIP)?;
+        let end = (0..=last).rev().find(|&at| tail[at..].starts_with(b"PK\x05\x06")).ok_or(UNREADABLE_ZIP)?;
+        let directory = read_at(&file, le(&tail, end + 16, 4)? as u64, le(&tail, end + 12, 4)?)?;
+        let (mut entries, mut at) = (Vec::new(), 0);
+        for _ in 0..le(&tail, end + 10, 2)? {
+            if !directory.get(at..).is_some_and(|rest| rest.starts_with(b"PK\x01\x02")) {
+                return Err(UNREADABLE_ZIP.into());
+            }
+            let named = at + 46 + le(&directory, at + 28, 2)?;
+            entries.push(ZipEntry {
+                name: String::from_utf8_lossy(directory.get(at + 46..named).ok_or(UNREADABLE_ZIP)?).replace('\\', "/"),
+                flags: le(&directory, at + 8, 2)?,
+                method: le(&directory, at + 10, 2)?,
+                crc: le(&directory, at + 16, 4)? as u32,
+                compressed: le(&directory, at + 20, 4)?,
+                size: le(&directory, at + 24, 4)?,
+                header: le(&directory, at + 42, 4)?,
+            });
+            at = named + le(&directory, at + 30, 2)? + le(&directory, at + 32, 2)?;
+        }
+        Ok(Zip { file, entries })
+    }
+
+    /// The folders in the zip holding a pet's `pet.json`: its top, or else each folder at its top that has one.
+    fn roots(&self) -> Vec<String> {
+        if self.entries.iter().any(|entry| entry.name == "pet.json") {
+            return vec![String::new()];
+        }
+        let mut roots: Vec<String> = self
+            .entries
+            .iter()
+            .filter_map(|entry| entry.name.strip_suffix("/pet.json"))
+            .filter(|folder| !folder.is_empty() && !folder.contains('/'))
+            .map(|folder| format!("{folder}/"))
+            .collect();
+        roots.sort();
+        roots.dedup();
+        roots
+    }
+
+    fn entry(&self, name: &str) -> Result<&ZipEntry, String> {
+        self.entries.iter().find(|entry| entry.name == name).ok_or_else(|| format!("{name} is missing."))
+    }
+
+    /// Up to `count` bytes from the start of a file in the zip.
+    fn contents(&self, entry: &ZipEntry, count: usize) -> Result<Vec<u8>, String> {
+        if entry.flags & 1 != 0 {
+            return Err("The zip is password-protected.".into());
+        }
+        let local = read_at(&self.file, entry.header as u64, 30)?;
+        if !local.starts_with(b"PK\x03\x04") {
+            return Err(UNREADABLE_ZIP.into());
+        }
+        let mut file = &self.file;
+        file.seek(SeekFrom::Current((le(&local, 26, 2)? + le(&local, 28, 2)?) as i64)).map_err(|_| UNREADABLE_ZIP.to_string())?;
+        let stored = file.take(entry.compressed as u64);
+        let mut contents = Vec::new();
+        let read = match entry.method {
+            0 => stored.take(count as u64).read_to_end(&mut contents),
+            8 => flate2::read::DeflateDecoder::new(stored).take(count as u64).read_to_end(&mut contents),
+            _ => return Err("The zip is compressed in a way Willow cannot read.".into()),
+        };
+        read.map_err(|_| UNREADABLE_ZIP.to_string())?;
+        Ok(contents)
+    }
+
+    /// The whole of a file in the zip, of at most `limit` bytes, checked against the size and
+    /// checksum the zip gives it.
+    fn read(&self, name: &str, limit: u64) -> Result<Vec<u8>, String> {
+        let entry = self.entry(name)?;
+        if entry.size as u64 > limit {
+            return Err(format!("{name} is too large."));
+        }
+        let contents = self.contents(entry, entry.size)?;
+        let mut crc = flate2::Crc::new();
+        crc.update(&contents);
+        if contents.len() != entry.size || crc.sum() != entry.crc {
+            return Err(UNREADABLE_ZIP.into());
+        }
+        Ok(contents)
+    }
+
+    /// The start of a file in the zip, enough for an image's header, and the file's whole size.
+    fn head(&self, name: &str) -> Result<(Vec<u8>, u64), String> {
+        let entry = self.entry(name)?;
+        Ok((self.contents(entry, 32)?, entry.size as u64))
+    }
+}
+
+/// A file in a zip, by its path from the folder `root` holding the pet, refusing paths that leave it.
+fn zip_path(root: &str, relative: &str) -> Result<String, String> {
+    let parts: Vec<&str> = relative.split(['/', '\\']).collect();
+    if relative.contains(['\0', ':']) || parts.iter().any(|part| matches!(*part, "" | "." | "..")) {
+        return Err("A pet file escapes its package.".into());
+    }
+    Ok(format!("{root}{}", parts.join("/")))
+}
+
+fn sheet_bytes(sheet: &Sheet) -> Result<Vec<u8>, String> {
+    match sheet {
+        Sheet::File(file, _) => fs::read(file).map_err(|error| error.to_string()),
+        Sheet::Zipped(file, name, _) => Zip::open(file)?.read(name, MAX_IMAGE_BYTES),
+    }
+}
+
+fn sheet_url(sheet: &Sheet) -> Result<String, String> {
+    let (Sheet::File(_, mime) | Sheet::Zipped(_, _, mime)) = sheet;
+    Ok(encoded(&sheet_bytes(sheet)?, mime))
 }
 
 fn data_url(file: &Path, mime: &str) -> Result<String, String> {
     let bytes = fs::read(file).map_err(|error| error.to_string())?;
-    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+    Ok(encoded(&bytes, mime))
+}
+
+fn encoded(bytes: &[u8], mime: &str) -> String {
+    format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 fn read_library(app: &AppHandle) -> LibraryState {
@@ -738,22 +1085,9 @@ fn read_library(app: &AppHandle) -> LibraryState {
     if skill_path.is_none() {
         issues.push("The Hatch Pet skill is missing. Reinstall Willow.".to_string());
     }
-    let mut pets = Vec::new();
-    let mut packages = 0;
-    for id in directories(&library) {
-        if packages >= MAX_PACKAGES {
-            break;
-        }
-        // Generation output and unfinished folders are not packages yet.
-        if fs::symlink_metadata(library.join(&id).join("pet.json")).is_err() {
-            continue;
-        }
-        packages += 1;
-        match load_record(&library, &id) {
-            Ok((record, _, _)) => pets.push(record),
-            Err(error) => issues.push(format!("{id}: {error}")),
-        }
-    }
+    let (found, unusable) = scan(&library);
+    issues.extend(unusable);
+    let pets: Vec<PetRecord> = found.into_iter().map(|pet| pet.record).collect();
     let runs = read_runs(&library, &pets);
     LibraryState {
         enabled: true,
@@ -871,8 +1205,8 @@ pub async fn pets_read(app: AppHandle) -> LibraryState {
 #[tauri::command]
 pub async fn pets_load(app: AppHandle, id: String) -> Result<PetSprite, String> {
     let library = library_dir(&app)?;
-    let (record, sheet, mime) = load_record(&library, &id)?;
-    Ok(PetSprite { record, spritesheet_data_url: data_url(&sheet, mime)? })
+    let pet = scan(&library).0.into_iter().find(|pet| pet.record.id == id).ok_or("That pet is not in the library any more.")?;
+    Ok(PetSprite { spritesheet_data_url: sheet_url(&pet.sheet)?, record: pet.record })
 }
 
 #[tauri::command]
@@ -1036,5 +1370,186 @@ pub async fn overlay_set_focusable(app: AppHandle, webview: Webview, focusable: 
 pub async fn overlay_send(app: AppHandle, webview: Webview, message: Value) {
     if is_overlay(&webview) {
         from_overlay(&app, message);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// As much of a PNG as Willow reads: its signature, and the header giving its size.
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        bytes.extend(width.to_be_bytes());
+        bytes.extend(height.to_be_bytes());
+        bytes.extend([8, 6, 0, 0, 0]);
+        bytes
+    }
+
+    fn manifest(id: &str, version: Option<u64>) -> Vec<u8> {
+        let mut manifest = json!({ "id": id, "displayName": "Clawd", "description": "A crab.", "spritesheetPath": "spritesheet.png" });
+        if let Some(version) = version {
+            manifest["spriteVersionNumber"] = json!(version);
+        }
+        manifest.to_string().into_bytes()
+    }
+
+    /// A zip of `files`, the first stored and the rest deflated, as zip tools mix the two.
+    fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let (mut bytes, mut directory): (Vec<u8>, Vec<u8>) = (Vec::new(), Vec::new());
+        for (index, (name, contents)) in files.iter().enumerate() {
+            let (method, data) = if index == 0 {
+                (0u16, contents.to_vec())
+            } else {
+                let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+                encoder.write_all(contents).unwrap();
+                (8, encoder.finish().unwrap())
+            };
+            let mut crc = flate2::Crc::new();
+            crc.update(contents);
+            // What a file's local header and its entry in the directory share, from the version needed to extract it on.
+            let mut shared: Vec<u8> = Vec::new();
+            shared.extend(20u16.to_le_bytes());
+            shared.extend(0u16.to_le_bytes());
+            shared.extend(method.to_le_bytes());
+            shared.extend([0; 4]);
+            shared.extend(crc.sum().to_le_bytes());
+            shared.extend((data.len() as u32).to_le_bytes());
+            shared.extend((contents.len() as u32).to_le_bytes());
+            shared.extend((name.len() as u16).to_le_bytes());
+            shared.extend(0u16.to_le_bytes());
+            directory.extend(b"PK\x01\x02\x14\0");
+            directory.extend(&shared);
+            directory.extend([0; 10]);
+            directory.extend((bytes.len() as u32).to_le_bytes());
+            directory.extend(name.as_bytes());
+            bytes.extend(b"PK\x03\x04");
+            bytes.extend(&shared);
+            bytes.extend(name.as_bytes());
+            bytes.extend(&data);
+        }
+        let at = bytes.len() as u32;
+        let count = (files.len() as u16).to_le_bytes();
+        bytes.extend(&directory);
+        bytes.extend(b"PK\x05\x06\0\0\0\0");
+        bytes.extend(count);
+        bytes.extend(count);
+        bytes.extend((directory.len() as u32).to_le_bytes());
+        bytes.extend(at.to_le_bytes());
+        bytes.extend([0; 2]);
+        bytes
+    }
+
+    fn library() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("willow-pets-{}", uuid::Uuid::new_v4().simple()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write(file: PathBuf, bytes: &[u8]) {
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, bytes).unwrap();
+    }
+
+    fn ids(pets: &[Pet]) -> Vec<&str> {
+        pets.iter().map(|pet| pet.record.id.as_str()).collect()
+    }
+
+    #[test]
+    fn finds_a_pet_whatever_its_folder_or_zip_is_called() {
+        let dir = library();
+        let sheet = png(SHEET_WIDTH, SHEET_HEIGHT);
+        // Unzipped by Windows, which names the folder after the zip.
+        write(dir.join("clawd-chef.codex-pet/pet.json"), &manifest("clawd-chef", Some(2)));
+        write(dir.join("clawd-chef.codex-pet/spritesheet.png"), &sheet);
+        // Unzipped into a folder of its own, its manifest saved by Notepad.
+        write(dir.join("Rocket Pet/rocket/pet.json"), &[&b"\xef\xbb\xbf"[..], &manifest("rocket", Some(2))[..]].concat());
+        write(dir.join("Rocket Pet/rocket/spritesheet.png"), &sheet);
+        // Zips, as they came: a pet at the top, one whose id is not one, and two in folders of their own.
+        write(dir.join("clawd-svg.codex-pet.zip"), &zip(&[("pet.json", &manifest("clawd-svg", Some(2))), ("spritesheet.png", &sheet)]));
+        write(dir.join("Moon.codex-pet.zip"), &zip(&[("pet.json", &manifest("Moon Pet!", Some(2))), ("spritesheet.png", &sheet)]));
+        write(
+            dir.join("Pack (1).zip"),
+            &zip(&[
+                ("disco/", b""),
+                ("disco/pet.json", &manifest("disco", Some(2))),
+                ("disco/spritesheet.png", &sheet),
+                ("star/pet.json", &manifest("", Some(2))),
+                ("star/spritesheet.png", &sheet),
+            ]),
+        );
+        // A creation in progress, and a folder with no pet in it.
+        write(dir.join(".hatching/run/progress.json"), b"{}");
+        fs::create_dir_all(dir.join("New folder")).unwrap();
+
+        let (pets, issues) = scan(&dir);
+        assert_eq!(ids(&pets), ["clawd-chef", "clawd-svg", "disco", "moon-pet", "rocket", "star"]);
+        assert!(issues.is_empty(), "{issues:?}");
+        for pet in &pets {
+            assert_eq!(sheet_bytes(&pet.sheet).unwrap(), sheet, "{}'s sheet", pet.name);
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lists_one_pet_once_and_two_pets_with_one_id_twice() {
+        let dir = library();
+        let sheet = png(SHEET_WIDTH, SHEET_HEIGHT);
+        write(dir.join("clawd-chef/pet.json"), &manifest("clawd-chef", Some(2)));
+        write(dir.join("clawd-chef/spritesheet.png"), &sheet);
+        // The zip it came from, kept after unpacking it, and that downloaded again.
+        let package = zip(&[("pet.json", &manifest("clawd-chef", Some(2))), ("spritesheet.png", &sheet)]);
+        write(dir.join("clawd-chef.codex-pet.zip"), &package);
+        write(dir.join("clawd-chef.codex-pet (1).zip"), &package);
+        // Copies redrawn into other pets, keeping the id.
+        write(dir.join("clawd-chef - Copy/pet.json"), &manifest("clawd-chef", Some(2)));
+        write(dir.join("clawd-chef - Copy/spritesheet.png"), &[&sheet[..], &b"redrawn"[..]].concat());
+        write(
+            dir.join("Clawd Chef Copy.zip"),
+            &zip(&[("pet.json", &manifest("clawd-chef", Some(2))), ("spritesheet.png", &[&sheet[..], &b"again"[..]].concat())]),
+        );
+
+        let (pets, issues) = scan(&dir);
+        let found: Vec<(&str, &str)> = pets.iter().map(|pet| (pet.record.id.as_str(), pet.name.as_str())).collect();
+        assert_eq!(found, [("clawd-chef", "clawd-chef"), ("clawd-chef-copy", "clawd-chef - Copy"), ("clawd-chef-copy-2", "Clawd Chef Copy.zip")]);
+        assert!(issues.is_empty(), "{issues:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn says_why_a_pet_cannot_be_used() {
+        let dir = library();
+        write(dir.join("big-sheet/pet.json"), &manifest("big-sheet", Some(2)));
+        write(dir.join("big-sheet/spritesheet.png"), &png(SHEET_WIDTH * 2, SHEET_HEIGHT * 2));
+        write(dir.join("broken.zip"), b"PK\x03\x04 cut short");
+        write(dir.join("clawd-laptop.codex-pet.zip"), &zip(&[("pet.json", &manifest("clawd-laptop", None)), ("spritesheet.png", &png(SHEET_WIDTH, 1872))]));
+        write(
+            dir.join("Pack.zip"),
+            &zip(&[
+                ("good/pet.json", &manifest("good", Some(2))),
+                ("good/spritesheet.png", &png(SHEET_WIDTH, SHEET_HEIGHT)),
+                ("old/pet.json", &manifest("old", Some(1))),
+            ]),
+        );
+        write(dir.join("photos.zip"), &zip(&[("beach.jpg", b"not a pet")]));
+        let sneaky = json!({ "id": "sneaky", "spriteVersionNumber": 2, "displayName": "Sneaky", "description": "", "spritesheetPath": "../spritesheet.png" });
+        write(dir.join("sneaky.zip"), &zip(&[("pet.json", sneaky.to_string().as_bytes())]));
+        write(dir.join("notes.txt"), b"not a pet either");
+
+        let (pets, issues) = scan(&dir);
+        assert_eq!(ids(&pets), ["good"]);
+        assert_eq!(
+            issues,
+            [
+                "Pack.zip/old: This is a version 1 pet. Willow can use only version 2 pets, whose sprite sheet is 1536 × 2288 pixels.",
+                "big-sheet: The version 2 sprite sheet must be 1536 × 2288 pixels.",
+                "broken.zip: This zip could not be read.",
+                "clawd-laptop.codex-pet.zip: This is a version 1 pet. Willow can use only version 2 pets, whose sprite sheet is 1536 × 2288 pixels.",
+                "photos.zip: There is no pet.json in this zip, at its top or one folder down.",
+                "sneaky.zip: A pet file escapes its package.",
+            ]
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 }

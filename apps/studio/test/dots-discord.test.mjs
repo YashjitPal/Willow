@@ -7,6 +7,7 @@ const repoRoot = path.resolve(import.meta.dirname, '..', '..', '..');
 const harness = (...parts) => path.join(repoRoot, 'features', 'spark', 'src', 'dots', 'harness', ...parts);
 
 const store = await importTs(harness('thread', 'thread-store.ts'));
+const presence = await importTs(harness('runtime', 'discord-presence.ts'));
 const { memoryPersistence } = await importTs(harness('thread', 'thread-persistence.ts'));
 const { wakesDot } = await importTs(harness('thread', 'thread-types.ts'));
 const discord = await importTs(harness('runtime', 'discord.ts'));
@@ -232,20 +233,46 @@ it('fits long messages to Discord, never splitting a code block without closing 
   assert.match(split.at(-1), /Run it once\.$/);
 });
 
-it('keeps its DM a mirror of the conversation: the user quoted from elsewhere, and answers where they wrote', () => {
-  assert.equal(discord.quoteForDiscord('Is the launch still on?\nAnd drinks?', 'in Willow'), '-# You, in Willow\n>>> Is the launch still on?\nAnd drinks?');
-  assert.ok(discord.quoteForDiscord('x'.repeat(3_000), 'on Telegram').length < 2_000, 'a long one is cut to fit one message');
-
+it('answers on Discord what the user wrote there, and keeps what they wrote in Willow or on Telegram off it', async () => {
   const user = (seq, extra = {}) => ({ id: `i${seq}`, seq, kind: 'user', at: NOW, text: 'hi', ...extra });
   const dot = (seq) => ({ id: `i${seq}`, seq, kind: 'dot', at: NOW, text: 'ok' });
   const fromServer = { via: 'discord', discord: { channelId: '701', messageId: '1001', guildId: '700', where: '#general in Willow Club' } };
   const fromDm = { via: 'discord', discord: { channelId: '900', messageId: '1002' } };
-  assert.deepEqual(discord.discordReplyTarget([user(1)], 0, '900'), { channelId: '900' }, 'written in Willow: the DM, which mirrors it');
-  assert.deepEqual(discord.discordReplyTarget([user(1, fromServer)], 0, '900'), { channelId: '701', replyTo: '1001', inputId: 'i1' }, 'written in a server: answered there');
-  assert.deepEqual(discord.discordReplyTarget([user(1, fromServer), user(2)], 0, '900'), { channelId: '900' }, 'the latest message decides');
-  assert.deepEqual(discord.discordReplyTarget([user(1, fromDm)], 0, undefined), { channelId: '900' });
-  assert.deepEqual(discord.discordReplyTarget([user(1, fromServer), dot(2)], 1, '900'), { channelId: '900' }, 'a turn the user did not start goes to the DM');
-  assert.equal(discord.discordReplyTarget([user(1)], 0, undefined), null, 'no DM yet, nowhere to mirror');
+  const fromTelegram = { via: 'telegram', telegram: { messageId: 5 } };
+  assert.equal(discord.discordReplyTarget([user(1)], 0, '900'), null, 'written in Willow: answered in Willow alone');
+  assert.equal(discord.discordReplyTarget([user(1, fromTelegram)], 0, '900'), null, 'and on Telegram, there');
+  assert.deepEqual(discord.discordReplyTarget([user(1, fromDm)], 0, '900'), { channelId: '900' }, 'written in the DM: answered there');
+  assert.deepEqual(discord.discordReplyTarget([user(1, fromServer)], 0, '900'), { channelId: '701', replyTo: '1001', inputId: 'i1', inServer: true }, 'written in a server: answered there');
+  const fired = (seq, from) => ({ id: `i${seq}`, seq, kind: 'event', event: 'trigger', at: NOW, text: 'Trigger t1 fired', ...from });
+  assert.deepEqual(discord.discordReplyTarget([user(1, fromServer), dot(2), fired(3, fromServer)], 2, '900'), { channelId: '701', inServer: true }, 'a trigger asked for in a channel answers in that channel');
+  assert.equal(discord.discordReplyTarget([user(1, fromDm), dot(2), fired(3, fromTelegram)], 2, '900'), null, 'and one asked for on Telegram, there');
+  assert.equal(discord.discordReplyTarget([user(1, fromServer), user(2)], 0, '900'), null, 'the latest message decides');
+  assert.deepEqual(discord.discordReplyTarget([user(1), user(2, fromDm)], 0, '900'), { channelId: '900' });
+
+  assert.deepEqual(discord.discordReplyTarget([user(1, fromServer), dot(2)], 1, '900'), { channelId: '900' }, 'a reminder for what they asked on Discord comes to the DM');
+  assert.deepEqual(discord.discordReplyTarget([user(1, fromDm), dot(2)], 1, undefined), { channelId: '900' });
+  assert.equal(discord.discordReplyTarget([user(1, fromServer), dot(2)], 1, undefined), null, 'never into a server channel unasked');
+  assert.equal(discord.discordReplyTarget([user(1), dot(2)], 1, '900'), null, 'one for what they asked in Willow stays in Willow');
+  assert.equal(discord.discordReplyTarget([], 0, '900'), null);
+
+  const posted = [];
+  const relay = { call: async (_token, method, path, options) => (posted.push({ method, path, options }), { status: 200, body: { id: String(posted.length) } }) };
+  const link = { token: 't', botId: '1', botName: 'Pip', ownerId: '2', appId: '3' };
+  const shot = { name: 'Screenshot.jpg', mimeType: 'image/jpeg', data: 'AAAA' };
+  assert.deepEqual(await discord.sendToDiscord(link, relay, '900', 'Here it is.', undefined, [shot]), { ids: ['1'] });
+  assert.deepEqual(posted[0].options.files, [shot], 'the files go with the message');
+  assert.equal(posted[0].options.body.content, 'Here it is.');
+  await discord.sendToDiscord(link, relay, '900', '', undefined, [shot]);
+  assert.equal(posted[1].options.body.content, '', 'a file goes on its own, with no words');
+
+  const telegram = await importTs(harness('runtime', 'telegram.ts'));
+  const sent = [];
+  const telegramRelay = { call: async (_token, method, params, file) => (sent.push({ method, params, file }), { ok: true }) };
+  const chat = { token: 't', dotId: 'd', code: 'c', chatId: 7 };
+  assert.equal(await telegram.sendTelegramFile(chat, telegramRelay, shot, 'Your screen'), true);
+  assert.deepEqual([sent[0].method, sent[0].params.caption, sent[0].file], ['sendPhoto', 'Your screen', shot], 'a picture as a photo, the words as its caption');
+  await telegram.sendTelegramFile(chat, telegramRelay, { name: 'report.pdf', mimeType: 'application/pdf', data: 'AAAA' }, 'x'.repeat(1_200));
+  assert.deepEqual(sent.slice(1).map((entry) => entry.method), ['sendMessage', 'sendDocument'], 'words longer than a caption go first, then the file');
 
   const table = 'Here is where things stand:\n\n| Item | Status |\n| --- | :---: |\n| **Flight hold** | Until 09:00 |\n| Calendar | Added |\n\nAnything else?';
   assert.equal(discord.discordMarkdown(table), 'Here is where things stand:\n\n```\nItem         Status\n-----------  -----------\nFlight hold  Until 09:00\nCalendar     Added\n```\n\nAnything else?', 'a table Discord would show as pipes becomes lined-up columns');
@@ -456,4 +483,63 @@ it('tells the bot where on Discord the user wrote, and that a server channel is 
   assert.match(section, /everyone in the channel reads your messages/);
   assert.match(section, /Only the user directs you there/);
   assert.doesNotMatch(section, /e\.g\.|for example|such as "/i, 'principles, not examples');
+});
+
+it('words its Discord status by the kind of thing it is doing, never by what about', () => {
+  const working = (patch) => presence.discordStatusOf({ working: true, label: null, typingItemId: null, status: null, ...patch });
+  assert.equal(presence.discordStatusOf(undefined), null);
+  assert.equal(presence.discordStatusOf({ working: false, label: null, typingItemId: null }), null, 'nothing between turns');
+  assert.equal(working({ label: 'Thinking' }), 'Thinking');
+  assert.equal(working({ typingItemId: 'i9', status: 'Drafting the note to Sam' }), 'Writing a reply');
+  assert.equal(working({ status: 'Comparing the three venues' }), 'Thinking', 'never its own status line');
+  assert.equal(working({ label: 'Searching the web' }), 'Searching the web');
+  assert.equal(working({ label: 'Clicking', tool: 'user_desktop_click' }), 'Using a computer');
+  assert.equal(working({ label: 'Waiting for you to finish', tool: 'user_screenshot' }), 'Using a computer', "never a tool's own words");
+  assert.equal(working({ label: 'Browsing', tool: 'computer_navigate' }), 'Using a computer');
+  assert.equal(working({ label: 'Reading a file on its computer', tool: 'computer_read_file' }), 'Working with files');
+  assert.equal(working({ label: 'Asking to run a command', tool: 'user_run_command' }), 'Running a command');
+  assert.equal(working({ label: 'Using linear_create_issue', tool: 'mcp:linear_create_issue' }), 'Using an app', "never an app's name");
+  assert.equal(working({ label: 'Looking back', tool: 'recall' }), 'Thinking');
+  assert.equal(working({ label: 'Using something_new', tool: 'something_new' }), 'Working');
+});
+
+it('shows a change on Discord once it holds, renews what is up, and takes it down when the user turns it off', async () => {
+  const sent = [];
+  const relay = { presence: async (token, status) => { sent.push([token, status]); } };
+  let link = { ...LINK };
+  const shown = presence.createDiscordPresence({ relay: () => relay, linkFor: (dotId) => (dotId === 'dot-ada' ? link : undefined), settleMs: 40, renewMs: 300 });
+  const activity = (patch) => ({ working: true, label: null, typingItemId: null, status: null, ...patch });
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  shown.update('dot-other', activity({ label: 'Thinking' }));
+  shown.update('dot-ada', activity({ label: 'Thinking' }));
+  shown.update('dot-ada', activity({ label: 'Clicking', tool: 'user_desktop_click' }));
+  shown.update('dot-ada', activity({ typingItemId: 'i4' }));
+  await wait(80);
+  assert.deepEqual(sent, [[TOKEN, 'Writing a reply']], 'one change, to the latest words; nothing for a bot not on Discord');
+
+  shown.update('dot-ada', activity({ typingItemId: 'i5' }));
+  await wait(80);
+  assert.equal(sent.length, 1, 'the same words are no change');
+  await wait(300);
+  assert.deepEqual(sent.slice(1), [[TOKEN, 'Writing a reply']], 'words still up are said again, for the companion to keep them');
+
+  link = { ...LINK, statusOff: true };
+  await wait(300);
+  assert.deepEqual(sent.at(-1), [TOKEN, null], 'turned off, it comes down even with nothing new from the bot');
+  const off = sent.length;
+  shown.update('dot-ada', activity({ label: 'Thinking' }));
+  await wait(200);
+  assert.equal(sent.length, off, 'and stays down while off');
+
+  link = { ...LINK };
+  shown.update('dot-ada', activity({ label: 'Thinking' }));
+  await wait(80);
+  assert.deepEqual(sent.at(-1), [TOKEN, 'Thinking']);
+  shown.update('dot-ada', { working: false, label: null, typingItemId: null, status: null });
+  await wait(80);
+  assert.deepEqual(sent.at(-1), [TOKEN, null], 'nothing between turns');
+  const ended = sent.length;
+  await wait(400);
+  assert.equal(sent.length, ended, 'nothing renewed once it is down');
 });

@@ -119,6 +119,12 @@ const makeConflictId = (id: string, taken: Set<string>): string => {
   return candidate;
 };
 
+/** When the conflict copy `id` names was made, to the second its name records; null for any other id. */
+export const conflictCopyForkedAt = (id: string): number | null => {
+  const stamp = / \(Disk conflict (\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})\)(?: \d+)?$/.exec(id);
+  return stamp ? Date.UTC(+stamp[1], +stamp[2] - 1, +stamp[3], +stamp[4], +stamp[5], +stamp[6]) : null;
+};
+
 /**
  * Reconcile one folder against disk. Safe to call concurrently with saves: every
  * per-item step runs under `ports.lock`, and no deletion is taken on the strength

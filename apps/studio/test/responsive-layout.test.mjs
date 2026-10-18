@@ -326,10 +326,13 @@ test('Sidebar drawer geometry, icons and colours match Gemini at 960px and below
   assert.match(primitives, /sidebar-section-header[^`]*w-\[calc\(100%-12px\)\] max-\[960px\]:ml-2/);
 
   const sidebar = read('apps/studio/src/shell/sidebar/Sidebar.tsx');
-  // Logo at (22, 18), wordmark at (60, 20) in #e0e0e0, close button at (263, 8):
-  assert.match(sidebar, /active:scale-95 max-\[960px\]:ml-3 max-\[960px\]:mt-2/);
-  assert.match(sidebar, /max-\[960px\]:text-\[#e0e0e0\] max-\[960px\]:!text-\[20px\] max-\[960px\]:!leading-6 max-\[960px\]:ml-2 max-\[960px\]:mt-3/);
-  assert.match(sidebar, /absolute right-\[14px\] top-1\.5 max-\[960px\]:right-\[9px\] max-\[960px\]:top-0/);
+  // The New chat link at (24, 16) with 4px above and below, its 28px logo overhanging a 24px
+  // box at (22, 18), the wordmark at (60, 20) in #e0e0e0, the close button at (263, 8):
+  assert.match(sidebar, /willow-sidenav-brand ml-\[14px\] mt-3 flex shrink-0 cursor-pointer items-start py-1 [^"]*max-\[960px\]:ml-4 max-\[960px\]:mt-2"/);
+  assert.match(sidebar, /max-\[960px\]:!h-\[28px\] max-\[960px\]:!w-\[28px\] max-\[960px\]:max-w-none/);
+  assert.match(sidebar, /max-\[960px\]:ml-3 max-\[960px\]:text-\[#e0e0e0\] max-\[960px\]:!text-\[20px\] max-\[960px\]:!leading-6/);
+  assert.match(css, /\.willow-sidenav-header-buttons \{\s*top: 0;\s*right: 9px;\s*height: 48px;\s*gap: 8px;/);
+  assert.match(css, /\.willow-sidenav-close-button \{\s*width: 48px;\s*height: 48px;/);
   // Footer: avatar at x 22, name at x 58, gear at x 269, all centred 36px above the bottom:
   assert.match(sidebar, /max-\[960px\]:!h-\[64px\] max-\[960px\]:pl-\[17px\] max-\[960px\]:pr-\[15px\] max-\[960px\]:pt-2 max-\[960px\]:pb-4/);
   assert.match(sidebar, /self-end max-\[960px\]:self-center/);

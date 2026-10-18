@@ -10,6 +10,8 @@ stream. Loaded as the "Chat" tab in Willow Studio.
 | `src/ChatView.tsx` | The chat tab surface (1750 lines). Threads, streaming, live mode, model selection, scroll machinery. |
 | `src/MobileModelPicker.tsx` | The top-bar model pill shown below 961px, with its ripple and `ModelsMenu`. Its own module so the notebook page mounts the same picker: `App` lazy-loads it into `NotebookPage`'s `renderModelPicker`. The Code landing mounts it too, passing `onSelect` for its own model handling. |
 | `src/use-compact-viewport.ts` | `useCompactViewport()` — true at 960px and below, Gemini's phone and tablet layout. Every narrow JSX branch in Chat and Notebooks keys on it, so CSS and JS switch at the same width. |
+| `src/scroll-to-bottom.ts` | `useScrollToBottom()`: when Gemini's "Scroll to bottom" arrow shows, and what pressing it does. Spark's task view uses it too. See *Scroll to bottom*. |
+| `src/ScrollToBottomFab.tsx` | The arrow itself, with `ScrollToBottomFab.css`; it goes inside a `position: relative` composer box. |
 | `src/ChatResponseChrome.tsx` | The decorated container around an LLM response: `ResponseActions` and `ThinkingStepsSidebar` (412 lines). |
 | `src/UserMessageBubble.tsx` | One user turn: the clamp-to-4-lines bubble and its expand/collapse transition (122 lines). |
 | `src/GeminiThinkingVisualizer.tsx` | The three-dot Lottie "thinking" indicator. |
@@ -21,6 +23,7 @@ stream. Loaded as the "Chat" tab in Willow Studio.
 | `src/chat-turn-store.ts` | Module-level registry of in-flight turns, so a response outlives ChatView. |
 | `src/chat-turn-runner.ts` | Drives one turn to completion, independent of React. Owns finalisation and checkpointing. |
 | `src/chat-turn-setup.ts` | Everything a turn is built from besides its history: system prompt, personal/canvas/search tools, provider options, notebook and Gem grounding. Shared by the composer's send and a resumed turn, so the two cannot drift. |
+| `src/mcp-chat.ts` | The user's MCP apps (Canva, Dropbox, Zoho's…) in a turn that names them: connects them, declares their tools, runs them, and tells the model which are out of reach. |
 | `src/chat-turn-takeover.ts` | The cross-tab half: every saved turn is a `chat-turn` background job, and a tab that inherits one regenerates the reply from the chat file. |
 | `src/ChatTurnTakeover.tsx` | Mounted once at the app root (lazy); registers the takeover with this tab's storage, keys and model config. |
 | `src/composer/Composer.tsx` | `InputBar`, the prompt box (885 lines). Attachments, tool chips, send, and the two JSX branches. |
@@ -38,8 +41,10 @@ stream. Loaded as the "Chat" tab in Willow Studio.
 | `src/composer/mentions/` | The composer's "@" (models, apps) and "/" (skills) menus laid over `InputBar`, their text logic, what a send carries for them, and `chat-apps.ts`, the app list "@" and the "Connecting to" line share. |
 | `src/media/` | Generated image / video / music: tool declarations and executor, generators, the cards, the luminous player, the image viewer, the zero-state gallery and its template data, the video discovery card, the `/images` page and its templates. |
 | `src/chat-page-store.ts` | The sidebar's creation pages (`/images`, `/videos`): the request the shell sends and the page ChatView reports back. |
+| `src/chat-status.ts` | Each chat's status mark (Needs input, In progress, Unread) and the drawer's filter by them. See *Chat statuses and the drawer's filter*. |
 | `src/research/` | Deep Research: the plan tool, the background runner, the plan and progress cards, the side panel. |
 | `src/library/` | Scheduled actions and skills a chat saves: `create_schedule` / `create_skill` and their executor, and the cards. See *Scheduled actions and skills*. |
+| `src/library-page/` | Gemini's Library page (`/library`, `/library/documents`): what it lists out of the chats (`library-items.ts`), the page-at-a-time read (`library-scan.ts`), the open request ChatView answers (`library-open.ts`), and the page, tiles, lightbox and overlays with `library.css`. See *Library*. |
 
 ## Architecture
 
@@ -165,7 +170,7 @@ removes the pane outright.
 
 ### Rows Willow cannot back yet
 
-Gemini shows **Add from Drive** on the root and **Photos / Avatar / Notebooks**
+Gemini shows **Add from Drive** on the root and **Photos / Chats / Notebooks**
 alongside Import code under More uploads. Willow has no backend for any of them, but
 they all render anyway: the menu is a clone, so a missing row is a visible difference.
 Each takes an optional handler; a row without one closes the menu and does nothing
@@ -728,7 +733,10 @@ it reads the current kit's ligatures out of the font file and refuses to write a
 lost any. Building the list from names harvested out of the source (what the retired
 `w-symbols-subset.cjs` and `scrapers/flow/54-symbols-subset.cjs` do) drops every icon the
 code names outside a quoted string — the sidebar's `side_nav` is JSX text — and did so on
-Oct 4 2026, turning the sidebar toggle into the word "SIDE_NAV".
+Oct 4 2026, turning the sidebar toggle into the word "SIDE_NAV". The Luminous kit carries
+the `opsz` axis (20–48), as Gemini's does, and the tool asks for it. Without it every glyph
+draws at its 24px design, and from Oct 4 to Oct 14 2026 the 16 and 20px icons came out a size
+heavier than Gemini's.
 
 ## Creation tools and Deep Research
 
@@ -878,9 +886,31 @@ system prompt for the turn, and each "@App" tells the model to answer with that 
 0.38, and Willow leaves them out (the user's call); no "Create new" (Gemini's likeness
 avatar); Willow's eight apps rather than Gemini's list; disabled skills are not listed.
 
+**MCP apps** — the servers Customize → Connectors connects (Canva, Dropbox, Zoho's apps…)
+or Spark → Connected apps adds — reach a turn only when the conversation names them
+(`mcp-chat.ts`): "@" and the app's name (or another it goes by, `MCP_CHAT_APPS`) in this
+message or an earlier one of the user's, or its name said plainly for the apps Customize
+lists. X's name alone is a letter ("solve for x"), so without an "@" it is named only as
+"Twitter" or by a link to x.com (`plain`). X Reader answers to X's names as well as its
+own, for whoever connected it instead of X. A server declares its whole toolset, often thirty tools with their schemas, and
+sending every connected app's with every message would cost more than the answers. The
+"@" menu lists those that are on, after Willow's own apps. Before the turn is built,
+ChatView (and a tab taking a turn over) connects the named servers that are not up and
+waits up to ten seconds for each; `buildChatTurnSetup` then declares their tools, at most
+64 (`@willow/ai/mcp/mcp-declarations`), and a prompt block that results are data, not
+instructions, and that a change to an app needs the user to have asked for it. A named
+app that is connected but did not answer is listed there too, with why (its sign-in
+ended, or what failed), so the reply says so rather than finding nothing. Nothing
+reaches an MCP app in a temporary chat, a research turn, or with tools off, and programs on
+this computer stay Spark's and the bots' — all but the ones Willow ships (X Reader), which
+the companion runs from its own copy whatever their saved command says
+(`chatReachesMcpServer`, which the "@" menu uses too). Results come back wrapped in
+`<connector_result>`, clipped at 40,000 characters.
+
 **"Connecting to <logo> <app>"** is the thinking row's status heading while a connected
-app's tool runs: the runner sets `record.connectingApp` around `runPersonalTool` and
-ChatView mirrors it through `onPhase`. It outranks search and code but not a media status,
+app's tool runs: the runner sets `record.connectingApp` around `runPersonalTool` — or
+around the MCP host's `run`, as `mcp:<server>`, which `chatApp` resolves to the app's logo
+— and ChatView mirrors it through `onPhase`. It outranks search and code but not a media status,
 and `ThoughtSummaryLine` draws the 24px logo with 8px either side inside the line, wiping in
 like any heading. Two measured details of that row: its text uses Gemini's `gds-body-l`
 axes (`'wdth' 92`), and on a desktop the row drops 4px once it carries a heading (192 against
@@ -937,6 +967,154 @@ the image does nothing; Escape closes it here too. Other file types still open i
 Recorded at 1536, 800 and 390 wide by `tools/scratch/gemini-sent-image.cjs`; Willow's side is
 `willow-sent-image.cjs`, which matches every box.
 
+## Scroll to bottom
+
+Gemini's `back-to-bottom-fab` is the round arrow over the composer when a chat is scrolled up.
+`scroll-to-bottom.ts` follows the rule in Gemini's own service, read out of its bundle:
+
+- It shows while the newest message's content runs 200px or more past the bottom of the view.
+  It measures to the content, not to the scroller's end, so the response area held open under
+  the turn on screen never counts. Within 200px of the end it never shows.
+- Pressed, it leaves on a 0.1s fade (it comes and goes over 0.2s otherwise), and the thread
+  glides to its end. It stays away until the view is back within 200px.
+- While a reply streams in or is revealed it stays away, unless the user scrolls up during it.
+  Gemini's press also turns on its scroller's follow-the-stream flag; Willow's thread has no
+  such follow, so after a press mid-reply the arrow can come back once the reply has grown
+  another 200px below.
+
+Its looks were measured at 1536, 900, 800 and 390 wide (`tools/ui-research/captures/gemini/
+scroll-to-bottom/`). It is 40px and round, centred over the composer, with its bottom edge 36px
+above it at every width. It is `#1f1f1f` with a `#e3e3e3` icon, and `#1c1c1c` below 960px, with
+a 20px black shadow at 0.4. The icon is Google Symbols `arrow_downward` at 20px, weight 320,
+`ROND` 100. The hover mixes 8% of a different ink (`#e6e6e6`, or `#e0e0e0` below 960px) into the
+surface. That reads `color(srgb 0.184)` and `0.171294`, as Gemini's does. Focus is Gemini's 2px
+primary ring, synced to the workspace colour. The light theme is unmeasured.
+
+Gemini Spark's task page uses the same chat window and input container, so Spark's task view has
+the arrow too (see `features/spark/AGENTS.md`). `tools/scratch/willow-scroll-fab.cjs` checks Chat
+against these numbers at each size, with `--stream` for a reply coming in;
+`willow-spark-fab.cjs` checks Spark.
+
+## Library
+
+Gemini's Library, at Gemini's paths: `/library` (the overview) and `/library/documents`. The
+sidebar's Library row (Gemini's `features` glyph, above Images) opens it, and `App` renders
+`library-page/LibraryPage.tsx`, lazily, for the `library` view.
+
+**What it lists.** Documents are the canvases (one per document, however many turns rewrote
+it, named and dated by the last write) and finished Deep Research reports. Media is every
+finished image, video and track. Each tile shows the image, the track's cover or the video's own
+frame. Both lists are newest first, read out of the chats' saved messages (`canvasRefs`,
+`research`, `media`); there is no index. Gemini also lists mini apps, GIFs, generated files and a
+Styles section, which Willow does not make.
+
+**Reading.** `LibraryScanner` reads chats newest first, four at a time, only as far as the page on
+screen needs. The overview needs 4 documents and 30 media, the Documents page 30 documents. The
+next page is read when the 1px trigger at the end of the list comes into view. A page is shown
+whole once it is read, as Gemini's 30 arrive. Meanwhile Gemini's skeletons hold its place: 5
+tiles (3 on phones) or 4 rows. The first load shows the 4px bar, plus 8 skeleton rows on the
+Documents page. Each chat's items are kept for the session against the chat's timestamp. When the
+chat list changes (any save, a Library delete included), it is read again behind what is shown,
+to the same depth, so nothing flashes and the scroll stays. Only a first load, the other subpage,
+another account or Retry start from the bar. A chat that cannot be read is skipped.
+
+**Opening.** A document row opens its chat. ChatView then opens the canvas or the report once the
+chat's messages hold it (`$libraryOpenRequest`, dropped after 15s). An image opens the lightbox:
+Copy image, Download full size, Go to chat and Delete (Gemini's Share buttons are left out). A
+video or a track opens its chat. Code chats open in Code.
+
+The lightbox opens and closes in one frame, as Gemini's does; do not give it a fade. Its blurred
+copy of the picture fills the window at full strength under the 90% scrim. A 200ms fade on the
+scrim once left that copy on screen alone while the scrim came in and went out, a bright
+full-screen flash on every local picture, which loads at once. A new picture also drops the last
+one's state during render, so the previous image never shows for a frame.
+
+**Deleting.** Delete is on the tile while it is hovered or focused from 769px, in the More options
+sheet below that, and in the lightbox. It asks with Gemini's "Delete item?" dialog. The tile goes
+at once and the chat is written back without the item (`withoutMedia`). If that fails, the tile is
+put back and "Failed to delete item" shows; otherwise "Item deleted". The write stamps the chat as
+updated now, so it moves to the top of Recents; `saveLocalFSChat` has no way to keep the time.
+
+**Looks.** These were measured from Gemini at 1536×826, 800×1280 and 390×844 and read out of the
+island's StyleX and Luminous source (`tools/ui-research/captures/gemini/library/`).
+- The column is 800px with 20px sides, under a 68px header.
+- Rows are 760×77 at 1536, `#171717`, with 16px corners and 20px padding, 8px apart.
+- The grid is `repeat(auto-fill, minmax(140px, 1fr))` with 1px gaps: five 151.2px columns at
+  1536 and two of 174.7 on a phone.
+- Below 961px the page sits under the 68px app bar, whose narrow bar shows the wordmark alone.
+  Below 768px surface-dim is `#141414` and the variant ink `#e0e0e0`.
+- Gemini portals its overlays into an unstyled body, so their line boxes are Times New Roman's
+  18.4px at 16px. The tooltip (34.6px tall) and the dialog (420×196) are sized on that.
+- The phones' sheet is Base UI's drawer: 28px corners and 300ms. A drag past 10px moves it, and
+  letting go past half its height, or at 0.5px/ms or faster, closes it.
+- Dates are Gemini's `shortDateTime` in the browser's language. Gemini uses the page's `hl`.
+- The light theme is Luminous's light tokens, unmeasured.
+
+`apps/studio/test/library-page.test.mjs` pins the above. `tools/ui-research/scrapers/gemini/
+library/` holds the Gemini captures (`00`–`07`) and `w-library.cjs`, Willow's side. Its phases
+are seed/clear, facts, interact, slow (reads held back to measure the loading states), paging,
+sheet, swipe, delete, open, empty, keyboard and light. Chats only load with a folder connected,
+so `folder-on` gives the :3101 sandbox one in the origin's private file system and `folder-off`
+takes it away again.
+
+## Chat statuses and the drawer's filter
+
+Gemini's chat rows carry a status mark (`remy-goal-status-badge`). The funnel at the end of the
+chat section's heading (`conversation-status-filter-button`) filters the list by it.
+`chat-status.ts` holds both. The funnel and its menu are `ChatStatusFilter.tsx` in
+`apps/studio/src/shell/sidebar/`, and `RecentChatRow` draws the marks.
+
+**The marks.** A row shows one, in Gemini's order: Needs input (a `#fe4a00` flag), else In
+progress (`progress_activity`, turning once every 2s, still under reduced motion), else Unread
+(an 8px `#3186ff` dot). Gemini's come from its server. Willow's come from what this tab knows:
+- In progress: a reply still being written for the chat (`chat-turn-store`), or a Deep Research
+  run still going (`trackResearchChat`, then the runner's `noteResearchStatus`).
+- Unread: a reply or a report that finished while the chat was not on screen (the turn runner's
+  `noteChatTurnSettled`). Needs input: one that failed that way. A stopped or incognito reply
+  leaves no mark.
+- On screen means ChatView has the chat open (`reportChatOnScreen`, under any of its ids while
+  it is being named) and Chat is the tab on show (`$chatSurfaceOnShow`, which App keeps). Opening
+  a chat clears its mark, and so does coming back to the Chat tab with it open.
+- Unread and Needs input are kept per chat scope in localStorage (`willow_chat_status:<scope>`).
+  They follow a renamed or deleted chat, and are reread when another tab changes them.
+
+**The filter.** All, Ready (Unread), Needs attention (Needs input) and In progress. The heading
+reads the filter's name. The list, its window and the pin count all come from the filtered list,
+and a new filter starts the window over. The heading stays over a filter with no matches, so the
+funnel does too. The filter is not kept across a reload, as Gemini's is not. Gemini fetches a
+filtered list from its server (a spinner at about 1s, results at about 1.8s); Willow's filter is
+local, so it applies at once.
+
+**The menu has no animation in or out.** Sampled frame by frame, Gemini's appears whole in one
+frame and goes in one. It has no backdrop either: a click outside closes it and still lands, so
+a chat opens. The only motion is the funnel's ripple: centred, 33.94px, 225ms in and 150ms out.
+The menu hangs 4px under the funnel, or 4px over it when there is no room (phones), pushed
+inside the window. It is as wide as "Needs attention". Enter or Space opens it on the chosen row.
+The arrows wrap, and Home and End jump. Enter, Space or a click chooses a row and hands focus
+back to the funnel, as Escape does. Tab closes it and moves on from the funnel. Escape never
+reaches the drawer.
+
+**Looks.** Measured at 1536×826, 800×1280 and 390×844 (`tools/ui-research/captures/gemini/sort/`):
+- Desktop: a 24px funnel (Luminous `filter_alt` 20/320, white at 55%), 2px in from a 4px actions
+  box. Hover and press are 8% and 12% of `#c4c7c5`; focus is a 3px `#e6e6e6` ring 2px out. The
+  menu is 184.5×160, `#1f1f1f`, with 20px corners, 8px padding and a 20px shadow at 0.28. Rows are
+  36px with 12px corners and 13/17 labels. The selected row is `#171717`, hover is 8% `#e6e6e6`,
+  and the keyboard ring is 2px, inset.
+- 960px and below: the heading row is 44px and the funnel 36px (24/300), 11px in. The menu is
+  222.4×208 and `#1c1c1c`, with 48px rows of 24px glyphs and 17/24 labels; the selected row is
+  `#141414`. A row's mark gets its own 16px slot 1px before the always-shown ⋮ (Gemini's
+  252–268, with the ⋮ at 269). On a desktop it rests over the ⋮'s slot and gives way to it on
+  hover.
+- The rows sit on a plain rectangle of the panel's colour (`.chat-status-filter-list`). Over the
+  chat page's animated backdrop the menu paints into a see-through layer, where Chrome draws
+  subpixel text only over a background it knows is opaque; Gemini's menu text is subpixel.
+- The light theme follows the sidebar's light rows, unmeasured.
+
+`apps/studio/test/chat-status-filter.test.mjs` runs the module and pins the above.
+`tools/ui-research/scrapers/gemini/sort/` holds the Gemini capture (`02-capture.cjs`) and
+Willow's side (`w-sort.cjs`: facts, menu, anim, states, keys, outside, select, rows, marks,
+running and narrow).
+
 ## Scheduled actions and skills
 
 Gemini's chat saves both from a conversation — "Every Saturday at 10 AM, send me…" is a
@@ -963,8 +1141,9 @@ Deep Research turn, and not in a build without Spark.
   (`schedule_auto`, from Luminous Symbols — the Google Symbols subset lacks it), "Saturday
   by 10 AM" (`formatScheduleDue`), the title and request on one line each, the on/off
   switch and ⋮ with Edit and Delete. It reads the Spark schedule live, so a switched-off
-  one shows off and a deleted one says "Deleted". Edit opens Spark's schedule editor
-  through the shell (`requestSparkLocation`); Delete asks first.
+  one shows off and a deleted one says "Deleted". Edit asks the shell for Spark's schedule
+  editor (`requestSparkLocation`), which opens the Scheduled tab (`/scheduled`) on that
+  schedule unless Old Skills and Schedules is on; Delete asks first.
 - **The info note** is Gemini's `xap-inline-dialog` (a `#1f3760` note over the icon, 14px
   of it to the left). Gemini's says actions are "prepped in advance"; Willow's run at about
   their time while it is open, and the note says that.

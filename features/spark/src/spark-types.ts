@@ -249,16 +249,30 @@ export interface SparkTask {
   isNaming?: boolean;
 }
 
-export type SparkScheduleFrequency = 'Daily' | 'Weekly';
+/** Gemini's Scheduled tab repeats (`@willow/core/spark-library`'s `LibraryScheduleFrequency`). */
+export type SparkScheduleFrequency = 'Hourly' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Once';
 
 export interface SparkSchedule {
   id: string;
   title: string;
   frequency: SparkScheduleFrequency;
   weekdays: string[];
+  /** 24-hour `HH:mm`. An hourly schedule runs at `minute` instead. */
   time: string;
   instructions: string;
   enabled: boolean;
+  /** Hourly: the minute past each hour, 0, 15, 30 or 45. */
+  minute?: number;
+  /** Monthly and yearly: the day of the month; a shorter month runs on its last day. */
+  dayOfMonth?: number;
+  /** Yearly: the month, 0 for January to 11. */
+  month?: number;
+  /** Once: the local day it runs, `YYYY-MM-DD`. */
+  date?: string;
+  /** When it stops running, as an ISO time; absent, it runs until paused or deleted. */
+  endsAt?: string;
+  /** Set once it will not run again: Gemini's Completed section. */
+  completedAt?: string;
   taskId?: string;
   lastRunLabel?: string;
   lastRunAt?: string;

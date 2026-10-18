@@ -24,6 +24,7 @@ import type { LibrarySkill } from '@willow/core/skill-library';
 import { mentionedAppsBlock, mentionedSkillsBlock } from './composer/mentions/mention-prompts';
 import { researchChatTools, researchInstructions } from './research/research-tools';
 import { libraryChatTools, libraryInstructions } from './library/library-tools';
+import { mcpAppsBlock, mcpChatTools, mcpTurnTexts } from './mcp-chat';
 import { sparkLibraryWriter } from '@willow/core/spark-library';
 
 /**
@@ -83,6 +84,7 @@ export type ChatTurnSetup = Pick<
   ChatTurnRunnerDeps,
   | 'options' | 'systemPrompt' | 'personalTools' | 'canvasTools' | 'canvasHost' | 'mediaTools' | 'mediaHost'
   | 'researchTools' | 'researchHost' | 'libraryTools' | 'libraryHost' | 'webSearchTools' | 'runWebSearch'
+  | 'mcpTools' | 'mcpHost'
 >;
 
 export const buildChatTurnSetup = ({
@@ -102,6 +104,7 @@ export const buildChatTurnSetup = ({
   mediaInputImages,
   mediaPreviousImage,
   researchQuery = '',
+  messageText = '',
   mentionedSkills = [],
   mentionedApps = [],
   libraryScopeId = '',
@@ -129,6 +132,11 @@ export const buildChatTurnSetup = ({
   mediaPreviousImage?: () => Promise<InlineImage | null>;
   /** The message text, kept on a Deep Research plan as what was asked. */
   researchQuery?: string;
+  /**
+   * The message text, read with the user's earlier messages for the connected apps they name (`mcp-chat.ts`).
+   * Their servers should be connected first (`connectNamedMcpServers`): one still connecting has no tools yet.
+   */
+  messageText?: string;
   /** Skills the message invokes with "/": their instructions join this turn's prompt. */
   mentionedSkills?: LibrarySkill[];
   /** Connected apps the message names with "@", by label: the model is told to use them. */
@@ -214,6 +222,11 @@ export const buildChatTurnSetup = ({
      nothing — cannot make them. Saved through Spark, so a build without Spark has none. */
   const libraryWriter = sparkLibraryWriter();
   const libraryEnabled = !isIncognito && toolPolicy !== 'disabled' && !!libraryWriter && !!libraryScopeId && !researchEnabled;
+  /* The user's MCP apps, for a conversation that names them. A temporary chat reaches no app,
+     and a research turn only proposes its plan. */
+  const mcp = !isIncognito && toolPolicy !== 'disabled' && !researchEnabled
+    ? mcpChatTools(mcpTurnTexts(messageText, prevMessages))
+    : { tools: [], host: undefined, apps: [], unreachable: [] };
 
   return {
     options: {
@@ -259,6 +272,7 @@ export const buildChatTurnSetup = ({
       libraryInstructions(libraryEnabled),
       mentionedSkillsBlock(mentionedSkills),
       mentionedAppsBlock(mentionedApps),
+      mcpAppsBlock(mcp.apps, mcp.unreachable),
     ].filter(Boolean).join('\n\n'),
     personalTools,
     canvasTools,
@@ -287,5 +301,7 @@ export const buildChatTurnSetup = ({
         baseUrl: searchBinding.baseUrl,
       })
       : undefined,
+    mcpTools: mcp.tools,
+    mcpHost: mcp.host,
   };
 };

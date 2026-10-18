@@ -52,7 +52,7 @@ const docFor = (env: DotToolEnv) => {
       '"folder" {"path": inside the connected folder};',
       '"user_returns" {"away_hours": 8};',
       '"discord" {"channel": an id or name, or "dm", "server": …, "from": who, "match": words, "mentions": true}.',
-      `Times are the user's local time (${env.timeZone}). "condition", for event kinds only, is what an event must also be for you to wake, in plain words: each event is checked against it cheaply first and the rest never reach you. "notify" is how the user wants to hear about runs: "always", "important" (only when a run finds something that matters; the default) or "never". "until" and "max_runs" end it.`,
+      `Times are the user's local time (${env.timeZone}). "condition", for event kinds only, is what an event must also be for you to wake, in plain words: each event is checked against it cheaply first and the rest never reach you. "notify" is how the user wants to hear about runs: "always", "important" (only when a run finds something that matters; the default) or "never" (the work kept for when they ask — never for a run whose work is to say something). A run answers where the user asked for the trigger: on Discord or Telegram when they asked there. "until" and "max_runs" end it.`,
       `Available here: ${available.join(', ')}.${missing.length ? ` Not available here: ${missing.join('; ')}.` : ''}`,
       'Change an existing trigger rather than making a near-duplicate.',
     ].join(' '),
@@ -146,7 +146,11 @@ export const triggerTool = (env: DotToolEnv): DotToolEntry => ({
       if (action === 'create' || action === 'add') {
         if (!fields.when) return fail('Give "when": what makes it fire.');
         if (!fields.instruction) return fail('Give "instruction": what you will do each time it fires, written so it stands on its own.');
+        // Asked for on Discord or Telegram, its runs answer there, as a reply to that message would.
+        const asked = [...thread.items].reverse().find((item) => item.kind === 'user');
+        const from = asked?.via === 'discord' && asked.discord ? { via: 'discord' as const, discord: asked.discord } : asked?.via === 'telegram' ? { via: 'telegram' as const } : undefined;
         const created = createTrigger(env.dotId, {
+          ...(from ? { from } : {}),
           name: fields.name ?? `${fields.heartbeat ? 'Heartbeat: ' : ''}${describeWhen(fields.when, env.timeZone)}`,
           when: fields.when,
           instruction: fields.instruction,

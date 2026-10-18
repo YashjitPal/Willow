@@ -53,6 +53,7 @@ export interface TriggerDraft {
   maxRuns?: number;
   /** Event triggers whose current state is known at creation (Spark tasks): the keys already there. */
   seen?: string[];
+  from?: DotTrigger['from'];
 }
 
 export type TriggerChange = { trigger: DotTrigger } | { error: string };
@@ -86,6 +87,7 @@ export const createTrigger = (dotId: string, draft: TriggerDraft, now: number): 
     ...(draft.until !== undefined ? { until: draft.until } : {}),
     ...(draft.maxRuns !== undefined ? { maxRuns: draft.maxRuns } : {}),
     ...(draft.seen ? { seen: rememberSeen([], draft.seen), primed: true } : {}),
+    ...(draft.from ? { from: draft.from } : {}),
   };
   writeTriggers(dotId, (triggers) => [...triggers, trigger]);
   return { trigger };

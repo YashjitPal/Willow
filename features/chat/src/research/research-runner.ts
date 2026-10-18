@@ -12,6 +12,7 @@
  */
 import { streamChat, isAbortError } from '@willow/ai/chat';
 import { runWebSearch } from '@willow/ai/web-search-tool';
+import { noteResearchStatus } from '../chat-status';
 import type { ResearchRecord, ResearchSource, ResearchThought } from './research-types';
 
 export interface ResearchRunDeps {
@@ -194,6 +195,7 @@ export const startResearch = (key: string, initial: ResearchRecord, deps: Resear
   jobs.set(key, job);
   const update = (patch: Partial<ResearchRecord>) => {
     job.record = { ...job.record, ...patch };
+    if (patch.status) noteResearchStatus(key, patch.status);
     job.listeners.forEach((listener) => listener(job.record));
   };
   void run(job, update, deps);

@@ -29,6 +29,7 @@ const repoRoot = path.resolve(appDir, '..', '..');
 // exactly the way the app does, rather than duplicating the path map here.
 let bundleDir = '';
 let reconcileFolder;
+let conflictCopyForkedAt;
 
 before(async () => {
   const cacheDir = path.join(repoRoot, 'node_modules', '.cache');
@@ -40,7 +41,7 @@ before(async () => {
       resolveDir: appDir,
       sourcefile: 'folder-sync-entry.ts',
       loader: 'ts',
-      contents: `export { reconcileFolder } from '@willow/storage/local-fs/folder-sync-engine';`,
+      contents: `export { conflictCopyForkedAt, reconcileFolder } from '@willow/storage/local-fs/folder-sync-engine';`,
     },
     outfile,
     bundle: true,
@@ -50,7 +51,7 @@ before(async () => {
     target: 'node23',
     plugins: [willowAliasPlugin(repoRoot)],
   });
-  ({ reconcileFolder } = await import(pathToFileURL(outfile).href));
+  ({ conflictCopyForkedAt, reconcileFolder } = await import(pathToFileURL(outfile).href));
 });
 
 after(() => {
@@ -268,6 +269,7 @@ it('preserves an external edit as a conflict copy before rewriting local work', 
     ids: ['Notes'],
   });
 
+  const startedAt = Date.now();
   const result = await reconcileFolder(ports);
 
   assert.equal(result.conflicts.length, 1, 'the external version must be preserved');
@@ -275,6 +277,11 @@ it('preserves an external edit as a conflict copy before rewriting local work', 
   assert.match(conflictId, /^Notes \(Disk conflict /);
   assert.equal(diskFiles.get(conflictId).contents, 'edited in another editor');
   assert.equal(diskFiles.get('Notes').contents, 'my unsaved local version', 'local work wins the original name');
+  // Spark reads the moment back out of the name (a copy made mid-run is a run nobody resumes).
+  const forkedAt = conflictCopyForkedAt(conflictId);
+  assert.ok(forkedAt > startedAt - 1000 && forkedAt <= Date.now(), `the name records when the copy was made: ${conflictId}`);
+  assert.equal(conflictCopyForkedAt(`${conflictId} 2`), forkedAt);
+  assert.equal(conflictCopyForkedAt('Notes'), null);
 });
 
 it('leaves an item dirty when the flush to disk fails', async () => {

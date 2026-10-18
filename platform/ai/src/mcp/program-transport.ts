@@ -13,6 +13,8 @@ export interface McpProgramSpec {
   args: string[];
   env?: Record<string, string>;
   cwd?: string;
+  /** One of the programs Willow ships, which the companion runs from its own copy instead of `command`. */
+  bundled?: string;
 }
 
 export interface McpProgramExit {

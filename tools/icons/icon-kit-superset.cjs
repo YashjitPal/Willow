@@ -11,7 +11,8 @@ const fontkit = require(path.join(os.tmpdir(), 'wfont/node_modules/fontkit'));
 const FILE = path.resolve(__dirname, '../../apps/studio/index.html');
 const arg = (name) => (process.argv.find((a) => a.startsWith(`--${name}=`)) || '').split('=')[1] || '';
 const FACES = {
-  luminous: { css: 'Luminous Symbols', query: 'Luminous+Symbols:wght@100..700' },
+  // opsz as in Gemini's kit: without it every glyph draws at its 24px design.
+  luminous: { css: 'Luminous Symbols', query: 'Luminous+Symbols:opsz,wght@20..48,100..700' },
   google: { css: 'Google Symbols', query: 'Google+Symbols:FILL,ROND,wght@0..1,0..100,100..700' },
 };
 const face = FACES[arg('family') || 'luminous'];

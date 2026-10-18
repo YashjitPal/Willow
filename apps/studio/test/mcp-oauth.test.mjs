@@ -16,8 +16,11 @@ const { createHttpTransport } = await importTs(mcp('http-transport.ts'));
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
 
-/** A server at mcp.example.com that sends a 401 pointing at its metadata, and an authorization server at auth.example.com/t1. */
-const standIn = ({ challenge = true, registration = true } = {}) => {
+/**
+ * A server at mcp.example.com that sends a 401 pointing at its metadata, and an authorization server at
+ * auth.example.com/t1; `methods` is the token endpoint's `token_endpoint_auth_methods_supported`.
+ */
+const standIn = ({ challenge = true, registration = true, methods } = {}) => {
   const seen = [];
   const fetchImpl = async (input, init = {}) => {
     const url = String(input);
@@ -30,7 +33,13 @@ const standIn = ({ challenge = true, registration = true } = {}) => {
       return json({ resource: 'https://mcp.example.com/mcp', authorization_servers: ['https://auth.example.com/t1'] });
     }
     if (url === 'https://auth.example.com/.well-known/oauth-authorization-server/t1') {
-      return json({ issuer: 'https://auth.example.com/t1', authorization_endpoint: 'https://auth.example.com/t1/authorize', token_endpoint: 'https://auth.example.com/t1/token', ...(registration ? { registration_endpoint: 'https://auth.example.com/t1/register' } : {}) });
+      return json({
+        issuer: 'https://auth.example.com/t1',
+        authorization_endpoint: 'https://auth.example.com/t1/authorize',
+        token_endpoint: 'https://auth.example.com/t1/token',
+        ...(registration ? { registration_endpoint: 'https://auth.example.com/t1/register' } : {}),
+        ...(methods ? { token_endpoint_auth_methods_supported: methods } : {}),
+      });
     }
     if (url === 'https://auth.example.com/t1/register') return json({ client_id: 'client-123' }, 201);
     if (url === 'https://auth.example.com/t1/token') {
@@ -109,6 +118,56 @@ it('trades the code for tokens, refreshes keeping a rotated refresh token, and k
   assert.equal(oauth.grantExpired({ ...grant, expiresAt: 100_000 }, 30_000), false);
   assert.equal(oauth.grantExpired({ ...grant, expiresAt: 100_000 }, 50_000), true, 'within a minute of running out counts as out');
   assert.equal(oauth.grantExpired({ ...grant, expiresAt: undefined }, 9e15), false);
+});
+
+it('sends a secret as HTTP Basic to a token endpoint that takes it no other way (X), and refreshes the same way', async () => {
+  const { seen, fetchImpl } = standIn({ registration: false, methods: ['none', 'client_secret_basic'] });
+  const server = await oauth.discoverOAuth('https://mcp.example.com/mcp', fetchImpl);
+  assert.deepEqual(server.tokenAuthMethods, ['none', 'client_secret_basic']);
+  const client = { clientId: 'my app', clientSecret: 's:cret', redirectUri: 'http://127.0.0.1:3334/oauth/callback' };
+  const grant = await oauth.exchangeCode(server, client, { code: 'code-1', verifier: 'v' }, fetchImpl, 1_000);
+  // Each half form-encoded before the pair is: a space is "+", and a colon in the secret cannot split it.
+  const basic = `Basic ${Buffer.from('my+app:s%3Acret').toString('base64')}`;
+  assert.equal(seen.at(-1).headers.authorization, basic);
+  const form = Object.fromEntries(new URLSearchParams(seen.at(-1).body));
+  assert.deepEqual(form, { grant_type: 'authorization_code', code: 'code-1', redirect_uri: client.redirectUri, code_verifier: 'v', resource: 'https://mcp.example.com/mcp' });
+  assert.equal(grant.clientAuth, 'basic');
+
+  await oauth.refreshGrant(grant, fetchImpl, 2_000);
+  assert.equal(seen.at(-1).headers.authorization, basic);
+  assert.deepEqual(Object.fromEntries(new URLSearchParams(seen.at(-1).body)), { grant_type: 'refresh_token', refresh_token: 'refresh-1', resource: 'https://mcp.example.com/mcp' });
+
+  // A public client (X's Native App) has no secret, so it says who it is in the body.
+  const open = await oauth.exchangeCode(server, { clientId: 'native', redirectUri: client.redirectUri }, { code: 'code-2', verifier: 'v' }, fetchImpl);
+  assert.equal(seen.at(-1).headers.authorization, undefined);
+  assert.equal(new URLSearchParams(seen.at(-1).body).get('client_id'), 'native');
+  assert.equal(open.clientAuth, undefined);
+
+  // Where the body is taken too, the secret stays there, as it does for a server that does not say.
+  const both = standIn({ methods: ['client_secret_post', 'client_secret_basic'] });
+  const either = await oauth.discoverOAuth('https://mcp.example.com/mcp', both.fetchImpl);
+  const posted = await oauth.exchangeCode(either, client, { code: 'code-3', verifier: 'v' }, both.fetchImpl);
+  assert.equal(both.seen.at(-1).headers.authorization, undefined);
+  assert.equal(new URLSearchParams(both.seen.at(-1).body).get('client_secret'), 's:cret');
+  assert.equal(posted.clientAuth, undefined);
+});
+
+it('asks for the scopes it is given, rather than every one the server names', async () => {
+  const { fetchImpl } = standIn({ registration: false });
+  let opened;
+  await oauth.signIn({
+    serverUrl: 'https://mcp.example.com/mcp',
+    fetchImpl,
+    clientName: 'Willow',
+    redirectUri: 'http://127.0.0.1:3334/oauth/callback',
+    client: { clientId: 'mine' },
+    scopes: ['tweet.read', 'offline.access'],
+    openAndWait: async (url) => {
+      opened = new URL(url);
+      return { code: 'c', state: opened.searchParams.get('state') };
+    },
+  });
+  assert.equal(opened.searchParams.get('scope'), 'tweet.read offline.access');
 });
 
 it('signs in end to end, and ignores an answer meant for another attempt', async () => {

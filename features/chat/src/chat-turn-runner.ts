@@ -11,6 +11,7 @@ import { isCanvasToolCall } from './canvas/canvas-tools';
 import { createMediaToolExecutor, isMediaToolCall, type MediaToolHost } from './media/media-tools';
 import { createResearchToolExecutor, isResearchToolCall, type ResearchToolHost } from './research/research-tools';
 import { createLibraryToolExecutor, isLibraryToolCall, type LibraryToolHost } from './library/library-tools';
+import type { McpChatHost } from './mcp-chat';
 import { type ChatMsg, hasSavedMessageContent, serializeChatMessage } from './chat-message';
 import {
   formatUpstreamError,
@@ -24,6 +25,7 @@ import {
   removeChatTurn,
   type ChatTurnRecord,
 } from './chat-turn-store';
+import { noteChatTurnSettled } from './chat-status';
 
 /**
  * Drives one chat turn to completion, independent of any React component.
@@ -122,6 +124,12 @@ export interface ChatTurnRunnerDeps {
   webSearchTools?: { functionDeclarations: any[] }[];
   /** Answers `web_search`. Absent exactly when `webSearchTools` is. */
   runWebSearch?: (query: string) => Promise<{ text: string; sources: GroundingSource[] }>;
+  /**
+   * The tools of the user's MCP apps this conversation names (`mcp-chat.ts`), and the host that
+   * runs them and says whose each one is. Absent exactly when `mcpTools` is empty.
+   */
+  mcpTools?: { functionDeclarations: any[] }[];
+  mcpHost?: McpChatHost;
   /** Wire-format history, already built (it needs attachment bytes, which only
    *  the component can resolve). */
   history: AiChatMessage[];
@@ -231,6 +239,15 @@ export const runChatTurn = async (
   deps: ChatTurnRunnerDeps,
 ): Promise<void> => {
   const { options } = deps;
+  record.isConnected = false;
+
+  const markConnected = () => {
+    if (!record.isConnected) {
+      record.isConnected = true;
+      record.connectedAt = Date.now();
+      record.listener?.onPhase(record);
+    }
+  };
 
   const thinkTimer = setInterval(() => {
     if (!record.isThinking) return;
@@ -326,7 +343,8 @@ export const runChatTurn = async (
     record.canvasRefs = undefined;
     record.media = undefined;
     record.research = undefined;
-    // Kept: what was saved stays saved, and the executor answers a repeat with the same item.
+    record.isConnected = false;
+    record.connectedAt = undefined;
     record.phase = 'thinking';
     record.isThinking = true;
     record.thinkStartedAt = Date.now();
@@ -375,6 +393,7 @@ export const runChatTurn = async (
         ...(deps.researchTools ?? []),
         ...(deps.libraryTools ?? []),
         ...(deps.webSearchTools ?? []),
+        ...(deps.mcpTools ?? []),
       ],
       baseUrl: options.baseUrl,
       apiFormat: options.apiFormat,
@@ -385,6 +404,7 @@ export const runChatTurn = async (
     },
     (token: string) => {
       if (!isCurrent(record, deps)) return;
+      markConnected();
       if (record.isThinking) {
         record.thinkSeconds = Math.max(1, Math.ceil((Date.now() - record.thinkStartedAt) / 1000));
         stopThinking();
@@ -393,14 +413,19 @@ export const runChatTurn = async (
       record.listener?.onText(record.content);
       void checkpoint(record, deps);
     },
-    () => {},
+    () => {
+      if (!isCurrent(record, deps)) return;
+      markConnected();
+    },
     deps.systemPrompt,
     (phase: StreamPhase) => {
       if (!isCurrent(record, deps)) return;
+      if (phase !== 'thinking') markConnected();
       record.phase = phase;
       record.listener?.onPhase(record);
     },
     async (name: string, args: any) => {
+      markConnected();
       /*
        * Canvas first, and gated on the executor rather than on the name.
        *
@@ -482,7 +507,9 @@ export const runChatTurn = async (
        * gets a reply it knows how to handle rather than a silent nothing.
        */
       const allowed = declaredToolNames(deps.personalTools);
-      if (!allowed.has(name)) {
+      /* An MCP app's tool is allowed by its host, which knows only the names this turn declared. */
+      const mcpApp = deps.mcpHost?.appFor(name) ?? null;
+      if (!allowed.has(name) && !mcpApp) {
         return {
           status: 'error',
           error: `The tool "${name}" is not available in this context. Do not claim it ran; use another approach or tell the user plainly.`,
@@ -491,14 +518,14 @@ export const runChatTurn = async (
 
       /* A connected app's tool shows on the thinking row while it runs, as Gemini's
          "Connecting to <app>" does, and the row goes back to the thoughts after. */
-      const app = connectorForRead(name) ?? connectorForAction(name);
+      const app = mcpApp ?? connectorForRead(name) ?? connectorForAction(name);
       if (app && isCurrent(record, deps)) {
         record.connectingApp = app;
         record.listener?.onPhase(record);
       }
-      let result: Awaited<ReturnType<typeof runPersonalTool>>;
+      let result: { text: string; failed?: boolean } | null;
       try {
-        result = await runPersonalTool(name, args);
+        result = mcpApp && deps.mcpHost ? await deps.mcpHost.run(name, args) : await runPersonalTool(name, args);
       } finally {
         if (app && record.connectingApp === app) {
           record.connectingApp = undefined;
@@ -511,10 +538,12 @@ export const runChatTurn = async (
           error: `The tool "${name}" is not available in this context. Do not claim it ran; use another approach or tell the user plainly.`,
         };
       }
+      if (result.failed) return { status: 'error', error: result.text };
       return { status: 'ok', result: result.text };
     },
     (thoughtChunk: string) => {
       if (!isCurrent(record, deps)) return;
+      markConnected();
       record.thinkingText += thoughtChunk;
       record.listener?.onThinking(record);
     },
@@ -580,6 +609,8 @@ export const runChatTurn = async (
     clearInterval(thinkTimer);
     stopThinking();
   }
+
+  noteChatTurnSettled(record);
 
   // Claimed synchronously: an attached view finalises through its own state (and
   // its autosave effect writes), otherwise the runner saves. Splitting this

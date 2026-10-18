@@ -4,7 +4,7 @@ import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { ProfilePhoto } from '@willow/ui/ProfilePhoto';
 import { Sidebar, ViewType } from './sidebar/Sidebar';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
-import { SearchModal } from './SearchModal';
+import { SearchPanel } from './search/SearchPanel';
 import { useBackground } from './BackgroundContext';
 import { useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { WaveShaderBackground } from '@willow/ui/wave-shader';
@@ -27,6 +27,8 @@ import { ShellActiveContext } from './shell-active';
 import { navigateRail, railCurrentFor } from './rail/rail-navigation';
 import { HarnessView } from '@willow/harness/HarnessView';
 import { $harnessLast, $harnessTab } from '@willow/harness/harness-store';
+import { currentAgent, showsDesktopGetApp, showsPhoneGetApp } from '../download/app-download';
+import { DesktopGetAppButton, PhoneGetAppButton } from '../download/GetAppButtons';
 
 /*
  * Signed out is NOT a different layout. Everything Willow does runs locally, so
@@ -139,6 +141,10 @@ export const StudioLayout: React.FC<{
   const [isSidebarOpenPressed, setIsSidebarOpenPressed] = useState(false);
   const sparkPage = useStore(sparkLocation).page;
   const isDesktop = isDesktopApp();
+  const getAppOffers = React.useMemo(() => {
+    const agent = currentAgent();
+    return { desktop: showsDesktopGetApp(agent, isDesktop || isAndroidApp()), phone: showsPhoneGetApp(agent, isAndroidApp()) };
+  }, [isDesktop]);
   // Labs' choice of window buttons, which the strip draws; macOS always has its own.
   const macWindowButtons = (experiments['mac-window-buttons'] ?? false) && canChooseWindowButtons();
   useEffect(() => {
@@ -231,10 +237,7 @@ export const StudioLayout: React.FC<{
       {/* Kept mounted while away, so its lists and scroll are as they were on the way back. */}
       <div style={{ display: isSidebarAway ? 'none' : 'contents' }}>
         <Sidebar
-          onSearchClick={() => {
-            setIsSearchOpen(false);
-            setCurrentView('search');
-          }}
+          onSearchClick={() => setIsSearchOpen(true)}
           currentView={currentView}
           onViewChange={(view) => {
             if (typeof window !== 'undefined' && window.innerWidth <= 960) {
@@ -281,7 +284,19 @@ export const StudioLayout: React.FC<{
       )}
 
 
-      <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} modelConfig={modelConfig} />
+      <SearchPanel
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        onChooseChat={() => {
+          if (typeof window !== 'undefined' && window.innerWidth <= 960) setIsSidebarCollapsed(true);
+        }}
+        onOpenChat={() => {
+          if (studioExperience !== 'chat') onStudioExperienceChange('chat');
+          setCurrentView('home');
+          onModeChange('chat');
+        }}
+        modelConfig={modelConfig}
+      />
 
       {/* Persistent Authorize Sync Modal */}
       {isLocalFolderConnected && !isLocalFolderAuthorized && !isInitializingLocalFS && (
@@ -377,6 +392,28 @@ export const StudioLayout: React.FC<{
           <ConversationActionsMenu chatId={activeChatId} />
         )}
         {/*
+          Gemini's "Get app", on a new chat (temporary or not) and nowhere else, ahead of the
+          temporary-chat button in the tab order as in Gemini's bar. Desktop: the tonal pill 24px
+          before that button (right 12 + 36 + 24). Phones: the icon button 12px before that
+          button's 48px box, centred on it.
+        */}
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && !isGemChat && getAppOffers.desktop && (
+          <div className="absolute top-[14px] right-[72px] z-30 flex items-center max-[960px]:hidden">
+            <DesktopGetAppButton onOpen={() => setCurrentView('download')} />
+          </div>
+        )}
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && !isGemChat && getAppOffers.phone && (
+          <div className="min-[961px]:hidden absolute top-[12px] right-[112px] z-30 flex items-center">
+            <PhoneGetAppButton />
+          </div>
+        )}
+        {/* On the download page the phone's button is the bar's only control, 24px in. */}
+        {currentView === 'download' && getAppOffers.phone && (
+          <div className="min-[961px]:hidden absolute top-[12px] right-[24px] z-30 flex items-center">
+            <PhoneGetAppButton />
+          </div>
+        )}
+        {/*
           Top-right: Temporary Chat button in Chat mode (Exact Gemini Web specs).
           Desktop: 36x36 at top 14 / right 12 with 24px icon (opsz 24, wght 300).
           Tablet & Mobile (<= 960px): 48x48 at top 8 / right 52 with 32px icon (opsz 32, wght 240, lm-icon-xxl).
@@ -460,13 +497,16 @@ export const StudioLayout: React.FC<{
           there: the wordmark at x 56 (a new-chat link) and the 36x36 New chat button 12px
           from the right edge, its `gemini_chat` glyph 24px at weight 300 in #e0e0e0.
           The Gems pages carry the same bar; in the Gem editor the model picker the editor
-          renders stands where the wordmark is. Customize, which Gemini has no counterpart
-          for, borrows it on every one of its screens.
+          renders stands where the wordmark is.
         */}
-        {(currentView === 'notebooks' || currentView === 'notebook-create' || currentView === 'gems' || currentView === 'customize') && (
+        {/*
+          Gemini's Library and download bars below 961px are the wordmark alone, with no New chat. So is
+          Customize's, and at 768px and below even the wordmark goes: its page puts search and "+" in that corner.
+        */}
+        {(currentView === 'notebooks' || currentView === 'notebook-create' || currentView === 'gems' || currentView === 'customize' || currentView === 'library' || currentView === 'download') && (
           <>
             {!(currentView === 'gems' && isGemsEditor) && (
-            <div className="min-[961px]:hidden absolute top-[14px] left-[56px] z-30 flex items-center">
+            <div className={`min-[961px]:hidden absolute top-[14px] left-[56px] z-30 flex items-center${currentView === 'customize' ? ' max-[768px]:hidden' : ''}`}>
               <button
                 type="button"
                 onClick={() => {
@@ -481,6 +521,7 @@ export const StudioLayout: React.FC<{
               </button>
             </div>
             )}
+            {currentView !== 'library' && currentView !== 'download' && currentView !== 'customize' && (
             <div className="min-[961px]:hidden absolute top-[14px] right-[12px] z-30 flex items-center">
               <button
                 type="button"
@@ -507,6 +548,7 @@ export const StudioLayout: React.FC<{
                 </span>
               </button>
             </div>
+            )}
           </>
         )}
         {/*

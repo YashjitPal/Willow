@@ -130,6 +130,38 @@ it('closes a message whose closer was forgotten instead of leaking protocol to t
   assert.deepEqual(calls, ['recall']);
 });
 
+it('knows a closer however a model writes it — escaped, spaced, cased, with something invisible in it — and never shows it', () => {
+  const run = (response, byChar = true) => {
+    const seen = { messages: [], current: '', calls: [], text: '' };
+    const parser = new DotStreamParser({
+      onText: (chunk) => { seen.text += chunk; },
+      onMessageOpen: () => { seen.current = ''; },
+      onMessageText: (chunk) => { seen.current += chunk; },
+      onMessageClose: () => { seen.messages.push(seen.current.trim()); },
+      onReact: () => undefined,
+      onStatus: () => undefined,
+      onPatchOpen: () => undefined,
+      onPatchLine: () => undefined,
+      onPatchClose: () => undefined,
+      onCall: (name, body) => seen.calls.push({ name, body }),
+    });
+    if (byChar) for (const char of response) parser.push(char);
+    else parser.push(response);
+    parser.end();
+    return seen;
+  };
+  for (const closer of ['\\*\\*\\* End Message', '*** end message', '***End Message', '*** End  Message', '*** End Message ***', '*** End\u00a0Message', '*** End Message\u200b', '∗∗∗ End Message']) {
+    const seen = run(`*** Message\nyo, your photos are safe\n${closer}\nLater prose.\n`);
+    assert.deepEqual(seen.messages, ['yo, your photos are safe'], JSON.stringify(closer));
+    assert.doesNotMatch(seen.messages[0], /End Message/i);
+    assert.equal(seen.text.trim(), 'Later prose.', 'and what follows is private prose again');
+  }
+  const glued = run('*** Message\nSent it. \\*\\*\\* End Message *** Call: recall\n{"query": "x"}\n\\*\\*\\* End Call\n');
+  assert.deepEqual(glued.messages, ['Sent it.']);
+  assert.deepEqual(glued.calls, [{ name: 'recall', body: '{"query": "x"}' }], 'a call closed the same way closes');
+  assert.deepEqual(run('*** Message\n***bold and italic*** words stay as they are\n*** End Message\n').messages, ['***bold and italic*** words stay as they are']);
+});
+
 /* ------------------------------------------------------------------------ */
 /* Turn loop                                                                 */
 /* ------------------------------------------------------------------------ */
@@ -924,22 +956,22 @@ it('keeps one reaction per message for the user: a new emoji replaces the old, a
   assert.deepEqual(byDot.map((item) => `${item.emoji} ${item.label}`), ['✅ Done'], 'the bot has one reaction on a message, as a person does: the latest replaces the rest');
 });
 
-it('wakes the bot only for a reaction that may answer it', async () => {
-  const dotId = await newDot();
-  const question = dotSays(dotId, 'Shall I **book** the 7pm table?');
-  const statement = dotSays(dotId, 'The table is booked.');
-  const thread = () => store.getDotThread(dotId);
-  assert.equal(reactions.reactionMayAnswer(thread(), question, '👍'), true, 'a reaction to an open question is an answer');
-  assert.equal(reactions.reactionMayAnswer(thread(), statement, '👍'), false, 'a reaction to news is an acknowledgement');
-  assert.equal(reactions.reactionMayAnswer(thread(), statement, '🤔'), true, 'doubt is worth the dot\'s attention');
-  say(dotId, 'Actually, let me think about it.');
-  assert.equal(reactions.reactionMayAnswer(thread(), question, '👍'), false, 'once the user has written since, the question is no longer open');
-  const code = dotSays(dotId, 'Done:\n```\nwhat?\n```');
-  assert.equal(reactions.reactionMayAnswer(thread(), code, '👍'), false, 'a question mark in code asks nothing');
-
-  assert.equal(wakesDot({ kind: 'user-reaction', wakes: true }), true);
-  assert.equal(wakesDot({ kind: 'user-reaction' }), false);
+it('wakes the bot for every reaction, and for taking one back: what it means is the bot\'s to judge', () => {
+  assert.equal(wakesDot({ kind: 'user-reaction', emoji: '👍', text: 'The table is booked.' }), true, 'on news as on a question');
+  assert.equal(wakesDot({ kind: 'user-reaction', emoji: '👍', removed: true, text: 'Shall I book the 7pm table?' }), true, 'taking one back too');
   assert.equal(wakesDot({ kind: 'reaction' }), false, 'the dot\'s own reactions are output');
+});
+
+it('keeps the wake-up a bot set when something wakes it early, until it comes or the bot sets another', async () => {
+  const { afterTurn } = await importTs(harness('runtime', 'turn-end.ts'));
+  const now = Date.UTC(2026, 9, 15, 12);
+  const wokenEarly = { status: 'idle', wakeAt: now + 3_600_000 };
+  assert.deepEqual(afterTurn(wokenEarly, 'idle', now), { status: 'sleeping' }, 'back to sleep until the wake-up it set');
+  assert.deepEqual(afterTurn(wokenEarly, 'sleeping', now), { status: 'sleeping' }, 'a sleep it set this turn is the one that stands');
+  assert.deepEqual(afterTurn({ status: 'idle', wakeAt: now - 60_000 }, 'idle', now), { status: 'idle', wakeAt: undefined, wakeReason: undefined }, 'one already past when the turn began never came');
+  assert.deepEqual(afterTurn({ status: 'idle' }, 'idle', now), { status: 'idle', wakeAt: undefined, wakeReason: undefined });
+  assert.deepEqual(afterTurn({ status: 'paused', wakeAt: now + 60_000 }, 'cancelled', now), { status: 'paused' }, 'paused, it keeps it for when it resumes');
+  assert.deepEqual(afterTurn({ status: 'idle', wakeAt: now + 60_000 }, 'error', now), { status: 'error' }, 'a failed turn keeps it too');
 });
 
 it('shows the bot which of its messages the user reacted to, and counts reactions as news', async () => {
@@ -1042,6 +1074,61 @@ it('shows Seen once the model has a message in hand, through the bot working and
   assert.equal(seen(more.seq), more.id, 'the answer to the first message leaves the second still read');
   store.appendDotItem(dotId, { kind: 'dot', text: 'Tomorrow is free.', turnId: 't1' });
   assert.equal(seen(more.seq), null, 'answered: the reply says it was seen');
+});
+
+it('keeps Seen on a follow-up sent while the bot was already writing, which what it wrote does not answer', async () => {
+  const { chatRows, seenRow } = await importTs(path.join(repoRoot, 'features', 'spark', 'src', 'dots', 'chat', 'chat-rows.ts'));
+  const dotId = await newDot();
+  const asked = say(dotId, 'Is the launch still on?');
+  const seen = (readThrough) => seenRow(chatRows(store.getDotThread(dotId), Date.now()), readThrough)?.key ?? null;
+  const more = say(dotId, 'And what time?');
+  store.appendDotItem(dotId, { kind: 'dot', text: 'Yes, it is on.', turnId: 't1', saw: asked.seq });
+  assert.equal(seen(more.seq - 1), null, 'not read yet');
+  assert.equal(seen(more.seq), more.id, 'read, and what stands below it was written before it was');
+  store.appendDotItem(dotId, { kind: 'dot', text: 'At six.', turnId: 't1', streaming: true, saw: more.seq });
+  assert.equal(seen(more.seq), more.id, 'through the answer being typed');
+  store.appendDotItem(dotId, { kind: 'dot', text: 'At six.', turnId: 't1', saw: more.seq });
+  assert.equal(seen(more.seq), null, 'answered');
+});
+
+it('marks a turn\'s use of the screen under the go-ahead it ran under, only when it went through, and live only while in hand', async () => {
+  const { chatRows, SCREEN_IN_USE_MS } = await importTs(path.join(repoRoot, 'features', 'spark', 'src', 'dots', 'chat', 'chat-rows.ts'));
+  const dotId = await newDot();
+  const marks = (liveTurn, at = Date.now()) => chatRows(store.getDotThread(dotId), at, undefined, liveTurn).filter((row) => row.type === 'screen').map((row) => row.mark);
+  const use = (turnId, tool, failed) => {
+    const call = store.appendDotItem(dotId, { kind: 'call', tool, args: {}, text: '', turnId });
+    return () => store.appendDotItem(dotId, { kind: 'result', tool, callId: call.id, text: failed ? 'refused' : 'done', turnId, ...(failed ? { failed: true } : {}) });
+  };
+
+  const old = store.appendDotItem(dotId, { kind: 'screen', text: 'To read the chart', screen: { reason: 'To read the chart' }, turnId: 't1' });
+  store.appendDotItem(dotId, { kind: 'event', event: 'screen', ref: old.id, screenStep: 'allowed', text: 'allowed' });
+  use('t1', 'user_screenshot')();
+  assert.deepEqual(marks(), ['used']);
+
+  // A day on, the go-ahead has lapsed; the next look finds that out, and is given a new one at once, as it runs.
+  const finish = use('t2', 'user_apps');
+  store.appendDotItem(dotId, { kind: 'event', event: 'screen', ref: old.id, screenStep: 'ended', text: 'ended' });
+  const fresh = store.appendDotItem(dotId, { kind: 'screen', text: 'To send hi', screen: { reason: 'To send hi', standing: 'mode' }, turnId: 't2' });
+  store.appendDotItem(dotId, { kind: 'event', event: 'screen', ref: fresh.id, screenStep: 'allowed', text: 'allowed' });
+  store.updateDotRuntime(dotId, { screen: { itemId: fresh.id, since: Date.now(), lastAt: Date.now() } });
+  assert.deepEqual(marks('t2'), ['used', 'using'], 'under way under the new go-ahead, not a lapsed one');
+  finish();
+  assert.deepEqual(marks(), ['used', 'used'], 'one line for the turn: no second one saying it was let use the screen');
+
+  use('t3', 'user_desktop_click', true)();
+  assert.deepEqual(marks('t3'), ['used', 'used'], 'turned away, it did nothing there, and is no use of the screen');
+  use('t3', 'user_screenshot')();
+  assert.deepEqual(marks('t3'), ['used', 'used', 'using'], 'the look that went through is');
+  assert.deepEqual(marks('t3', Date.now() + SCREEN_IN_USE_MS + 1_000), ['used', 'used', 'used'], 'a minute on with the turn doing other things, it was used rather than in use');
+});
+
+it('ends a turn when the bot stops calling tools, whatever its message says: the bot decides, not its wording', async () => {
+  const dotId = await newDot();
+  say(dotId, 'Send hi in the general channel.');
+  const stops = scripted(['*** Message\nOn it. Switching to that tab now.\n*** End Message\n']);
+  assert.equal((await turn(dotId, stops)).reason, 'idle');
+  assert.equal(stops.requests.length, 1, 'a response with no call in it ends the turn');
+  assert.equal(items(dotId, 'event').filter((item) => item.event === 'notice').length, 0, 'nothing reads its words to keep it going');
 });
 
 it('steers rather than interrupts: a message sent while a tool runs waits for it, comes in next, and is read only then', async () => {

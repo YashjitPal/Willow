@@ -15,7 +15,8 @@
  */
 import { atom } from 'nanostores';
 
-export type LibraryScheduleFrequency = 'Daily' | 'Weekly';
+/** Gemini's Scheduled tab repeats: its Repeat menu, in its order. */
+export type LibraryScheduleFrequency = 'Hourly' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Once';
 
 /** Full English weekday names, Sunday first: how Spark stores a schedule's days. */
 export const LIBRARY_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
@@ -25,16 +26,28 @@ export interface LibraryScheduleInput {
   frequency: LibraryScheduleFrequency;
   /** Full weekday names; empty for a daily schedule. */
   weekdays: string[];
-  /** 24-hour `HH:mm`. */
+  /** 24-hour `HH:mm`. An hourly schedule runs at `minute` instead. */
   time: string;
   /** What each run is asked to do: the prompt it runs with. */
   instructions: string;
+  /** Hourly: the minute past each hour it runs, 0, 15, 30 or 45. */
+  minute?: number;
+  /** Monthly and yearly: the day of the month, 1-31; a shorter month runs on its last day. */
+  dayOfMonth?: number;
+  /** Yearly: the month, 0 for January to 11. */
+  month?: number;
+  /** Once: the local day it runs, `YYYY-MM-DD`. */
+  date?: string;
+  /** When it stops running, as an ISO time. Absent, it runs until paused or deleted. */
+  endsAt?: string;
 }
 
 export interface LibrarySchedule extends LibraryScheduleInput {
   id: string;
   enabled: boolean;
   nextRunAt?: string;
+  /** Set once it will not run again: a once-only schedule after its run, or one past its end. */
+  completedAt?: string;
 }
 
 export interface LibrarySkillInput {
@@ -86,6 +99,12 @@ const sameSchedule = (a: LibrarySchedule, b: LibrarySchedule): boolean =>
   && a.instructions === b.instructions
   && a.enabled === b.enabled
   && a.nextRunAt === b.nextRunAt
+  && a.completedAt === b.completedAt
+  && a.minute === b.minute
+  && a.dayOfMonth === b.dayOfMonth
+  && a.month === b.month
+  && a.date === b.date
+  && a.endsAt === b.endsAt
   && a.weekdays.join() === b.weekdays.join();
 
 /**
@@ -216,12 +235,57 @@ export const formatScheduleClock = (time: string): string => {
   return `${displayHour}:${rawMinute.padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
 };
 
-/** "Weekly on Sun around 7:00 PM", "Daily around 8:00 AM": the Spark card's "When to run". */
-export const formatScheduleWhen = (schedule: Pick<LibraryScheduleInput, 'frequency' | 'weekdays' | 'time'>): string => {
-  const days = schedule.frequency === 'Weekly' ? ordered(schedule.weekdays) : [];
-  return days.length
-    ? `Weekly on ${days.map(dayAbbreviation).join(', ')} around ${formatScheduleClock(schedule.time)}`
-    : `Daily around ${formatScheduleClock(schedule.time)}`;
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "1st", "22nd", "13th": Gemini's `{DAY, selectordinal}`. */
+export const formatScheduleOrdinal = (day: number): string => {
+  const tens = day % 100;
+  if (tens >= 11 && tens <= 13) return `${day}th`;
+  switch (day % 10) {
+    case 1: return `${day}st`;
+    case 2: return `${day}nd`;
+    case 3: return `${day}rd`;
+    default: return `${day}th`;
+  }
+};
+
+/** "15 Oct 2026" from `2026-10-15`, as Gemini's en-IN short date reads; "" when it is not one. */
+export const formatScheduleDate = (date: string | undefined, withYear = true): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date ?? '');
+  if (!match) return '';
+  const month = MONTHS_SHORT[Number(match[2]) - 1];
+  if (!month) return '';
+  return `${Number(match[3])} ${month}${withYear ? ` ${match[1]}` : ''}`;
+};
+
+type ScheduleTiming = Pick<LibraryScheduleInput, 'frequency' | 'weekdays' | 'time'>
+  & Partial<Pick<LibraryScheduleInput, 'minute' | 'dayOfMonth' | 'month' | 'date'>>;
+
+const yearDay = (schedule: ScheduleTiming): string =>
+  `${schedule.dayOfMonth ?? 1} ${MONTHS_SHORT[schedule.month ?? 0] ?? MONTHS_SHORT[0]}`;
+
+/**
+ * "Weekly on Sun around 7:00 PM", "Daily around 8:00 AM": the Spark card's "When to run". The
+ * other repeats read as Gemini's schedule summary does ("Monthly on 15th around 7:00 PM").
+ */
+export const formatScheduleWhen = (schedule: ScheduleTiming): string => {
+  const clock = formatScheduleClock(schedule.time);
+  switch (schedule.frequency) {
+    case 'Hourly':
+      return schedule.minute ? `Hourly around the ${schedule.minute}-min mark` : 'Hourly around the top of the hour';
+    case 'Monthly':
+      return `Monthly on ${formatScheduleOrdinal(schedule.dayOfMonth ?? 1)} around ${clock}`;
+    case 'Yearly':
+      return `Yearly on ${yearDay(schedule)} around ${clock}`;
+    case 'Once':
+      return `Will run once on ${formatScheduleDate(schedule.date) || 'a date to be set'} around ${clock}`;
+    default: {
+      const days = schedule.frequency === 'Weekly' ? ordered(schedule.weekdays) : [];
+      return days.length
+        ? `Weekly on ${days.map(dayAbbreviation).join(', ')} around ${clock}`
+        : `Daily around ${clock}`;
+    }
+  }
 };
 
 /** "10 AM", "7:30 PM": Gemini chat's scheduled-action card drops a round hour's minutes. */
@@ -239,7 +303,7 @@ const shortClock = (time: string): string => {
 /* ------------------------------------------------------------------------ */
 
 /** A schedule's card, as Gemini's Spark draws it: "When to run:", then "What to do:". */
-export const scheduleCardBody = (schedule: Pick<LibraryScheduleInput, 'frequency' | 'weekdays' | 'time' | 'instructions'>): string =>
+export const scheduleCardBody = (schedule: ScheduleTiming & Pick<LibraryScheduleInput, 'instructions'>): string =>
   `#### When to run:\n\n${formatScheduleWhen(schedule)}\n\n#### What to do:\n\n${schedule.instructions}`;
 
 /** A skill's card, as Gemini's chat draws it: its description, then "Instructions" and the skill. */
@@ -254,10 +318,25 @@ export const SCHEDULE_CARD_DISCLAIMER = 'Schedules run at approximate times whil
 
 const WEEKDAYS_ONLY = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
-/** "Saturday by 10 AM", "Weekdays by 9 AM", "Daily by 8 AM": the chat card's schedule line. */
-export const formatScheduleDue = (schedule: Pick<LibraryScheduleInput, 'frequency' | 'weekdays' | 'time'>): string => {
-  const days = schedule.frequency === 'Weekly' ? ordered(schedule.weekdays) : [];
+/**
+ * "Saturday by 10 AM", "Weekdays by 9 AM", "Daily by 8 AM": the chat card's schedule line. Gemini's
+ * card only ever read daily and weekly schedules; the other repeats follow its pattern.
+ */
+export const formatScheduleDue = (schedule: ScheduleTiming): string => {
   const clock = shortClock(schedule.time);
+  switch (schedule.frequency) {
+    case 'Hourly':
+      return `Hourly at :${String(schedule.minute ?? 0).padStart(2, '0')}`;
+    case 'Monthly':
+      return `${formatScheduleOrdinal(schedule.dayOfMonth ?? 1)} of each month by ${clock}`;
+    case 'Yearly':
+      return `${yearDay(schedule)} each year by ${clock}`;
+    case 'Once':
+      return `${formatScheduleDate(schedule.date) || 'Once'} by ${clock}`;
+    default:
+      break;
+  }
+  const days = schedule.frequency === 'Weekly' ? ordered(schedule.weekdays) : [];
   if (!days.length || days.length === LIBRARY_WEEKDAYS.length) return `Daily by ${clock}`;
   if (days.length === 1) return `${days[0]} by ${clock}`;
   if (days.join() === WEEKDAYS_ONLY.join()) return `Weekdays by ${clock}`;

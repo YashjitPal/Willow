@@ -1,0 +1,154 @@
+/*
+ * A custom app's page, measured on gemini.google.com/customize/connectors at 1536x826 (dpr 1.25) with a DeepWiki
+ * app: the `@DeepWiki` badge 15/20 on surface-dim with 4px 8px padding, "Available actions" above 52px rows (a 16px
+ * check, 8px, the tool's name, a surface-dim rule under each) and the MCP URL row's 36px Copy link button. The rest
+ * is the connector page's own, Disconnect and Connect included.
+ */
+
+.custom-app-handle {
+  box-sizing: border-box;
+  height: 28px;
+  padding: 4px 8px;
+  border-radius: 9999px;
+  background: #171717;
+  color: rgba(255, 255, 255, 0.55);
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+}
+
+.custom-app-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-app-page .overflow-menu-button.is-open {
+  background-color: rgba(230, 230, 230, 0.08);
+}
+
+.custom-app-problem {
+  box-sizing: border-box;
+  margin: -16px 0 24px;
+  padding: 0 16px;
+  color: #f2b8b5;
+  font-size: 13px;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.custom-app-actions-section {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 36px;
+  padding: 0 16px;
+}
+
+.custom-app-actions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  margin-bottom: 12px;
+}
+
+.custom-app-actions-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 52px and its rule under it (content-box, as Gemini's `li` is): 52.8px a row at dpr 1.25. */
+.custom-app-action {
+  box-sizing: content-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  min-width: 0;
+  border-bottom: 1px solid #171717;
+  color: #e6e6e6;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.custom-app-action:last-child {
+  border-bottom: 0;
+}
+
+.custom-app-action-check {
+  flex-shrink: 0;
+}
+
+.custom-app-action-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-app-loading {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+
+.custom-app-spinner {
+  width: 32px;
+  height: 32px;
+  animation: custom-app-spin 1.4s linear infinite;
+}
+
+.custom-app-spinner circle {
+  fill: none;
+  stroke: var(--sync-a8c7fa, #a8c7fa);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 90 150;
+}
+
+@keyframes custom-app-spin {
+  to { transform: rotate(360deg); }
+}
+
+.custom-app-url-row {
+  align-items: center;
+}
+
+/* `.info-connector-url`: Copy link stays beside the address, which breaks anywhere when the row is narrow. */
+.info-value.custom-app-url {
+  flex-wrap: nowrap;
+  gap: 4px;
+  max-width: 70%;
+  min-width: 0;
+}
+
+.custom-app-url-text {
+  min-width: 0;
+  color: #e6e6e6;
+}
+
+.custom-app-copy {
+  flex-shrink: 0;
+}
+
+:is(.light-theme, [data-theme="light"]) .custom-app-handle {
+  background: #f2f0f0;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .custom-app-action,
+:is(.light-theme, [data-theme="light"]) .custom-app-url-text {
+  color: #000000;
+}
+
+:is(.light-theme, [data-theme="light"]) .custom-app-action {
+  border-bottom-color: #f2f0f0;
+}

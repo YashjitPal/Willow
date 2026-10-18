@@ -110,6 +110,48 @@ describe('a run another tab is still doing is not "interrupted"', () => {
     assert.equal(task.status, 'running');
     assert.equal(task.response, '');
   });
+
+  // What the sync engine keeps of a file changed under a dirty one, taken mid-run.
+  const strandedCopy = {
+    ...runningTask,
+    id: `${TASK_ID} (Disk conflict 2026-10-03-10-00-06)`,
+    response: '',
+  };
+
+  it('settles a conflict copy made mid-run, read back from disk, at its own time', () => {
+    localStorage.clear();
+    const parsed = spark.parseSparkTask(JSON.stringify(strandedCopy), strandedCopy.id);
+    assert.equal(parsed.status, 'failed');
+    assert.equal(parsed.description, 'Run interrupted');
+    assert.equal(parsed.progressLabel, 'Interrupted');
+    assert.equal(parsed.response, 'This task was interrupted when Willow closed. Retry it to continue.');
+    assert.equal(parsed.updatedAt, strandedCopy.updatedAt);
+    // Every copy of Willow sharing the folder writes the same file, so none forks another copy.
+    assert.deepEqual(spark.parseSparkTask(JSON.stringify(strandedCopy), strandedCopy.id), parsed);
+  });
+
+  it('settles one the saved list holds only a running summary of', () => {
+    localStorage.clear();
+    localStorage.setItem(`willow:spark:v1:${encodeURIComponent(SCOPE)}`, JSON.stringify({
+      tasks: [{ ...strandedCopy, prompt: '', bodyLoaded: false }],
+    }));
+    spark.hydrateSparkState(SCOPE);
+    const task = spark.sparkState.get().tasks.find((candidate) => candidate.id === strandedCopy.id);
+    assert.equal(task.status, 'failed');
+    assert.equal(task.progressLabel, 'Interrupted');
+    assert.equal(task.updatedAt, strandedCopy.updatedAt);
+  });
+
+  it('leaves a conflict copy alone once it is worked on, or when it was not mid-run', () => {
+    localStorage.clear();
+    const resumed = { ...strandedCopy, updatedAt: '2026-10-03T10:05:00.000Z' };
+    assert.equal(spark.parseSparkTask(JSON.stringify(resumed), resumed.id).status, 'running');
+    for (const status of ['complete', 'needs-input']) {
+      const copy = spark.parseSparkTask(JSON.stringify({ ...strandedCopy, status }), strandedCopy.id);
+      assert.equal(copy.status, status);
+      assert.equal(copy.description, 'Working on your task');
+    }
+  });
 });
 
 describe('background work wiring', () => {

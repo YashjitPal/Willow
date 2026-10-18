@@ -204,6 +204,28 @@ export function DotConversation({ dot, modelConfig, selectedModelId, setSelected
     if (scroller && (pinnedRef.current || lastKind === 'user')) scroller.scrollTop = scroller.scrollHeight;
   }, [dot.id, lastText, activity?.working, thread?.items.length, lastKind]);
 
+  // The composer and what stands above it — an error, attached files, a draft of several lines — lie over the end of
+  // the conversation, so the room below its last message is their height, kept as they grow; a user at the end stays there.
+  const followupZoneRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const scroller = conversationRef.current;
+    const zone = followupZoneRef.current;
+    if (!scroller || !zone) return undefined;
+    const fit = () => {
+      const atEnd = pinnedRef.current;
+      scroller.style.setProperty('--spark-followup-inset', `${Math.ceil(zone.getBoundingClientRect().height + 20)}px`);
+      if (atEnd) scroller.scrollTop = scroller.scrollHeight;
+      updateScrollFade(scroller);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(zone);
+    return () => {
+      observer.disconnect();
+      scroller.style.removeProperty('--spark-followup-inset');
+    };
+  }, []);
+
   useEffect(() => {
     const { setActivity, clearActivity } = useCharacterStore.getState();
     if (activity?.working) {
@@ -417,7 +439,7 @@ export function DotConversation({ dot, modelConfig, selectedModelId, setSelected
             </div>
           </div>
 
-          <div className="spark-task-detail__followup-zone">
+          <div ref={followupZoneRef} className="spark-task-detail__followup-zone">
             {runtime?.status === 'error' && runtime.lastError && <DotTurnError error={runtime.lastError} onRetry={() => retryDot(dot.id)} />}
             {sendProblem && <DotTurnError error={sendProblem} />}
             <div className="spark-task-detail__followup-composer">

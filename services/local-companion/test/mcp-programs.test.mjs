@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { cmdArgument, cmdCommand, createMcpPrograms, programEnv, resolveCommand } from '../src/mcp-programs.mjs';
 
 /* A stdio MCP server in miniature: answers initialize with what it was started with, and lists one tool. */
@@ -129,6 +132,39 @@ it('reports a program that dies with what it printed, and a launcher that is not
   } finally {
     programs.dispose();
     await fs.rm(folder, { recursive: true, force: true });
+  }
+});
+
+it('runs a program Willow ships from its own copy, whatever command came with it', async () => {
+  const launched = [];
+  const child = () => {
+    const fake = Object.assign(new EventEmitter(), { pid: 4242, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
+    queueMicrotask(() => fake.emit('spawn'));
+    return fake;
+  };
+  const { programs } = harness({
+    resolve: (command) => (command === 'uv' ? 'C:\\tools\\uv.exe' : null),
+    start: (file, args, options) => {
+      launched.push({ file, args, env: options.env });
+      return child();
+    },
+    kill: () => {},
+  });
+  const session = { id: 's4' };
+  const script = fileURLToPath(new URL('../src/mcp-servers/x-reader.py', import.meta.url));
+  try {
+    await programs.handle(session, 'mcp.start', { id: 'x-reader.1', bundled: 'x-reader', command: 'calc.exe', args: ['--anything'], env: { X_COOKIES: 'auth_token=a; ct0=b' } });
+    assert.equal(launched.length, 1);
+    assert.equal(launched[0].file, 'C:\\tools\\uv.exe');
+    assert.deepEqual(launched[0].args, ['run', '--quiet', '--script', script], 'the window\'s command and arguments are not what runs');
+    assert.equal(launched[0].env.X_COOKIES, 'auth_token=a; ct0=b');
+    await fs.access(script);
+
+    await assert.rejects(programs.handle(session, 'mcp.start', { id: 'other', bundled: 'toString', command: process.execPath }), /no program called toString/);
+    await assert.rejects(programs.handle(session, 'mcp.start', { id: 'other', bundled: '__proto__', command: process.execPath }), /no program called __proto__/);
+    assert.equal(launched.length, 1, 'a name Willow does not ship starts nothing');
+  } finally {
+    programs.dispose();
   }
 });
 

@@ -94,6 +94,26 @@ with no executor is answered with an explicit "not available" error, never a
 canned result. The Media agent's suite used to live here, with a mock executor
 behind it, and both are gone — see `features/media/AGENTS.md`.
 
+An MCP server's tools become such declarations through `src/mcp/mcp-declarations.ts`
+(Chat uses it; Code's harness and Spark call tools by writing JSON, and need none). A
+server's names and schemas cannot go out as they are: names are made to fit every
+provider's 64 characters of `[A-Za-z0-9_-]`, hashed when cut so two never meet, and
+JSON Schema is rewritten into Gemini's subset — `$ref` and `allOf` folded in, a union
+reduced to its first usable member, `const` and string `enum`s kept, anything else
+dropped — since Gemini fails the whole turn on a keyword it does not take. An object
+with no listed properties, which Gemini refuses, is asked for as JSON text, and
+`reviveArguments` parses it back before the call reaches the server. Nothing Gemini
+alone reads (`nullable`) is written, so the same declarations are plain JSON Schema
+once `chat.ts` lowercases their types for the other providers.
+
+Signing in to an MCP server is `src/mcp/mcp-oauth.ts` (the whole flow is in Spark's
+harness docs, *More apps*). Two of its choices are not in the MCP spec. A client's secret
+goes in the token request's body, unless the server's metadata lists HTTP Basic and not
+the body (`token_endpoint_auth_methods_supported`, as X's does): then it goes as Basic,
+with the client's id out of the body, and the grant keeps `clientAuth: 'basic'` so its
+refreshes do the same. And a sign-in given `scopes` asks for those, not every scope the
+server names — X's names its whole API, direct messages and billing among them.
+
 `enableMediaTools` now only marks a Media agent turn. It keeps that turn on the
 GenerateContent stream, because the Interactions path returns no history and the
 agent's next turn continues from the history this one returns. It declares

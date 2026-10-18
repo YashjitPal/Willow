@@ -373,11 +373,13 @@ it('expands a new card inline, or swaps the panel when one is open', () => {
   const calls = view.match(/(?<!const )handleOpenCanvas\(/g) || [];
   const presses = view.match(/onOpen=\{\(\) => handleOpenCanvas\(/g) || [];
   const swaps = view.match(/if \(open\.docId !== newest\.docId\) handleOpenCanvas\(newest\.docId\);/g) || [];
+  // A document picked in the Library is a press too, made on the Library's page.
+  const libraryPicks = view.match(/if \(!canvasDocsInChat\.has\(request\.docId\)\) return;\s*handleOpenCanvas\(request\.docId\);/g) || [];
   assert.ok(presses.length > 0, 'the opener must still be reachable by a press');
   assert.equal(
     calls.length,
-    presses.length + swaps.length,
-    'the panel opens on a press, or swaps to a NEW document when it is already open — nothing else',
+    presses.length + swaps.length + libraryPicks.length,
+    'the panel opens on a press (here or in the Library), or swaps to a NEW document when it is already open — nothing else',
   );
   const handler = view.match(/const handleOpenCanvas = useCallback\(\(docId: string, version\?: number\) => \{[\s\S]{0,1400}?\n {2}\}, \[/);
   assert.ok(handler, 'and it is still the press-driven one');

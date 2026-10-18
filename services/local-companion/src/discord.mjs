@@ -51,6 +51,27 @@ const QUERY_KEYS = ['limit', 'before', 'after', 'around'];
 const MAX_PROFILE_BODY = 8 * 1024 * 1024;
 const PROFILE_KEYS = new Set(['avatar', 'banner', 'username']);
 const IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+=*$/;
+// Files a message carries, as a bot without a boosted server may send them.
+const MAX_FILES = 4;
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+const MESSAGES = new RegExp(`^/channels/${ID}/messages$`);
+
+/** The files a message to post carries, checked and as bytes: what is wrong with them, or the files. */
+export const messageFiles = (files) => {
+  if (!Array.isArray(files) || files.length === 0 || files.length > MAX_FILES) return { problem: `A message carries 1 to ${MAX_FILES} files.` };
+  let total = 0;
+  const out = [];
+  for (const file of files) {
+    const name = typeof file?.name === 'string' ? file.name.trim() : '';
+    if (!name || name.length > 200 || /[\\/\0]/.test(name)) return { problem: 'Each file needs a plain name.' };
+    if (typeof file.data !== 'string' || !/^[A-Za-z0-9+/]*=*$/.test(file.data)) return { problem: `${name} has to come as base64.` };
+    const bytes = Buffer.from(file.data, 'base64');
+    total += bytes.length;
+    if (total > MAX_FILE_BYTES) return { problem: `Discord takes at most ${MAX_FILE_BYTES / 1024 / 1024} MB of files in a message.` };
+    out.push({ name, type: typeof file.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(file.mimeType) ? file.mimeType : 'application/octet-stream', bytes });
+  }
+  return { files: out };
+};
 
 /** What a bot may change about itself through Willow: its picture, its banner and its name, nothing more. */
 export const profileProblem = (body) => {
@@ -95,14 +116,28 @@ export async function discordCall(payload, { api = API, fetchImpl = (...args) =>
   }
   const body = payload.body === undefined || method === 'GET' || method === 'DELETE' ? undefined : JSON.stringify(payload.body);
   if (body && body.length > (profile ? MAX_PROFILE_BODY : MAX_BODY)) throw new Error('That is too much to send to Discord at once.');
+  // A message with files goes as Discord takes uploads: its JSON as one part, each file as another.
+  let files = null;
+  if (payload.files !== undefined) {
+    if (method !== 'POST' || !MESSAGES.test(path)) throw new Error('Only a message can carry files.');
+    const checked = messageFiles(payload.files);
+    if (checked.problem) throw new Error(checked.problem);
+    files = checked.files;
+  }
   const url = `${api}${path}${query.toString() ? `?${query}` : ''}`;
+  const upload = () => {
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify({ ...(payload.body ?? {}), attachments: files.map((file, index) => ({ id: index, filename: file.name })) }));
+    files.forEach((file, index) => form.append(`files[${index}]`, new Blob([file.bytes], { type: file.type }), file.name));
+    return form;
+  };
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetchImpl(url, {
       method,
-      headers: { authorization: `Bot ${token}`, 'user-agent': USER_AGENT, ...(body ? { 'content-type': 'application/json' } : {}) },
-      body,
+      headers: { authorization: `Bot ${token}`, 'user-agent': USER_AGENT, ...(body && !files ? { 'content-type': 'application/json' } : {}) },
+      body: files ? upload() : body,
       redirect: 'error',
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(files ? 90_000 : 30_000),
     });
     const text = await readCapped(response);
     let parsed = null;
@@ -148,13 +183,42 @@ const FATAL = new Map([
 /** Categories, stages and directories hold no messages. */
 const SKIPPED_CHANNELS = new Set([4, 13, 14]);
 
+/*
+ * The bot's status: what it is doing, in a few words, as a custom status. Discord takes 120 events a minute on a
+ * connection, heartbeats and all, and drops one that sends more; a status changes at most once in PRESENCE_GAP_MS
+ * (the latest words then), so it never comes near. Words nobody renewed within PRESENCE_TTL_MS are taken down: the
+ * window that set them is gone.
+ */
+const PRESENCE_GAP_MS = 5_000;
+const PRESENCE_TTL_MS = 5 * 60_000;
+const MAX_STATUS = 128;
+
+/** The words a status shows, or null for none. */
+export const statusWords = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw new Error('A status is a few words, or none.');
+  const words = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (words.length > MAX_STATUS) throw new Error(`A status is at most ${MAX_STATUS} characters.`);
+  return words || null;
+};
+
+/** A presence as Discord takes it from a bot: online, with the words as its custom status. */
+const presenceOf = (words) => ({ since: null, activities: words ? [{ name: 'Custom Status', type: 4, state: words }] : [], status: 'online', afk: false });
+
 class Gateway {
-  constructor({ token, content, url, log }) {
+  constructor({ token, content, url, log, presenceGapMs = PRESENCE_GAP_MS }) {
     this.token = token;
     /** Asked for Message Content: the window says the application has it on. */
     this.content = content;
     this.url = url;
     this.log = log;
+    /** The status wanted, the one the session has, when that last changed. */
+    this.presence = null;
+    this.presenceSent = null;
+    this.presenceAt = 0;
+    this.presenceGapMs = presenceGapMs;
+    this.presenceTimer = null;
+    this.presenceExpiry = null;
     this.epoch = crypto.randomUUID();
     this.state = 'connecting';
     this.problem = undefined;
@@ -223,7 +287,12 @@ class Gateway {
       case 10:
         this.beat(socket, Number(packet.d?.heartbeat_interval) || 41_250);
         if (resuming && this.session) this.send(socket, { op: 6, d: { token: this.token, session_id: this.session.id, seq: this.sequence } });
-        else this.send(socket, { op: 2, d: { token: this.token, intents: this.intents(), properties: { os: process.platform, browser: 'Willow', device: 'Willow' } } });
+        else {
+          // A new session starts with the status wanted now.
+          this.send(socket, { op: 2, d: { token: this.token, intents: this.intents(), properties: { os: process.platform, browser: 'Willow', device: 'Willow' }, ...(this.presence ? { presence: presenceOf(this.presence) } : {}) } });
+          this.presenceSent = this.presence;
+          this.presenceAt = Date.now();
+        }
         return;
       case 11:
         this.acked = true;
@@ -314,10 +383,14 @@ class Gateway {
         for (const guild of data.guilds ?? []) if (guild?.id) this.guilds.set(guild.id, { id: guild.id, name: '', channels: new Map() });
         this.changedGuilds();
         this.setState('online');
+        this.flushPresence();
         return;
       case 'RESUMED':
         this.attempt = 0;
         this.setState('online');
+        // Whatever the session showed before the drop is said again, rather than trusted to have lasted.
+        if (this.presence) this.presenceSent = undefined;
+        this.flushPresence();
         return;
       case 'GUILD_CREATE':
       case 'GUILD_UPDATE': {
@@ -433,6 +506,34 @@ class Gateway {
     return [...this.guilds.values()].filter((guild) => guild.name).map((guild) => ({ id: guild.id, name: guild.name, channels: [...guild.channels.values()] }));
   }
 
+  /** The status to show, for `ttlMs` unless renewed. */
+  setPresence(words, ttlMs) {
+    clearTimeout(this.presenceExpiry);
+    this.presenceExpiry = null;
+    this.presence = words;
+    if (words) {
+      this.presenceExpiry = setTimeout(() => this.setPresence(null, 0), ttlMs);
+      this.presenceExpiry.unref?.();
+    }
+    this.flushPresence();
+  }
+
+  /** Sends the status wanted when the session has another: now, or once the last change is PRESENCE_GAP_MS old. */
+  flushPresence() {
+    clearTimeout(this.presenceTimer);
+    this.presenceTimer = null;
+    if (this.closed || this.presence === this.presenceSent || this.state !== 'online' || this.socket?.readyState !== WebSocket.OPEN) return;
+    const wait = this.presenceAt + this.presenceGapMs - Date.now();
+    if (wait > 0) {
+      this.presenceTimer = setTimeout(() => this.flushPresence(), wait);
+      this.presenceTimer.unref?.();
+      return;
+    }
+    this.send(this.socket, { op: 3, d: presenceOf(this.presence) });
+    this.presenceSent = this.presence;
+    this.presenceAt = Date.now();
+  }
+
   /** What arrived after `after`, waiting up to `waitMs` for something; servers only when the window's copy is old. */
   async next({ after, epoch, guildsVersion, waitMs }) {
     this.wantedAt = Date.now();
@@ -470,6 +571,8 @@ class Gateway {
     clearTimeout(this.timer);
     clearInterval(this.heartbeat);
     clearTimeout(this.firstBeat);
+    clearTimeout(this.presenceTimer);
+    clearTimeout(this.presenceExpiry);
     try {
       this.socket?.close(1000);
     } catch {
@@ -482,10 +585,13 @@ class Gateway {
 
 /**
  * The companion's Discord: requests it answers and the gateways it holds, one per bot token. A gateway opens on the
- * first `discord.next` for its token and closes after `idleMs` without one, or on `discord.close`.
+ * first `discord.next` for its token and closes after `idleMs` without one, or on `discord.close`. `discord.presence`
+ * sets the bot's status, on its gateway now or on the one that opens next.
  */
-export function createDiscord({ api = API, gateway = GATEWAY, fetchImpl, log = () => undefined, idleMs = 3 * 60_000 } = {}) {
+export function createDiscord({ api = API, gateway = GATEWAY, fetchImpl, log = () => undefined, idleMs = 3 * 60_000, presenceGapMs = PRESENCE_GAP_MS, presenceTtlMs = PRESENCE_TTL_MS } = {}) {
   const gateways = new Map();
+  /** Each token's status, and until when it holds unless renewed. */
+  const statuses = new Map();
   const keyOf = (token) => crypto.createHash('sha256').update(token).digest('base64url').slice(0, 22);
   const sweep = setInterval(() => {
     const now = Date.now();
@@ -508,24 +614,34 @@ export function createDiscord({ api = API, gateway = GATEWAY, fetchImpl, log = (
       entry = undefined;
     }
     if (!entry) {
-      entry = new Gateway({ token, content, url: gateway, log });
+      entry = new Gateway({ token, content, url: gateway, log, presenceGapMs });
       gateways.set(key, entry);
+      const status = statuses.get(key);
+      if (status && status.until > Date.now()) entry.setPresence(status.words, status.until - Date.now());
       entry.start();
     }
     return entry;
   };
 
   return {
-    requests: ['discord.call', 'discord.next', 'discord.close'],
-    handles: (type) => type === 'discord.call' || type === 'discord.next' || type === 'discord.close',
+    requests: ['discord.call', 'discord.next', 'discord.presence', 'discord.close'],
+    handles: (type) => type === 'discord.call' || type === 'discord.next' || type === 'discord.presence' || type === 'discord.close',
     async handle(type, payload) {
       if (type === 'discord.call') return discordCall(payload, { api, ...(fetchImpl ? { fetchImpl } : {}) });
       const token = botToken(payload.token);
+      const key = keyOf(token);
       if (type === 'discord.next') {
         const waitMs = Math.min(Math.max(Number(payload.waitMs) || 0, 0), MAX_WAIT_MS);
         return gatewayFor(token, Boolean(payload.content)).next({ after: payload.after, epoch: payload.epoch, guildsVersion: payload.guildsVersion, waitMs });
       }
-      const key = keyOf(token);
+      if (type === 'discord.presence') {
+        const words = statusWords(payload.status);
+        if (words) statuses.set(key, { words, until: Date.now() + presenceTtlMs });
+        else statuses.delete(key);
+        gateways.get(key)?.setPresence(words, presenceTtlMs);
+        return { status: words };
+      }
+      statuses.delete(key);
       gateways.get(key)?.close();
       gateways.delete(key);
       return { closed: true };

@@ -22,11 +22,17 @@ export type ShellRoute =
   | { surface: 'media' }
   | { surface: 'spark'; location: SparkLocation };
 
+/* `/app/download` is Gemini's download page, not a chat: a chat called "download" spells its first letter out. */
+const RESERVED_CHAT_SEGMENTS = new Set(['download']);
+
 /*
  * `encodeURIComponent` leaves dots alone, and a last segment with a dot in it reads
  * as a file to a dev server deciding whether to serve the app.
  */
-const encodeChatId = (chatId: string): string => encodeURIComponent(chatId).replace(/\./g, '%2E');
+const encodeChatId = (chatId: string): string => {
+  const segment = encodeURIComponent(chatId).replace(/\./g, '%2E');
+  return RESERVED_CHAT_SEGMENTS.has(segment) ? `%${segment.charCodeAt(0).toString(16).toUpperCase()}${segment.slice(1)}` : segment;
+};
 
 const decodeChatId = (segment: string): string | null => {
   try {
@@ -53,6 +59,7 @@ export const shellPathFor = (route: ShellRoute): string => {
 /** The surface a path names, or null for `/` and for every path that is not one. */
 export const parseShellPath = (pathname: string): ShellRoute | null => {
   const chat = /^\/(app|code)(?:\/([^/]+))?\/?$/.exec(pathname);
+  if (chat && chat[1] === 'app' && chat[2] !== undefined && RESERVED_CHAT_SEGMENTS.has(chat[2])) return null;
   if (chat) {
     const chatId = chat[2] === undefined ? null : decodeChatId(chat[2]);
     if (chat[2] !== undefined && chatId === null) return null;

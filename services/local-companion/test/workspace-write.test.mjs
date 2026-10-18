@@ -74,7 +74,7 @@ it('writes files inside the authorised folder, making folders as needed, and now
   await assert.rejects(call('fs.write', { workspaceId, path: 'src', text: 'x' }), /a folder, not a file/);
 });
 
-it('relays Telegram for a bot token and four methods only, never as a general proxy', async () => {
+it('relays Telegram for a bot token and the methods a bot uses only, never as a general proxy', async () => {
   await assert.rejects(call('relay.telegram', { token: 'not-a-token', method: 'getMe' }), /not a Telegram bot token/);
   await assert.rejects(call('relay.telegram', { token: '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ', method: 'deleteWebhook' }), /not allowed/);
   await assert.rejects(call('relay.telegram', { token: '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ', method: '../../evil' }), /not allowed/);

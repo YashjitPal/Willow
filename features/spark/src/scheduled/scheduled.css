@@ -1,0 +1,1648 @@
+/*
+ * Gemini's Scheduled tab (`/scheduled`, Angular `scheduled-tasks-tab`), measured at 1536x826,
+ * 800x1280 and 390x844 in both themes and read out of its component styles
+ * (tools/ui-research/captures/gemini/scheduled/). Spacing is Gemini's: xs 4, s 8, m 12, l 16,
+ * xl 20, xxl 24, xxxl 28. Its Luminous tokens switch to a darker set below 960px in dark.
+ */
+.sched-scope {
+  --sched-surface: #0f0f0f;
+  --sched-surface-dim: #171717;
+  --sched-surface-bright: #1f1f1f;
+  --sched-on-surface: #e6e6e6;
+  --sched-on-surface-variant: rgba(255, 255, 255, 0.55);
+  --sched-on-surface-low: rgba(255, 255, 255, 0.12);
+  --sched-ink: #e3e3e3;
+  --sched-ink-variant: #c4c7c5;
+  --sched-primary: #a8c7fa;
+  --sched-on-primary: #062e6f;
+  --sched-accent: #1f3b9b;
+  --sched-on-accent: #e6e6e6;
+  --sched-accent-fixed: #3186ff;
+  --sched-outline-variant: #444746;
+  --sched-thumb: #333537;
+  --sched-needs-attention: #fe4a00;
+  --sched-composer: #1e1f20;
+  --sched-composer-shadow: rgba(0, 0, 0, 0.28);
+  --sched-placeholder: #bdc1c6;
+  --sched-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+  --sched-scrim: rgba(0, 0, 0, 0.32);
+  --sched-easing: cubic-bezier(0.2, 0, 0, 1);
+  --sched-font: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  --sched-body: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+@media (max-width: 959.98px) {
+  .sched-scope {
+    --sched-surface: #000;
+    --sched-surface-dim: #141414;
+    --sched-surface-bright: #1c1c1c;
+    --sched-on-surface: #e0e0e0;
+  }
+}
+
+:is(.light-theme, [data-theme="light"]) .sched-scope,
+.sched-scope:is(.light-theme, [data-theme="light"]) {
+  --sched-surface: #faf9f9;
+  --sched-surface-dim: #f2f0f0;
+  --sched-surface-bright: #fff;
+  --sched-on-surface: #000;
+  --sched-on-surface-variant: rgba(0, 0, 0, 0.55);
+  --sched-on-surface-low: rgba(0, 0, 0, 0.08);
+  --sched-ink: #1f1f1f;
+  --sched-ink-variant: #444746;
+  --sched-primary: #0b57d0;
+  --sched-on-primary: #fff;
+  --sched-accent: #9dd2ff;
+  --sched-on-accent: #000;
+  --sched-outline-variant: #c4c7c5;
+  --sched-thumb: #dde3ea;
+  --sched-composer: #fff;
+  --sched-composer-shadow: rgba(0, 0, 0, 0.04);
+  --sched-placeholder: #5f6368;
+  --sched-shadow: rgba(0, 0, 0, 0.04) 0 0 20px 0;
+}
+
+.sched-scope,
+.sched-scope * {
+  box-sizing: border-box;
+}
+
+/* Gemini's scrollbars for a fine pointer: 12px, the thumb inset 2px, shown while its box is hovered. */
+@media (pointer: fine) {
+  .sched-scroll::-webkit-scrollbar,
+  .sched-scroll::-webkit-scrollbar-corner {
+    width: 12px;
+    height: 12px;
+    background: transparent;
+  }
+  .sched-scroll::-webkit-scrollbar-thumb {
+    min-width: 48px;
+    min-height: 48px;
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background: content-box transparent;
+  }
+  .sched-scroll:hover::-webkit-scrollbar-thumb {
+    background: content-box var(--sched-thumb);
+  }
+  .sched-scroll::-webkit-scrollbar-thumb:hover,
+  .sched-scroll::-webkit-scrollbar-thumb:active {
+    background: content-box var(--sched-outline-variant);
+  }
+  .sched-scroll::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+  }
+}
+
+.sched-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Type, as Gemini's gds scale computes it. */
+.sched-body-m {
+  font-family: var(--sched-font);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: normal;
+  font-variation-settings: var(--sched-body);
+}
+
+.sched-body-l {
+  font-family: var(--sched-font);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  letter-spacing: normal;
+  font-variation-settings: var(--sched-body);
+}
+
+.sched-body-s {
+  font-family: var(--sched-font);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 17px;
+  letter-spacing: normal;
+  font-variation-settings: var(--sched-body);
+}
+
+/* Gemini's dotted "Learn more", with `enable-lm-fast-follows`' thickness and offset. */
+.sched-link {
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-skip-ink: none;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.23em;
+  text-underline-position: auto;
+}
+
+/* ------------------------------------------------------------------------ */
+/* The page                                                                  */
+/* ------------------------------------------------------------------------ */
+
+.sched-page {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--sched-surface);
+  color: var(--sched-ink);
+  font-family: var(--sched-font);
+}
+
+.sched-layout {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--sched-surface);
+}
+
+.sched-tasks-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  padding-inline: 16px;
+  overflow: hidden auto;
+  scrollbar-gutter: stable;
+  background-color: var(--sched-surface);
+}
+
+.sched-container {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%;
+  max-width: 708px;
+  margin: 0 auto;
+  padding-block: 40px;
+}
+
+.sched-header {
+  margin-bottom: 24px;
+}
+
+.sched-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
+  margin-bottom: 8px;
+}
+
+.sched-title {
+  margin: 0;
+  color: var(--sched-ink);
+  font-family: var(--sched-font);
+  font-size: 24px;
+  font-weight: 380;
+  line-height: 28px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 380;
+}
+
+/* The pill's label computes 500 but its axis says 400, which is what draws. */
+.sched-filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 9999px;
+  background-color: var(--sched-surface-dim);
+  color: var(--sched-on-surface);
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+}
+
+.sched-filter-button:hover {
+  background-color: color-mix(in srgb, var(--sched-on-surface) 8%, var(--sched-surface-dim));
+}
+
+.sched-filter-button:focus-visible {
+  outline: 2px solid var(--sched-on-surface);
+  outline-offset: 2px;
+}
+
+.sched-subtitle {
+  margin: 0;
+  color: var(--sched-ink-variant);
+}
+
+.sched-subtitle .sched-link {
+  color: var(--sched-on-surface);
+}
+
+.sched-input-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.sched-input-anchor {
+  flex: 1;
+  min-width: 0;
+}
+
+.sched-section {
+  margin-bottom: 24px;
+}
+
+.sched-section-title {
+  margin: 16px 0;
+  color: var(--sched-ink-variant);
+}
+
+.sched-empty {
+  margin: 0;
+  color: var(--sched-ink-variant);
+}
+
+.sched-section--suggested {
+  padding-bottom: 24px;
+}
+
+.sched-list {
+  overflow: hidden;
+  border-radius: 28px;
+}
+
+.sched-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 88px;
+  padding: 20px 28px;
+  background: var(--sched-surface-bright);
+  color: var(--sched-ink);
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.2s ease;
+}
+
+.sched-row:hover {
+  background: color-mix(in srgb, var(--sched-ink) 8%, var(--sched-surface-bright));
+}
+
+.sched-row:focus-visible {
+  outline: 2px solid var(--sched-ink);
+  outline-offset: -2px;
+}
+
+.sched-row + .sched-row {
+  position: relative;
+}
+
+.sched-row + .sched-row::before {
+  position: absolute;
+  top: 0;
+  right: 28px;
+  left: 28px;
+  height: 1px;
+  background: var(--sched-surface-dim);
+  content: "";
+}
+
+.sched-section--paused .sched-list,
+.sched-section--paused .sched-row,
+.sched-section--completed .sched-list,
+.sched-section--completed .sched-row {
+  background: var(--sched-surface-dim);
+}
+
+.sched-section--paused .sched-row:hover,
+.sched-section--completed .sched-row:hover {
+  background: color-mix(in srgb, var(--sched-ink) 8%, var(--sched-surface-dim));
+}
+
+.sched-row-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sched-suggestion .sched-row-content {
+  justify-content: center;
+}
+
+.sched-row-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--sched-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-row-subtitle {
+  color: var(--sched-on-surface-variant);
+}
+
+.sched-row-status {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+
+.sched-row-actions {
+  display: none;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.sched-row:hover .sched-row-actions,
+.sched-row:focus-within .sched-row-actions,
+.sched-row.is-menu-open .sched-row-actions {
+  display: flex;
+}
+
+.sched-row:hover .sched-row-status,
+.sched-row:focus-within .sched-row-status,
+.sched-row.is-menu-open .sched-row-status {
+  display: none;
+}
+
+.sched-row-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--sched-ink);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.sched-go-to-chat:hover:not([aria-disabled="true"]) {
+  background: color-mix(in srgb, var(--sched-ink) 12%, transparent);
+}
+
+/* Not `disabled`: its "Available when schedule runs" tooltip has to show on hover. */
+.sched-go-to-chat[aria-disabled="true"] {
+  color: color-mix(in srgb, var(--sched-ink) 38%, transparent);
+  cursor: default;
+}
+
+.sched-more-button:hover,
+.sched-more-button.is-open {
+  background: color-mix(in srgb, var(--sched-ink-variant) 8%, transparent);
+}
+
+.sched-row-button:focus-visible {
+  outline: 2px solid var(--sched-ink);
+  outline-offset: -2px;
+}
+
+/* Gemini's: a button the mouse focused hides once the pointer leaves it. */
+.sched-go-to-chat:focus:not(:focus-visible):not(:hover),
+.sched-more-button:focus:not(:focus-visible):not(.is-open):not(:hover) {
+  display: none;
+}
+
+.sched-badge-unread {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background-color: var(--sched-accent-fixed);
+}
+
+.sched-badge-progress {
+  color: var(--sched-ink);
+  animation: sched-rotate 2s linear infinite;
+}
+
+.sched-badge-flag {
+  color: var(--sched-needs-attention);
+}
+
+@keyframes sched-rotate {
+  to { transform: rotate(1turn); }
+}
+
+/* ------------------------------------------------------------------------ */
+/* The composer                                                              */
+/* ------------------------------------------------------------------------ */
+
+/* Gemini's 1px transparent border sits outside its 64px: the box measures 65.6 at 125%. */
+.sched-composer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: content-box;
+  width: auto;
+  min-height: 64px;
+  border: 1px solid transparent;
+  border-radius: 32px;
+  background-color: var(--sched-composer);
+  box-shadow: var(--sched-composer-shadow) 0 0 20px 0;
+  cursor: text;
+}
+
+.sched-composer-field {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  padding: 12px 0 12px 28px;
+}
+
+.sched-composer-input {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  min-height: 24px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: var(--sched-ink);
+  caret-color: var(--sched-ink);
+  font-family: var(--sched-font);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: var(--sched-body);
+}
+
+.sched-composer-input::placeholder {
+  color: var(--sched-placeholder);
+  opacity: 1;
+}
+
+.sched-composer-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  align-self: center;
+  padding: 0 16px 0 20px;
+}
+
+.sched-composer-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--sched-on-surface);
+  cursor: pointer;
+}
+
+.sched-composer-button::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--sched-ink-variant);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sched-composer-button:hover::before {
+  opacity: 0.08;
+}
+
+.sched-composer-send {
+  background: var(--sched-accent);
+  color: var(--sched-on-accent);
+}
+
+.sched-composer-send::before {
+  background: var(--sched-on-accent);
+}
+
+.sched-composer-mic.is-listening {
+  color: var(--sched-primary);
+}
+
+/*
+ * Below 960px Gemini's composer is its mobile one (`is-mobile`) whatever the device: 72px inside,
+ * the text 2px further in, a 20px placeholder in the muted ink, and a 28px mic 28px past the text.
+ */
+@media (max-width: 959.98px) {
+  .sched-composer {
+    min-height: 72px;
+  }
+
+  .sched-composer-input {
+    padding-left: 2px;
+  }
+
+  .sched-composer-input::placeholder {
+    color: var(--sched-on-surface-variant);
+    font-size: 20px;
+  }
+
+  .sched-composer-actions {
+    padding: 0 16px 0 28px;
+  }
+}
+
+/* The create button: Gemini's tonal 48px icon button. */
+.sched-icon-button {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--sched-on-surface);
+  cursor: pointer;
+}
+
+.sched-icon-button::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--sched-ink-variant);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 15ms linear;
+}
+
+.sched-icon-button:hover::before {
+  opacity: 0.08;
+}
+
+.sched-icon-button:active::before {
+  opacity: 0.12;
+}
+
+.sched-icon-button:focus-visible {
+  outline: 2px solid var(--sched-ink);
+  outline-offset: 2px;
+}
+
+.sched-create-button {
+  width: 48px;
+  height: 48px;
+  background-color: var(--sched-surface-dim);
+}
+
+.sched-loading-spinner {
+  margin: 32px auto;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Phones: a fixed title bar and the composer pinned to the bottom            */
+/* ------------------------------------------------------------------------ */
+
+@media (max-width: 599.98px) {
+  .sched-tasks-pane {
+    padding-inline: 12px;
+  }
+
+  .sched-container {
+    padding-block: calc(64px + 8px) calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .sched-title-row {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 3;
+    height: 64px;
+    min-height: 64px;
+    margin-bottom: 0;
+    padding: 8px 16px;
+    background-color: var(--sched-surface);
+  }
+
+  .sched-title {
+    position: absolute;
+    left: 50%;
+    max-width: calc(100% - 128px);
+    overflow: hidden;
+    color: var(--sched-on-surface);
+    font-size: 17px;
+    font-weight: 540;
+    line-height: 24px;
+    font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transform: translateX(-50%);
+  }
+
+  .sched-filter-button {
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    margin-inline-start: auto;
+    background-color: transparent;
+  }
+
+  .sched-filter-button .sched-filter-label {
+    display: none;
+  }
+
+  .sched-input-row {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+    max-width: 708px;
+    gap: 12px;
+    margin-inline: auto;
+    margin-bottom: 0;
+    padding: 16px 12px max(16px, env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to bottom,
+      color-mix(in srgb, var(--sched-surface) 0%, transparent) 0,
+      color-mix(in srgb, var(--sched-surface) 75%, transparent) 40%,
+      color-mix(in srgb, var(--sched-surface) 96%, transparent) 70%,
+      var(--sched-surface) 100%);
+    pointer-events: none;
+  }
+
+  .sched-input-row > * {
+    pointer-events: auto;
+  }
+
+  .sched-create-button {
+    display: none;
+  }
+
+  .sched-composer {
+    width: auto;
+    min-height: 80px;
+    margin: 0 16px 12px;
+    border-radius: 40px;
+  }
+
+  .sched-composer-field {
+    padding: 16px 0 16px 24px;
+  }
+
+  .sched-composer-actions {
+    padding: 0 20px;
+  }
+
+  .sched-composer-button {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* The side pane                                                             */
+/* ------------------------------------------------------------------------ */
+
+/* Its host animates in beside the list: 0 to 400px, its margin and opacity, over 300ms. */
+.sched-pane-host {
+  display: block;
+  flex: 0 0 0%;
+  width: 0;
+  height: calc(100% - 32px);
+  margin: 16px 0;
+  margin-inline: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    flex 300ms var(--sched-easing),
+    width 300ms var(--sched-easing),
+    margin-inline 300ms var(--sched-easing),
+    opacity 300ms var(--sched-easing);
+}
+
+.sched-pane-host.is-open {
+  flex: 0 0 400px;
+  width: 400px;
+  margin-inline: 16px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@starting-style {
+  .sched-pane-host.is-open {
+    flex: 0 0 0%;
+    width: 0;
+    margin-inline: 0;
+    opacity: 0;
+  }
+}
+
+.sched-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 400px;
+  min-width: 400px;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--sched-on-surface-low);
+  border-radius: 40px;
+  background: var(--sched-surface-bright);
+  color: var(--sched-ink);
+}
+
+/* Below 960px the pane is a full-window sheet that rises from the bottom, over the shell. */
+.sched-pane-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.sched-pane-layer .sched-pane {
+  width: 100%;
+  min-width: 100%;
+  border: none;
+  border-radius: 0;
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    transform 300ms var(--sched-easing),
+    opacity 300ms var(--sched-easing);
+}
+
+@starting-style {
+  .sched-pane-layer .sched-pane {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+.sched-pane-layer.is-closing .sched-pane {
+  opacity: 0;
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+@media (max-width: 959.98px) {
+  .sched-tasks-pane.is-editor-open {
+    display: none;
+    transition: display 0s linear 300ms;
+    transition-behavior: allow-discrete;
+  }
+}
+
+.sched-pane-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 28px 20px 8px;
+}
+
+.sched-pane-header .sched-icon-button {
+  width: 36px;
+  height: 36px;
+}
+
+.sched-pane-close {
+  color: var(--sched-on-surface);
+}
+
+.sched-pane-more {
+  color: var(--sched-ink);
+}
+
+.sched-pane-more.is-open::before {
+  opacity: 0.08;
+}
+
+.sched-pane-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  padding-block: 8px 104px;
+  padding-inline: 24px 12px;
+  overflow-y: auto;
+}
+
+.sched-pane-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.sched-pane-label {
+  padding-block: 12px;
+  color: var(--sched-on-surface-variant);
+  font-family: var(--sched-font);
+  font-size: 13px;
+  font-weight: 370;
+  line-height: 20px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 370;
+}
+
+.sched-pane-input,
+.sched-pane-plan {
+  width: 100%;
+  margin: 0;
+  outline: none;
+  background-color: transparent;
+  color: var(--sched-ink);
+  caret-color: var(--sched-ink);
+}
+
+.sched-pane-input::placeholder,
+.sched-pane-plan::placeholder {
+  color: color-mix(in srgb, var(--sched-ink-variant) 60%, transparent);
+  opacity: 1;
+}
+
+.sched-pane-input:disabled,
+.sched-pane-plan-box:has(.sched-pane-plan:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sched-pane-input {
+  padding: 16px 20px;
+  border: 1px solid var(--sched-on-surface-low);
+  border-radius: 9999px;
+}
+
+/* The border is the box's, outside the editor's 100-240px, as on Gemini's rich-textarea. */
+.sched-pane-plan-box {
+  overflow: hidden;
+  padding-inline-end: 2px;
+  border: 1px solid var(--sched-on-surface-low);
+  border-radius: 28px;
+}
+
+.sched-pane-plan {
+  display: block;
+  min-height: 100px;
+  max-height: 240px;
+  padding: 16px;
+  border: none;
+  overflow-y: auto;
+  resize: none;
+  font-family: var(--sched-font);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 24px;
+  font-variation-settings: var(--sched-body);
+}
+
+.sched-frequency-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0 20px;
+  border-radius: 28px;
+  background-color: var(--sched-surface);
+}
+
+.sched-frequency-card + .sched-frequency-card {
+  margin-top: 8px;
+}
+
+.sched-frequency-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  margin-block: 8px;
+}
+
+.sched-row-label {
+  color: var(--sched-ink);
+}
+
+.sched-row-divider {
+  height: 1px;
+  background-color: var(--sched-surface-dim);
+}
+
+.sched-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 12px;
+  margin-inline-start: auto;
+  border: none;
+  border-radius: 9999px;
+  background-color: transparent;
+  color: var(--sched-ink-variant);
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.15s ease;
+}
+
+.sched-dropdown-trigger:hover:not(:disabled),
+.sched-dropdown-trigger.is-expanded {
+  background-color: var(--sched-surface-dim);
+}
+
+.sched-dropdown-trigger:focus-visible {
+  outline: 2px solid var(--sched-ink);
+  outline-offset: -2px;
+}
+
+.sched-dropdown-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sched-pane-disclaimer {
+  margin: 12px 0 0;
+  color: var(--sched-on-surface-variant);
+}
+
+.sched-pane-disclaimer .sched-link {
+  color: var(--sched-ink);
+}
+
+.sched-pane-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+}
+
+/* The footer floats over the content's end, a 3.5rem fade and a 4px blur under its buttons. */
+.sched-pane-footer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  height: 88px;
+  padding: 20px 24px;
+  pointer-events: auto;
+}
+
+.sched-pane-footer::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(to bottom,
+    transparent 0,
+    color-mix(in srgb, var(--sched-surface-bright) 40%, transparent) 16px,
+    color-mix(in srgb, var(--sched-surface-bright) 85%, transparent) 36px,
+    var(--sched-surface-bright) 56px,
+    var(--sched-surface-bright) 100%);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  content: "";
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 28px);
+  mask-image: linear-gradient(180deg, transparent 0, #000 28px);
+  pointer-events: none;
+}
+
+.sched-pane-actions,
+.sched-go-to-chat-wide {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  animation: sched-fade-in 0.15s ease-in-out;
+}
+
+.sched-pane-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
+@keyframes sched-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Gemini's medium gem-buttons: 48px pills, a 15px label 16px from either side. */
+.sched-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--sched-on-surface);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sched-button::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sched-button:hover:not(:disabled)::before {
+  opacity: 0.08;
+}
+
+.sched-button:active:not(:disabled)::before {
+  opacity: 0.12;
+}
+
+.sched-button:focus-visible {
+  outline: 2px solid var(--sched-ink);
+  outline-offset: 2px;
+}
+
+.sched-button > span {
+  position: relative;
+}
+
+/* Gemini authors a 5.25rem minimum that its button never takes: Create measures 16 + label + 16. */
+.sched-button--accent {
+  background: var(--sched-accent);
+  color: var(--sched-on-accent);
+}
+
+.sched-button--accent:disabled {
+  background: color-mix(in srgb, var(--sched-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--sched-on-surface) 38%, transparent);
+  cursor: default;
+}
+
+.sched-go-to-chat-wide {
+  display: flex;
+  height: 48px;
+}
+
+.sched-go-to-chat-wide .sched-button {
+  width: 100%;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Menus: gem-menus (instant, no backdrop) and the filter's mat-menu          */
+/* ------------------------------------------------------------------------ */
+
+.sched-popover {
+  position: fixed;
+  z-index: 700;
+}
+
+.sched-menu {
+  padding: 8px;
+  overflow: hidden auto;
+  border-radius: 20px;
+  background: var(--sched-surface-bright);
+  box-shadow: var(--sched-shadow);
+  color: var(--sched-on-surface);
+}
+
+.sched-menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 8px;
+  border-radius: 12px;
+  color: var(--sched-on-surface);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+.sched-menu-item.is-active {
+  background-color: color-mix(in srgb, var(--sched-on-surface) 8%, transparent);
+}
+
+.sched-menu-item[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.sched-menu-item-icon {
+  color: var(--sched-ink);
+}
+
+/*
+ * Gemini's label sits in a block that takes the page's default type, 16px Times New Roman at
+ * `normal` (its page sets no font): that 18.6px line box is what places the 13px label.
+ */
+.sched-menu-item-label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: "Times New Roman", serif;
+  font-size: 16px;
+  font-variation-settings: normal;
+  font-weight: 400;
+  line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The page's `gemTooltip`: Material's older tooltip, 4px corners and 12px type, not the sidebar's. */
+.willow-tooltip-surface.sched-tooltip {
+  border-radius: 4px;
+  background-color: rgb(227, 227, 227);
+  color: rgb(48, 48, 48);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.096px;
+}
+
+:is(.light-theme, [data-theme="light"]) .willow-tooltip-surface.sched-tooltip {
+  background-color: rgb(48, 48, 48);
+  color: rgb(242, 242, 242);
+}
+
+.sched-menu-item-trailing {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+/* A dropdown's options: pills, the chosen one filled and checked, scrolling past 280px. */
+.sched-menu--dropdown {
+  min-width: 160px;
+  padding-inline-end: 4px;
+  scrollbar-color: var(--sched-outline-variant) transparent;
+  scrollbar-width: thin;
+}
+
+.sched-menu--dropdown .sched-menu-item {
+  border-radius: 9999px;
+}
+
+.sched-menu--dropdown .sched-menu-item.is-selected {
+  background-color: var(--sched-surface-dim);
+}
+
+.sched-menu--dropdown .sched-menu-item.is-selected.is-active {
+  background-color: color-mix(in srgb, var(--sched-on-surface) 8%, var(--sched-surface-dim));
+}
+
+.sched-menu--dropdown .sched-menu-check {
+  color: var(--sched-ink-variant);
+}
+
+.sched-menu--dropdown .sched-menu-checkbox {
+  color: var(--sched-ink);
+}
+
+/* The filter's Material menu: its own items, and Material's 120ms grow-in and 100ms fade-out. */
+.sched-mat-menu {
+  min-width: 112px;
+  max-width: 280px;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 20px;
+  background: var(--sched-surface-bright);
+  box-shadow: var(--sched-shadow);
+  animation: sched-mat-menu-enter 120ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.sched-mat-menu.is-closing {
+  animation: sched-mat-menu-exit 100ms linear 25ms forwards;
+}
+
+@keyframes sched-mat-menu-enter {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes sched-mat-menu-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.sched-mat-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--sched-on-surface);
+  cursor: pointer;
+  outline: none;
+  text-align: start;
+}
+
+.sched-mat-menu-item:hover,
+.sched-mat-menu-item.is-active {
+  background-color: color-mix(in srgb, var(--sched-on-surface) 8%, transparent);
+}
+
+.sched-mat-menu-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.sched-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 699;
+}
+
+/* ------------------------------------------------------------------------ */
+/* The calendar popover: Material's month view, restyled by Gemini            */
+/* ------------------------------------------------------------------------ */
+
+.sched-calendar {
+  width: 215px;
+  padding: 16px;
+  border: 1px solid var(--sched-surface-dim);
+  border-radius: 20px;
+  background: var(--sched-surface-bright);
+  box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2), 0 6px 10px 0 rgba(0, 0, 0, 0.14), 0 1px 18px 0 rgba(0, 0, 0, 0.12);
+  color: var(--sched-ink);
+}
+
+.sched-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 24px;
+  margin-bottom: 4px;
+}
+
+/* Material's period button, 8px in: its label and arrow are inline, the arrow middle-aligned 4px on. */
+.sched-calendar-period {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0;
+  margin-left: 8px;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--sched-ink);
+  font-weight: 500;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sched-calendar-period-label {
+  display: block;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.sched-calendar-period svg {
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: middle;
+  fill: var(--sched-ink-variant);
+}
+
+.sched-calendar-nav {
+  display: flex;
+}
+
+.sched-calendar-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--sched-ink-variant);
+  cursor: pointer;
+}
+
+.sched-calendar-step:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--sched-ink) 8%, transparent);
+}
+
+.sched-calendar-step:focus-visible {
+  outline: none;
+  background-color: color-mix(in srgb, var(--sched-ink) 12%, transparent);
+}
+
+/* Gemini's ink overrides Material's disabled colours: a step that cannot be taken looks the same. */
+.sched-calendar-step[aria-disabled="true"] {
+  cursor: default;
+}
+
+.sched-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.sched-calendar-grid--wide {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.sched-calendar-grid--wide .sched-calendar-cell {
+  justify-content: flex-start;
+  aspect-ratio: 7 / 4;
+  padding-left: 1.2px;
+}
+
+.sched-calendar-weekday {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  color: var(--sched-ink-variant);
+  font-weight: 500;
+}
+
+/* Material's rows are as tall as a day column is wide; the year grids keep that height at 4 columns. */
+.sched-calendar-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sched-calendar-cell[aria-disabled="true"] {
+  cursor: default;
+}
+
+.sched-calendar-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 9999px;
+  color: var(--sched-ink);
+}
+
+.sched-calendar-cell:hover .sched-calendar-day {
+  background-color: color-mix(in srgb, var(--sched-ink) 8%, transparent);
+}
+
+.sched-calendar-day {
+  white-space: nowrap;
+}
+
+.sched-calendar-period svg.is-inverted {
+  transform: rotate(180deg);
+}
+
+.sched-calendar-day.is-today:not(.is-selected) {
+  border: 1px solid var(--sched-ink);
+  background-color: transparent;
+}
+
+.sched-calendar-cell .sched-calendar-day.is-selected,
+.sched-calendar-cell:hover .sched-calendar-day.is-selected {
+  background-color: var(--sched-primary);
+  color: var(--sched-on-primary);
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------------------ */
+/* The discard dialog: Gemini's lumi-dialog                                  */
+/* ------------------------------------------------------------------------ */
+
+.sched-dialog-host {
+  position: fixed;
+  inset: 0;
+  z-index: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sched-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--sched-scrim);
+  opacity: 0;
+  transition: opacity 400ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.sched-dialog-backdrop.is-shown {
+  opacity: 1;
+}
+
+.sched-dialog {
+  position: relative;
+  width: 420px;
+  max-width: calc(100vw - 48px);
+  border: 1px solid var(--sched-on-surface-low);
+  border-radius: 40px;
+  background: var(--sched-surface-bright);
+  box-shadow: var(--sched-shadow);
+  color: var(--sched-on-surface);
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity 150ms linear,
+    transform 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.sched-dialog.is-shown {
+  opacity: 1;
+  transform: none;
+}
+
+.sched-dialog.is-closing {
+  opacity: 0;
+  transform: none;
+  transition: opacity 75ms linear;
+}
+
+.sched-dialog-body {
+  padding: 28px 28px 0;
+}
+
+.sched-dialog-title {
+  margin: 0 0 16px;
+  color: var(--sched-on-surface);
+  font-family: var(--sched-font);
+  font-size: 20px;
+  font-weight: 470;
+  line-height: 24px;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
+.sched-dialog-content {
+  margin: 0;
+  color: var(--sched-on-surface);
+}
+
+.sched-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 20px;
+}
+
+.sched-dialog-actions .sched-button {
+  height: 36px;
+  padding: 0 12px;
+}
+
+.sched-button--tonal {
+  background: var(--sched-surface-dim);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Material's indeterminate spinner                                          */
+/* ------------------------------------------------------------------------ */
+
+.sched-spinner {
+  position: relative;
+  display: block;
+  color: var(--sched-primary);
+}
+
+.sched-spinner__container {
+  width: 100%;
+  height: 100%;
+  animation: sched-spinner-container-rotate 1568.2352941176ms linear infinite;
+}
+
+.sched-spinner__layer {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  animation: sched-spinner-layer-rotate 5332ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+.sched-spinner__clipper {
+  position: relative;
+  display: inline-flex;
+  width: 50%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sched-spinner__clipper svg {
+  position: absolute;
+  top: 0;
+  width: 200%;
+  height: 100%;
+}
+
+.sched-spinner__clipper--left svg {
+  animation: sched-spinner-left-spin 1333ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+.sched-spinner__clipper--right svg {
+  left: -100%;
+  animation: sched-spinner-right-spin 1333ms cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+}
+
+.sched-spinner__patch {
+  position: absolute;
+  top: 0;
+  left: 47.5%;
+  width: 5%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sched-spinner__patch svg {
+  position: absolute;
+  top: 0;
+  left: -900%;
+  width: 2000%;
+  height: 100%;
+  transform: rotate(180deg);
+}
+
+.sched-spinner svg circle {
+  fill: transparent;
+  stroke: currentColor;
+}
+
+@keyframes sched-spinner-container-rotate {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes sched-spinner-layer-rotate {
+  12.5% { transform: rotate(135deg); }
+  25% { transform: rotate(270deg); }
+  37.5% { transform: rotate(405deg); }
+  50% { transform: rotate(540deg); }
+  62.5% { transform: rotate(675deg); }
+  75% { transform: rotate(810deg); }
+  87.5% { transform: rotate(945deg); }
+  100% { transform: rotate(1080deg); }
+}
+
+@keyframes sched-spinner-left-spin {
+  from { transform: rotate(265deg); }
+  50% { transform: rotate(130deg); }
+  to { transform: rotate(265deg); }
+}
+
+@keyframes sched-spinner-right-spin {
+  from { transform: rotate(-265deg); }
+  50% { transform: rotate(-130deg); }
+  to { transform: rotate(-265deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sched-badge-progress {
+    animation: none;
+  }
+}

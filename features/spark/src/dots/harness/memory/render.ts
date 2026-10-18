@@ -90,7 +90,8 @@ export const renderInput = (item: DotItem, options: RenderOptions): string => {
       const body = masked
         ? `${item.text.split('\n')[0]}\n[Its output, ${item.text.length.toLocaleString('en-US')} characters, is collapsed. Read it in full with recall {"ids": ["${item.id}"]}.]`
         : item.text;
-      return `[${stamp} · event: ${item.event ?? 'notice'}] ${body}`;
+      // A trigger asked for on Discord or Telegram says so: its run answers there.
+      return `[${stamp} · event: ${item.event ?? 'notice'}${item.event === 'trigger' ? viaWords(item) : ''}] ${body}`;
     }
     case 'result': {
       const attrs = `id="${item.id}" call="${item.callId ?? ''}" tool="${item.tool ?? ''}"${item.failed ? ' failed="true"' : ''}`;
@@ -110,7 +111,8 @@ export const renderOutput = (item: DotItem): string => {
     case 'work':
       return item.text.trim();
     case 'dot':
-      return `${MESSAGE_BEGIN}\n${item.text.trim()}\n${MESSAGE_END}`;
+      // A file sent with no words is told by its send_file call and result.
+      return item.text.trim() ? `${MESSAGE_BEGIN}\n${item.text.trim()}\n${MESSAGE_END}` : '';
     case 'reaction':
       return `${REACT_BEGIN} ${item.target} ${item.emoji} ${item.label ?? ''}`.trimEnd();
     case 'call':
@@ -139,7 +141,7 @@ export const renderForRecord = (item: DotItem, timeZone: string, maxResultChars 
     case 'user':
       return `[${stamp} · user${viaWords(item)}] ${item.text}${item.attachments?.length ? ` (attached: ${item.attachments.map((file) => file.name).join(', ')})` : ''}`;
     case 'dot':
-      return `[${stamp} · you, message] ${item.text}`;
+      return `[${stamp} · you, message] ${item.text}${item.attachments?.length ? ` (sent: ${item.attachments.map((file) => file.name).join(', ')})` : ''}`;
     case 'reaction':
       return `[${stamp} · you reacted to ${item.target}] ${item.emoji} ${item.label ?? ''}`.trimEnd();
     case 'user-reaction':

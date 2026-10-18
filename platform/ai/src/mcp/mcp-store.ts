@@ -52,6 +52,11 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   /** For `program`. The folder it starts in; the user's home when unset. */
   cwd?: string;
+  /**
+   * For `program`. One of the programs Willow ships, by name (X Reader): the companion runs its own copy of it
+   * (`services/local-companion/src/mcp-programs.mjs`), so `command` and `args` only say what runs.
+   */
+  bundled?: string;
   /** Off until the user turns it on. See the note above. */
   enabled: boolean;
 }
@@ -189,12 +194,18 @@ export async function connectMcpServer(id: string): Promise<void> {
       if (!server.url) throw new McpError('protocol', 'This server has no address.');
       transport = createHttpTransport({ url: server.url, headers: server.headers, ...(mcpFetch ? { fetchImpl: mcpFetch } : {}), ...(server.oauth ? { auth: signedIn(server.id) } : {}) });
     } else if (server.kind === 'program') {
-      if (!server.command?.trim()) throw new McpError('program-failed', 'This server has no command.');
+      if (!server.bundled && !server.command?.trim()) throw new McpError('program-failed', 'This server has no command.');
       if (!programHost) throw new McpError('program-failed', 'Programs on this computer run in the Willow desktop app.');
       transport = createProgramTransport({
         id: `${server.id}.${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
         label: server.label,
-        spec: { command: server.command, args: server.args ?? [], ...(server.env ? { env: server.env } : {}), ...(server.cwd ? { cwd: server.cwd } : {}) },
+        spec: {
+          command: server.command ?? '',
+          args: server.args ?? [],
+          ...(server.env ? { env: server.env } : {}),
+          ...(server.cwd ? { cwd: server.cwd } : {}),
+          ...(server.bundled ? { bundled: server.bundled } : {}),
+        },
         host: programHost,
       });
     } else {
@@ -288,13 +299,14 @@ function signedIn(id: string): { token: () => Promise<string | null>; refresh: (
 /**
  * Signs in to an `http` server and connects it. The host supplies the address the sign-in page sends the user back
  * to and the way to show that page and catch the answer (the desktop app: the companion's loopback, `mcp-signin.ts`);
- * `client` is the user's own app, for services that do not let apps register themselves. Throws what went wrong as a
- * sentence (`McpOAuthError`).
+ * `client` is the user's own app, for services that do not let apps register themselves, and `scopes` what to ask
+ * for where the server names more than a sign-in should. Throws what went wrong as a sentence (`McpOAuthError`).
  */
 export async function signInMcpServer(config: McpServerConfig, host: {
   redirectUri: string;
   openAndWait: (url: string) => Promise<{ code?: string; state?: string; error?: string; errorDescription?: string }>;
   client?: { clientId: string; clientSecret?: string };
+  scopes?: string[];
 }): Promise<void> {
   if (config.kind !== 'http' || !config.url) throw new McpError('protocol', 'Only a server at a web address can be signed in to.');
   const grant = await signIn({
@@ -303,6 +315,7 @@ export async function signInMcpServer(config: McpServerConfig, host: {
     clientName: 'Willow',
     redirectUri: host.redirectUri,
     ...(host.client ? { client: host.client } : {}),
+    ...(host.scopes?.length ? { scopes: host.scopes } : {}),
     openAndWait: host.openAndWait,
   });
   // A key typed in earlier is what the sign-in replaces.

@@ -101,6 +101,8 @@ export interface DotToolContext {
   stopTurn: (response: string) => void;
   /** What the user sees the bot doing while this call runs, when that changes — waiting on them, say. */
   activity?: (label: string | null) => void;
+  /** A message the call itself posted (a file sent): it goes out as the bot's written messages do. */
+  delivered?: (itemId: string) => void;
 }
 
 export interface DotToolResult {
@@ -148,7 +150,8 @@ export type DotHarnessEvent =
   | { type: 'status'; text: string }
   | { type: 'call-start'; itemId: string; tool: string }
   | { type: 'call-end'; itemId: string; failed: boolean }
-  | { type: 'activity'; label: string | null }
+  /** What the bot is doing, and the tool it is doing it with, when it is one. */
+  | { type: 'activity'; label: string | null; tool?: string }
   | { type: 'usage'; inputTokens?: number; outputTokens?: number }
   /** The model has a request in hand — its first sign of life — and with it the thread up to `seq`. */
   | { type: 'read'; seq: number }

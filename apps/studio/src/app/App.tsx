@@ -7,7 +7,8 @@ import { Routes, Route, useNavigate, useSearchParams, Link, Navigate, useLocatio
 import type { ViewType } from '../shell/sidebar/Sidebar';
 import { ShellRouteSync } from './ShellRouteSync';
 import { ShellRequestHandler } from './ShellRequestHandler';
-import { isShellPath, parseShellPath } from './shell-routes';
+import { isShellPath, parseShellPath, shellPathFor } from './shell-routes';
+import { $chatSurfaceOnShow } from '@willow/chat/chat-status';
 import type { Notebook } from '@willow/notebooks/notebook-types';
 import { StudioLayout } from '../shell/StudioLayout';
 import { DesktopFrame } from '../shell/rail/DesktopFrame';
@@ -34,7 +35,7 @@ import { BackgroundProvider, useBackground } from '../shell/BackgroundContext';
 import { SettingsFileBridge } from './SettingsFileBridge';
 import { PinnedChatsSettingsSection } from './PinnedChatsSettingsSection';
 import { ShellActiveContext } from '../shell/shell-active';
-import { ChatEmbeddingIndexer, SearchChatsPage } from '../shell/SearchChats';
+import { ChatEmbeddingIndexer } from '../shell/SearchChats';
 import { UserDataProvider } from '@willow/auth/UserDataContext';
 import { LocalFSProvider, useLocalFS } from '@willow/storage/local-fs/LocalFSContext';
 import { clearCodeChatOpen, pendingCodeChatOpen, type CodeChatOpenRequest } from '@willow/storage/code-chat-open-store';
@@ -43,7 +44,8 @@ import { useDrive } from '@willow/storage/adapters/use-drive';
 import { mergeDriveProjectsIntoRegistry } from '@willow/storage/adapters/drive-discovery';
 import { isProjectSaveBlocked, PROJECTS_UPDATED_EVENT, readProjectRegistry, writeProjectRegistry } from '@willow/projects/registry';
 import { agentBuilderDraftFlush } from '@willow/agent-builder/agent-builder-store';
-import { sparkLocation } from '@willow/spark/spark-store';
+import { goToSparkSchedules, sparkLocation } from '@willow/spark/spark-store';
+import { requestCustomizeTab } from '../customize/customize-nav';
 import { $chatNotebookId, startNotebookChat } from '@willow/notebooks/notebook-chat-store';
 import { $chatGemId } from '@willow/gems/gem-chat-store';
 import { hydrateGems, resolveGem } from '@willow/gems/gems-store';
@@ -107,6 +109,9 @@ const SparkWorkspace = React.lazy(() => import('@willow/spark/SparkWorkspace'));
 /* The desktop pet: in the desktop app only, and loaded only there. */
 const SparkPetsHost = React.lazy(() => import('@willow/spark/pets/SparkPetsHost'));
 const GemsView = React.lazy(() => import('@willow/gems/GemsView'));
+const LibraryPage = React.lazy(() => import('@willow/chat/library-page/LibraryPage'));
+const ScheduledPage = React.lazy(() => import('@willow/spark/scheduled/ScheduledPage'));
+const AppDownloadPage = React.lazy(() => import('../download/AppDownloadPage'));
 const AllNotebooksPage = React.lazy(() =>
   import('@willow/notebooks/AllNotebooksPage').then((m) => ({ default: m.AllNotebooksPage })),
 );
@@ -172,6 +177,12 @@ const matchNotebookRoute = (
   }
   return null;
 };
+
+/** Gemini's Library and its documents list, at the paths Gemini gives them. */
+const isLibraryPath = (pathname: string): boolean => /^\/library(\/documents)?\/?$/.test(pathname);
+
+/** Gemini's "Get app" page, at Gemini's path (which `shell-routes.ts` keeps from being read as a chat). */
+const isDownloadPath = (pathname: string): boolean => /^\/app\/download\/?$/.test(pathname);
 /*
  * The app's initial view is the chat home screen, so everything this bundle
  * pulls in is dead weight on the cold path. Splitting the eager imports into
@@ -697,24 +708,33 @@ const App: React.FC = () => {
   const isAgentsEnabled = experiments['agents-surface'];
   const isProjectsPanelEnabled = experiments['projects-panel'];
   const isWaifuEnabled = experiments['waifu-tab'];
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  // The retired Connected Apps page answers only with Labs' "Old Skills and Schedules" on; Customize has it now.
+  const isOldLibraryEnabled = experiments['old-skills-schedules'];
+  // `/search`, where the search page used to be, opens the panel over a new chat.
+  const [isSearchOpen, setIsSearchOpen] = useState(() => location.pathname === '/search');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'appearance' | 'workspace' | 'people' | 'models' | 'cloud' | 'privacy' | 'account' | 'labs' | 'connectors' | 'github' | undefined>(undefined);
   const [settingsInitialConnector, setSettingsInitialConnector] = useState<string | null | undefined>(undefined);
   const [currentView, setCurrentView] = useState<ViewType>(() => {
-    if (location.pathname === '/search') return 'search';
     if (location.pathname === '/personalization-settings') return 'personal-intelligence';
     if (location.pathname === '/activity') return 'activity';
     if (location.pathname === '/saved-info') return 'saved-info';
     if (location.pathname === '/memory') return 'memory';
     if (location.pathname === '/import') return 'import-memory';
-    if (location.pathname === '/connected-apps') return 'connected-apps';
+    if (location.pathname === '/connected-apps') {
+      if (isExperimentEnabled('old-skills-schedules')) return 'connected-apps';
+      requestCustomizeTab('connectors');
+      return 'customize';
+    }
     if (location.pathname === '/customize') return 'customize';
     if (location.pathname === '/models-settings') return 'models-api';
     if (location.pathname === '/labs') return 'labs';
     if (location.pathname === '/design' && isExperimentEnabled('design-surface')) return 'design';
     if (location.pathname === '/waifu' && isExperimentEnabled('waifu-tab')) return 'waifu';
     if (location.pathname.startsWith('/gems')) return 'gems';
+    if (isLibraryPath(location.pathname)) return 'library';
+    if (location.pathname === '/scheduled') return 'scheduled';
+    if (isDownloadPath(location.pathname)) return 'download';
     if (location.pathname === '/usage') return 'usage';
     if (location.pathname === '/gemini-spark' || location.pathname === '/spark-settings') return 'gemini-spark';
     if (location.pathname === '/projects' && isExperimentEnabled('projects-panel')) return 'projects';
@@ -1125,6 +1145,8 @@ const App: React.FC = () => {
   const shellTab: ShellTab | null = currentView === 'home'
     ? (studioExperience === 'spark' ? 'spark' : studioMode === 'chat' ? 'chat' : studioMode === 'media' ? 'media' : null)
     : currentView === 'customize' ? 'customize' : null;
+  // A chat is only seen while Chat is the tab on show: the drawer's Unread marks follow this.
+  React.useEffect(() => { $chatSurfaceOnShow.set(shellTab === 'chat'); }, [shellTab]);
   const openedShellTabsRef = React.useRef(new Set<ShellTab>());
   if (shellTab) openedShellTabsRef.current.add(shellTab);
   const keptShellTabs = SHELL_TABS.filter((tab) => openedShellTabsRef.current.has(tab));
@@ -1297,7 +1319,17 @@ const App: React.FC = () => {
 
   const viewChangeSequenceRef = React.useRef(0);
   const viewChangeIntentRef = React.useRef<ViewType | null>(null);
-  const handleViewChange = React.useCallback(async (view: ViewType): Promise<boolean> => {
+  const handleViewChange = React.useCallback(async (requested: ViewType): Promise<boolean> => {
+    // Search is Gemini's floating panel over whatever is on show, not a page of its own.
+    if (requested === 'search') {
+      setIsSearchOpen(true);
+      return true;
+    }
+    let view = requested;
+    if (view === 'connected-apps' && !isOldLibraryEnabled) {
+      requestCustomizeTab('connectors');
+      view = 'customize';
+    }
     if (view === currentView) return true;
     if (view === 'design' && !isDesignEnabled) return false;
     if (view === 'waifu' && !isWaifuEnabled) return false;
@@ -1321,7 +1353,6 @@ const App: React.FC = () => {
     }
     if (sequence !== viewChangeSequenceRef.current) return false;
     if (view === 'agents') navigate('/?view=agents');
-    else if (view === 'search') navigate('/search');
     else if (view === 'personal-intelligence') navigate('/personalization-settings');
     else if (view === 'activity') navigate('/activity');
     else if (view === 'saved-info') navigate('/saved-info');
@@ -1333,6 +1364,9 @@ const App: React.FC = () => {
     else if (view === 'design') navigate('/design');
     else if (view === 'waifu') navigate('/waifu');
     else if (view === 'gems') navigate('/gems');
+    else if (view === 'library') navigate('/library');
+    else if (view === 'scheduled') navigate('/scheduled');
+    else if (view === 'download') navigate('/app/download');
     else if (view === 'notebooks') navigate('/notebooks/view');
     else if (view === 'notebook-create') navigate('/notebooks/create');
     else if (view === 'usage') navigate('/usage');
@@ -1359,6 +1393,8 @@ const App: React.FC = () => {
       location.pathname === '/gems' ||
       location.pathname.startsWith('/gems/') ||
       location.pathname.startsWith('/gem/') ||
+      isLibraryPath(location.pathname) ||
+      isDownloadPath(location.pathname) ||
       location.pathname === '/usage' ||
       location.pathname === '/gemini-spark' ||
       location.pathname === '/spark-settings' ||
@@ -1369,7 +1405,7 @@ const App: React.FC = () => {
     }
     commitView(view);
     return true;
-  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, isDesignEnabled, isProjectsPanelEnabled, isWaifuEnabled, navigate, searchParams, startTopLoading, location.pathname]);
+  }, [commitView, currentView, finishTopLoading, isAgentsEnabled, isDesignEnabled, isOldLibraryEnabled, isProjectsPanelEnabled, isWaifuEnabled, navigate, searchParams, startTopLoading, location.pathname]);
 
   /*
    * Reopening a Code chat, from anywhere.
@@ -1434,8 +1470,11 @@ const App: React.FC = () => {
       navigate('/', { replace: true });
     } else if (location.pathname === '/projects' && !isProjectsPanelEnabled) {
       navigate('/', { replace: true });
+    } else if (location.pathname === '/connected-apps' && !isOldLibraryEnabled) {
+      requestCustomizeTab('connectors');
+      navigate('/customize', { replace: true });
     }
-  }, [isAgentsEnabled, isDesignEnabled, isProjectsPanelEnabled, isWaifuEnabled, location.pathname, navigate, searchParams]);
+  }, [isAgentsEnabled, isDesignEnabled, isOldLibraryEnabled, isProjectsPanelEnabled, isWaifuEnabled, location.pathname, navigate, searchParams]);
 
   // Turning `projects-panel` off while sitting on the page leaves it, as the bounce above leaves its URL.
   React.useEffect(() => {
@@ -1495,7 +1534,6 @@ const App: React.FC = () => {
     if (viewChangeIntentRef.current) {
       const intent = viewChangeIntentRef.current;
       const urlMatchesIntent =
-        (intent === 'search' && location.pathname === '/search') ||
         (intent === 'personal-intelligence' && location.pathname === '/personalization-settings') ||
         (intent === 'activity' && location.pathname === '/activity') ||
         (intent === 'saved-info' && location.pathname === '/saved-info') ||
@@ -1508,6 +1546,9 @@ const App: React.FC = () => {
         (intent === 'design' && location.pathname === '/design') ||
         (intent === 'waifu' && location.pathname === '/waifu') ||
         (intent === 'gems' && location.pathname.startsWith('/gems')) ||
+        (intent === 'library' && isLibraryPath(location.pathname)) ||
+        (intent === 'scheduled' && location.pathname === '/scheduled') ||
+        (intent === 'download' && isDownloadPath(location.pathname)) ||
         (intent === 'usage' && location.pathname === '/usage') ||
         (intent === 'gemini-spark' && (location.pathname === '/gemini-spark' || location.pathname === '/spark-settings')) ||
         (intent === 'projects' && location.pathname === '/projects') ||
@@ -1520,9 +1561,8 @@ const App: React.FC = () => {
     }
 
     if (location.pathname === '/search') {
-      if (currentView !== 'search') {
-        commitView('search');
-      }
+      setIsSearchOpen(true);
+      navigate('/app', { replace: true });
     } else if (location.pathname === '/personalization-settings') {
       if (currentView !== 'personal-intelligence') {
         commitView('personal-intelligence');
@@ -1544,7 +1584,8 @@ const App: React.FC = () => {
         commitView('import-memory');
       }
     } else if (location.pathname === '/connected-apps') {
-      if (currentView !== 'connected-apps') {
+      // Turned off, the bounce above takes the address to Customize.
+      if (isOldLibraryEnabled && currentView !== 'connected-apps') {
         commitView('connected-apps');
       }
     } else if (location.pathname === '/customize') {
@@ -1571,6 +1612,18 @@ const App: React.FC = () => {
       if (currentView !== 'gems') {
         commitView('gems');
       }
+    } else if (isLibraryPath(location.pathname)) {
+      if (currentView !== 'library') {
+        commitView('library');
+      }
+    } else if (location.pathname === '/scheduled') {
+      if (currentView !== 'scheduled') {
+        commitView('scheduled');
+      }
+    } else if (isDownloadPath(location.pathname)) {
+      if (currentView !== 'download') {
+        commitView('download');
+      }
     } else if (location.pathname === '/usage') {
       if (currentView !== 'usage') {
         commitView('usage');
@@ -1589,7 +1642,6 @@ const App: React.FC = () => {
         commitView(next);
       }
     } else if (
-      currentView === 'search' ||
       currentView === 'personal-intelligence' ||
       currentView === 'activity' ||
       currentView === 'saved-info' ||
@@ -1602,6 +1654,9 @@ const App: React.FC = () => {
       currentView === 'design' ||
       currentView === 'waifu' ||
       currentView === 'gems' ||
+      currentView === 'library' ||
+      currentView === 'scheduled' ||
+      currentView === 'download' ||
       currentView === 'usage' ||
       currentView === 'gemini-spark' ||
       currentView === 'notebooks' ||
@@ -1611,7 +1666,7 @@ const App: React.FC = () => {
     ) {
       commitView('home');
     }
-  }, [location.pathname, currentView, commitView, isDesignEnabled, isWaifuEnabled, isProjectsPanelEnabled]);
+  }, [location.pathname, currentView, commitView, isDesignEnabled, isOldLibraryEnabled, isWaifuEnabled, isProjectsPanelEnabled]);
 
   // Where the desktop rail's Media and Code buttons go back to (rail-returns.ts).
   const agentTabInFront = useStore($harnessTab) !== null;
@@ -1975,6 +2030,11 @@ const App: React.FC = () => {
             handleViewChange('memory');
           } else if (tabId === 'spark-settings') {
             handleViewChange('gemini-spark');
+          } else if (tabId === 'skills') {
+            requestCustomizeTab('skills');
+            handleViewChange('customize');
+          } else if (tabId === 'scheduled') {
+            void handleStudioExperienceChange('spark').then(() => goToSparkSchedules());
           } else {
             if (tabId) setSettingsInitialTab(tabId as any);
             setIsSettingsOpen(true);
@@ -2128,16 +2188,7 @@ const App: React.FC = () => {
             )}
           </div>
         ))}
-        {currentView === 'search' ? (
-          <SearchChatsPage
-            modelConfig={modelConfig}
-            onOpenChat={() => {
-              setStudioExperience('chat');
-              setStudioMode('chat');
-              void handleViewChange('home');
-            }}
-          />
-        ) : currentView === 'agents' ? (
+        {currentView === 'agents' ? (
           <Suspense fallback={
             <StudioLoadingFallback reason="agents-suspense" onStart={startTopLoading} onFinish={finishTopLoading}>
               <TabLoading />
@@ -2247,6 +2298,33 @@ const App: React.FC = () => {
             </StudioLoadingFallback>
           }>
             <LabsPage />
+          </Suspense>
+        ) : currentView === 'library' ? (
+          <Suspense fallback={<StudioLoadingFallback reason="library-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
+            <LibraryPage
+              subpage={location.pathname.startsWith('/library/documents') ? 'documents' : 'overview'}
+              onNavigate={(path) => navigate(path)}
+              onOpenChat={() => {
+                setStudioExperience('chat');
+                setStudioMode('chat');
+                void handleViewChange('home');
+              }}
+              onNewChat={() => {
+                setStudioExperience('chat');
+                setStudioMode('chat');
+                handleNewChat();
+                void handleViewChange('home');
+              }}
+              chatHref={(chatId) => shellPathFor({ surface: 'chat', chatId })}
+            />
+          </Suspense>
+        ) : currentView === 'scheduled' ? (
+          <Suspense fallback={<StudioLoadingFallback reason="scheduled-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
+            <ScheduledPage modelConfig={modelConfig} />
+          </Suspense>
+        ) : currentView === 'download' ? (
+          <Suspense fallback={<StudioLoadingFallback reason="download-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
+            <AppDownloadPage />
           </Suspense>
         ) : currentView === 'gems' ? (
           <Suspense fallback={<StudioLoadingFallback reason="gems-suspense" onStart={startTopLoading} onFinish={finishTopLoading}><div className="h-full w-full" /></StudioLoadingFallback>}>
@@ -2449,6 +2527,7 @@ const App: React.FC = () => {
            <Route path="/" element={null} />
            {/* The shell's own surfaces (`shell-routes.ts`); `ShellRouteSync` keeps them in step. */}
            <Route path="/app" element={null} />
+           <Route path="/app/download" element={null} />
            <Route path="/app/:chatId" element={null} />
           <Route path="/images" element={null} />
           <Route path="/videos" element={null} />
@@ -2474,6 +2553,9 @@ const App: React.FC = () => {
            <Route path="/gems/create" element={null} />
            <Route path="/gems/edit/:gemId" element={null} />
            <Route path="/gem/:gemId" element={null} />
+          <Route path="/library" element={null} />
+          <Route path="/library/documents" element={null} />
+          <Route path="/scheduled" element={null} />
            <Route path="/usage" element={null} />
            <Route path="/gemini-spark" element={null} />
            <Route path="/spark-settings" element={null} />

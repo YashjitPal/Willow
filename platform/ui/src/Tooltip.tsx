@@ -124,12 +124,16 @@ function getOverlayContainer(): HTMLElement {
 
 type Phase = 'hidden' | 'shown' | 'hiding';
 
+/** `island`: the tooltip of Gemini's Base UI islands (the search buttons), not Material's. */
+export type TooltipVariant = 'island';
+
 export interface TooltipOverlayProps {
   anchor: HTMLElement | null;
   content: React.ReactNode;
   position: TooltipPosition;
   open: boolean;
   className?: string;
+  variant?: TooltipVariant;
   /** Id for the visually-hidden description node, when the caller wires aria. */
   descriptionId?: string;
 }
@@ -146,6 +150,7 @@ export function TooltipOverlay({
   position,
   open,
   className,
+  variant,
   descriptionId,
 }: TooltipOverlayProps) {
   const [container] = React.useState(getOverlayContainer);
@@ -208,9 +213,13 @@ export function TooltipOverlay({
     pane.style.left = '';
 
     // Cross-axis: centre on the anchor, then clamp inside the viewport. Written
-    // as an absolute coordinate because a `translate(-50%)` cannot clamp.
-    const centredLeft = clamp(a.left + a.width / 2 - w / 2, MARGIN_NEAR, vw - MARGIN_FAR - w);
-    const centredTop = clamp(a.top + a.height / 2 - h / 2, MARGIN_NEAR, vh - MARGIN_FAR - h);
+    // as an absolute coordinate because a `translate(-50%)` cannot clamp. An island
+    // tooltip (Base UI's positioner) lands on the device-pixel grid: 171.45px is
+    // 214.3 device pixels at 1.25, drawn at 214, i.e. 171.2.
+    const dpr = window.devicePixelRatio || 1;
+    const snap = (value: number) => (variant === 'island' ? Math.round(value * dpr) / dpr : value);
+    const centredLeft = snap(clamp(a.left + a.width / 2 - w / 2, MARGIN_NEAR, vw - MARGIN_FAR - w));
+    const centredTop = snap(clamp(a.top + a.height / 2 - h / 2, MARGIN_NEAR, vh - MARGIN_FAR - h));
 
     switch (placement) {
       case 'below':
@@ -241,7 +250,7 @@ export function TooltipOverlay({
     if (surface) {
       surface.classList.toggle('willow-tooltip-surface--multiline', isMultiline(surface));
     }
-  }, [anchor, position]);
+  }, [anchor, position, variant]);
 
   /**
    * Position, then reveal — both before paint, so the corrected placement is
@@ -309,15 +318,20 @@ export function TooltipOverlay({
         </span>
       )}
       {phase !== 'hidden' && (
-        <div ref={paneRef} className={`willow-tooltip-pane willow-tooltip-pane--${position}`}>
+        <div
+          ref={paneRef}
+          className={`willow-tooltip-pane willow-tooltip-pane--${position}${variant ? ` willow-tooltip-pane--${variant}` : ''}`}
+        >
           <div ref={wrapperRef} className="willow-tooltip" aria-hidden="true">
             <div
               ref={surfaceRef}
-              className={
-                className ? `willow-tooltip-surface ${className}` : 'willow-tooltip-surface'
-              }
+              className={[
+                'willow-tooltip-surface',
+                variant ? `willow-tooltip-surface--${variant}` : '',
+                className ?? '',
+              ].filter(Boolean).join(' ')}
             >
-              {content}
+              {variant === 'island' ? <span className="willow-tooltip-island-text">{content}</span> : content}
             </div>
           </div>
         </div>
@@ -436,12 +450,18 @@ const STASH_ATTR = 'data-willow-tooltip';
 const OWNED_LABEL_ATTR = 'data-willow-tooltip-label';
 /** Opt-in placement override, e.g. `data-tooltip-position="right"`. */
 const POSITION_ATTR = 'data-tooltip-position';
+/** Opt-in look, `data-tooltip-variant="island"` for Gemini's Base UI tooltip. */
+const VARIANT_ATTR = 'data-tooltip-variant';
 
 function readPosition(el: HTMLElement): TooltipPosition {
   const raw = el.getAttribute(POSITION_ATTR);
   return (POSITIONS as readonly string[]).includes(raw ?? '')
     ? (raw as TooltipPosition)
     : 'below';
+}
+
+function readVariant(el: HTMLElement): TooltipVariant | undefined {
+  return el.getAttribute(VARIANT_ATTR) === 'island' ? 'island' : undefined;
 }
 
 /**
@@ -461,6 +481,7 @@ export function GlobalTooltips() {
   const [anchor, setAnchor] = React.useState<HTMLElement | null>(null);
   const [text, setText] = React.useState('');
   const [position, setPosition] = React.useState<TooltipPosition>('below');
+  const [variant, setVariant] = React.useState<TooltipVariant | undefined>(undefined);
   const [open, setOpen] = React.useState(false);
   const anchorRef = React.useRef<HTMLElement | null>(null);
 
@@ -508,6 +529,7 @@ export function GlobalTooltips() {
       setAnchor(el);
       setText(title);
       setPosition(readPosition(el));
+      setVariant(readVariant(el));
       setOpen(true);
     };
 
@@ -610,6 +632,7 @@ export function GlobalTooltips() {
       anchor={anchor}
       content={text}
       position={position}
+      variant={variant}
       open={open}
     />
   );

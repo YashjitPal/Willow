@@ -1,0 +1,1014 @@
+/*
+ * Gemini's custom-app dialogs, measured on gemini.google.com at 1536x826, 800x1280 and 390x844 (dpr 1.25) and
+ * read from the components' own styles in its bundle:
+ *
+ *   .cad-registration  custom-mcp-registration-dialog  512 wide, gem surface-bright, 48px footer buttons
+ *   .cad-consent       custom-mcp-app-consent-dialog   a gem-dialog, 512 wide (29rem to 37.5rem)
+ *   .cad-review        custom-mcp-app-review-dialog    a gem-dialog, 832 wide
+ *
+ * Gemini's gem-dialog paints Lumi's surface-bright over the Material surface, and its tokens switch to the
+ * narrow set below 959.98px (#1c1c1c, #e0e0e0, #141414 buttons), as every Lumi surface does.
+ */
+
+.cad-host {
+  --cad-on-surface: #e3e3e3;
+  --cad-on-surface-variant: #c4c7c5;
+  --cad-lumi-on-surface: #e6e6e6;
+  --cad-lumi-surface-bright: #1f1f1f;
+  --cad-tonal: #171717;
+  --cad-disabled-bg: rgba(230, 230, 230, 0.12);
+  --cad-disabled-text: rgba(230, 230, 230, 0.38);
+  --cad-hover: rgba(230, 230, 230, 0.08);
+  --cad-surface-bright: #1e1f20;
+  --cad-surface-dim: #131314;
+  --cad-outline-variant: #444746;
+  --cad-error: #f2b8b5;
+  --cad-primary: var(--sync-a8c7fa, #a8c7fa);
+  --cad-copied: var(--sync-192967, #192967);
+  --cad-progress-track: rgba(var(--sync-a8c7fa-rgb, 168, 199, 250), 0.24);
+  --cad-thumb: #333537;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+}
+
+/* The CDK backdrop is cut off 155ms into its 400ms fade, and takes no clicks once closing. */
+.cad-backdrop.is-closing {
+  pointer-events: none;
+}
+
+/* ── Type: Gemini's gds scale, in Google Sans Flex ───────────────────── */
+
+.cad-host :is(.cad-headline-s, .cad-body-s, .cad-emphasized-body-s, .cad-body-m, .cad-emphasized-body-m, .cad-title-s-emphasized, .cad-label-m-alt) {
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  letter-spacing: normal;
+}
+
+.cad-headline-s {
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 470;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 94, "wght" 470;
+}
+
+.cad-body-s {
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.cad-emphasized-body-s,
+.cad-title-s-emphasized {
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 540;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+}
+
+.cad-body-m {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.cad-emphasized-body-m {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 540;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 540;
+}
+
+.cad-label-m-alt {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  letter-spacing: 0.1px !important;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 95, "wght" 400;
+}
+
+/* ── The surface ─────────────────────────────────────────────────────── */
+
+.cad-surface {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 280px;
+  max-height: 100%;
+  overflow: hidden;
+  border-radius: 28px;
+  background: var(--cad-surface-bright);
+  box-shadow: rgba(0, 0, 0, 0.28) 0 0 20px 0;
+  color: var(--cad-on-surface);
+  outline: none;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 150ms linear, transform 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.cad-surface.is-shown {
+  opacity: 1;
+  transform: none;
+}
+
+.cad-surface.is-closing {
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 75ms linear, transform 75ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.cad-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Shared pieces ───────────────────────────────────────────────────── */
+
+.cad-title {
+  margin: 0;
+  padding: 0;
+  color: var(--cad-on-surface);
+}
+
+.cad-title:focus {
+  outline: none;
+}
+
+.cad-icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--cad-lumi-on-surface);
+  cursor: pointer;
+}
+
+.cad-icon-button::before,
+.cad-button::before,
+.cad-copy-button::before,
+.cad-see-all::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 15ms linear;
+  pointer-events: none;
+}
+
+.cad-icon-button:hover::before,
+.cad-button:not(:disabled):hover::before,
+.cad-copy-button:hover::before,
+.cad-see-all:hover::before {
+  opacity: 0.08;
+}
+
+.cad-icon-button:focus-visible::before,
+.cad-button:not(:disabled):focus-visible::before,
+.cad-copy-button:focus-visible::before,
+.cad-see-all:focus-visible::before {
+  opacity: 0.1;
+}
+
+.cad-icon-button:active::before,
+.cad-button:not(:disabled):active::before,
+.cad-copy-button:active::before {
+  opacity: 0.1;
+}
+
+.cad-close-button {
+  width: 36px;
+  height: 36px;
+}
+
+.cad-clear-button {
+  width: 24px;
+  height: 24px;
+  margin-right: 8px;
+}
+
+/* gem-button: `small` 36px with 12px sides (the dialogs' actions), `medium` 48px with 16px (the first dialog's). */
+.cad-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 36px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--cad-lumi-on-surface);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cad-button--medium {
+  height: 48px;
+  min-width: 72px;
+  padding: 0 16px;
+}
+
+.cad-button--tonal {
+  background: var(--cad-tonal);
+}
+
+.cad-button:disabled {
+  cursor: default;
+  color: var(--cad-disabled-text);
+}
+
+.cad-button--tonal:disabled {
+  background: var(--cad-disabled-bg);
+}
+
+.cad-button > span {
+  position: relative;
+}
+
+.cad-host :is(button, [role="button"], a):focus-visible {
+  outline: 2px solid var(--cad-primary);
+  outline-offset: 2px;
+}
+
+/* Material's outlined field, `--no-label`: the outline sits out of flow, 1px at rest and 2px focused. */
+.cad-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+}
+
+.cad-field:has(.cad-field-suffix) {
+  padding-right: 0;
+}
+
+.cad-field-input {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--cad-lumi-on-surface);
+  caret-color: var(--cad-lumi-on-surface);
+  font-family: "Google Sans Flex", "Google Sans Text", "Google Sans", sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.cad-field-input::placeholder {
+  color: var(--cad-on-surface-variant);
+  opacity: 1;
+}
+
+.cad-field-suffix {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding-left: 4px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.cad-field-outline {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--cad-surface-dim);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+.cad-field:hover .cad-field-outline {
+  border-color: var(--cad-on-surface);
+}
+
+.cad-field:focus-within .cad-field-outline {
+  border-width: 2px;
+  border-color: var(--cad-surface-dim);
+}
+
+/* `mat-progress-bar`, indeterminate: MDC's two bars over a 4px track. */
+.cad-progress {
+  position: relative;
+  flex: 0 0 100%;
+  height: 4px;
+  overflow: hidden;
+  background: var(--cad-progress-track);
+}
+
+.cad-progress-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  transform-origin: top left;
+}
+
+.cad-progress-inner {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: var(--cad-primary);
+}
+
+.cad-progress-bar--primary {
+  left: -145.166611%;
+  animation: cad-progress-primary-translate 2s infinite linear;
+}
+
+.cad-progress-bar--primary .cad-progress-inner {
+  animation: cad-progress-primary-scale 2s infinite linear;
+}
+
+.cad-progress-bar--secondary {
+  left: -54.888891%;
+  animation: cad-progress-secondary-translate 2s infinite linear;
+}
+
+.cad-progress-bar--secondary .cad-progress-inner {
+  animation: cad-progress-secondary-scale 2s infinite linear;
+}
+
+@keyframes cad-progress-primary-translate {
+  0% { transform: translateX(0); }
+  20% { animation-timing-function: cubic-bezier(0.5, 0, 0.701732, 0.495819); transform: translateX(0); }
+  59.15% { animation-timing-function: cubic-bezier(0.302435, 0.381352, 0.55, 0.956352); transform: translateX(83.67142%); }
+  100% { transform: translateX(200.611057%); }
+}
+
+@keyframes cad-progress-primary-scale {
+  0% { transform: scaleX(0.08); }
+  36.65% { animation-timing-function: cubic-bezier(0.334731, 0.12482, 0.785844, 1); transform: scaleX(0.08); }
+  69.15% { animation-timing-function: cubic-bezier(0.06, 0.11, 0.6, 1); transform: scaleX(0.661479); }
+  100% { transform: scaleX(0.08); }
+}
+
+@keyframes cad-progress-secondary-translate {
+  0% { animation-timing-function: cubic-bezier(0.15, 0, 0.515058, 0.409685); transform: translateX(0); }
+  25% { animation-timing-function: cubic-bezier(0.31033, 0.284058, 0.8, 0.733712); transform: translateX(37.651913%); }
+  48.35% { animation-timing-function: cubic-bezier(0.4, 0.627035, 0.6, 0.902026); transform: translateX(84.386165%); }
+  100% { transform: translateX(160.277782%); }
+}
+
+@keyframes cad-progress-secondary-scale {
+  0% { animation-timing-function: cubic-bezier(0.205028, 0.057051, 0.57661, 0.453971); transform: scaleX(0.08); }
+  19.15% { animation-timing-function: cubic-bezier(0.152313, 0.196432, 0.648374, 1.004315); transform: scaleX(0.457104); }
+  44.15% { animation-timing-function: cubic-bezier(0.257759, -0.003163, 0.211762, 1.38179); transform: scaleX(0.72796); }
+  100% { transform: scaleX(0.08); }
+}
+
+/* ── Connect to an MCP server ────────────────────────────────────────── */
+
+.cad-registration {
+  width: 512px;
+  max-width: calc(100vw - 48px);
+}
+
+.cad-registration-body {
+  padding: 24px 0 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.cad-registration-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 24px 32px;
+}
+
+.cad-registration-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0 24px;
+}
+
+.cad-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cad-label {
+  color: var(--cad-on-surface);
+}
+
+.cad-url-helper,
+.cad-url-error {
+  margin-top: 4px;
+}
+
+.cad-url-helper {
+  color: var(--cad-on-surface-variant);
+}
+
+.cad-url-error {
+  color: var(--cad-error);
+}
+
+.cad-advanced {
+  display: flex;
+  flex-direction: column;
+}
+
+.cad-advanced-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+}
+
+.cad-advanced-label,
+.cad-advanced-trigger {
+  color: var(--cad-on-surface-variant);
+}
+
+.cad-advanced-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cad-advanced-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.cad-copy-container {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 4px;
+}
+
+.cad-copy-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--cad-lumi-surface-bright);
+  color: var(--cad-lumi-on-surface);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.cad-copy-button.is-copied {
+  background: var(--cad-copied);
+}
+
+.cad-copy-button > * {
+  position: relative;
+}
+
+.cad-trust {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cad-trust-heading,
+.cad-trust-body,
+.cad-trust-link {
+  color: var(--cad-on-surface);
+}
+
+.cad-trust-link {
+  text-decoration: underline;
+}
+
+.cad-registration-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 16px;
+}
+
+/* ── gem-dialog: the consent and the review ──────────────────────────── */
+
+.cad-gem {
+  background: var(--cad-lumi-surface-bright);
+}
+
+.cad-gem-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 24px 24px 0;
+  overflow: hidden;
+}
+
+.cad-gem-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  max-height: 65vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  color: var(--cad-lumi-on-surface);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+/* The column scrolls, so nothing in it may shrink to fit (an empty spacer would vanish). */
+.cad-gem-content > * {
+  flex-shrink: 0;
+}
+
+.cad-gem-content p {
+  margin: 0;
+}
+
+/* Gemini's scrollbars for a fine pointer: a 12px gutter, the thumb inset 2px, shown while the content is hovered. */
+@media (pointer: fine) {
+  .cad-gem-content::-webkit-scrollbar {
+    width: 12px;
+    background: transparent;
+  }
+
+  .cad-gem-content::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background: content-box transparent;
+  }
+
+  .cad-gem-content:hover::-webkit-scrollbar-thumb {
+    background: content-box var(--cad-thumb);
+  }
+
+  .cad-gem-content::-webkit-scrollbar-thumb:hover,
+  .cad-gem-content::-webkit-scrollbar-thumb:active {
+    background: content-box var(--cad-outline-variant);
+  }
+
+  .cad-gem-content::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+  }
+}
+
+.cad-gem-content a {
+  color: var(--cad-lumi-on-surface);
+  text-decoration: underline solid;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.23em;
+  cursor: pointer;
+}
+
+.cad-gem-actions {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  gap: 8px;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 16px;
+}
+
+/* The consent: `padding-inline-end: 0` on its container, so the content's 12px pad and gutter are its right edge. */
+.cad-consent {
+  width: 512px;
+  min-width: 464px;
+  max-width: min(600px, calc(100vw - 40px));
+}
+
+.cad-consent .cad-gem-body {
+  padding-right: 0;
+}
+
+.cad-consent .cad-gem-content {
+  padding-right: 12px;
+}
+
+.cad-consent-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.cad-consent-sparkle {
+  width: 24px;
+  height: 24px;
+}
+
+.cad-consent-title {
+  margin: 0 0 4px;
+  text-align: center;
+}
+
+.cad-consent-subtitle {
+  margin: 0;
+  color: var(--cad-on-surface-variant);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.cad-consent-profile {
+  display: flex;
+  justify-content: center;
+  margin: 28px 0;
+}
+
+.cad-consent-spacer {
+  height: 28px;
+}
+
+.cad-consent-profile-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--cad-outline-variant);
+  border-radius: 9999px;
+}
+
+.cad-consent-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.cad-consent-email {
+  color: var(--cad-on-surface-variant);
+}
+
+.cad-consent-will {
+  margin: 0;
+}
+
+.cad-consent-bullets {
+  margin: 0;
+  padding: 0 0 0 16px;
+  list-style: disc;
+}
+
+.cad-consent-bullets li {
+  margin: 4px 0;
+  padding: 0;
+}
+
+.cad-consent-privacy {
+  margin-top: 16px;
+}
+
+.cad-consent-privacy h2 {
+  margin: 0 0 8px;
+}
+
+.cad-gem-content .cad-consent-privacy p {
+  margin: 0 0 15px;
+}
+
+.cad-consent-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+/* mat-checkbox: an 18px box with a 2px border in a 40px state area, ticked on-surface over surface. */
+.cad-checkbox {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* `content-box`: the 18px box with 11px round it, the 40px Material measures (preflight would make it 18). */
+.cad-checkbox-box {
+  position: relative;
+  box-sizing: content-box;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  padding: 11px;
+}
+
+.cad-checkbox-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.cad-checkbox-state {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--cad-on-surface);
+  opacity: 0;
+  transition: opacity 15ms linear;
+}
+
+.cad-checkbox:hover .cad-checkbox-state {
+  opacity: 0.04;
+}
+
+.cad-checkbox-input:focus-visible ~ .cad-checkbox-state {
+  opacity: 0.12;
+}
+
+.cad-checkbox-bg {
+  position: absolute;
+  top: 11px;
+  left: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--cad-on-surface-variant);
+  border-radius: 2px;
+  transition: background-color 90ms cubic-bezier(0.4, 0, 0.6, 1), border-color 90ms cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.cad-checkbox-mark {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  color: var(--cad-surface-dim);
+  transition: opacity 180ms cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.cad-checkbox-mark path {
+  stroke: currentColor;
+  stroke-width: 3.12px;
+  stroke-dasharray: 29.7833385;
+  stroke-dashoffset: 29.7833385;
+  transition: stroke-dashoffset 180ms cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.cad-checkbox-input:checked ~ .cad-checkbox-bg {
+  border-color: var(--cad-on-surface);
+  background: var(--cad-on-surface);
+}
+
+.cad-checkbox-input:checked ~ .cad-checkbox-bg .cad-checkbox-mark {
+  opacity: 1;
+}
+
+.cad-checkbox-input:checked ~ .cad-checkbox-bg .cad-checkbox-mark path {
+  stroke-dashoffset: 0;
+}
+
+.cad-checkbox-input:disabled {
+  cursor: default;
+}
+
+.cad-checkbox-label {
+  padding-left: 4px;
+  color: var(--cad-on-surface);
+}
+
+/* The review. */
+.cad-review {
+  width: 832px;
+  max-width: calc(100vw - 40px);
+}
+
+.cad-review-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.cad-review-app {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.cad-review-logo {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  object-fit: cover;
+}
+
+.cad-review-logo-fallback {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  color: var(--cad-primary);
+}
+
+.cad-review-name {
+  flex: 1 0 0;
+  min-width: 0;
+}
+
+.cad-review-name:focus-within .cad-field-outline {
+  border-color: var(--cad-primary);
+}
+
+.cad-review-description {
+  color: var(--cad-on-surface);
+}
+
+.cad-save-error {
+  margin-top: 12px;
+  color: var(--cad-error);
+  font-size: 13px;
+  line-height: 17px;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+}
+
+.cad-review-divider {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--cad-outline-variant);
+}
+
+.cad-review-actions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cad-review-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cad-on-surface-variant);
+}
+
+.cad-review-meta-title {
+  color: var(--cad-on-surface);
+}
+
+.cad-see-all {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--cad-primary);
+  cursor: pointer;
+}
+
+.cad-see-all > * {
+  position: relative;
+}
+
+.cad-review-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cad-review-action {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cad-lumi-on-surface);
+}
+
+/* An lm-icon-xl `check` (28px) in a 24px box, clipped to it as Gemini's is. */
+.cad-review-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  color: var(--cad-on-surface);
+}
+
+.cad-review-check > * {
+  width: 24px !important;
+  height: 28px !important;
+  overflow: hidden;
+  justify-content: center;
+}
+
+/* ── Below 960px: Lumi's narrow tokens ───────────────────────────────── */
+
+@media (max-width: 959.98px) {
+  .cad-host {
+    --cad-lumi-on-surface: #e0e0e0;
+    --cad-lumi-surface-bright: #1c1c1c;
+    --cad-tonal: #141414;
+    --cad-disabled-bg: rgba(224, 224, 224, 0.12);
+    --cad-disabled-text: rgba(224, 224, 224, 0.38);
+  }
+}
+
+/* ── Below 769px: the consent loses its minimum, the review's actions stack ── */
+
+@media (max-width: 768px) {
+  .cad-consent {
+    min-width: 0;
+    width: calc(100vw - 40px);
+  }
+
+  .cad-review-actions {
+    grid-template-columns: 1fr;
+    max-height: 20rem;
+    overflow-y: auto;
+  }
+
+  .cad-review-action {
+    white-space: normal;
+    overflow: visible;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cad-surface,
+  .cad-surface.is-closing {
+    transition-duration: 1ms;
+  }
+
+  .cad-progress-bar,
+  .cad-progress-inner {
+    animation-duration: 6s;
+  }
+}
+
+/* ── Light ───────────────────────────────────────────────────────────── */
+
+/* Measured with Gemini in its light theme at 1536x826: Lumi's on-surface is black, its disabled fill 12% of it. */
+:is(.light-theme, [data-theme="light"]) .cad-host {
+  --cad-on-surface: #1f1f1f;
+  --cad-on-surface-variant: #444746;
+  --cad-lumi-on-surface: #000000;
+  --cad-lumi-surface-bright: #ffffff;
+  --cad-tonal: #f2f0f0;
+  --cad-disabled-bg: rgba(0, 0, 0, 0.12);
+  --cad-disabled-text: rgba(0, 0, 0, 0.38);
+  --cad-surface-bright: #ffffff;
+  --cad-surface-dim: #dadce0;
+  --cad-outline-variant: #c4c7c5;
+  --cad-error: #b3261e;
+  --cad-primary: var(--sync-0b57d0, #0b57d0);
+  --cad-copied: var(--sync-d3e3fd, #d3e3fd);
+  --cad-progress-track: rgba(var(--sync-0b57d0-rgb, 11, 87, 208), 0.24);
+  --cad-thumb: #dde3ea;
+}
+
+:is(.light-theme, [data-theme="light"]) .cad-field-suffix {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .cad-surface {
+  box-shadow: rgba(0, 0, 0, 0.04) 0 0 20px 0;
+}

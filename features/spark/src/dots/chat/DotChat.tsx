@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
+import { downloadMedia } from '@willow/chat/media/GeneratedImage';
 import { MaterialSymbol } from '@willow/ui/MaterialSymbol';
 import { StreamingMarkdown } from '@willow/ui/StreamingMarkdown';
 import { useDotTint } from '../dot-tint';
@@ -210,6 +212,9 @@ function DotMessage({
   const wrapRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const streaming = Boolean(item.streaming);
+  const files = item.attachments ?? [];
+  const pictures = files.filter(isPicture);
+  const others = files.filter((file) => !isPicture(file));
   const longPress = useLongPress(() => !streaming && onPickerChange(true));
 
   useEffect(() => {
@@ -236,20 +241,36 @@ function DotMessage({
       <div className="dot-chat__stack">
         <div ref={wrapRef} className={`dot-chat__bubble-wrap${pickerOpen ? ' is-picking' : ''}`}>
           <div className={`dot-chat__bubble-frame${userReaction ? ' has-reaction' : ''}`}>
-            <div
-              className="dot-chat__bubble"
-              tabIndex={streaming ? -1 : 0}
-              aria-haspopup="dialog"
-              onKeyDown={(event) => {
-                if (streaming || event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
-                event.preventDefault();
-                onPickerChange(!pickerOpen);
-              }}
-              {...longPress}
-            >
-              <md-focus-ring />
-              <StreamingMarkdown text={item.text} isStreaming={streaming} animate={streaming} reveal={streaming} />
-            </div>
+            {pictures.length > 0 && (
+              <div className={`dot-chat__pictures${pictures.length > 1 ? ' is-several' : ''}`}>
+                {pictures.map((file) => (
+                  <SentPicture key={file.id} file={file} />
+                ))}
+              </div>
+            )}
+            {(item.text || streaming || others.length > 0) && (
+              <div
+                className="dot-chat__bubble"
+                tabIndex={streaming ? -1 : 0}
+                aria-haspopup="dialog"
+                onKeyDown={(event) => {
+                  if (streaming || event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+                  event.preventDefault();
+                  onPickerChange(!pickerOpen);
+                }}
+                {...longPress}
+              >
+                <md-focus-ring />
+                {(item.text || streaming) && <StreamingMarkdown text={item.text} isStreaming={streaming} animate={streaming} reveal={streaming} />}
+                {others.length > 0 && (
+                  <span className="dot-chat__attachments">
+                    {others.map((file) => (
+                      <FileChip key={file.id} file={file} />
+                    ))}
+                  </span>
+                )}
+              </div>
+            )}
             {userReaction && (
               <ReactionPill emoji={[userReaction]} label={`You reacted ${userReaction}. Change or remove it`} onClick={() => onPickerChange(!pickerOpen)} />
             )}
@@ -259,9 +280,11 @@ function DotMessage({
               <md-icon-button data-action="react" aria-label="React" aria-expanded={pickerOpen} onClick={() => onPickerChange(!pickerOpen)}>
                 <MaterialSymbol name="add_reaction" size={20} opticalSize={20} weight={350} />
               </md-icon-button>
-              <md-icon-button data-action="copy" aria-label={copied ? 'Copied' : 'Copy text'} onClick={copy}>
-                <MaterialSymbol name={copied ? 'check' : 'content_copy'} size={18} opticalSize={20} weight={350} />
-              </md-icon-button>
+              {item.text.trim() && (
+                <md-icon-button data-action="copy" aria-label={copied ? 'Copied' : 'Copy text'} onClick={copy}>
+                  <MaterialSymbol name={copied ? 'check' : 'content_copy'} size={18} opticalSize={20} weight={350} />
+                </md-icon-button>
+              )}
             </div>
           )}
           {pickerOpen && <ReactionPicker anchorRef={wrapRef} current={userReaction} onPick={pick} onCopy={copy} onClose={() => onPickerChange(false)} />}
@@ -281,17 +304,58 @@ const writtenOn = (item: DotItem): string => {
 
 const isPicture = (file: DotAttachmentRef): boolean => file.type === 'image' || /^image\//.test(file.mimeType ?? '');
 
-const FileChip = ({ file }: { file: DotAttachmentRef }) => (
-  <span className="dot-chat__attachment">
-    <MaterialSymbol name={isPicture(file) ? 'image' : 'attach_file'} size={16} opticalSize={20} weight={350} />
-    {file.name}
-  </span>
-);
+/** A file of the conversation's, saved where the system keeps downloads. */
+const saveFile = async (file: DotAttachmentRef) => {
+  const blob = await dotAttachmentBlob(file).catch(() => null);
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  downloadMedia(url, file.name);
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
 
-/** A picture the user sent, as itself — drawn from its stored bytes, held at its size while they load. */
+/** A file as a chip, which saves it; one whose bytes are gone only names it. */
+const FileChip = ({ file, gone = false }: { file: DotAttachmentRef; gone?: boolean }) => {
+  const icon = <MaterialSymbol name={isPicture(file) ? 'image' : 'attach_file'} size={16} opticalSize={20} weight={350} />;
+  if (gone) return <span className="dot-chat__attachment">{icon}{file.name}</span>;
+  return (
+    <button type="button" className="dot-chat__attachment is-saveable" onClick={() => void saveFile(file)} aria-label={`Save ${file.name}`}>
+      {icon}
+      {file.name}
+    </button>
+  );
+};
+
+/** A picture of the conversation's, whole, over everything: Esc, the backdrop or Close puts it away, Save keeps it. */
+function PictureViewer({ url, file, onClose }: { url: string; file: DotAttachmentRef; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return createPortal(
+    <div className="dot-picture-viewer" role="dialog" aria-modal="true" aria-label={file.name} onClick={onClose}>
+      <div className="dot-picture-viewer__bar" onClick={(event) => event.stopPropagation()}>
+        <span className="dot-picture-viewer__name">{file.name}</span>
+        <button type="button" className="dot-picture-viewer__action" aria-label="Save" title="Save" onClick={() => downloadMedia(url, file.name)}>
+          <MaterialSymbol name="download" size={22} opticalSize={24} weight={320} />
+        </button>
+        <button type="button" className="dot-picture-viewer__action" aria-label="Close" title="Close" onClick={onClose} autoFocus>
+          <MaterialSymbol name="close" size={22} opticalSize={24} weight={320} />
+        </button>
+      </div>
+      <img className="dot-picture-viewer__picture" src={url} alt={file.name} onClick={(event) => event.stopPropagation()} />
+    </div>,
+    document.body,
+  );
+}
+
+/** A picture of the conversation's, as itself — drawn from its stored bytes, held at its size while they load — which opens whole. */
 function SentPicture({ file }: { file: DotAttachmentRef }) {
   const [url, setUrl] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     let live = true;
     let made: string | null = null;
@@ -311,8 +375,16 @@ function SentPicture({ file }: { file: DotAttachmentRef }) {
       if (made) URL.revokeObjectURL(made);
     };
   }, [file.id]);
-  if (gone) return <FileChip file={file} />;
-  return url ? <img className="dot-chat__picture" src={url} alt={file.name} /> : <span className="dot-chat__picture is-loading" role="img" aria-label={file.name} />;
+  if (gone) return <FileChip file={file} gone />;
+  if (!url) return <span className="dot-chat__picture is-loading" role="img" aria-label={file.name} />;
+  return (
+    <>
+      <button type="button" className="dot-chat__picture-button" onClick={() => setOpen(true)} aria-label={`Open ${file.name}`}>
+        <img className="dot-chat__picture" src={url} alt={file.name} />
+      </button>
+      {open && <PictureViewer url={url} file={file} onClose={() => setOpen(false)} />}
+    </>
+  );
 }
 
 function UserMessage({ name, row, seen }: { name: string; row: MessageRow; seen: boolean }) {

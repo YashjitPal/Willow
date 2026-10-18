@@ -95,11 +95,18 @@ export function createHttpTransport(options: HttpTransportOptions): McpTransport
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    // A CR ending one chunk may be the first half of a CRLF the next chunk finishes.
+    let carriage = false;
 
     while (!closed) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      let text = decoder.decode(value, { stream: true });
+      if (carriage) text = `\r${text}`;
+      carriage = text.endsWith('\r');
+      if (carriage) text = text.slice(0, -1);
+      // SSE lines may end in CRLF (DeepWiki's do), LF or CR; as LF, a blank line is always `\n\n`.
+      buffer += text.replace(/\r\n?/g, '\n');
 
       // Events are separated by a blank line; a field is `name: value`.
       let boundary = buffer.indexOf('\n\n');

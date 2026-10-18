@@ -1,0 +1,351 @@
+/*
+ * Gemini's `/app/download` (`app-download-page`), measured at 1536x826, 800x1280 and 390x844 and
+ * read out of its stylesheet (tools/ui-research/captures/gemini/download/). Gemini's sizes lean on
+ * the viewport: the clamps below are its own. Its account is dark; the light values are the
+ * Library's light tokens, unmeasured.
+ */
+
+/* The host: the page's scroller, with the page's own surface. */
+.gm-download {
+  display: block;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  background-color: #0f0f0f;
+  color: #e3e3e3;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+}
+
+.gm-download-page {
+  display: flex;
+  box-sizing: border-box;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(72px, 8vh, 86px) 24px 12px;
+}
+
+.gm-download-content {
+  display: flex;
+  width: 100%;
+  max-width: 880px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 auto;
+}
+
+.gm-download-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(24px, 4vw, 48px);
+}
+
+.gm-download-info {
+  flex: 1 1 0%;
+  max-width: 380px;
+}
+
+.gm-download-title {
+  margin: 0 0 clamp(6px, 1.2vh, 12px);
+  color: #e3e3e3;
+  font-size: 28px;
+  font-weight: 350;
+  font-variation-settings: "ROND" 20, "slnt" 0, "wdth" 100, "wght" 350;
+  line-height: 36px;
+}
+
+.gm-download-text {
+  margin: 0 0 clamp(10px, 1.8vh, 18px);
+  color: #e3e3e3;
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+}
+
+/*
+ * "Download for Windows": a tonal pill whose states are a layer of the ink painted over its
+ * fill, 8% hovered or focused and 12% pressed. Focus is Gemini's `:focus`, so a mouse press
+ * leaves the 2px ring too; a keyboard's focus adds Material's 1px #a8c7fa ring 3px out.
+ */
+.gm-download-cta,
+.gm-download-mobile-cta {
+  position: relative;
+  box-sizing: border-box;
+  height: 40px;
+  min-width: 64px;
+  padding: 10px 24px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  /* Gemini's: the label's 17.6px line sits at the top of the 20px it is given. */
+  line-height: normal;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+  /* Material's buttons: no text to select, so a held finger presses rather than selects. */
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gm-download-cta {
+  --gm-download-cta-bg: #282a2c;
+  display: inline-block;
+  background: var(--gm-download-cta-bg);
+  color: #e3e3e3;
+  backdrop-filter: blur(25px);
+}
+
+.gm-download-cta:hover {
+  background: linear-gradient(0deg, rgba(230, 230, 230, 0.08) 0, rgba(230, 230, 230, 0.08) 100%), var(--gm-download-cta-bg);
+}
+
+.gm-download-cta:focus {
+  background: linear-gradient(0deg, rgba(230, 230, 230, 0.08) 0, rgba(230, 230, 230, 0.08) 100%), var(--gm-download-cta-bg);
+  outline: 2px solid #e3e3e3;
+  outline-offset: 2px;
+}
+
+.gm-download-cta:active {
+  background: linear-gradient(0deg, rgba(230, 230, 230, 0.12) 0, rgba(230, 230, 230, 0.12) 100%), var(--gm-download-cta-bg);
+}
+
+.gm-download-cta:focus-visible::after {
+  position: absolute;
+  inset: -3px;
+  box-sizing: border-box;
+  border: 1px solid #a8c7fa;
+  border-radius: 9999px;
+  content: "";
+  pointer-events: none;
+}
+
+.gm-download-cta-label {
+  position: relative;
+  z-index: 1;
+}
+
+.gm-download-ripples {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* `.mat-ripple-element`: launchMaterialRipple sets the geometry and the durations inline. */
+.gm-download-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: scale3d(0, 0, 0);
+  transition-property: opacity, transform;
+  transition-timing-function: ease, cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* Both buttons' ripple is Material's tonal one, a dark blue. */
+.gm-download-ripple--tonal,
+.gm-download-ripple--accent {
+  background-color: rgba(6, 46, 111, 0.12);
+}
+
+/* The QR card: white, 28px corners, the code at 12vh (96px to 112px) beside a two-line label. */
+.gm-download-qr {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 20px 14px 16px;
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px 0 rgba(227, 227, 227, 0.06);
+}
+
+.gm-download-qr-image {
+  display: block;
+  width: clamp(96px, 12vh, 112px);
+  height: clamp(96px, 12vh, 112px);
+  flex-shrink: 0;
+}
+
+.gm-download-qr-label {
+  display: block;
+  width: 85px;
+  max-width: 90px;
+  color: #000000;
+  font-size: 15px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  line-height: 20px;
+}
+
+/* The pictures: 4:3 at half the viewport less 75px, 230px to 330px tall, 40px corners. */
+.gm-download-mockup {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 440px;
+  height: clamp(230px, -75px + 50vh, 330px);
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  border-radius: 40px;
+}
+
+.gm-download-mockup--desktop {
+  align-self: flex-end;
+}
+
+.gm-download-mockup--phone {
+  align-self: flex-start;
+}
+
+.gm-download-mockup-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 40px;
+  object-fit: cover;
+}
+
+/* Gemini's footer is an empty disclaimer: 16px margins around a 17px line. */
+.gm-download-footer {
+  width: 100%;
+  height: 49px;
+  flex-shrink: 0;
+  margin-top: 12px;
+}
+
+/*
+ * Phones and tablets: the phone's row alone, from the top, on black, with a blue button for the
+ * QR code; the picture as wide as the column.
+ */
+.gm-download-mobile-cta {
+  display: block;
+  background-color: #1f3b9b;
+  color: #e0e0e0;
+  transition: box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Hovered or pressed by a mouse: the hover mix, and Material's first elevation fading in. A held finger shows the ripple alone. */
+.gm-download-mobile-cta:hover {
+  background-color: color-mix(in srgb, #1f3b9b 92%, #e0e0e0);
+}
+
+.gm-download-mobile-cta:hover,
+.gm-download-mobile-cta:active {
+  box-shadow: rgba(0, 0, 0, 0.2) 0 2px 1px -1px, rgba(0, 0, 0, 0.14) 0 1px 1px 0, rgba(0, 0, 0, 0.12) 0 1px 3px 0;
+}
+
+@media (max-width: 960px) {
+  .gm-download {
+    background-color: #000000;
+  }
+
+  .gm-download-page {
+    justify-content: flex-start;
+    padding: clamp(72px, 14vh, 128px) 24px 24px;
+  }
+
+  .gm-download-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 24px;
+  }
+
+  .gm-download-info {
+    display: flex;
+    max-width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .gm-download-title {
+    margin: 0 0 12px;
+  }
+
+  .gm-download-text {
+    margin: 0 0 24px;
+  }
+
+  .gm-download-mockup--phone {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    align-self: auto;
+  }
+
+  .gm-download-mockup--phone .gm-download-mockup-image {
+    height: auto;
+  }
+
+  .gm-download-footer {
+    height: 13px;
+    margin-top: 48px;
+  }
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download {
+  background-color: #ffffff;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download-title,
+:is(.light-theme, [data-theme="light"]) .gm-download-text,
+:is(.light-theme, [data-theme="light"]) .gm-download-qr-label {
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download-cta {
+  --gm-download-cta-bg: #f0f4f9;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download-cta:hover,
+:is(.light-theme, [data-theme="light"]) .gm-download-cta:focus {
+  background: linear-gradient(0deg, rgba(31, 31, 31, 0.08) 0, rgba(31, 31, 31, 0.08) 100%), var(--gm-download-cta-bg);
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download-cta:focus {
+  outline-color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download-cta:active {
+  background: linear-gradient(0deg, rgba(31, 31, 31, 0.12) 0, rgba(31, 31, 31, 0.12) 100%), var(--gm-download-cta-bg);
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download-cta:focus-visible::after {
+  border-color: #0b57d0;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download-qr {
+  box-shadow: 0 4px 20px 0 rgba(31, 31, 31, 0.06);
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download-mobile-cta {
+  background-color: #d3e3fd;
+  color: #1f1f1f;
+}
+
+:is(.light-theme, [data-theme="light"]) .gm-download-mobile-cta:hover {
+  background-color: color-mix(in srgb, #d3e3fd 92%, #1f1f1f);
+}
+
+@media (max-width: 960px) {
+  :is(.light-theme, [data-theme="light"]) .gm-download {
+    background-color: #ffffff;
+  }
+}

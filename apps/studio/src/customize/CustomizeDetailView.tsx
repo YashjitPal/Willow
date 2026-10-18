@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useCompactViewport } from '@willow/chat/use-compact-viewport';
 import { CustomizeIcon } from './CustomizeIcon';
 import { CustomizeCardMenu, cardMenuExitMs } from './CustomizeCardMenu';
+import { LmIcon } from './custom-app/LmIcon';
+import { canSaveSkill, skillErrors, slugSkillName } from './skill-name';
 import { CONNECTORS_DATA, type CustomizeItem } from './customize-data';
 import { GeminiDialog, GeminiDialogPill } from '@willow/ui/GeminiDialog';
 
@@ -11,6 +13,8 @@ interface CustomizeDetailViewProps {
   onBack: () => void;
   onSelect: (item: CustomizeItem) => void;
   isDisconnected?: boolean;
+  /** A connector's setup notices and controls (GitHub's token field), under its header. */
+  connectControl?: React.ReactNode;
   onDisconnect?: (item: CustomizeItem) => void;
   onReconnect?: (item: CustomizeItem) => void;
   onSaveSkill?: (
@@ -20,12 +24,18 @@ interface CustomizeDetailViewProps {
   ) => void;
   onDeleteSkill?: (skillId: string) => void;
   onUseNow?: (item: CustomizeItem) => void;
+  /** A connector's "prompt to try", sent into a new chat. */
+  onUsePrompt?: (item: CustomizeItem, prompt: string) => void;
   onEditWithGemini?: (item: CustomizeItem) => void;
   onDownloadSkill?: (item: CustomizeItem) => void;
   onReplaceSkill?: (item: CustomizeItem, fileContent?: string) => void;
   onToggleActiveSkill?: (item: CustomizeItem) => void;
   isInactive?: boolean;
+  /** The names of the user's other skills, which a skill may not take. */
+  existingSkillNames?: readonly string[];
 }
+
+const NO_NAMES: readonly string[] = [];
 
 export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
   item,
@@ -33,16 +43,19 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
   onBack,
   onSelect,
   isDisconnected = false,
+  connectControl,
   onDisconnect,
   onReconnect,
   onSaveSkill,
   onDeleteSkill,
   onUseNow,
+  onUsePrompt,
   onEditWithGemini,
   onDownloadSkill,
   onReplaceSkill,
   onToggleActiveSkill,
   isInactive = false,
+  existingSkillNames = NO_NAMES,
 }) => {
   const isCompact = useCompactViewport();
 
@@ -83,6 +96,8 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
   const [skillInstructions, setSkillInstructions] = useState(initialInstructions);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discardClosing, setDiscardClosing] = useState(false);
+  // Set by the first Create or Save that could not go through; from then on each field says what it lacks.
+  const [validated, setValidated] = useState(false);
 
   const [cardMenu, setCardMenu] = useState<{
     triggerRect: DOMRect;
@@ -147,7 +162,11 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
     skillDesc !== initialDesc ||
     skillInstructions !== initialInstructions;
 
-  const canSubmit = Boolean(skillTitle.trim() && skillInstructions.trim());
+  const draft = { name: skillTitle, description: skillDesc, instructions: skillInstructions };
+  // A skill's own name never counts against it, whether the list shows its slug or a name it was given.
+  const otherNames = isEditing ? existingSkillNames.filter((name) => name !== item.title) : existingSkillNames;
+  const canSubmit = canSaveSkill(draft, initialTitle, otherNames);
+  const errors = skillErrors(draft, initialTitle, otherNames, validated);
 
   const handleBack = () => {
     if (isDirty) {
@@ -170,7 +189,10 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
   };
 
   const handleSave = () => {
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      setValidated(true);
+      return;
+    }
     if (!isEditing) {
       onSaveSkill?.(
         item,
@@ -209,16 +231,12 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
           <nav aria-label="Breadcrumb navigation" className="top-nav-bar">
             <button
               type="button"
-              className="back-button gds-body-s"
+              className="back-button gds-label-l"
               onClick={onBack}
               aria-label={`Back to ${backLabel}`}
             >
-              <CustomizeIcon
-                name="arrow_back"
-                size={16}
-                className="back-icon"
-              />
-              <span className="back-button-text">{backLabel}</span>
+              <LmIcon name="arrow_back" size={20} className="back-icon" />
+              <span className="back-button-text gds-label-l">{backLabel}</span>
             </button>
           </nav>
 
@@ -255,19 +273,27 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                     <button
                       type="button"
                       className="use-in-chat-button"
+                      aria-label={`Connect ${item.title}`}
                       onClick={() => onReconnect?.(item)}
                     >
-                      <span>Connect</span>
+                      <span className="gds-body-m">Connect</span>
                     </button>
                   ) : (
                     <>
-                      <button type="button" className="use-in-chat-button">
-                        <span>Use in chat</span>
+                      <button
+                        type="button"
+                        className="use-in-chat-button"
+                        aria-label={`Disconnect ${item.title}`}
+                        onClick={handleDisconnectClick}
+                      >
+                        <span className="gds-body-m">Disconnect</span>
                       </button>
                       <button
                         type="button"
                         className="overflow-menu-button"
                         aria-label="More options"
+                        aria-haspopup="menu"
+                        aria-expanded={Boolean(cardMenu && !cardMenu.isClosing)}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (cardMenu) {
@@ -277,10 +303,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                           }
                         }}
                       >
-                        <CustomizeIcon
-                          name="more_horiz"
-                          size={24}
-                        />
+                        <LmIcon name="more_horiz" size={24} />
                       </button>
                     </>
                   )}
@@ -288,32 +311,11 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
               </div>
             </header>
 
-            {item.prompts && item.prompts.length > 0 && (
-              <section className="prompts-section" aria-label="Suggested starter prompts">
-                <div className="prompts-row">
-                  {item.prompts.map((prompt, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      className="prompt-card"
-                    >
-                      <span className="prompt-text gds-body-m">{prompt}</span>
-                      <span className="prompt-icon-container">
-                        <CustomizeIcon
-                          name="prompt_suggestion"
-                          size={16}
-                          className="prompt-icon"
-                        />
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
+            {connectControl}
 
             {item.capabilities && item.capabilities.length > 0 && (
               <section className="capabilities-section">
-                <h2 className="section-title gds-body-m">
+                <h2 className="section-title gds-body-l">
                   {item.capTitle || `Using ${item.title}, Gemini can:`}
                 </h2>
                 <ul className="capabilities-list">
@@ -331,9 +333,33 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
               </section>
             )}
 
+            {item.prompts && item.prompts.length > 0 && (
+              <section className="prompts-section" aria-label="Suggested starter prompts">
+                <div className="prompts-row">
+                  {item.prompts.map((prompt, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className="prompt-card"
+                      onClick={() => onUsePrompt?.(item, prompt)}
+                    >
+                      <span className="prompt-text gds-body-m">{prompt}</span>
+                      <span className="prompt-icon-container">
+                        <CustomizeIcon
+                          name="prompt_suggestion"
+                          size={16}
+                          className="prompt-icon"
+                        />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {(item.category || item.signInRequired || item.description) && (
               <section className="info-section">
-                <h2 className="section-title gds-body-m">Information</h2>
+                <h2 className="section-title gds-body-l">Information</h2>
                 <dl className="info-list">
                   {item.category && (
                     <div className="info-row">
@@ -365,7 +391,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
 
             {relatedItems.length > 0 && (
               <section className="related-apps-section">
-                <h2 className="section-title gds-body-m">Related apps</h2>
+                <h2 className="section-title gds-body-l">Related apps</h2>
                 <div className="related-apps-grid">
                   {relatedItems.map((rel) => (
                     <button
@@ -391,7 +417,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                         )}
                       </div>
                       <div className="related-app-content">
-                        <div className="related-app-title gds-body-m">{rel.title}</div>
+                        <div className="related-app-title gds-body-l">{rel.title}</div>
                         <div className="related-app-subtitle gds-body-s">{rel.subtitle}</div>
                       </div>
                     </button>
@@ -410,11 +436,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
               onClick={handleBack}
               aria-label={`Back to ${backLabel}`}
             >
-              <CustomizeIcon
-                name="arrow_back"
-                size={16}
-                className="back-icon"
-              />
+              <LmIcon name="arrow_back" size={20} className="back-icon" />
               <span className="back-button-text">{backLabel}</span>
             </button>
             <div className="editor-actions">
@@ -422,7 +444,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                 type="button"
                 className="save-button"
                 aria-label="Save skill"
-                disabled={!isEditing ? !canSubmit : (!isDirty || !canSubmit)}
+                disabled={isEditing && !isDirty}
                 onClick={handleSave}
               >
                 <span className="save-label">
@@ -439,7 +461,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                     openCardMenu(rect);
                   }}
                 >
-                  <CustomizeIcon name="more_horiz" size={24} />
+                  <LmIcon name="more_horiz" size={20} />
                 </button>
               )}
             </div>
@@ -456,9 +478,20 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                         className="editor-title-input gds-body-m"
                         placeholder='Name your skill. For example: "meeting-notes-summarizer"'
                         aria-label="Skill name"
+                        aria-invalid={Boolean(errors.name || errors.taken)}
                         value={skillTitle}
-                        onChange={(e) => setSkillTitle(e.target.value)}
+                        onChange={(e) => {
+                          const input = e.target;
+                          const caret = input.selectionStart ?? input.value.length;
+                          const next = slugSkillName(input.value);
+                          const at = slugSkillName(input.value.slice(0, caret)).length;
+                          input.value = next;
+                          input.setSelectionRange(at, at);
+                          setSkillTitle(next);
+                        }}
                       />
+                      {errors.name && <span className="error-message gds-body-s">{errors.name}</span>}
+                      {errors.taken && <span className="error-message gds-body-s">{errors.taken}</span>}
                     </div>
                   </div>
 
@@ -471,9 +504,11 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                       rows={2}
                       placeholder='Describe what your skill should do and when to use it. For example: "Use when asked to summarize meeting notes or transcripts. Starts running on prompts like &apos;recap this call&apos;, &apos;what are the action items&apos; or &apos;find key decisions&apos;."'
                       aria-label="Skill description"
+                      aria-invalid={Boolean(errors.description)}
                       value={skillDesc}
                       onChange={(e) => setSkillDesc(e.target.value)}
                     />
+                    {errors.description && <span className="error-message gds-body-s">{errors.description}</span>}
                   </div>
 
                   <div className="editor-section">
@@ -485,9 +520,11 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                       rows={14}
                       placeholder='Describe what you want Gemini to do. For example: "Extract key decisions, list action items with owners, and highlight unresolved questions using bullet points."'
                       aria-label="Skill instructions"
+                      aria-invalid={Boolean(errors.instructions)}
                       value={skillInstructions}
                       onChange={(e) => setSkillInstructions(e.target.value)}
                     />
+                    {errors.instructions && <span className="error-message gds-body-s">{errors.instructions}</span>}
                   </div>
                 </div>
               </div>
@@ -533,7 +570,6 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
           isOpen={!cardMenu.isClosing}
           isClosing={cardMenu.isClosing}
           onClose={closeCardMenu}
-          onDisconnect={handleDisconnectClick}
           onDeleteSkill={() => {
             closeCardMenu();
             onDeleteSkill?.(item.id);
@@ -603,7 +639,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                 Your choices here don&apos;t change other personalization settings. For example, if your memory setting is on, Willow still uses your past chats to personalize your experience. Also, your choices here don&apos;t change whether other services exchange data and whether Connected Apps use data to improve their own services. Other services continue personalizing and sharing data according to their own settings.
               </p>
               <p className="customize-disconnect-section-text" style={{ marginTop: '12px' }}>
-                Your choices here don&apos;t change Willow&apos;s ability to use public data to respond to you. For example, if Search services and YouTube aren&apos;t connected, Willow can still use public websites and videos in Google Search and YouTube to respond to you.
+                Your choices here don&apos;t change Willow&apos;s ability to use public data to respond to you. For example, if YouTube isn&apos;t connected, Willow can still use public videos on YouTube to respond to you.
               </p>
             </div>
           </div>

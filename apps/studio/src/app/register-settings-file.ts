@@ -355,6 +355,7 @@ const toMcpServer = (value: unknown): McpServerConfig[] => {
     ...(Array.isArray(value.args) ? { args: value.args.filter((arg): arg is string => typeof arg === 'string') } : {}),
     ...(env ? { env } : {}),
     ...(typeof value.cwd === 'string' ? { cwd: value.cwd } : {}),
+    ...(typeof value.bundled === 'string' ? { bundled: value.bundled } : {}),
     // Off unless the file says on, as a server added on the page is.
     enabled: value.enabled === true,
   }];

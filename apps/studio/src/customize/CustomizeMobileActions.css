@@ -1,0 +1,163 @@
+/*
+ * Measured on gemini.google.com/customize at 390x844 (dpr 1.25): the lone search button 36x36 at [338.4, 12]
+ * on surface-dim, the pill 84x44 at [290.4, 12] with 4px sides round two 36px buttons, and the open search bar
+ * 48px tall from x 64, its Close search button 36px at [338.4, 18]. Lumi's narrow tokens throughout.
+ */
+
+.customize-mobile-actions,
+.customize-mobile-search {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .customize-mobile-actions {
+    position: fixed;
+    top: 12px;
+    right: 16px;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .customize-mobile-search {
+    position: fixed;
+    top: 12px;
+    left: 64px;
+    right: 16px;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 48px;
+  }
+}
+
+.customize-mobile-search-button {
+  display: inline-flex;
+  border-radius: 9999px;
+  background: #141414;
+}
+
+.customize-mobile-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 44px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: #141414;
+}
+
+.customize-mobile-icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #e0e0e0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.customize-mobile-icon-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 15ms linear;
+}
+
+.customize-mobile-icon-button:active::before,
+.customize-mobile-icon-button[aria-expanded="true"]::before {
+  opacity: 0.1;
+}
+
+.customize-mobile-icon-button:focus-visible {
+  outline: 2px solid var(--sync-a8c7fa, #a8c7fa);
+  outline-offset: 2px;
+}
+
+.customize-mobile-icon-button > * {
+  position: relative;
+}
+
+/* gem-search-bar, as `.mobile-search-bar`: Lumi's surface, a 48px track with a 1px on-surface-low outline. */
+.customize-mobile-search-bar {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0%;
+  gap: 8px;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 48px;
+  padding-inline: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  background: #000;
+  overflow: hidden;
+}
+
+.customize-mobile-search-icon {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.customize-mobile-search-input {
+  flex: 1 1 0%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #e0e0e0;
+  font-family: "Google Sans Flex", "Google Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variation-settings: "ROND" 0, "slnt" 0, "wdth" 92, "wght" 400;
+  white-space: nowrap;
+}
+
+.customize-mobile-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Gemini's light theme at 390x844: the same buttons on #f2f0f0 with black glyphs; the bar on #faf9f9, ruled 8%. */
+:is(.light-theme, [data-theme="light"]) .customize-mobile-search-button,
+:is(.light-theme, [data-theme="light"]) .customize-mobile-pill {
+  background: #f2f0f0;
+}
+
+:is(.light-theme, [data-theme="light"]) .customize-mobile-icon-button {
+  color: #000000;
+}
+
+:is(.light-theme, [data-theme="light"]) .customize-mobile-icon-button:focus-visible {
+  outline-color: var(--sync-0b57d0, #0b57d0);
+}
+
+:is(.light-theme, [data-theme="light"]) .customize-mobile-search-bar {
+  border-color: rgba(0, 0, 0, 0.08);
+  background: #faf9f9;
+}
+
+:is(.light-theme, [data-theme="light"]) .customize-mobile-search-icon,
+:is(.light-theme, [data-theme="light"]) .customize-mobile-search-input::placeholder {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:is(.light-theme, [data-theme="light"]) .customize-mobile-search-input {
+  color: #000000;
+}

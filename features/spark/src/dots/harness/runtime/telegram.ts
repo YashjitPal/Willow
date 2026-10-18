@@ -19,9 +19,16 @@ export interface TelegramLink {
   offset?: number;
 }
 
+/** A file to upload with a call: its name, its type, its bytes as base64. */
+export interface TelegramFile {
+  name: string;
+  mimeType: string;
+  data: string;
+}
+
 /** Telegram's API, as Willow's companion relays it. */
 export interface TelegramRelay {
-  call: <T>(token: string, method: 'getMe' | 'getUpdates' | 'sendMessage' | 'sendChatAction' | 'setMessageReaction', params: Record<string, unknown>) => Promise<T>;
+  call: <T>(token: string, method: 'getMe' | 'getUpdates' | 'sendMessage' | 'sendChatAction' | 'setMessageReaction' | 'sendPhoto' | 'sendDocument', params: Record<string, unknown>, file?: TelegramFile) => Promise<T>;
 }
 
 interface TelegramUpdate {
@@ -103,6 +110,28 @@ export const sendTelegram = async (link: TelegramLink, relay: TelegramRelay, tex
       chat_id: link.chatId,
       text: text.length > MAX_MESSAGE ? `${text.slice(0, MAX_MESSAGE - 1)}…` : text,
     });
+    return Boolean(reply.ok);
+  } catch {
+    return false;
+  }
+};
+
+// Telegram's caption limit, and the most a photo may be; a larger picture goes as a file.
+const MAX_CAPTION = 1_000;
+const MAX_PHOTO_BASE64 = Math.floor((10 * 1024 * 1024 * 4) / 3);
+
+/**
+ * A file a bot sends, to the paired chat: a picture as a photo, anything else as a document, the message's words as
+ * its caption — or before it, when they are longer than a caption takes.
+ */
+export const sendTelegramFile = async (link: TelegramLink, relay: TelegramRelay, file: TelegramFile, words: string): Promise<boolean> => {
+  if (link.chatId === undefined) return false;
+  const text = words.trim();
+  if (text.length > MAX_CAPTION && !(await sendTelegram(link, relay, text))) return false;
+  const caption = text.length > MAX_CAPTION ? '' : text;
+  const photo = /^image\/(png|jpeg|webp)$/.test(file.mimeType) && file.data.length <= MAX_PHOTO_BASE64;
+  try {
+    const reply = await relay.call<{ ok?: boolean }>(link.token, photo ? 'sendPhoto' : 'sendDocument', { chat_id: link.chatId, ...(caption ? { caption } : {}) }, file);
     return Boolean(reply.ok);
   } catch {
     return false;
