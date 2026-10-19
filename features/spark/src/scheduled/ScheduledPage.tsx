@@ -308,7 +308,7 @@ const ScheduledPage: React.FC<ScheduledPageProps> = ({ modelConfig }) => {
                 <ScheduledFilterMenu value={filter} onChange={setFilter} />
               </div>
               <p className="sched-subtitle sched-body-m">
-                Let Gemini handle routines, track updates and take action for you.{' '}
+                Let Willow handle routines, track updates and take action for you.{' '}
                 <a className="sched-link" href={LEARN_MORE} target="_blank" rel="noreferrer">
                   Learn more<span className="sched-visually-hidden">Opens in a new window</span>
                 </a>

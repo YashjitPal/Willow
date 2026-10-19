@@ -548,6 +548,7 @@ export const InputBar: React.FC<{
     getShortName,
     activeModelDisplayLabel,
     activeEffortDisplayLabel,
+    hasModels,
   } = useComposerModels({ modelConfig, selectedModelId, setSelectedModelId });
 
   /**
@@ -1368,42 +1369,58 @@ export const InputBar: React.FC<{
             <div ref={rightControlsRef} className={`willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 ${chatVariant ? 'gap-1 min-[961px]:gap-0' : 'gap-3 transition-all duration-200'} ${chatVariant ? 'max-[960px]:gap-1.5' : ''} ${chatVariant ? 'bottom-[12px] min-[769px]:max-[960px]:bottom-[16px] max-[768px]:bottom-[20px] right-[0px] min-[769px]:max-[960px]:right-[1px] max-[768px]:right-[5px]' : 'bottom-[10px] right-[0px]'} ${trailingTouchOffset} ${templateLayout && !isComposerMaximized ? 'min-[961px]:!bottom-[20px]' : ''}`}>
               {chatVariant && !isDictationActive && (
                 <div className="relative hidden min-[961px]:flex items-center shrink-0">
-                  <button
-                    ref={modelButtonRef}
-                    onClick={() => setIsModelsOpen(!isModelsOpen)}
-                    aria-label={`Open model picker, currently ${pillModelAndEffortLabel}`}
-                    aria-expanded={isModelsOpen}
-                    className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap ${isLight ? 'text-[#444746] hover:text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134]'} transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsOpen ? (isLight ? 'bg-black/[0.06] text-[#1f1f1f]' : 'bg-[#303134] text-[#e3e3e3]') : ''}`}
-                    style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-                  >
-                    <span className="-mr-1 flex min-w-0 items-center">
-                      <span className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}>{pillModelLabel}</span>
-                      {displayedPillEffortLabel && (
-                        <span className={`ml-1 ${isLight ? 'text-black/55' : 'text-white/55'}`}>{displayedPillEffortLabel}</span>
+                  {(!hasModels && !showVoiceModels) ? (
+                    <button
+                      ref={modelButtonRef}
+                      type="button"
+                      onClick={() => onAuthRequired?.()}
+                      aria-label="Add model"
+                      className={`h-10 pl-3 pr-4 rounded-full flex items-center justify-center gap-1.5 text-[15px] leading-5 font-normal whitespace-nowrap ${isLight ? 'text-[#444746] hover:text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134]'} transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]`}
+                      style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                    >
+                      <MaterialSymbol family="luminous" name="add" size={20} weight={300} roundness={100} opticalSize={20} />
+                      <span>Add model</span>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        ref={modelButtonRef}
+                        onClick={() => setIsModelsOpen(!isModelsOpen)}
+                        aria-label={`Open model picker, currently ${pillModelAndEffortLabel}`}
+                        aria-expanded={isModelsOpen}
+                        className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap ${isLight ? 'text-[#444746] hover:text-[#1f1f1f] hover:bg-black/[0.06]' : 'text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134]'} transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsOpen ? (isLight ? 'bg-black/[0.06] text-[#1f1f1f]' : 'bg-[#303134] text-[#e3e3e3]') : ''}`}
+                        style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                      >
+                        <span className="-mr-1 flex min-w-0 items-center">
+                          <span className={isLight ? 'text-[#1f1f1f]' : 'text-[#e6e6e6]'}>{pillModelLabel}</span>
+                          {displayedPillEffortLabel && (
+                            <span className={`ml-1 ${isLight ? 'text-black/55' : 'text-white/55'}`}>{displayedPillEffortLabel}</span>
+                          )}
+                        </span>
+                        <MaterialSymbol
+                          family="luminous"
+                          name="keyboard_arrow_down"
+                          size={24}
+                          weight={300}
+                          roundness={100}
+                          opticalSize={24}
+                          className={`transition-transform duration-200 ${isModelsOpen ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+                      {isModelsOpen && (
+                        <ModelsMenu
+                          triggerRef={modelButtonRef}
+                          onClose={() => setIsModelsOpen(false)}
+                          modelConfig={modelConfig}
+                          selectedId={showVoiceModels ? liveModelId : selectedModelId}
+                          onSelect={showVoiceModels ? setLiveModelId : setSelectedModelId}
+                          onAuthRequired={onAuthRequired}
+                          geminiStyle
+                          voiceModels={showVoiceModels ? voiceModels : undefined}
+                          extraEfforts={showVoiceModels ? undefined : extraEfforts}
+                        />
                       )}
-                    </span>
-                    <MaterialSymbol
-                      family="luminous"
-                      name="keyboard_arrow_down"
-                      size={24}
-                      weight={300}
-                      roundness={100}
-                      opticalSize={24}
-                      className={`transition-transform duration-200 ${isModelsOpen ? 'rotate-180' : ''}`}
-                    />
-                  </button>
-                  {isModelsOpen && (
-                    <ModelsMenu
-                      triggerRef={modelButtonRef}
-                      onClose={() => setIsModelsOpen(false)}
-                      modelConfig={modelConfig}
-                      selectedId={showVoiceModels ? liveModelId : selectedModelId}
-                      onSelect={showVoiceModels ? setLiveModelId : setSelectedModelId}
-                      onAuthRequired={onAuthRequired}
-                      geminiStyle
-                      voiceModels={showVoiceModels ? voiceModels : undefined}
-                      extraEfforts={showVoiceModels ? undefined : extraEfforts}
-                    />
+                    </>
                   )}
                 </div>
               )}
@@ -1854,49 +1871,63 @@ export const InputBar: React.FC<{
           <div className="flex items-center gap-2">
             {/* Model Selector Button - on mobile/tablets (<= 960px), rendered in top header */}
             <div className="relative hidden min-[961px]:block">
-              <button
-                ref={modelButtonRef}
-                onClick={() => setIsModelsOpen(!isModelsOpen)}
-                className={`flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-semibold transition-all group border
-                           ${
-                             isModelsOpen
-                               ? "border-white/20 bg-white/5 text-white"
-                               : "border-white/10 bg-transparent text-zinc-400 hover:border-white/20 hover:bg-white/5"
-                           }`}
-              >
-                <ModelIcon
-                  size={16}
-                  strokeWidth={2.2}
-                  className={
-                    isModelsOpen ? "text-white" : "group-hover:text-white"
-                  }
-                />
-                <span
-                  className={
-                    isModelsOpen ? "text-white" : "group-hover:text-white"
-                  }
+              {!hasModels ? (
+                <button
+                  type="button"
+                  onClick={() => onAuthRequired?.()}
+                  className="flex items-center gap-1.5 h-9 px-4 rounded-full text-[13px] font-semibold transition-all group border border-white/10 bg-transparent text-zinc-400 hover:border-white/20 hover:bg-white/5"
+                  aria-label="Add model"
                 >
-                  {activeModel ? getShortName(activeModel.name) : "Model"}
-                </span>
-                <ChevronDown
-                  size={12}
-                  className={`ml-0.5 ${
-                    isModelsOpen
-                      ? "rotate-180 text-white"
-                      : "group-hover:text-white opacity-60"
-                  }`}
-                />
-              </button>
+                  <Plus size={16} strokeWidth={2.2} />
+                  <span>Add model</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    ref={modelButtonRef}
+                    onClick={() => setIsModelsOpen(!isModelsOpen)}
+                    className={`flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-semibold transition-all group border
+                               ${
+                                 isModelsOpen
+                                   ? "border-white/20 bg-white/5 text-white"
+                                   : "border-white/10 bg-transparent text-zinc-400 hover:border-white/20 hover:bg-white/5"
+                               }`}
+                  >
+                    <ModelIcon
+                      size={16}
+                      strokeWidth={2.2}
+                      className={
+                        isModelsOpen ? "text-white" : "group-hover:text-white"
+                      }
+                    />
+                    <span
+                      className={
+                        isModelsOpen ? "text-white" : "group-hover:text-white"
+                      }
+                    >
+                      {activeModel ? getShortName(activeModel.name) : "Model"}
+                    </span>
+                    <ChevronDown
+                      size={12}
+                      className={`ml-0.5 ${
+                        isModelsOpen
+                          ? "rotate-180 text-white"
+                          : "group-hover:text-white opacity-60"
+                      }`}
+                    />
+                  </button>
 
-              {isModelsOpen && (
-                <ModelsMenu
-                  triggerRef={modelButtonRef}
-                  onClose={() => setIsModelsOpen(false)}
-                  modelConfig={modelConfig}
-                  selectedId={selectedModelId}
-                  onSelect={setSelectedModelId}
-                  onAuthRequired={onAuthRequired}
-                />
+                  {isModelsOpen && (
+                    <ModelsMenu
+                      triggerRef={modelButtonRef}
+                      onClose={() => setIsModelsOpen(false)}
+                      modelConfig={modelConfig}
+                      selectedId={selectedModelId}
+                      onSelect={setSelectedModelId}
+                      onAuthRequired={onAuthRequired}
+                    />
+                  )}
+                </>
               )}
             </div>
 

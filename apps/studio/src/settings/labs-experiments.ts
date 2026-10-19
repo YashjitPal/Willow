@@ -104,6 +104,12 @@ export const LABS_EXPERIMENTS: readonly LabsExperimentRow[] = [
       + 'the Settings menu and at /connected-apps. Skills and Connected apps now live in Customize.',
   },
   {
+    id: 'get-app-button',
+    title: 'Get app button',
+    description:
+      'Shows the Get app button in the top bar to preview the desktop and mobile download page.',
+  },
+  {
     id: null,
     staticEnabled: true,
     title: 'GitHub branch switching',

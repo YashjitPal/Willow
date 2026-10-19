@@ -265,7 +265,7 @@ export const ImportMemoryView: React.FC = () => {
                 >
                   supported AI provider
                 </a>{' '}
-                and upload the .zip file (up to 5 GB) directly to Gemini.{' '}
+                and upload the .zip file (up to 5 GB) directly to Willow.{' '}
               </span>
               <a
                 target="_blank"

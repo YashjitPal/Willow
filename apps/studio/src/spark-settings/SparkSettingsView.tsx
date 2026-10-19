@@ -99,19 +99,19 @@ export const SparkSettingsView: React.FC<SparkSettingsViewProps> = () => {
       <div className="spark-settings-container">
         {/* Header */}
         <div className="spark-settings-header">
-          <h1 className="spark-settings-title">Gemini Spark Settings</h1>
+          <h1 className="spark-settings-title">Willow Spark Settings</h1>
         </div>
 
         {/* Options Stack */}
         <div className="spark-settings-options">
-          {/* Card 1: Turn off Gemini Spark */}
+          {/* Card 1: Turn off Willow Spark */}
           <div className="spark-settings-card">
             <div className="spark-card-icon">
               <PowerIcon size={28} />
             </div>
-            <h2 className="spark-card-title">Turn off Gemini Spark</h2>
+            <h2 className="spark-card-title">Turn off Willow Spark</h2>
             <p className="spark-card-description">
-              Turning off Gemini Spark deletes your browsing data and remote code execution files, and stops your schedules.{' '}
+              Turning off Willow Spark deletes your browsing data and remote code execution files, and stops your schedules.{' '}
               <a
                 href="http://support.google.com/gemini?p=turn_off_spark"
                 target="_blank"
@@ -139,7 +139,7 @@ export const SparkSettingsView: React.FC<SparkSettingsViewProps> = () => {
             </div>
             <h2 className="spark-card-title">Delete remote browser data</h2>
             <p className="spark-card-description">
-              Delete the browsing data Gemini uses to complete tasks for you. This clears your cookies and signs you out of websites.{' '}
+              Delete the browsing data Willow uses to complete tasks for you. This clears your cookies and signs you out of websites.{' '}
               <a
                 href="http://support.google.com/gemini?p=agent_browser_data"
                 target="_blank"
@@ -170,7 +170,7 @@ export const SparkSettingsView: React.FC<SparkSettingsViewProps> = () => {
             </div>
             <h2 className="spark-card-title">Delete remote code execution data</h2>
             <p className="spark-card-description">
-              Delete the saved files and other data Gemini uses to run code for you through your remote computer.{' '}
+              Delete the saved files and other data Willow uses to run code for you through your remote computer.{' '}
               <a
                 href="https://support.google.com/gemini?p=lm_agent_comp_data#topic=15280100"
                 target="_blank"
@@ -211,13 +211,13 @@ export const SparkSettingsView: React.FC<SparkSettingsViewProps> = () => {
             {activeDialog === 'turn-off' && (
               <>
                 <div className="spark-dialog-content-wrapper">
-                  <h3 className="spark-dialog-title">Turn off Gemini Spark?</h3>
+                  <h3 className="spark-dialog-title">Turn off Willow Spark?</h3>
                   <div className="spark-dialog-body-group">
                     <p className="spark-dialog-body">
-                      Turning off Gemini Spark will delete your browsing data and remote code execution files.
+                      Turning off Willow Spark will delete your browsing data and remote code execution files.
                     </p>
                     <p className="spark-dialog-body">
-                      This will not delete tasks, threads, schedules, or any related files that Gemini updated or created. Schedules will stop running while Gemini Spark is off.
+                      This will not delete tasks, threads, schedules, or any related files that Willow updated or created. Schedules will stop running while Willow Spark is off.
                     </p>
                   </div>
                 </div>

@@ -20,7 +20,8 @@ export type ExperimentId =
   | 'waifu-tab'
   | 'ring'
   | 'mac-window-buttons'
-  | 'old-skills-schedules';
+  | 'old-skills-schedules'
+  | 'get-app-button';
 
 export type ExperimentFlags = Record<ExperimentId, boolean>;
 
@@ -35,6 +36,7 @@ export const EXPERIMENT_DEFAULTS: ExperimentFlags = {
   'ring': false,
   'mac-window-buttons': false,
   'old-skills-schedules': false,
+  'get-app-button': false,
 };
 
 /**

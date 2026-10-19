@@ -2672,6 +2672,7 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
   const modelsMenuRef = useRef<HTMLDivElement>(null);
 
   const ALL_MODELS = collectSavedModels(modelConfig);
+  const hasModels = ALL_MODELS.length > 0;
 
   const selectedBaseId = selectedModelId ? selectedModelId.split('::effort-')[0] : '';
   const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId || m.id === selectedBaseId);
@@ -4133,59 +4134,74 @@ const Sidebar: React.FC<SidebarProps> = ({ width, isCollapsed, onToggle, prompt,
                   
                   <div className="flex items-center gap-2">
                       <div className="relative flex items-center shrink-0" ref={modelsMenuRef}>
-                        <button
-                          ref={modelsMenuRef as any}
-                          onClick={() => setIsModelsMenuOpen(!isModelsMenuOpen)}
-                          aria-label={`Open model picker, currently ${activeModelAndEffortLabel}`}
-                          aria-expanded={isModelsMenuOpen}
-                          className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsMenuOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
-                          style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-                        >
-                          <span className="-mr-1 flex min-w-0 items-center">
-                            <span className="text-[#e6e6e6]">{activeModelDisplayLabel}</span>
-                            {activeEffortDisplayLabel && (
-                              <span className="ml-1 text-white/55">{activeEffortDisplayLabel}</span>
+                        {!hasModels ? (
+                          <button
+                            type="button"
+                            onClick={() => onSettingsClick ? onSettingsClick('models') : undefined}
+                            aria-label="Add model"
+                            className="h-10 pl-3 pr-4 rounded-full flex items-center justify-center gap-1.5 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+                            style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                          >
+                            <MaterialSymbol family="luminous" name="add" size={20} weight={300} roundness={100} opticalSize={20} />
+                            <span>Add model</span>
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              ref={modelsMenuRef as any}
+                              onClick={() => setIsModelsMenuOpen(!isModelsMenuOpen)}
+                              aria-label={`Open model picker, currently ${activeModelAndEffortLabel}`}
+                              aria-expanded={isModelsMenuOpen}
+                              className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsMenuOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
+                              style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                            >
+                              <span className="-mr-1 flex min-w-0 items-center">
+                                <span className="text-[#e6e6e6]">{activeModelDisplayLabel}</span>
+                                {activeEffortDisplayLabel && (
+                                  <span className="ml-1 text-white/55">{activeEffortDisplayLabel}</span>
+                                )}
+                              </span>
+                              <MaterialSymbol
+                                family="luminous"
+                                name="keyboard_arrow_down"
+                                size={24}
+                                weight={300}
+                                roundness={100}
+                                opticalSize={24}
+                                className={`transition-transform duration-200 ${isModelsMenuOpen ? 'rotate-180' : ''}`}
+                              />
+                            </button>
+                            {isModelsMenuOpen && (
+                              <ModelsMenu
+                                triggerRef={modelsMenuRef as any}
+                                onClose={() => setIsModelsMenuOpen(false)}
+                                modelConfig={modelConfig}
+                                selectedId={selectedModelId}
+                                onSelect={(id) => {
+                                  setSelectedModelId(id);
+                                  const baseId = id ? id.split('::effort-')[0] : '';
+                                  const sel = ALL_MODELS.find(m => m.id === id || m.id === baseId);
+                                  if (sel) {
+                                    const providerKey = sel.provider === 'Google' ? 'gemini'
+                                      : sel.provider === 'OpenAI' ? 'openai'
+                                      : sel.provider === 'Anthropic' ? 'anthropic'
+                                      : sel.provider === 'Moonshot AI' ? 'moonshot'
+                                      : sel.provider === 'SpaceXAI' ? 'spacexai' : 'zhipuai';
+                                    const effortLevel = id.includes('::effort-')
+                                      ? Number(id.split('::effort-')[1])
+                                      : sel.thinkingLevel;
+                                    setModelConfig((prev: any) => ({
+                                      ...prev,
+                                      [providerKey]: { ...prev[providerKey], model: sel.modelId, thinkingLevel: effortLevel }
+                                    }));
+                                  }
+                                }}
+                                onAuthRequired={onSettingsClick ? (() => onSettingsClick('models')) : undefined}
+                                geminiStyle
+                                mobile={isNarrowScreen}
+                              />
                             )}
-                          </span>
-                          <MaterialSymbol
-                            family="luminous"
-                            name="keyboard_arrow_down"
-                            size={24}
-                            weight={300}
-                            roundness={100}
-                            opticalSize={24}
-                            className={`transition-transform duration-200 ${isModelsMenuOpen ? 'rotate-180' : ''}`}
-                          />
-                        </button>
-                        {isModelsMenuOpen && (
-                          <ModelsMenu
-                            triggerRef={modelsMenuRef as any}
-                            onClose={() => setIsModelsMenuOpen(false)}
-                            modelConfig={modelConfig}
-                            selectedId={selectedModelId}
-                            onSelect={(id) => {
-                              setSelectedModelId(id);
-                              const baseId = id ? id.split('::effort-')[0] : '';
-                              const sel = ALL_MODELS.find(m => m.id === id || m.id === baseId);
-                              if (sel) {
-                                const providerKey = sel.provider === 'Google' ? 'gemini'
-                                  : sel.provider === 'OpenAI' ? 'openai'
-                                  : sel.provider === 'Anthropic' ? 'anthropic'
-                                  : sel.provider === 'Moonshot AI' ? 'moonshot'
-                                  : sel.provider === 'SpaceXAI' ? 'spacexai' : 'zhipuai';
-                                const effortLevel = id.includes('::effort-')
-                                  ? Number(id.split('::effort-')[1])
-                                  : sel.thinkingLevel;
-                                setModelConfig((prev: any) => ({
-                                  ...prev,
-                                  [providerKey]: { ...prev[providerKey], model: sel.modelId, thinkingLevel: effortLevel }
-                                }));
-                              }
-                            }}
-                            onAuthRequired={onSettingsClick ? (() => onSettingsClick('models')) : undefined}
-                            geminiStyle
-                            mobile={isNarrowScreen}
-                          />
+                          </>
                         )}
                       </div>
                        {isCurrentlyGenerating ? (

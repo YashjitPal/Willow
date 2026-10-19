@@ -25,7 +25,7 @@ export const markVideoDiscoverySeen = (): void => {
 const FEATURES = [
   { icon: 'videocam', title: 'Create from anything', description: 'Combine images, text, and videos' },
   { icon: 'gen_media', title: 'Put yourself into any scene', description: 'Create an avatar to use in videos' },
-  { icon: 'edit', title: 'Refine with Gemini', description: 'Want to make a change? Just ask' },
+  { icon: 'edit', title: 'Refine with Willow', description: 'Want to make a change? Just ask' },
 ];
 
 /** The fan is three of the gallery's own clips, as Gemini's is. */

@@ -321,7 +321,7 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
     } catch (error) {
       setAssistError(error instanceof Error
         ? error.message
-        : 'Gemini could not update these instructions. Try again.');
+        : 'Willow could not update these instructions. Try again.');
     } finally {
       setIsAskingGemini(false);
     }
@@ -495,7 +495,7 @@ export const SparkScheduleEditor: React.FC<SparkScheduleEditorProps> = ({
                 disabled={isAskingGemini}
                 onClick={() => void askGemini()}
               >
-                {isAskingGemini ? 'Asking Gemini' : 'Ask Gemini'}
+                {isAskingGemini ? 'Asking Willow' : 'Ask Willow'}
               </button>
               {' to create and edit event-based schedules and monitors'}
             </p>

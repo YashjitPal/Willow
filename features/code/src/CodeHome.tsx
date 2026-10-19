@@ -425,8 +425,8 @@ const CodeHome: React.FC<CodeHomeProps> = ({
     ...(modelConfig?.anthropic?.savedModels || []).map((m: any) => ({ ...m, provider: 'Anthropic' })),
     ...(modelConfig?.moonshot?.savedModels || []).map((m: any) => ({ ...m, provider: 'Moonshot AI' })),
     ...(modelConfig?.spacexai?.savedModels || []).map((m: any) => ({ ...m, provider: 'SpaceXAI' })),
-    ...(modelConfig?.zhipuai?.savedModels || []).map((m: any) => ({ ...m, provider: 'Zhipu AI' }))
   ].filter((m: any) => m.name !== "Nano Banana Pro");
+  const hasModels = ALL_MODELS.length > 0;
 
   const activeModel = ALL_MODELS.find((m: any) => m.id === selectedModelId) || ALL_MODELS.find((m: any) => m.id === (selectedModelId ? selectedModelId.split('::effort-')[0] : ''));
 
@@ -1401,40 +1401,55 @@ const CodeHome: React.FC<CodeHomeProps> = ({
 
                     <div className="flex items-center gap-2">
                       <div className="code-composer-model relative flex items-center shrink-0">
-                        <button
-                          ref={modelsMenuRef as any}
-                          onClick={() => setIsModelsMenuOpen(!isModelsMenuOpen)}
-                          aria-label={`Open model picker, currently ${activeModelAndEffortLabel}`}
-                          aria-expanded={isModelsMenuOpen}
-                          className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsMenuOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
-                          style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-                        >
-                          <span className="-mr-1 flex min-w-0 items-center">
-                            <span className="text-[#e6e6e6]">{activeModelDisplayLabel}</span>
-                            {activeEffortDisplayLabel && (
-                              <span className="ml-1 text-white/55">{activeEffortDisplayLabel}</span>
+                        {!hasModels ? (
+                          <button
+                            type="button"
+                            onClick={() => onAuthRequired?.()}
+                            aria-label="Add model"
+                            className="h-10 pl-3 pr-4 rounded-full flex items-center justify-center gap-1.5 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+                            style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                          >
+                            <MaterialSymbol family="luminous" name="add" size={20} weight={300} roundness={100} opticalSize={20} />
+                            <span>Add model</span>
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              ref={modelsMenuRef as any}
+                              onClick={() => setIsModelsMenuOpen(!isModelsMenuOpen)}
+                              aria-label={`Open model picker, currently ${activeModelAndEffortLabel}`}
+                              aria-expanded={isModelsMenuOpen}
+                              className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsMenuOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
+                              style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                            >
+                              <span className="-mr-1 flex min-w-0 items-center">
+                                <span className="text-[#e6e6e6]">{activeModelDisplayLabel}</span>
+                                {activeEffortDisplayLabel && (
+                                  <span className="ml-1 text-white/55">{activeEffortDisplayLabel}</span>
+                                )}
+                              </span>
+                              <MaterialSymbol
+                                family="luminous"
+                                name="keyboard_arrow_down"
+                                size={24}
+                                weight={300}
+                                roundness={100}
+                                opticalSize={24}
+                                className={`transition-transform duration-200 ${isModelsMenuOpen ? 'rotate-180' : ''}`}
+                              />
+                            </button>
+                            {isModelsMenuOpen && (
+                              <ModelsMenu
+                                triggerRef={modelsMenuRef as any}
+                                onClose={() => setIsModelsMenuOpen(false)}
+                                modelConfig={modelConfig}
+                                selectedId={selectedModelId}
+                                onSelect={handleModelSelect}
+                                onAuthRequired={onAuthRequired}
+                                geminiStyle
+                              />
                             )}
-                          </span>
-                          <MaterialSymbol
-                            family="luminous"
-                            name="keyboard_arrow_down"
-                            size={24}
-                            weight={300}
-                            roundness={100}
-                            opticalSize={24}
-                            className={`transition-transform duration-200 ${isModelsMenuOpen ? 'rotate-180' : ''}`}
-                          />
-                        </button>
-                        {isModelsMenuOpen && (
-                          <ModelsMenu
-                            triggerRef={modelsMenuRef as any}
-                            onClose={() => setIsModelsMenuOpen(false)}
-                            modelConfig={modelConfig}
-                            selectedId={selectedModelId}
-                            onSelect={handleModelSelect}
-                            onAuthRequired={onAuthRequired}
-                            geminiStyle
-                          />
+                          </>
                         )}
                       </div>
                       <button

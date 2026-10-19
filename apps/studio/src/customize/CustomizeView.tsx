@@ -56,8 +56,8 @@ const isLibraryItem = (item: CustomizeItem): boolean => item.id.startsWith(LIBRA
 
 const TAB_HEADERS: Record<CustomizeTab, { title: string; subtitle: string }> = {
   discover: {
-    title: 'Customize Gemini',
-    subtitle: 'Add apps and skills so that Gemini can work smarter for you',
+    title: 'Customize Willow',
+    subtitle: 'Add apps and skills so that Willow can work smarter for you',
   },
   connectors: {
     title: 'Connected apps',
@@ -65,7 +65,7 @@ const TAB_HEADERS: Record<CustomizeTab, { title: string; subtitle: string }> = {
   },
   skills: {
     title: 'Skills',
-    subtitle: 'Add or create skills to extend what Gemini can do',
+    subtitle: 'Add or create skills to extend what Willow can do',
   },
 };
 
@@ -1124,7 +1124,7 @@ export const CustomizeView: React.FC = () => {
         <span className="customize-create-menu-icon">
           <CustomizeIcon name="chat_bubble" size={16} />
         </span>
-        <span className="customize-create-menu-text">Create with Gemini</span>
+        <span className="customize-create-menu-text">Create with Willow</span>
       </button>
       <button type="button" role="menuitem" className="customize-create-menu-item" onClick={createSkillManually}>
         <span className="customize-create-menu-icon">

@@ -252,6 +252,7 @@ export const InputBar: React.FC<{
     getShortName,
     activeModelDisplayLabel,
     activeEffortDisplayLabel,
+    hasModels,
   } = useComposerModels({ modelConfig, selectedModelId, setSelectedModelId });
 
   const voiceModels = useMemo(() => listVoiceModels(), []);
@@ -616,42 +617,58 @@ export const InputBar: React.FC<{
           <div ref={rightControlsRef} className="willow-composer-trailing-actions absolute flex items-center h-10 shrink-0 gap-1 bottom-[12px] right-[0px]">
             {chatVariant && !isDictationActive && (
               <div className="relative flex items-center shrink-0">
-                <button
-                  ref={modelButtonRef}
-                  onClick={() => setIsModelsOpen(!isModelsOpen)}
-                  aria-label={`Open model picker, currently ${pillModelAndEffortLabel}`}
-                  aria-expanded={isModelsOpen}
-                  className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
-                  style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
-                >
-                  <span className="-mr-1 flex min-w-0 items-center">
-                    <span className="text-[#e6e6e6]">{pillModelLabel}</span>
-                    {displayedPillEffortLabel && (
-                      <span className="ml-1 text-white/55">{displayedPillEffortLabel}</span>
+                {(!hasModels && !showVoiceModels) ? (
+                  <button
+                    ref={modelButtonRef}
+                    type="button"
+                    onClick={() => onAuthRequired?.()}
+                    aria-label="Add model"
+                    className="h-10 pl-3 pr-4 rounded-full flex items-center justify-center gap-1.5 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif]"
+                    style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                  >
+                    <MaterialSymbol family="luminous" name="add" size={20} weight={300} roundness={100} opticalSize={20} />
+                    <span>Add model</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      ref={modelButtonRef}
+                      onClick={() => setIsModelsOpen(!isModelsOpen)}
+                      aria-label={`Open model picker, currently ${pillModelAndEffortLabel}`}
+                      aria-expanded={isModelsOpen}
+                      className={`h-10 pl-4 pr-3 rounded-full flex items-center justify-center gap-2 text-[15px] leading-5 font-normal whitespace-nowrap text-[#c4c7c5] hover:text-[#e3e3e3] hover:bg-[#303134] transition-colors outline-none cursor-pointer font-['Google_Sans_Flex','Google_Sans','Helvetica_Neue',sans-serif] ${isModelsOpen ? 'bg-[#303134] text-[#e3e3e3]' : ''}`}
+                      style={{ fontVariationSettings: '"ROND" 0, "slnt" 0, "wdth" 92, "wght" 400' }}
+                    >
+                      <span className="-mr-1 flex min-w-0 items-center">
+                        <span className="text-[#e6e6e6]">{pillModelLabel}</span>
+                        {displayedPillEffortLabel && (
+                          <span className="ml-1 text-white/55">{displayedPillEffortLabel}</span>
+                        )}
+                      </span>
+                      <MaterialSymbol
+                        family="luminous"
+                        name="keyboard_arrow_down"
+                        size={24}
+                        weight={300}
+                        roundness={100}
+                        opticalSize={24}
+                        className={`transition-transform duration-200 ${isModelsOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                    {isModelsOpen && (
+                      <ModelsMenu
+                        triggerRef={modelButtonRef}
+                        onClose={() => setIsModelsOpen(false)}
+                        modelConfig={modelConfig}
+                        selectedId={showVoiceModels ? liveModelId : selectedModelId}
+                        onSelect={showVoiceModels ? setLiveModelId : setSelectedModelId}
+                        onAuthRequired={onAuthRequired}
+                        geminiStyle
+                        voiceModels={showVoiceModels ? voiceModels : undefined}
+                        extraEfforts={showVoiceModels ? undefined : extraEfforts}
+                      />
                     )}
-                  </span>
-                  <MaterialSymbol
-                    family="luminous"
-                    name="keyboard_arrow_down"
-                    size={24}
-                    weight={300}
-                    roundness={100}
-                    opticalSize={24}
-                    className={`transition-transform duration-200 ${isModelsOpen ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {isModelsOpen && (
-                  <ModelsMenu
-                    triggerRef={modelButtonRef}
-                    onClose={() => setIsModelsOpen(false)}
-                    modelConfig={modelConfig}
-                    selectedId={showVoiceModels ? liveModelId : selectedModelId}
-                    onSelect={showVoiceModels ? setLiveModelId : setSelectedModelId}
-                    onAuthRequired={onAuthRequired}
-                    geminiStyle
-                    voiceModels={showVoiceModels ? voiceModels : undefined}
-                    extraEfforts={showVoiceModels ? undefined : extraEfforts}
-                  />
+                  </>
                 )}
               </div>
             )}

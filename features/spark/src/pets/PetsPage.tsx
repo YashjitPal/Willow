@@ -432,7 +432,7 @@ export const PetsPage: React.FC<{ className?: string }> = ({ className = '' }) =
         <div className="spark-page-actions spark-pets__actions" aria-label="Manage pets">
           <button type="button" className="spark-page-action spark-page-action--primary" disabled={library.busy} onClick={() => void createPetWithGemini()}>
             <Icon name="create" />
-            {library.creating ? 'Opening…' : 'Create with Gemini'}
+            {library.creating ? 'Opening…' : 'Create with Willow'}
           </button>
           <button type="button" className="spark-page-action" onClick={() => void openPetFolder()}>
             <Icon name="folder" />

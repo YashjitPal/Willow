@@ -55,7 +55,7 @@ export const MobileModelPicker: React.FC<MobileModelPickerProps> = ({
       event.clientY,
     );
   };
-  const { activeModel, activeEffortDisplayLabel } = useComposerModels({
+  const { activeModel, activeEffortDisplayLabel, hasModels } = useComposerModels({
     modelConfig,
     selectedModelId,
     setSelectedModelId,
@@ -114,6 +114,32 @@ export const MobileModelPicker: React.FC<MobileModelPickerProps> = ({
       secondary: '',
     };
   }, [activeModel, activeEffortDisplayLabel]);
+
+  if (!hasModels) {
+    return (
+      <div className="min-[961px]:hidden absolute top-[20px] left-[56px] z-30 flex items-center" style={{ zIndex: 40 }}>
+        <button
+          type="button"
+          onClick={() => onAuthRequired?.()}
+          className="studio-mobile-model-button pointer-events-auto"
+          aria-label="Add model"
+        >
+          <span className="studio-mobile-model-label">
+            <MaterialSymbol
+              name="add"
+              family="luminous"
+              size={18}
+              weight={320}
+              roundness={100}
+              opticalSize={20}
+              className="mr-1"
+            />
+            <span className="studio-mobile-model-primary">Add model</span>
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="min-[961px]:hidden absolute top-[20px] left-[56px] z-30 flex items-center" style={{ zIndex: 40 }}>

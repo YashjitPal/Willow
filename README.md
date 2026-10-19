@@ -396,10 +396,14 @@ reports, which are exactly what the alpha needs.
 
 ---
 
-## Credits
+## Credits & Acknowledgements
 
-Design language and interaction patterns inspired by Gemini, Lovable, and
-next-gen canvas tools.
+Willow stands on the shoulders of these incredible open-source projects:
+
+- **[T3 Code](https://github.com/pingdotgg/t3code)** (`pingdotgg/t3code`) — The coding agent server, web client architecture, and multi-tab workflow powering Willow's coding agent tabs.
+- **[OpenBot](https://github.com/CopilotKit/openbot)** (`CopilotKit/openbot`) — The agent computer tool architecture and control state machine behind dots' own computers.
+
+Design language and interaction patterns inspired by Gemini, Lovable, and next-gen canvas tools.
 
 <br />
 

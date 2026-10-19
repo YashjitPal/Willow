@@ -245,7 +245,7 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
     } catch (error) {
       setAssistError(error instanceof Error
         ? error.message
-        : 'Gemini could not update this skill. Try again.');
+        : 'Willow could not update this skill. Try again.');
     } finally {
       setIsAskingGemini(false);
     }
@@ -281,8 +281,8 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
           <div className="spark-skill-editor__gemini-note">
             <MaterialSymbol family="luminous" name="auto_awesome" size={22} weight={340} roundness={100} />
             <div>
-              <strong>Create with Gemini</strong>
-              <span>Describe the reusable guidance you want Gemini to follow.</span>
+              <strong>Create with Willow</strong>
+              <span>Describe the reusable guidance you want Willow to follow.</span>
             </div>
           </div>
         )}
@@ -327,8 +327,8 @@ export const SparkSkillEditor: React.FC<SparkSkillEditorProps> = ({
               id={instructionsId}
               value={draft.instructions}
               placeholder={isCompact
-                ? 'Describe what you want Gemini to do. For example: "Extract key decisions, list action items with owners, and highlight unresolved questions using bullet points."'
-                : 'Describe what you want Gemini to do'}
+                ? 'Describe what you want Willow to do. For example: "Extract key decisions, list action items with owners, and highlight unresolved questions using bullet points."'
+                : 'Describe what you want Willow to do'}
               onChange={(event) => setDraft((current) => ({ ...current, instructions: event.target.value }))}
             />
           </div>

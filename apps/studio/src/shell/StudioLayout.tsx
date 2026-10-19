@@ -29,6 +29,8 @@ import { HarnessView } from '@willow/harness/HarnessView';
 import { $harnessLast, $harnessTab } from '@willow/harness/harness-store';
 import { currentAgent, showsDesktopGetApp, showsPhoneGetApp } from '../download/app-download';
 import { DesktopGetAppButton, PhoneGetAppButton } from '../download/GetAppButtons';
+import { DesktopUpdateButton, PhoneUpdateButton } from '../download/UpdateButton';
+import { updateStore, startBackgroundUpdateChecker } from '@willow/core/update-checker';
 
 /*
  * Signed out is NOT a different layout. Everything Willow does runs locally, so
@@ -141,10 +143,25 @@ export const StudioLayout: React.FC<{
   const [isSidebarOpenPressed, setIsSidebarOpenPressed] = useState(false);
   const sparkPage = useStore(sparkLocation).page;
   const isDesktop = isDesktopApp();
+  const updateState = useStore(updateStore);
+  useEffect(() => {
+    const teardown = startBackgroundUpdateChecker();
+    return teardown;
+  }, []);
+
+  const handleOpenUpdate = React.useCallback(() => {
+    const url = updateState.downloadUrl || updateState.releaseUrl || 'https://github.com/YashjitPal/Willow/releases/latest';
+    window.open(url, '_blank', 'noopener');
+  }, [updateState.downloadUrl, updateState.releaseUrl]);
+
   const getAppOffers = React.useMemo(() => {
     const agent = currentAgent();
-    return { desktop: showsDesktopGetApp(agent, isDesktop || isAndroidApp()), phone: showsPhoneGetApp(agent, isAndroidApp()) };
-  }, [isDesktop]);
+    const isLabsEnabled = experiments['get-app-button'] ?? false;
+    return {
+      desktop: isLabsEnabled && showsDesktopGetApp(agent, isDesktop || isAndroidApp()),
+      phone: isLabsEnabled && showsPhoneGetApp(agent, isAndroidApp()),
+    };
+  }, [isDesktop, experiments]);
   // Labs' choice of window buttons, which the strip draws; macOS always has its own.
   const macWindowButtons = (experiments['mac-window-buttons'] ?? false) && canChooseWindowButtons();
   useEffect(() => {
@@ -272,6 +289,7 @@ export const StudioLayout: React.FC<{
             onOpenNotebook?.(id);
           }}
           onSignInClick={onSignInClick}
+          modelConfig={modelConfig}
         />
       </div>
       {!isSidebarCollapsed && !isSidebarAway && (
@@ -390,6 +408,26 @@ export const StudioLayout: React.FC<{
         */}
         {currentView === 'home' && isChatExperience && studioMode === 'chat' && !chatPanelOpen && !voiceModeActive && isChatOngoing && !!activeChatId && (
           <ConversationActionsMenu chatId={activeChatId} />
+        )}
+        {/*
+          Update available button: appears in the desktop app (and web) when a newer release is published.
+          Placed in the same position (right 72px) as Get App, or offset to right 180px if Get App experiment is active.
+        */}
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && !isGemChat && updateState.available && (
+          <div className={`absolute top-[14px] ${getAppOffers.desktop ? 'right-[180px]' : 'right-[72px]'} z-30 flex items-center max-[960px]:hidden`}>
+            <DesktopUpdateButton
+              version={updateState.latestVersion ?? undefined}
+              onClick={handleOpenUpdate}
+            />
+          </div>
+        )}
+        {currentView === 'home' && isChatExperience && studioMode === 'chat' && !isChatOngoing && !isGemChat && updateState.available && (
+          <div className={`min-[961px]:hidden absolute top-[12px] ${getAppOffers.phone ? 'right-[164px]' : 'right-[112px]'} z-30 flex items-center`}>
+            <PhoneUpdateButton
+              version={updateState.latestVersion ?? undefined}
+              onClick={handleOpenUpdate}
+            />
+          </div>
         )}
         {/*
           Gemini's "Get app", on a new chat (temporary or not) and nowhere else, ahead of the

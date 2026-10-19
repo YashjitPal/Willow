@@ -26,6 +26,32 @@ useStorage(memoryStorage());
 globalThis.addEventListener ??= () => {};
 // Spark's cross-tab channel would hold the test process open.
 globalThis.BroadcastChannel = undefined;
+const testHeldLocks = new Set();
+Object.defineProperty(globalThis.navigator, 'locks', {
+  value: {
+    request: async (name, optionsOrCallback, maybeCallback) => {
+      const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback;
+      const options = typeof optionsOrCallback === 'object' && optionsOrCallback ? optionsOrCallback : {};
+      if (testHeldLocks.has(name)) {
+        if (options.ifAvailable) return callback(null);
+        while (testHeldLocks.has(name)) {
+          await new Promise((r) => setTimeout(r, 10));
+        }
+      }
+      testHeldLocks.add(name);
+      try {
+        return await callback({ name, mode: 'exclusive' });
+      } finally {
+        testHeldLocks.delete(name);
+      }
+    },
+    query: async () => ({
+      held: [...testHeldLocks].map((name) => ({ name, mode: 'exclusive' })),
+      pending: [],
+    }),
+  },
+  configurable: true,
+});
 globalThis.FileReader ??= class {
   readAsDataURL(blob) {
     blob.arrayBuffer().then((buffer) => {

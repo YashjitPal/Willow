@@ -154,6 +154,7 @@ import { CollectionTile } from './collections/CollectionTile';
 import { DragPreview, PromptDropZone, sameDropTarget, type DropTarget } from './drag/DragPreview';
 import { EditorBoundary, isChunkLoadError } from './EditorBoundary';
 import { ConfirmDialog, FlagDialog, ShareDialog } from './editor/editor-overlays';
+import { GeminiDialog, GeminiDialogPill } from '@willow/ui/GeminiDialog';
 import { copyImage, downloadCollection } from './editor/media-download';
 import { collectionPath, listCollections, MEDIA_AGENT_SESSIONS_FOLDER } from '@willow/storage/media-collections';
 import type { SceneHost } from './scenes/scene-host';
@@ -2836,6 +2837,22 @@ export const MediaView: React.FC<{
   };
   const openModelSettings = () => onOpenSettings?.('models');
 
+  const hasImageModels = imageModels.length > 0;
+  const hasVideoModels = videoModels.length > 0;
+  const hasMusicModels = musicModels.length > 0;
+  const hasMediaModels = hasImageModels || hasVideoModels || hasMusicModels;
+  const [noMediaModelsDismissed, setNoMediaModelsDismissed] = React.useState(false);
+
+  React.useEffect(() => {
+    if (
+      (activeSidebarTab === 'images' && !hasImageModels) ||
+      (activeSidebarTab === 'video' && !hasVideoModels) ||
+      (activeSidebarTab === 'music' && !hasMusicModels)
+    ) {
+      navigate({ pathname: '/media', search: location.search }, { replace: true });
+    }
+  }, [activeSidebarTab, hasImageModels, hasVideoModels, hasMusicModels, location.search, navigate]);
+
   type ImageModelId = string;
   const imageModel: ImageModelId = resolveModelPick(imagePick, imageModels);
   const setImageModel = (id: ImageModelId) => pickModel('image', id);
@@ -4414,6 +4431,9 @@ export const MediaView: React.FC<{
         drawerOpen={isNavDrawerOpen}
         onDrawerOpenChange={setIsNavDrawerOpen}
         onHome={() => navigate('/?mode=media')}
+        hasImageModels={hasImageModels}
+        hasVideoModels={hasVideoModels}
+        hasMusicModels={hasMusicModels}
       />
     ),
     openNav: () => setIsNavDrawerOpen(true),
@@ -6682,6 +6702,9 @@ export const MediaView: React.FC<{
           drawerOpen={isNavDrawerOpen}
           onDrawerOpenChange={setIsNavDrawerOpen}
           onHome={() => navigate('/?mode=media')}
+          hasImageModels={hasImageModels}
+          hasVideoModels={hasVideoModels}
+          hasMusicModels={hasMusicModels}
         />
 
         {/* Center Canvas */}
@@ -8145,6 +8168,31 @@ export const MediaView: React.FC<{
         onClose={() => setShareItem(null)}
       />
       <FlagDialog open={flagOpen} onClose={() => setFlagOpen(false)} />
+
+      {!noMediaModelsDismissed && !hasMediaModels && (
+        <GeminiDialog
+          headingAs="h2"
+          title="Add media models to use the media tab"
+          width={512}
+          message
+          onDismiss={() => setNoMediaModelsDismissed(true)}
+          actions={(
+            <>
+              <GeminiDialogPill onClick={() => setNoMediaModelsDismissed(true)}>Close</GeminiDialogPill>
+              <GeminiDialogPill
+                onClick={() => {
+                  setNoMediaModelsDismissed(true);
+                  openModelSettings();
+                }}
+              >
+                Add
+              </GeminiDialogPill>
+            </>
+          )}
+        >
+          <p>Add media models to use the media tab</p>
+        </GeminiDialog>
+      )}
 
       {selectionBox && (
         <div

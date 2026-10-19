@@ -99,7 +99,7 @@ export const CustomizeCardMenu: React.FC<CustomizeCardMenuProps> = ({
           ? [{ label: 'Use now', icon: 'contract', onSelect: run(() => onUseNow(item)) }]
           : []),
         ...(onEditWithGemini
-          ? [{ label: 'Edit with Gemini', icon: 'chat_spark', onSelect: run(() => onEditWithGemini(item)) }]
+          ? [{ label: 'Edit with Willow', icon: 'chat_spark', onSelect: run(() => onEditWithGemini(item)) }]
           : []),
         ...(onEditManually
           ? [{ label: 'Edit manually', icon: 'edit_note', onSelect: run(() => onEditManually(item)) }]

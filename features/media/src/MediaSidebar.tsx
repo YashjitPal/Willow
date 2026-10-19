@@ -73,6 +73,9 @@ export interface MediaSidebarProps {
   onDrawerOpenChange?: (open: boolean) => void;
   /** The drawer's Home row: back to Willow. */
   onHome?: () => void;
+  hasImageModels?: boolean;
+  hasVideoModels?: boolean;
+  hasMusicModels?: boolean;
 }
 
 const SELECTED = 'bg-[rgba(218,220,224,0.25)] !text-white';
@@ -147,6 +150,9 @@ const RailRows: React.FC<MediaSidebarProps & { inDrawer?: boolean; onExpand?: ()
   onTogglePin,
   inDrawer = false,
   onExpand,
+  hasImageModels = true,
+  hasVideoModels = true,
+  hasMusicModels = true,
 }) => {
   const row = (selected: boolean) =>
     // `!` because the row's base colour is an arbitrary value; without it the two classes tie on
@@ -163,10 +169,10 @@ const RailRows: React.FC<MediaSidebarProps & { inDrawer?: boolean; onExpand?: ()
     <>
       <nav className="flex flex-col gap-[4.8px]" style={inDrawer ? undefined : navStyle}>
         {tab('all', 'All Media', <AllMediaIcon />)}
-        {tab('images', 'Images', <ImagesIcon />)}
-        {tab('video', 'Video', <VideoIcon />)}
+        {hasImageModels && tab('images', 'Images', <ImagesIcon />)}
+        {hasVideoModels && tab('video', 'Video', <VideoIcon />)}
         {tab('characters', 'Characters', <CharactersIcon />)}
-        {tab('music', 'Music', <MusicIcon />)}
+        {hasMusicModels && tab('music', 'Music', <MusicIcon />)}
         {tab('scenes', 'Scenes', <ScenesIcon />)}
         {tab('uploads', 'Uploads', <UploadsIcon />)}
 

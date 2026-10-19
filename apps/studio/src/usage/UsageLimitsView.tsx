@@ -93,13 +93,13 @@ export const UsageLimitsView: React.FC<UsageLimitsViewProps> = () => {
           </div>
           <div className="usage-header-meta">
             <p className="usage-description">
-              Your plan's limits determine how much you can use Gemini over time. Advanced models and features can take up more usage.{' '}
+              Your plan's limits determine how much you can use Willow over time. Advanced models and features can take up more usage.{' '}
               <a
                 className="usage-link"
                 href="https://support.google.com/gemini?p=plan_updates"
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label="Learn more about Gemini plan usage limits"
+                aria-label="Learn more about Willow plan usage limits"
               >
                 Learn more
               </a>

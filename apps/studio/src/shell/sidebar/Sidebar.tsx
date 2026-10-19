@@ -20,6 +20,7 @@ import { DiscordIcon } from './SidebarIcons';
 import logo from '@willow/assets/brand/logo.png';
 import './Sidebar.css';
 import { useAuth } from '@willow/auth/AuthContext';
+import { collectSavedModelsInCatalogOrder, getModelCategory } from '@willow/core/model-catalog';
 import { getWorkspaceTheme } from '@willow/core/workspace-theme';
 import { useThemeMode, setThemeChoice, type ThemeChoice as GeminiThemeChoice } from '@willow/core/theme-mode';
 import { experimentsStore, type ExperimentId } from '@willow/core/experiments-store';
@@ -186,7 +187,7 @@ type GeminiSettingsItem = {
 const GEMINI_SETTINGS_ITEMS: GeminiSettingsItem[] = [
   { id: 'activity', label: 'Activity', icon: 'history', iconFamily: 'luminous', action: 'settings' },
   { id: 'intelligence', label: 'Personal Intelligence', icon: 'personal_recommendations', iconFamily: 'luminous', action: 'settings' },
-  { id: 'memory', label: 'Import memory to Gemini', icon: 'upload_file', iconFamily: 'google-symbols', action: 'settings' },
+  { id: 'memory', label: 'Import memory to Willow', icon: 'upload_file', iconFamily: 'google-symbols', action: 'settings' },
   { id: 'labs', label: 'Labs', icon: 'experiment', iconFamily: 'material-rounded', action: 'settings' },
   { id: 'limits', label: 'Usage limits', icon: 'donut_large', iconFamily: 'google-symbols', action: 'settings' },
   { id: 'scheduled', label: 'Scheduled actions', icon: 'schedule', iconFamily: 'luminous', action: 'settings', requiresExperiment: 'old-skills-schedules' },
@@ -1128,6 +1129,7 @@ interface SidebarProps {
   activeNotebookId?: string | null;
   onOpenNotebook?: (notebookId: string) => void;
   onSignInClick?: () => void;
+  modelConfig?: any;
 }
 
 // ── Main component ──────────────────────────────────────────────────────────
@@ -1152,6 +1154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeNotebookId = null,
   onOpenNotebook,
   onSignInClick,
+  modelConfig,
 }) => {
   const navigate = useNavigate();
   const { user, userProfile, loading: isAuthLoading, workspaceColor } = useAuth();
@@ -1256,8 +1259,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   } = useLocalFS();
 
   const isChatOngoing = studioExperience === 'chat' && (!!activeChatId || hasActiveChat);
+  const savedCatalogModels = useMemo(() => collectSavedModelsInCatalogOrder(modelConfig), [modelConfig]);
+  const hasImageModels = useMemo(() => savedCatalogModels.some((m) => getModelCategory(m) === 'image'), [savedCatalogModels]);
+  const hasVideoModels = useMemo(() => savedCatalogModels.some((m) => getModelCategory(m) === 'video'), [savedCatalogModels]);
+
   // Images and Videos light up instead of New chat while the new chat is on their page.
   const creationPage = useStore($chatCreationPage);
+
+  useEffect(() => {
+    if ((creationPage === 'images' && !hasImageModels) || (creationPage === 'videos' && !hasVideoModels)) {
+      $chatCreationPageRequest.set('none');
+    }
+  }, [creationPage, hasImageModels, hasVideoModels]);
   const openCreationPage = (page: ChatCreationPage) => {
     if (isChatOngoing) {
       selectLocalFSInboxChat(null);
@@ -2537,22 +2550,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             {/* Gemini's Images and Videos, under its search: Luminous `image_create` and
                 `movie`, each a new chat with the tool picked, at /images and /videos. */}
-            <SidebarItem
-              flushRight
-              symbol="image_create"
-              label="Images"
-              isCollapsed={isCollapsed}
-              active={currentView === 'home' && studioMode === 'chat' && creationPage === 'images'}
-              onClick={() => openCreationPage('images')}
-            />
-            <SidebarItem
-              flushRight
-              symbol="movie"
-              label="Videos"
-              isCollapsed={isCollapsed}
-              active={currentView === 'home' && studioMode === 'chat' && creationPage === 'videos'}
-              onClick={() => openCreationPage('videos')}
-            />
+            {hasImageModels && (
+              <SidebarItem
+                flushRight
+                symbol="image_create"
+                label="Images"
+                isCollapsed={isCollapsed}
+                active={currentView === 'home' && studioMode === 'chat' && creationPage === 'images'}
+                onClick={() => openCreationPage('images')}
+              />
+            )}
+            {hasVideoModels && (
+              <SidebarItem
+                flushRight
+                symbol="movie"
+                label="Videos"
+                isCollapsed={isCollapsed}
+                active={currentView === 'home' && studioMode === 'chat' && creationPage === 'videos'}
+                onClick={() => openCreationPage('videos')}
+              />
+            )}
             {/* Gemini's Scheduled: Luminous `schedule`, at /scheduled — the schedules Spark runs. */}
             <SidebarItem
               flushRight

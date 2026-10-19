@@ -170,7 +170,7 @@
 }
 
 .spark-dots-chip__delete:hover {
-  background: rgba(211, 227, 253, 0.12);
+  background: rgba(var(--sync-d3e3fd-rgb, 211, 227, 253), 0.12);
 }
 
 .spark-dots-chip__delete:focus-visible {

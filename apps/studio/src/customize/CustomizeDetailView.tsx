@@ -316,7 +316,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
             {item.capabilities && item.capabilities.length > 0 && (
               <section className="capabilities-section">
                 <h2 className="section-title gds-body-l">
-                  {item.capTitle || `Using ${item.title}, Gemini can:`}
+                  {item.capTitle || `Using ${item.title}, Willow can:`}
                 </h2>
                 <ul className="capabilities-list">
                   {item.capabilities.map((cap, idx) => (
@@ -518,7 +518,7 @@ export const CustomizeDetailView: React.FC<CustomizeDetailViewProps> = ({
                     <textarea
                       className="content-editable gds-body-m gemini-chat-scrollbar"
                       rows={14}
-                      placeholder='Describe what you want Gemini to do. For example: "Extract key decisions, list action items with owners, and highlight unresolved questions using bullet points."'
+                      placeholder='Describe what you want Willow to do. For example: "Extract key decisions, list action items with owners, and highlight unresolved questions using bullet points."'
                       aria-label="Skill instructions"
                       aria-invalid={Boolean(errors.instructions)}
                       value={skillInstructions}

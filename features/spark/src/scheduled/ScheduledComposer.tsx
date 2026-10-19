@@ -76,7 +76,7 @@ export const ScheduledComposer: React.FC<ScheduledComposerProps> = ({ modelConfi
         <textarea
           ref={textareaRef}
           className="sched-composer-input"
-          aria-label="Enter a prompt for Gemini"
+          aria-label="Enter a prompt for Willow"
           placeholder={dictation.dictationPlaceholder ?? 'Describe a task'}
           rows={1}
           value={text}

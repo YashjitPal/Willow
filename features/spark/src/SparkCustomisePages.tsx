@@ -868,13 +868,13 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
         <SparkPageHeader
           headingId={headingId}
           title="Skills"
-          description="Create custom, reusable instructions for more helpful responses. Gemini uses relevant skills automatically, or you can apply them using /."
+          description="Create custom, reusable instructions for more helpful responses. Willow uses relevant skills automatically, or you can apply them using /."
           onLearnMore={onLearnMore}
         />
 
         <div className="spark-page-actions spark-skills-actions" aria-label="Add a skill">
           <SparkActionButton icon="edit_rectangle" primary onClick={onCreateWithGemini}>
-            Create with Gemini
+            Create with Willow
           </SparkActionButton>
           <SparkActionButton icon="edit_note" onClick={onCreateManually}>
             Create manually
@@ -922,7 +922,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
           <div className="spark-skills-empty">
             <h2>Add your first skill</h2>
             <p>
-              Select <span>Create with Gemini</span>, write custom instructions or upload a skill
+              Select <span>Create with Willow</span>, write custom instructions or upload a skill
             </p>
           </div>
         )}
@@ -960,7 +960,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({
                       },
                       {
                         icon: 'chat_spark',
-                        label: 'Edit with Gemini',
+                        label: 'Edit with Willow',
                         onSelect: () => onEditSkillWithGemini?.(skill.id),
                       },
                       {

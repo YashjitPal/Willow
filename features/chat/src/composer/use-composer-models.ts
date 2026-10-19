@@ -45,6 +45,7 @@ export interface ComposerModels {
   activeEffortDisplayLabel: string;
   /** The two above joined, for the pill and its aria-label. */
   activeModelAndEffortLabel: string;
+  hasModels: boolean;
 }
 
 export const useComposerModels = ({
@@ -116,5 +117,6 @@ export const useComposerModels = ({
     activeModelDisplayLabel,
     activeEffortDisplayLabel,
     activeModelAndEffortLabel,
+    hasModels: ALL_MODELS.length > 0,
   };
 };
